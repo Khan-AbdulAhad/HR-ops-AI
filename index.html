@@ -225,7 +225,7 @@
                         <div class="overflow-x-auto rounded-lg border border-gray-200 dark:border-gray-700">
                             <table id="devTable" class="w-full text-left text-sm">
                                 <thead class="bg-gray-50 dark:bg-gray-800 uppercase text-xs font-bold text-gray-500">
-                                    <tr><th class="px-4 py-3 text-center"><input type="checkbox" onclick="toggleAllRows(this)"></th><th class="px-4 py-3">ID</th><th class="px-4 py-3">Name</th><th class="px-4 py-3">Email</th><th class="px-4 py-3">Status</th><th class="px-4 py-3">History</th></tr>
+                                    <tr><th class="px-4 py-3 text-center"><input type="checkbox" onclick="toggleAllRows(this)"></th><th class="px-4 py-3">ID</th><th class="px-4 py-3">Name</th><th class="px-4 py-3">Email</th><th class="px-4 py-3">Region</th><th class="px-4 py-3">Status</th><th class="px-4 py-3">History</th></tr>
                                 </thead>
                                 <tbody class="divide-y divide-gray-200 dark:divide-gray-700 bg-white dark:bg-gray-900"></tbody>
                             </table>
@@ -305,6 +305,74 @@ This is a freelance, fully remote position."></textarea>
                             </div>
                         </div>
                         
+                        <!-- Rate Tiers Section -->
+                        <div class="mt-8 pt-8 border-t border-gray-200 dark:border-gray-700">
+                            <div class="flex items-center justify-between mb-4">
+                                <div>
+                                    <h3 class="text-lg font-bold text-gray-900 dark:text-white flex items-center gap-2">
+                                        <i class="fa-solid fa-layer-group text-green-500"></i> Region-Based Rate Tiers
+                                    </h3>
+                                    <p class="text-xs text-gray-500 mt-1">Set different rates for candidates based on their region/country</p>
+                                </div>
+                                <button onclick="refreshRateTiers()" class="text-sm bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 px-3 py-1.5 rounded-lg">
+                                    <i class="fa-solid fa-rotate"></i> Refresh
+                                </button>
+                            </div>
+
+                            <!-- Add New Tier Form -->
+                            <div class="bg-green-50 dark:bg-green-900/10 p-4 rounded-xl border border-green-200 dark:border-green-800 mb-4">
+                                <h4 class="font-bold text-green-700 dark:text-green-300 text-sm mb-3">Add/Edit Rate Tier</h4>
+                                <div class="grid grid-cols-2 md:grid-cols-5 gap-3">
+                                    <div>
+                                        <label class="block text-xs text-gray-500 mb-1">Region/Country</label>
+                                        <input type="text" id="tierRegion" class="input-field text-sm" placeholder="e.g. India, LATAM">
+                                    </div>
+                                    <div>
+                                        <label class="block text-xs text-gray-500 mb-1">Target Rate</label>
+                                        <div class="relative">
+                                            <span class="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400 text-sm">$</span>
+                                            <input type="number" id="tierTargetRate" class="input-field text-sm pl-6" placeholder="20">
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <label class="block text-xs text-gray-500 mb-1">Max Rate</label>
+                                        <div class="relative">
+                                            <span class="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400 text-sm">$</span>
+                                            <input type="number" id="tierMaxRate" class="input-field text-sm pl-6" placeholder="28">
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <label class="block text-xs text-gray-500 mb-1">Notes (optional)</label>
+                                        <input type="text" id="tierNotes" class="input-field text-sm" placeholder="e.g. Tier 1">
+                                    </div>
+                                    <div class="flex items-end">
+                                        <button onclick="addRateTier()" class="w-full bg-green-600 hover:bg-green-700 text-white text-sm font-bold py-2.5 rounded-lg">
+                                            <i class="fa-solid fa-plus mr-1"></i> Add Tier
+                                        </button>
+                                    </div>
+                                </div>
+                                <p class="text-xs text-gray-400 mt-2"><i class="fa-solid fa-info-circle mr-1"></i> Country names like "India", "Mexico", "US" are automatically mapped to regions</p>
+                            </div>
+
+                            <!-- Rate Tiers Table -->
+                            <div id="rateTiersContainer" class="overflow-hidden rounded-xl border border-gray-200 dark:border-gray-700">
+                                <table class="w-full text-left text-sm">
+                                    <thead class="bg-gray-50 dark:bg-gray-900 text-xs uppercase font-bold text-gray-500">
+                                        <tr>
+                                            <th class="px-4 py-3">Region</th>
+                                            <th class="px-4 py-3">Target Rate</th>
+                                            <th class="px-4 py-3">Max Rate</th>
+                                            <th class="px-4 py-3">Notes</th>
+                                            <th class="px-4 py-3 text-right">Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="rateTiersBody" class="divide-y divide-gray-200 dark:divide-gray-700 bg-white dark:bg-gray-800">
+                                        <tr><td colspan="5" class="px-4 py-6 text-center text-gray-400">Select a Job ID to view rate tiers</td></tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+
                         <!-- Info Boxes -->
                         <div class="mt-8 grid grid-cols-1 md:grid-cols-2 gap-4">
                             <div class="bg-gray-50 dark:bg-gray-800/50 p-4 rounded-xl border border-gray-200 dark:border-gray-700">
@@ -512,8 +580,9 @@ We have an exciting opportunity..."></textarea>
             </h2>
             <p class="text-sm text-gray-500 mb-4">Paste emails to test the negotiation AI without fetching real data.</p>
             <div class="mb-4">
-                <label class="block text-xs font-bold uppercase mb-2 text-gray-500">Candidate Data (CSV: Email, Name)</label>
-                <textarea id="manualDataInput" class="input-field h-32 font-mono text-sm" placeholder="myemail@test.com, John Doe&#10;other@test.com, Jane Smith"></textarea>
+                <label class="block text-xs font-bold uppercase mb-2 text-gray-500">Candidate Data (CSV: Email, Name, Region/Country)</label>
+                <textarea id="manualDataInput" class="input-field h-32 font-mono text-sm" placeholder="myemail@test.com, John Doe, India&#10;other@test.com, Jane Smith, US&#10;dev@test.com, Alex Garcia, Mexico"></textarea>
+                <p class="text-xs text-gray-400 mt-1">Region is optional. Supported: India, US, Mexico, Brazil, LATAM, Europe, APAC, etc.</p>
             </div>
             <div class="flex justify-end gap-2">
                 <button onclick="document.getElementById('manualInputModal').classList.add('hidden')" class="px-4 py-2 rounded-lg bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600">Cancel</button>
@@ -643,14 +712,18 @@ We have an exciting opportunity..."></textarea>
             if(!raw.trim()) return;
             const lines = raw.split('\n');
             const manualData = lines.map((line) => {
-                const [email, name] = line.split(',');
+                const parts = line.split(',');
+                const email = parts[0];
+                const name = parts[1];
+                const region = parts[2];
                 if(!email) return null;
-                return { 
-                    developer_id: `TEST-${Math.floor(Math.random()*10000)}`, 
-                    full_name: name ? name.trim() : 'Test Candidate', 
-                    email: email.trim(), 
-                    status: 'Manual Test', 
-                    is_sent: false 
+                return {
+                    developer_id: `TEST-${Math.floor(Math.random()*10000)}`,
+                    full_name: name ? name.trim() : 'Test Candidate',
+                    email: email.trim(),
+                    region: region ? region.trim() : '',
+                    status: 'Manual Test',
+                    is_sent: false
                 };
             }).filter(d => d !== null);
             tableData = manualData;
@@ -666,11 +739,13 @@ We have an exciting opportunity..."></textarea>
             data.forEach(d => {
                 const tr = document.createElement('tr');
                 tr.className = 'hover:bg-gray-50 dark:hover:bg-gray-700/50';
+                const regionDisplay = d.region ? `<span class="px-2 py-1 bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 rounded text-xs font-medium">${d.region}</span>` : '<span class="text-gray-400 text-xs">-</span>';
                 tr.innerHTML = `
                     <td class="px-4 py-3 text-center"><input type="checkbox" onchange="toggleDev('${d.developer_id}')" class="dev-check"></td>
                     <td class="px-4 py-3 font-mono text-xs">${d.developer_id}</td>
                     <td class="px-4 py-3 font-bold">${d.full_name}</td>
                     <td class="px-4 py-3 text-gray-500">${d.email}</td>
+                    <td class="px-4 py-3">${regionDisplay}</td>
                     <td class="px-4 py-3"><span class="px-2 py-1 bg-gray-100 dark:bg-gray-700 rounded text-xs font-bold">${d.status}</span></td>
                     <td class="px-4 py-3 text-xs">${d.is_sent ? '<span class="text-green-600"><i class="fa-solid fa-check mr-1"></i>Sent</span>' : '<span class="text-gray-400">New</span>'}</td>
                 `;
@@ -722,9 +797,10 @@ We have an exciting opportunity..."></textarea>
             const subject = document.getElementById('emailSubject').value;
             const body = document.getElementById('emailBody').value;
             const recipients = tableData.filter(d => selectedDevs.has(d.developer_id)).map(d => ({
-                name: d.full_name, 
-                email: d.email, 
-                devId: d.developer_id
+                name: d.full_name,
+                email: d.email,
+                devId: d.developer_id,
+                region: d.region || ''
             }));
             const jobId = document.getElementById('jobId').value;
             
@@ -804,14 +880,14 @@ We have an exciting opportunity..."></textarea>
         }
 
         // ===== NEGOTIATION TAB (UPDATED - No Walk-away) =====
-        function loadNegotiationConfig() { 
-            const jobId = document.getElementById('negJobId').value; 
-            if(!jobId) return; 
-            google.script.run.withSuccessHandler(config => { 
-                if(config) { 
-                    document.getElementById('targetRate').value = config.targetRate || ''; 
-                    document.getElementById('maxRate').value = config.maxRate || ''; 
-                    document.getElementById('negStyle').value = config.style || 'Friendly but firm'; 
+        function loadNegotiationConfig() {
+            const jobId = document.getElementById('negJobId').value;
+            if(!jobId) return;
+            google.script.run.withSuccessHandler(config => {
+                if(config) {
+                    document.getElementById('targetRate').value = config.targetRate || '';
+                    document.getElementById('maxRate').value = config.maxRate || '';
+                    document.getElementById('negStyle').value = config.style || 'Friendly but firm';
                     document.getElementById('specialRules').value = config.specialRules || '';
                     document.getElementById('jobDescription').value = config.jobDescription || '';
                 } else {
@@ -821,7 +897,9 @@ We have an exciting opportunity..."></textarea>
                     document.getElementById('specialRules').value = '';
                     document.getElementById('jobDescription').value = '';
                 }
-            }).getNegotiationConfig(jobId); 
+                // Also load rate tiers for this job
+                refreshRateTiers();
+            }).getNegotiationConfig(jobId);
         }
         
         function refreshJobDropdown() { 
@@ -843,27 +921,144 @@ We have an exciting opportunity..."></textarea>
             loadNegotiationConfig(); 
         }
         
-        function saveNegotiationSettings() { 
-            const jobId = document.getElementById('negJobId').value; 
+        function saveNegotiationSettings() {
+            const jobId = document.getElementById('negJobId').value;
             if(!jobId) {
                 showToast("Please enter a Job ID", "warning");
                 return;
             }
             // UPDATED: Removed walkAwayRate
-            const config = { 
-                targetRate: document.getElementById('targetRate').value, 
-                maxRate: document.getElementById('maxRate').value, 
-                style: document.getElementById('negStyle').value, 
+            const config = {
+                targetRate: document.getElementById('targetRate').value,
+                maxRate: document.getElementById('maxRate').value,
+                style: document.getElementById('negStyle').value,
                 specialRules: document.getElementById('specialRules').value,
                 jobDescription: document.getElementById('jobDescription').value
-            }; 
+            };
             google.script.run
-                .withSuccessHandler(() => { 
+                .withSuccessHandler(() => {
                     showToast("Configuration saved!", "success");
-                    refreshJobDropdown(); 
+                    refreshJobDropdown();
                 })
                 .withFailureHandler(err => showToast("Error: " + err.message, "error"))
-                .saveNegotiationConfig(jobId, config); 
+                .saveNegotiationConfig(jobId, config);
+        }
+
+        // ===== RATE TIERS MANAGEMENT =====
+        function refreshRateTiers() {
+            const jobId = document.getElementById('negJobId').value;
+            const tbody = document.getElementById('rateTiersBody');
+
+            if(!jobId) {
+                tbody.innerHTML = '<tr><td colspan="5" class="px-4 py-6 text-center text-gray-400">Enter a Job ID above to view rate tiers</td></tr>';
+                return;
+            }
+
+            tbody.innerHTML = '<tr><td colspan="5" class="px-4 py-6 text-center text-gray-400"><i class="fa-solid fa-spinner fa-spin mr-2"></i>Loading...</td></tr>';
+
+            google.script.run
+                .withSuccessHandler(tiers => {
+                    if(!tiers || tiers.length === 0) {
+                        tbody.innerHTML = '<tr><td colspan="5" class="px-4 py-6 text-center text-gray-400">No rate tiers configured for this job. Add one above.</td></tr>';
+                        return;
+                    }
+                    renderRateTiers(tiers);
+                })
+                .withFailureHandler(err => {
+                    tbody.innerHTML = `<tr><td colspan="5" class="px-4 py-6 text-center text-red-500">Error: ${err.message}</td></tr>`;
+                })
+                .getRateTiersForJob(jobId);
+        }
+
+        function renderRateTiers(tiers) {
+            const tbody = document.getElementById('rateTiersBody');
+            tbody.innerHTML = '';
+
+            tiers.forEach(tier => {
+                const row = document.createElement('tr');
+                row.className = 'hover:bg-gray-50 dark:hover:bg-gray-700/50';
+                row.innerHTML = `
+                    <td class="px-4 py-3">
+                        <span class="px-2 py-1 bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 rounded text-sm font-medium">${tier.region}</span>
+                    </td>
+                    <td class="px-4 py-3 font-mono text-green-600 dark:text-green-400">$${tier.targetRate}/hr</td>
+                    <td class="px-4 py-3 font-mono text-amber-600 dark:text-amber-400">$${tier.maxRate}/hr</td>
+                    <td class="px-4 py-3 text-gray-500 text-sm">${tier.notes || '-'}</td>
+                    <td class="px-4 py-3 text-right">
+                        <button onclick="editRateTier('${tier.region}', ${tier.targetRate}, ${tier.maxRate}, '${tier.notes || ''}')" class="text-xs bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 px-2 py-1 rounded mr-1">
+                            <i class="fa-solid fa-edit"></i>
+                        </button>
+                        <button onclick="deleteRateTier('${tier.region}')" class="text-xs bg-red-50 hover:bg-red-100 dark:bg-red-900/20 dark:hover:bg-red-900/40 text-red-600 px-2 py-1 rounded">
+                            <i class="fa-solid fa-trash"></i>
+                        </button>
+                    </td>
+                `;
+                tbody.appendChild(row);
+            });
+        }
+
+        function addRateTier() {
+            const jobId = document.getElementById('negJobId').value;
+            const region = document.getElementById('tierRegion').value.trim();
+            const targetRate = parseFloat(document.getElementById('tierTargetRate').value);
+            const maxRate = parseFloat(document.getElementById('tierMaxRate').value);
+            const notes = document.getElementById('tierNotes').value.trim();
+
+            if(!jobId) {
+                showToast("Please enter a Job ID first", "warning");
+                return;
+            }
+            if(!region) {
+                showToast("Please enter a region/country", "warning");
+                return;
+            }
+            if(isNaN(targetRate) || isNaN(maxRate)) {
+                showToast("Please enter valid rates", "warning");
+                return;
+            }
+
+            google.script.run
+                .withSuccessHandler(result => {
+                    if(result.success) {
+                        showToast(result.isUpdate ? "Rate tier updated!" : "Rate tier added!", "success");
+                        // Clear form
+                        document.getElementById('tierRegion').value = '';
+                        document.getElementById('tierTargetRate').value = '';
+                        document.getElementById('tierMaxRate').value = '';
+                        document.getElementById('tierNotes').value = '';
+                        refreshRateTiers();
+                    } else {
+                        showToast("Error: " + result.message, "error");
+                    }
+                })
+                .withFailureHandler(err => showToast("Error: " + err.message, "error"))
+                .saveRateTier(jobId, region, targetRate, maxRate, notes);
+        }
+
+        function editRateTier(region, targetRate, maxRate, notes) {
+            document.getElementById('tierRegion').value = region;
+            document.getElementById('tierTargetRate').value = targetRate;
+            document.getElementById('tierMaxRate').value = maxRate;
+            document.getElementById('tierNotes').value = notes;
+            document.getElementById('tierRegion').focus();
+            showToast("Edit the values and click Add to update", "info");
+        }
+
+        function deleteRateTier(region) {
+            const jobId = document.getElementById('negJobId').value;
+            if(!confirm(`Delete rate tier for "${region}"?`)) return;
+
+            google.script.run
+                .withSuccessHandler(result => {
+                    if(result.success) {
+                        showToast("Rate tier deleted", "success");
+                        refreshRateTiers();
+                    } else {
+                        showToast("Error: " + result.message, "error");
+                    }
+                })
+                .withFailureHandler(err => showToast("Error: " + err.message, "error"))
+                .deleteRateTier(jobId, region);
         }
         
         // ===== AI TRIGGER WITH PROGRESS =====
@@ -946,27 +1141,26 @@ We have an exciting opportunity..."></textarea>
         function loadTasks() {
             const tbody = document.getElementById('taskListBody');
             const emptyState = document.getElementById('emptyTaskState');
-            
+
             tbody.innerHTML = '<tr><td colspan="8" class="p-8 text-center"><i class="fa-solid fa-spinner fa-spin text-2xl text-gray-400"></i><p class="mt-2 text-gray-500">Loading tasks...</p></td></tr>';
             emptyState.classList.add('hidden');
             selectedTasks.clear();
             updateBulkActionsBar();
-            
-            // Load stats
-            google.script.run.withSuccessHandler(stats => {
-                document.getElementById('statTotal').textContent = stats.total;
-                document.getElementById('statActive').textContent = stats.active;
-                document.getElementById('statHuman').textContent = stats.human;
-                document.getElementById('statAccepted').textContent = stats.accepted;
-            }).getTaskStats();
-            
-            // Load tasks with current filters
+
+            // Load tasks with current filters - stats are now included in the response
             const filters = {
                 jobId: document.getElementById('taskJobFilter').value,
                 status: document.getElementById('taskStatusFilter').value
             };
-            
+
             google.script.run.withSuccessHandler(result => {
+                // Update stats from combined response
+                if(result.stats) {
+                    document.getElementById('statTotal').textContent = result.stats.total;
+                    document.getElementById('statActive').textContent = result.stats.active;
+                    document.getElementById('statHuman').textContent = result.stats.human;
+                    document.getElementById('statAccepted').textContent = result.stats.accepted;
+                }
                 allTasks = result.tasks;
                 cachedJobIds = result.jobIds;
                 updateJobFilter(cachedJobIds);

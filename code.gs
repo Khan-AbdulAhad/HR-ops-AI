@@ -201,8 +201,178 @@ function getRateTiersForJob(jobId) {
 }
 
 /**
+ * Country-to-Region mapping for flexible matching
+ * Maps common country names/codes to their tier regions
+ */
+const COUNTRY_TO_REGION_MAP = {
+  // India
+  'india': 'India',
+  'in': 'India',
+  'ind': 'India',
+
+  // US/Canada (North America Tier 1)
+  'us': 'US/Canada',
+  'usa': 'US/Canada',
+  'united states': 'US/Canada',
+  'america': 'US/Canada',
+  'canada': 'US/Canada',
+  'ca': 'US/Canada',
+
+  // Europe
+  'uk': 'Europe',
+  'united kingdom': 'Europe',
+  'england': 'Europe',
+  'germany': 'Europe',
+  'de': 'Europe',
+  'france': 'Europe',
+  'fr': 'Europe',
+  'spain': 'Europe',
+  'es': 'Europe',
+  'italy': 'Europe',
+  'it': 'Europe',
+  'netherlands': 'Europe',
+  'nl': 'Europe',
+  'poland': 'Europe',
+  'pl': 'Europe',
+  'portugal': 'Europe',
+  'sweden': 'Europe',
+  'norway': 'Europe',
+  'denmark': 'Europe',
+  'finland': 'Europe',
+  'ireland': 'Europe',
+  'austria': 'Europe',
+  'switzerland': 'Europe',
+  'belgium': 'Europe',
+  'europe': 'Europe',
+  'eu': 'Europe',
+
+  // LATAM (Latin America)
+  'mexico': 'LATAM',
+  'mx': 'LATAM',
+  'brazil': 'LATAM',
+  'br': 'LATAM',
+  'argentina': 'LATAM',
+  'ar': 'LATAM',
+  'colombia': 'LATAM',
+  'co': 'LATAM',
+  'chile': 'LATAM',
+  'cl': 'LATAM',
+  'peru': 'LATAM',
+  'pe': 'LATAM',
+  'venezuela': 'LATAM',
+  'ecuador': 'LATAM',
+  'uruguay': 'LATAM',
+  'costa rica': 'LATAM',
+  'panama': 'LATAM',
+  'latam': 'LATAM',
+  'latin america': 'LATAM',
+  'south america': 'LATAM',
+
+  // APAC (Asia-Pacific excluding India)
+  'china': 'APAC',
+  'cn': 'APAC',
+  'japan': 'APAC',
+  'jp': 'APAC',
+  'korea': 'APAC',
+  'south korea': 'APAC',
+  'kr': 'APAC',
+  'australia': 'APAC',
+  'au': 'APAC',
+  'new zealand': 'APAC',
+  'nz': 'APAC',
+  'singapore': 'APAC',
+  'sg': 'APAC',
+  'malaysia': 'APAC',
+  'my': 'APAC',
+  'indonesia': 'APAC',
+  'id': 'APAC',
+  'philippines': 'APAC',
+  'ph': 'APAC',
+  'vietnam': 'APAC',
+  'vn': 'APAC',
+  'thailand': 'APAC',
+  'th': 'APAC',
+  'taiwan': 'APAC',
+  'tw': 'APAC',
+  'hong kong': 'APAC',
+  'hk': 'APAC',
+  'apac': 'APAC',
+  'asia': 'APAC',
+  'asia pacific': 'APAC',
+
+  // Eastern Europe (often separate tier)
+  'ukraine': 'Eastern Europe',
+  'ua': 'Eastern Europe',
+  'russia': 'Eastern Europe',
+  'ru': 'Eastern Europe',
+  'romania': 'Eastern Europe',
+  'ro': 'Eastern Europe',
+  'bulgaria': 'Eastern Europe',
+  'bg': 'Eastern Europe',
+  'czech': 'Eastern Europe',
+  'czech republic': 'Eastern Europe',
+  'cz': 'Eastern Europe',
+  'hungary': 'Eastern Europe',
+  'hu': 'Eastern Europe',
+  'serbia': 'Eastern Europe',
+  'croatia': 'Eastern Europe',
+  'eastern europe': 'Eastern Europe',
+
+  // Africa
+  'nigeria': 'Africa',
+  'ng': 'Africa',
+  'kenya': 'Africa',
+  'ke': 'Africa',
+  'south africa': 'Africa',
+  'za': 'Africa',
+  'egypt': 'Africa',
+  'eg': 'Africa',
+  'ghana': 'Africa',
+  'morocco': 'Africa',
+  'africa': 'Africa',
+
+  // Middle East
+  'israel': 'Middle East',
+  'il': 'Middle East',
+  'uae': 'Middle East',
+  'dubai': 'Middle East',
+  'saudi arabia': 'Middle East',
+  'sa': 'Middle East',
+  'pakistan': 'Middle East',
+  'pk': 'Middle East',
+  'bangladesh': 'Middle East',
+  'bd': 'Middle East',
+  'middle east': 'Middle East'
+};
+
+/**
+ * Normalize region/country to a standard tier name
+ */
+function normalizeRegion(regionInput) {
+  if(!regionInput) return '';
+
+  const cleanInput = String(regionInput).toLowerCase().trim();
+
+  // Direct mapping lookup
+  if(COUNTRY_TO_REGION_MAP[cleanInput]) {
+    return COUNTRY_TO_REGION_MAP[cleanInput];
+  }
+
+  // Return as-is if it's already a standard tier name
+  const standardTiers = ['india', 'us/canada', 'europe', 'latam', 'apac', 'eastern europe', 'africa', 'middle east', 'default'];
+  if(standardTiers.includes(cleanInput)) {
+    // Capitalize properly
+    return cleanInput.split('/').map(s => s.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')).join('/');
+  }
+
+  // Return original input for custom regions
+  return regionInput;
+}
+
+/**
  * Get rate tier for a specific region within a job
  * Falls back to 'Default' tier if region not found, then to job's base config
+ * Now supports country names like "India", "US", "Mexico" etc.
  */
 function getRateForRegion(jobId, region, ss) {
   if(!ss) {
@@ -215,7 +385,10 @@ function getRateForRegion(jobId, region, ss) {
   if(!sheet) return null;
 
   const data = sheet.getDataRange().getValues();
-  const cleanRegion = String(region || '').toLowerCase().trim();
+
+  // Normalize the input region to a standard tier name
+  const normalizedRegion = normalizeRegion(region);
+  const cleanRegion = String(normalizedRegion || '').toLowerCase().trim();
   const cleanJobId = String(jobId);
 
   let exactMatch = null;
@@ -722,13 +895,16 @@ function getJobOutreachEmail(ss, jobId) {
 
 function getAllTasks(filters) {
   const url = getStoredSheetUrl();
-  if(!url) return { tasks: [], jobIds: [] };
-  
+  if(!url) return { tasks: [], jobIds: [], stats: { total: 0, active: 0, human: 0, accepted: 0 } };
+
   const ss = SpreadsheetApp.openByUrl(url);
-  ensureSheetsExist(ss);
-  
+  // Skip ensureSheetsExist here for speed - sheets should already exist
+
   const tasks = [];
   const jobIdSet = new Set();
+
+  // Stats counters
+  let statActive = 0, statHuman = 0, statAccepted = 0;
 
   // Apply filters if provided
   const jobFilter = filters?.jobId || 'all';
@@ -741,18 +917,25 @@ function getAllTasks(filters) {
   
   for(let i=1; i<stateData.length; i++) {
     if(!stateData[i][0]) continue;
-    
+
     const jobId = String(stateData[i][1]);
     const status = stateData[i][4] || 'Active';
     const attempts = Number(stateData[i][2]) || 0;
-    
+
     // Collect all job IDs for filter dropdown
     jobIdSet.add(jobId);
-    
+
+    // Count stats (always, regardless of filters)
+    if(status === 'Human-Negotiation') {
+      statHuman++;
+    } else {
+      statActive++;
+    }
+
     // Apply filters server-side
     if(jobFilter !== 'all' && jobId !== jobFilter) continue;
     if(statusFilter !== 'all' && status !== statusFilter) continue;
-    
+
     let tag = '';
     if(status === 'Human-Negotiation') {
       tag = 'Human-Negotiation';
@@ -777,21 +960,25 @@ function getAllTasks(filters) {
     });
   }
 
-  // 2. Get Accepted Offers (Tasks) - only if status filter allows
-  if(statusFilter === 'all' || statusFilter === 'Offer Accepted') {
-    const taskSheet = ss.getSheetByName('Negotiation_Tasks');
+  // 2. Get Accepted Offers (Tasks) - always count for stats, filter for display
+  const taskSheet = ss.getSheetByName('Negotiation_Tasks');
+  if(taskSheet) {
     const taskData = taskSheet.getDataRange().getValues();
-    
+
     for(let i=1; i<taskData.length; i++) {
       if(!taskData[i][3]) continue;
       if(taskData[i][5] === 'Archived') continue;
-      
+
       const jobId = String(taskData[i][1]);
       jobIdSet.add(jobId);
-      
-      // Apply job filter
+
+      // Count for stats (always)
+      statAccepted++;
+
+      // Apply filters for display
+      if(statusFilter !== 'all' && statusFilter !== 'Offer Accepted') continue;
       if(jobFilter !== 'all' && jobId !== jobFilter) continue;
-      
+
       tasks.push({
         email: taskData[i][3],
         jobId: jobId,
@@ -808,9 +995,15 @@ function getAllTasks(filters) {
     }
   }
 
-  return { 
-    tasks: tasks, 
-    jobIds: Array.from(jobIdSet).sort() 
+  return {
+    tasks: tasks,
+    jobIds: Array.from(jobIdSet).sort(),
+    stats: {
+      total: statActive + statHuman + statAccepted,
+      active: statActive,
+      human: statHuman,
+      accepted: statAccepted
+    }
   };
 }
 
