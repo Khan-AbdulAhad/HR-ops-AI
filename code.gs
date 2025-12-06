@@ -51,26 +51,37 @@ function saveLogSheetUrl(url) {
 }
 
 function ensureSheetsExist(ss) {
-  const sheets = ['Email_Logs', 'Email_Templates', 'Negotiation_Config', 'Negotiation_Tasks', 'Negotiation_State', 'Negotiation_FAQs', 'Negotiation_Completed'];
+  const sheets = ['Email_Logs', 'Email_Templates', 'Negotiation_Config', 'Negotiation_Tasks', 'Negotiation_State', 'Negotiation_FAQs', 'Negotiation_Completed', 'Candidate_Details'];
   sheets.forEach(name => {
     if (!ss.getSheetByName(name)) ss.insertSheet(name);
   });
-  
+
   // UPDATED: Removed Walk Away Rate column
   const confSheet = ss.getSheetByName('Negotiation_Config');
   if (confSheet.getLastRow() === 0) confSheet.appendRow(['Job ID', 'Target Rate', 'Max Rate', 'Style', 'Special Rules', 'Job Description', 'Last Updated']);
-  
+
   const taskSheet = ss.getSheetByName('Negotiation_Tasks');
   if (taskSheet.getLastRow() === 0) taskSheet.appendRow(['Timestamp', 'Job ID', 'Name', 'Email', 'Agreed Rate', 'Status', 'Dev ID', 'Thread ID']);
 
   const stateSheet = ss.getSheetByName('Negotiation_State');
   if (stateSheet.getLastRow() === 0) stateSheet.appendRow(['Email', 'Job ID', 'Attempt Count', 'Last Offer', 'Status', 'Last Reply Time', 'Dev ID', 'Name', 'AI Notes', 'Thread ID']);
-  
+
   const faqSheet = ss.getSheetByName('Negotiation_FAQs');
   if (faqSheet.getLastRow() === 0) faqSheet.appendRow(['Question', 'Answer']);
 
   const compSheet = ss.getSheetByName('Negotiation_Completed');
   if (compSheet.getLastRow() === 0) compSheet.appendRow(['Timestamp', 'Job ID', 'Email', 'Name', 'Final Status', 'Notes', 'Dev ID']);
+
+  // Candidate Details sheet - stores details shared by candidates (start dates, etc.)
+  const detailsSheet = ss.getSheetByName('Candidate_Details');
+  if (detailsSheet.getLastRow() === 0) {
+    detailsSheet.appendRow([
+      'Timestamp', 'Job ID', 'Email', 'Name', 'Dev ID', 'Thread ID',
+      'Start Date', 'Notice Period', 'Expected Rate', 'Current Company',
+      'Years of Experience', 'Availability (hrs/week)', 'Location/Timezone',
+      'Has Own Equipment', 'Other Details', 'Negotiation Status', 'Raw Response'
+    ]);
+  }
 }
 
 // --- NEGOTIATION CONFIGURATION (UPDATED - No Walk Away) ---
@@ -140,9 +151,9 @@ function getFAQs() {
   const ss = SpreadsheetApp.openByUrl(url);
   const sheet = ss.getSheetByName('Negotiation_FAQs');
   const data = sheet.getDataRange().getValues();
-  
+
   if(data.length <= 1) return "No specific FAQs available.";
-  
+
   let faqText = "";
   for(let i=1; i<data.length; i++) {
     if(data[i][0]) {
@@ -150,6 +161,221 @@ function getFAQs() {
     }
   }
   return faqText;
+}
+
+// --- CANDIDATE DETAILS EXTRACTION ---
+
+/**
+ * Extract candidate details from their email response using AI
+ * Returns a structured object with all extracted details
+ */
+function extractCandidateDetails(candidateMessage, candidateName, candidateEmail, jobId) {
+  const prompt = `
+You are analyzing a candidate's email response to extract specific details they've shared.
+
+CANDIDATE'S MESSAGE:
+"${candidateMessage}"
+
+CANDIDATE INFO:
+- Name: ${candidateName}
+- Email: ${candidateEmail}
+- Job ID: ${jobId}
+
+TASK:
+Extract any of the following details the candidate has shared. If a detail is not mentioned, use "NOT_PROVIDED".
+If the candidate is negotiating or being vague about a detail (e.g., "I'll let you know later", "depends on the offer"), mark it as "NEGOTIATING".
+
+Return a JSON object with these exact fields:
+{
+  "start_date": "The date or timeframe they can start (e.g., 'Jan 15, 2025', '2 weeks notice', 'immediately')",
+  "notice_period": "Current notice period if mentioned (e.g., '2 weeks', '1 month', 'none')",
+  "expected_rate": "Rate they're asking for (e.g., '$40/hr', '$50-60/hr')",
+  "current_company": "Their current employer if mentioned",
+  "years_experience": "Years of experience if mentioned (e.g., '5 years', '10+')",
+  "availability_hours": "Hours per week they can work (e.g., '40 hrs', '20-30 hrs', 'full-time')",
+  "location_timezone": "Their location or timezone if mentioned",
+  "has_equipment": "Whether they have their own laptop/equipment (e.g., 'yes', 'no', 'needs laptop')",
+  "other_details": "Any other relevant details shared (skills, certifications, preferences)",
+  "is_negotiating": true/false (true if they're negotiating rate or being vague about key details),
+  "negotiation_notes": "Brief note about what they're negotiating or unclear about"
+}
+
+IMPORTANT:
+- Only extract what is EXPLICITLY stated in the message
+- Do not infer or assume details that aren't clearly mentioned
+- If they give a range (e.g., "$40-50/hr"), capture the full range
+- If they're asking questions instead of providing details, note that in negotiation_notes
+
+Return ONLY the JSON object, no other text.
+`;
+
+  try {
+    const response = callAI(prompt);
+    // Clean up the response - remove any markdown code blocks
+    let cleanResponse = response.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+    const details = JSON.parse(cleanResponse);
+    return details;
+  } catch(e) {
+    console.error("Failed to extract candidate details:", e);
+    return {
+      start_date: "PARSE_ERROR",
+      notice_period: "PARSE_ERROR",
+      expected_rate: "PARSE_ERROR",
+      current_company: "PARSE_ERROR",
+      years_experience: "PARSE_ERROR",
+      availability_hours: "PARSE_ERROR",
+      location_timezone: "PARSE_ERROR",
+      has_equipment: "PARSE_ERROR",
+      other_details: "Failed to parse response",
+      is_negotiating: false,
+      negotiation_notes: ""
+    };
+  }
+}
+
+/**
+ * Save or update candidate details in the Candidate_Details sheet
+ * Will update existing row if candidate already exists for this job, otherwise creates new row
+ */
+function saveCandidateDetails(ss, candidateEmail, jobId, candidateName, devId, threadId, details, rawMessage) {
+  const detailsSheet = ss.getSheetByName('Candidate_Details');
+  if(!detailsSheet) return { success: false, message: "Candidate_Details sheet not found" };
+
+  const cleanEmail = String(candidateEmail).toLowerCase().trim();
+  const cleanJobId = String(jobId);
+
+  // Check if this candidate already has details for this job
+  const data = detailsSheet.getDataRange().getValues();
+  let existingRowIndex = -1;
+
+  for(let i=1; i<data.length; i++) {
+    if(String(data[i][2]).toLowerCase() === cleanEmail && String(data[i][1]) === cleanJobId) {
+      existingRowIndex = i + 1;
+      break;
+    }
+  }
+
+  // Prepare the row data
+  const negotiationStatus = details.is_negotiating ?
+    `Negotiating: ${details.negotiation_notes || 'Rate/details under discussion'}` :
+    'Details Provided';
+
+  const rowData = [
+    new Date(),
+    jobId,
+    candidateEmail,
+    candidateName,
+    devId || 'N/A',
+    threadId || '',
+    details.start_date || 'NOT_PROVIDED',
+    details.notice_period || 'NOT_PROVIDED',
+    details.expected_rate || 'NOT_PROVIDED',
+    details.current_company || 'NOT_PROVIDED',
+    details.years_experience || 'NOT_PROVIDED',
+    details.availability_hours || 'NOT_PROVIDED',
+    details.location_timezone || 'NOT_PROVIDED',
+    details.has_equipment || 'NOT_PROVIDED',
+    details.other_details || '',
+    negotiationStatus,
+    rawMessage.substring(0, 500) // Truncate raw message to prevent sheet overflow
+  ];
+
+  if(existingRowIndex > -1) {
+    // Update existing row - merge new details with existing (keep non-empty values)
+    const existingRow = data[existingRowIndex - 1];
+    for(let col=6; col<15; col++) { // Columns 7-15 are the detail fields
+      if(rowData[col] === 'NOT_PROVIDED' && existingRow[col] && existingRow[col] !== 'NOT_PROVIDED') {
+        rowData[col] = existingRow[col]; // Keep existing value if new one is empty
+      }
+    }
+    detailsSheet.getRange(existingRowIndex, 1, 1, rowData.length).setValues([rowData]);
+    return { success: true, message: "Updated existing candidate details", isUpdate: true };
+  } else {
+    // Add new row
+    detailsSheet.appendRow(rowData);
+    return { success: true, message: "Added new candidate details", isUpdate: false };
+  }
+}
+
+/**
+ * Get candidate details from the sheet
+ */
+function getCandidateDetails(email, jobId) {
+  const url = getStoredSheetUrl();
+  if(!url) return null;
+
+  const ss = SpreadsheetApp.openByUrl(url);
+  const detailsSheet = ss.getSheetByName('Candidate_Details');
+  if(!detailsSheet) return null;
+
+  const cleanEmail = String(email).toLowerCase().trim();
+  const cleanJobId = String(jobId);
+
+  const data = detailsSheet.getDataRange().getValues();
+  for(let i=1; i<data.length; i++) {
+    if(String(data[i][2]).toLowerCase() === cleanEmail && String(data[i][1]) === cleanJobId) {
+      return {
+        timestamp: data[i][0],
+        jobId: data[i][1],
+        email: data[i][2],
+        name: data[i][3],
+        devId: data[i][4],
+        threadId: data[i][5],
+        startDate: data[i][6],
+        noticePeriod: data[i][7],
+        expectedRate: data[i][8],
+        currentCompany: data[i][9],
+        yearsExperience: data[i][10],
+        availabilityHours: data[i][11],
+        locationTimezone: data[i][12],
+        hasEquipment: data[i][13],
+        otherDetails: data[i][14],
+        negotiationStatus: data[i][15],
+        rawResponse: data[i][16]
+      };
+    }
+  }
+  return null;
+}
+
+/**
+ * Get all candidate details for a specific job
+ */
+function getAllCandidateDetailsForJob(jobId) {
+  const url = getStoredSheetUrl();
+  if(!url) return [];
+
+  const ss = SpreadsheetApp.openByUrl(url);
+  const detailsSheet = ss.getSheetByName('Candidate_Details');
+  if(!detailsSheet) return [];
+
+  const cleanJobId = String(jobId);
+  const data = detailsSheet.getDataRange().getValues();
+  const results = [];
+
+  for(let i=1; i<data.length; i++) {
+    if(String(data[i][1]) === cleanJobId) {
+      results.push({
+        timestamp: data[i][0],
+        jobId: data[i][1],
+        email: data[i][2],
+        name: data[i][3],
+        devId: data[i][4],
+        threadId: data[i][5],
+        startDate: data[i][6],
+        noticePeriod: data[i][7],
+        expectedRate: data[i][8],
+        currentCompany: data[i][9],
+        yearsExperience: data[i][10],
+        availabilityHours: data[i][11],
+        locationTimezone: data[i][12],
+        hasEquipment: data[i][13],
+        otherDetails: data[i][14],
+        negotiationStatus: data[i][15]
+      });
+    }
+  }
+  return results;
 }
 
 // --- OPTIMIZED TASK LIST MANAGEMENT ---
@@ -270,16 +496,17 @@ function bulkComplete(emails, finalStatus) {
   return results;
 }
 
-function moveToCompleted(email, finalStatus) {
+function moveToCompleted(email, finalStatus, jobIdFilter) {
   const url = getStoredSheetUrl();
   if(!url) return { success: false, message: "No config URL" };
-  
+
   const ss = SpreadsheetApp.openByUrl(url);
   ensureSheetsExist(ss);
-  
+
   const compSheet = ss.getSheetByName('Negotiation_Completed');
   const stateSheet = ss.getSheetByName('Negotiation_State');
   const taskSheet = ss.getSheetByName('Negotiation_Tasks');
+  const detailsSheet = ss.getSheetByName('Candidate_Details');
 
   if(!compSheet || !stateSheet || !taskSheet) {
     return { success: false, message: "Required sheets not found" };
@@ -287,11 +514,15 @@ function moveToCompleted(email, finalStatus) {
 
   let moved = false;
   let taskInfo = { jobId: '', name: '', devId: '', threadId: '' };
+  const cleanEmail = String(email).toLowerCase();
 
   // First, find info from Task Sheet
   const taskData = taskSheet.getDataRange().getValues();
   for(let i=taskData.length-1; i>=1; i--) {
-    if(String(taskData[i][3]).toLowerCase() === String(email).toLowerCase()) {
+    if(String(taskData[i][3]).toLowerCase() === cleanEmail) {
+      // If jobIdFilter is provided, only match if job ID matches
+      if(jobIdFilter && String(taskData[i][1]) !== String(jobIdFilter)) continue;
+
       taskInfo = {
         jobId: taskData[i][1],
         name: taskData[i][2],
@@ -304,11 +535,14 @@ function moveToCompleted(email, finalStatus) {
       break;
     }
   }
-  
+
   // Also remove from State Sheet if exists
   const stateData = stateSheet.getDataRange().getValues();
   for(let i=stateData.length-1; i>=1; i--) {
-    if(String(stateData[i][0]).toLowerCase() === String(email).toLowerCase()) {
+    if(String(stateData[i][0]).toLowerCase() === cleanEmail) {
+      // If jobIdFilter is provided, only match if job ID matches
+      if(jobIdFilter && String(stateData[i][1]) !== String(jobIdFilter)) continue;
+
       if(!moved) {
         taskInfo = {
           jobId: stateData[i][1],
@@ -323,11 +557,31 @@ function moveToCompleted(email, finalStatus) {
       if(!taskInfo.threadId) {
         taskInfo.threadId = stateData[i][9] || '';
       }
+      // Capture jobId if not already captured
+      if(!taskInfo.jobId) {
+        taskInfo.jobId = stateData[i][1];
+      }
       stateSheet.deleteRow(i+1);
       break;
     }
   }
-  
+
+  // UPDATE CANDIDATE_DETAILS SHEET - Mark as completed
+  if(moved && detailsSheet && taskInfo.jobId) {
+    try {
+      const detailsData = detailsSheet.getDataRange().getValues();
+      for(let i=1; i<detailsData.length; i++) {
+        if(String(detailsData[i][2]).toLowerCase() === cleanEmail && String(detailsData[i][1]) === String(taskInfo.jobId)) {
+          // Update the negotiation status column (column 16 = index 15)
+          detailsSheet.getRange(i+1, 16).setValue(`Completed: ${finalStatus || 'Done'}`);
+          break;
+        }
+      }
+    } catch(e) {
+      console.error("Failed to update Candidate_Details:", e);
+    }
+  }
+
   // ADD COMPLETED LABEL TO GMAIL THREAD - This saves processing cost!
   if(moved && taskInfo.threadId) {
     try {
@@ -335,7 +589,7 @@ function moveToCompleted(email, finalStatus) {
       if(thread) {
         const completedLabel = GmailApp.getUserLabelByName("Completed") || GmailApp.createLabel("Completed");
         thread.addLabel(completedLabel);
-        
+
         // Also remove Human-Negotiation label if present
         const humanLabel = GmailApp.getUserLabelByName("Human-Negotiation");
         if(humanLabel) {
@@ -347,8 +601,8 @@ function moveToCompleted(email, finalStatus) {
       // Don't fail the whole operation just because labeling failed
     }
   }
-  
-  return { success: moved, message: moved ? "Moved to completed" : "Email not found" };
+
+  return { success: moved, message: moved ? "Moved to completed" : "Email not found", jobId: taskInfo.jobId };
 }
 
 // --- OUTREACH FETCHING ---
@@ -583,7 +837,7 @@ function runAutoNegotiator() {
   const configs = configSheet.getDataRange().getValues();
   const faqContent = getFAQs();
   
-  let stats = { replied: 0, escalated: 0, accepted: 0, skipped: 0, processed: 0, synced: 0, cleaned: 0 };
+  let stats = { replied: 0, escalated: 0, accepted: 0, skipped: 0, processed: 0, synced: 0, cleaned: 0, detailsExtracted: 0 };
   let log = [];
   
   // STEP 1: Sync completed items from Gmail first (saves processing cost!)
@@ -638,9 +892,10 @@ function runAutoNegotiator() {
     stats.accepted += jobResult.accepted;
     stats.skipped += jobResult.skipped;
     stats.processed += jobResult.processed;
-    
+    stats.detailsExtracted += jobResult.detailsExtracted || 0;
+
     jobResult.log.forEach(l => log.push(l));
-    log.push({type: 'success', message: `Job ${jobId} complete: ${jobResult.processed} threads processed`});
+    log.push({type: 'success', message: `Job ${jobId} complete: ${jobResult.processed} threads processed, ${jobResult.detailsExtracted || 0} details extracted`});
   }
   
   return {status: "Success", stats: stats, log: log};
@@ -658,8 +913,8 @@ function processJobNegotiations(jobId, rules, ss, faqContent) {
   
   const stateSheet = ss.getSheetByName('Negotiation_State');
   const taskSheet = ss.getSheetByName('Negotiation_Tasks');
-  
-  let jobStats = {replied:0, escalated:0, accepted:0, skipped:0, processed:0, log:[]};
+
+  let jobStats = {replied:0, escalated:0, accepted:0, skipped:0, processed:0, detailsExtracted:0, log:[]};
   
   // Cache state data for efficiency
   const stateData = stateSheet.getDataRange().getValues();
@@ -753,7 +1008,21 @@ function processJobNegotiations(jobId, rules, ss, faqContent) {
       const isMe = from.toLowerCase().indexOf(myEmail) > -1;
       return `[${isMe ? 'ME' : 'CANDIDATE'}]: ${m.getPlainBody().substring(0, 400)}`;
     }).join("\n---\n");
-    
+
+    // Extract and save candidate details from their latest message
+    const candidateLatestMessage = lastMsg.getPlainBody();
+    try {
+      const extractedDetails = extractCandidateDetails(candidateLatestMessage, candidateName, candidateEmail, jobId);
+      const saveResult = saveCandidateDetails(ss, candidateEmail, jobId, candidateName, devId, thread.getId(), extractedDetails, candidateLatestMessage);
+      if(saveResult.success) {
+        jobStats.detailsExtracted++;
+        jobStats.log.push({type: 'info', message: `${candidateEmail} - Details extracted: ${extractedDetails.is_negotiating ? 'Negotiating' : 'Provided'}`});
+      }
+    } catch(detailsError) {
+      // Don't block negotiation if details extraction fails
+      console.error("Details extraction error for " + candidateEmail + ":", detailsError);
+    }
+
     const isFirstResponse = attempts === 0;
     
     // Calculate offer amounts based on attempt
@@ -990,23 +1259,56 @@ Write ONLY the note, nothing else.
       // Allow escalation after 2 attempts - generate detailed summary
       const finalReason = escalationReason || "Candidate did not agree after 2 negotiation attempts";
       const aiSummaryNotes = generateAISummaryNotes(conversationHistory, candidateEmail, '', attempts, finalReason);
-      
+
       escalateToHuman(thread, finalReason, candidateName, aiSummaryNotes);
       if(stateRowIndex > -1) {
         stateSheet.getRange(stateRowIndex, 5).setValue("Human-Negotiation");
         stateSheet.getRange(stateRowIndex, 9).setValue(aiSummaryNotes);
       }
+
+      // Update Candidate_Details sheet with escalation status
+      const detailsSheet = ss.getSheetByName('Candidate_Details');
+      if(detailsSheet) {
+        try {
+          const detailsData = detailsSheet.getDataRange().getValues();
+          for(let d=1; d<detailsData.length; d++) {
+            if(String(detailsData[d][2]).toLowerCase() === cleanCandidateEmail && String(detailsData[d][1]) === String(jobId)) {
+              detailsSheet.getRange(d+1, 16).setValue(`Escalated: ${finalReason}`);
+              break;
+            }
+          }
+        } catch(detailsErr) {
+          console.error("Failed to update details sheet:", detailsErr);
+        }
+      }
+
       jobStats.escalated++;
       jobStats.log.push({type: 'warning', message: `${candidateEmail} escalated: ${finalReason}`});
     } 
     else if (aiResponse.includes("ACTION: ACCEPT")) {
       const rateMatch = aiResponse.match(/\[([^\]]+)\]/);
       const rate = rateMatch ? rateMatch[1].replace('$','').replace('/hr','').trim() : rules.target;
-      
-      taskSheet.appendRow([new Date(), jobId, candidateName, candidateEmail, rate, "Pending Archive", devId, thread.getId()]); 
-      
+
+      taskSheet.appendRow([new Date(), jobId, candidateName, candidateEmail, rate, "Pending Archive", devId, thread.getId()]);
+
+      // Update Candidate_Details sheet with accepted status
+      const detailsSheet = ss.getSheetByName('Candidate_Details');
+      if(detailsSheet) {
+        try {
+          const detailsData = detailsSheet.getDataRange().getValues();
+          for(let d=1; d<detailsData.length; d++) {
+            if(String(detailsData[d][2]).toLowerCase() === cleanCandidateEmail && String(detailsData[d][1]) === String(jobId)) {
+              detailsSheet.getRange(d+1, 16).setValue(`Offer Accepted at $${rate}/hr`);
+              break;
+            }
+          }
+        } catch(detailsErr) {
+          console.error("Failed to update details sheet:", detailsErr);
+        }
+      }
+
       const acceptPrompt = `
-Write a brief, warm confirmation email to ${candidateName.split(' ')[0]} confirming they've accepted the rate of $${rate}/hr for a freelance position at Turing. 
+Write a brief, warm confirmation email to ${candidateName.split(' ')[0]} confirming they've accepted the rate of $${rate}/hr for a freelance position at Turing.
 
 Keep it short (3-4 sentences). Mention:
 - Thank them for accepting
@@ -1023,13 +1325,13 @@ Turing Recruitment Team
 `;
       const acceptEmail = callAI(acceptPrompt);
       sendReplyWithSenderName(thread, acceptEmail, 'Recruiter');
-      markCompleted(thread); 
-      
+      markCompleted(thread);
+
       if(stateRowIndex > -1) {
         stateSheet.deleteRow(stateRowIndex);
         stateMap.delete(stateKey);
       }
-      
+
       jobStats.accepted++;
       jobStats.log.push({type: 'success', message: `${candidateEmail} ACCEPTED at $${rate}/hr`});
     } 
@@ -1219,14 +1521,15 @@ function markCompleted(thread) {
 function syncCompletedFromGmail() {
   const url = getStoredSheetUrl();
   if(!url) return { synced: 0, cleaned: 0 };
-  
+
   const ss = SpreadsheetApp.openByUrl(url);
   ensureSheetsExist(ss);
-  
+
   const stateSheet = ss.getSheetByName('Negotiation_State');
   const taskSheet = ss.getSheetByName('Negotiation_Tasks');
   const compSheet = ss.getSheetByName('Negotiation_Completed');
-  
+  const detailsSheet = ss.getSheetByName('Candidate_Details');
+
   if(!stateSheet || !taskSheet || !compSheet) return { synced: 0, cleaned: 0 };
   
   let syncedCount = 0;
@@ -1287,22 +1590,37 @@ function syncCompletedFromGmail() {
           
           // Add to completed sheet
           compSheet.appendRow([
-            new Date(), 
-            jobId, 
-            candidateEmail, 
-            name, 
-            'Completed (Gmail Sync)', 
-            aiNotes || 'Marked complete directly in Gmail', 
+            new Date(),
+            jobId,
+            candidateEmail,
+            name,
+            'Completed (Gmail Sync)',
+            aiNotes || 'Marked complete directly in Gmail',
             devId
           ]);
-          
+
+          // Update Candidate_Details sheet
+          if(detailsSheet) {
+            try {
+              const detailsData = detailsSheet.getDataRange().getValues();
+              for(let d=1; d<detailsData.length; d++) {
+                if(String(detailsData[d][2]).toLowerCase() === candidateEmail && String(detailsData[d][1]) === String(jobId)) {
+                  detailsSheet.getRange(d+1, 16).setValue('Completed (Gmail Sync)');
+                  break;
+                }
+              }
+            } catch(detailsErr) {
+              console.error("Failed to update details sheet:", detailsErr);
+            }
+          }
+
           // Remove from state sheet
           stateSheet.deleteRow(r+1);
           syncedCount++;
           break;
         }
       }
-      
+
       // Also check Task sheet (accepted offers)
       const taskData = taskSheet.getDataRange().getValues();
       for(let r=taskData.length-1; r>=1; r--) {
@@ -1315,22 +1633,37 @@ function syncCompletedFromGmail() {
           
           // Add to completed sheet
           compSheet.appendRow([
-            new Date(), 
-            jobId, 
-            candidateEmail, 
-            name, 
-            `Accepted at $${agreedRate}/hr (Gmail Sync)`, 
-            'Marked complete directly in Gmail', 
+            new Date(),
+            jobId,
+            candidateEmail,
+            name,
+            `Accepted at $${agreedRate}/hr (Gmail Sync)`,
+            'Marked complete directly in Gmail',
             devId
           ]);
-          
+
+          // Update Candidate_Details sheet
+          if(detailsSheet) {
+            try {
+              const detailsData = detailsSheet.getDataRange().getValues();
+              for(let d=1; d<detailsData.length; d++) {
+                if(String(detailsData[d][2]).toLowerCase() === candidateEmail && String(detailsData[d][1]) === String(jobId)) {
+                  detailsSheet.getRange(d+1, 16).setValue(`Accepted at $${agreedRate}/hr (Gmail Sync)`);
+                  break;
+                }
+              }
+            } catch(detailsErr) {
+              console.error("Failed to update details sheet:", detailsErr);
+            }
+          }
+
           // Remove from task sheet
           taskSheet.deleteRow(r+1);
           syncedCount++;
           break;
         }
       }
-      
+
       // CLEANUP: Remove Human-Negotiation label if thread has Completed label
       const humanLabel = GmailApp.getUserLabelByName("Human-Negotiation");
       if(humanLabel) {
