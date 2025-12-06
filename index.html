@@ -1,0 +1,1219 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Turing Outreach V10</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://code.jquery.com/jquery-3.7.0.js"></script>
+    <link href="https://cdn.datatables.net/1.13.6/css/dataTables.tailwindcss.min.css" rel="stylesheet">
+    <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        glass: { light: 'rgba(255, 255, 255, 0.9)', dark: 'rgba(17, 24, 39, 0.9)' }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        body { 
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; 
+            font-size: 15px;
+            background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
+        }
+        .dark body { 
+            background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%); 
+        }
+        .glass { 
+            backdrop-filter: blur(16px); 
+            border: 1px solid rgba(255,255,255,0.2); 
+            box-shadow: 0 8px 32px rgba(0,0,0,0.08);
+            background: rgba(255,255,255,0.95); 
+        }
+        .dark .glass { 
+            background: rgba(30,41,59,0.95); 
+            border-color: rgba(255,255,255,0.1); 
+            box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+        }
+        .nav-tab { cursor: pointer; transition: all 0.2s; border-bottom: 2px solid transparent; }
+        .nav-tab.active { color: #2563eb; border-bottom-color: #2563eb; }
+        .dark .nav-tab.active { color: #60a5fa; border-bottom-color: #60a5fa; }
+        .smart-chip { display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.5rem 0.8rem; border-radius: 9999px; font-size: 0.85rem; font-weight: 600; cursor: pointer; transition: all 0.2s; border: 1px solid #e5e7eb; background: #fff; color: #4b5563; }
+        .smart-chip.active { background: #eff6ff; color: #2563eb; border-color: #bfdbfe; }
+        .dark .smart-chip { background: #1f2937; border-color: #374151; color: #9ca3af; }
+        .dark .smart-chip.active { background: rgba(37, 99, 235, 0.2); color: #60a5fa; border-color: #2563eb; }
+        .input-field { width: 100%; padding: 0.75rem; border-radius: 0.75rem; border: 1px solid #e2e8f0; background: white; transition: all 0.2s; }
+        .dark .input-field { background: #1f2937; border-color: #374151; color: white; }
+        .input-field:focus { ring: 2px; outline: none; border-color: #3b82f6; box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1); }
+        .hidden-tab { display: none; }
+        
+        /* Toast Notifications */
+        .toast-container { position: fixed; top: 20px; right: 20px; z-index: 9999; display: flex; flex-direction: column; gap: 10px; }
+        .toast { padding: 14px 20px; border-radius: 12px; box-shadow: 0 10px 40px rgba(0,0,0,0.15); display: flex; align-items: center; gap: 12px; animation: slideIn 0.3s ease; min-width: 300px; }
+        .toast-success { background: linear-gradient(135deg, #10b981, #059669); color: white; }
+        .toast-error { background: linear-gradient(135deg, #ef4444, #dc2626); color: white; }
+        .toast-info { background: linear-gradient(135deg, #3b82f6, #2563eb); color: white; }
+        .toast-warning { background: linear-gradient(135deg, #f59e0b, #d97706); color: white; }
+        @keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+        @keyframes slideOut { from { transform: translateX(0); opacity: 1; } to { transform: translateX(100%); opacity: 0; } }
+        .toast.hiding { animation: slideOut 0.3s ease forwards; }
+        
+        /* Status Log Styles */
+        .log-container { max-height: 200px; overflow-y: auto; font-size: 0.75rem; }
+        .log-entry { padding: 0.25rem 0.5rem; border-radius: 0.25rem; margin-bottom: 0.25rem; }
+        .log-info { background: #eff6ff; color: #1e40af; }
+        .log-success { background: #ecfdf5; color: #047857; }
+        .log-warning { background: #fffbeb; color: #b45309; }
+        .log-error { background: #fef2f2; color: #b91c1c; }
+        .dark .log-info { background: rgba(59, 130, 246, 0.2); color: #93c5fd; }
+        .dark .log-success { background: rgba(16, 185, 129, 0.2); color: #6ee7b7; }
+        .dark .log-warning { background: rgba(245, 158, 11, 0.2); color: #fcd34d; }
+        .dark .log-error { background: rgba(239, 68, 68, 0.2); color: #fca5a5; }
+        
+        /* Badge styles */
+        .badge-initial { background: #e0e7ff; color: #4338ca; border: 1px solid #c7d2fe; }
+        .badge-ai-1 { background: #dbeafe; color: #1d4ed8; border: 1px solid #93c5fd; }
+        .badge-ai-2 { background: #fef3c7; color: #b45309; border: 1px solid #fcd34d; }
+        .badge-human { background: #fee2e2; color: #b91c1c; border: 1px solid #fca5a5; }
+        .badge-completed { background: #d1fae5; color: #047857; border: 1px solid #6ee7b7; }
+        
+        .dark .badge-initial { background: rgba(99, 102, 241, 0.2); color: #a5b4fc; border-color: #6366f1; }
+        .dark .badge-ai-1 { background: rgba(59, 130, 246, 0.2); color: #93c5fd; border-color: #3b82f6; }
+        .dark .badge-ai-2 { background: rgba(245, 158, 11, 0.2); color: #fcd34d; border-color: #f59e0b; }
+        .dark .badge-human { background: rgba(239, 68, 68, 0.2); color: #fca5a5; border-color: #ef4444; }
+        .dark .badge-completed { background: rgba(16, 185, 129, 0.2); color: #6ee7b7; border-color: #10b981; }
+        
+        /* Email Composer Slide Panel */
+        .slide-panel { 
+            position: fixed; 
+            top: 0; 
+            right: -500px; 
+            width: 480px; 
+            height: 100vh; 
+            background: white; 
+            box-shadow: -10px 0 40px rgba(0,0,0,0.15); 
+            transition: right 0.3s ease; 
+            z-index: 100;
+            display: flex;
+            flex-direction: column;
+        }
+        .slide-panel.open { right: 0; }
+        .dark .slide-panel { background: #1e293b; }
+        .slide-panel-overlay { 
+            position: fixed; 
+            inset: 0; 
+            background: rgba(0,0,0,0.3); 
+            opacity: 0; 
+            visibility: hidden; 
+            transition: all 0.3s; 
+            z-index: 99; 
+        }
+        .slide-panel-overlay.open { opacity: 1; visibility: visible; }
+        
+        /* Progress Bar */
+        .progress-bar { height: 4px; background: #e5e7eb; border-radius: 2px; overflow: hidden; }
+        .progress-bar-fill { height: 100%; background: linear-gradient(90deg, #3b82f6, #8b5cf6); transition: width 0.3s; }
+        
+        /* Sending Animation */
+        @keyframes pulse-ring {
+            0% { transform: scale(0.8); opacity: 1; }
+            100% { transform: scale(1.5); opacity: 0; }
+        }
+        .sending-indicator { position: relative; }
+        .sending-indicator::before {
+            content: '';
+            position: absolute;
+            inset: -4px;
+            border-radius: 12px;
+            background: #3b82f6;
+            animation: pulse-ring 1.5s infinite;
+            z-index: -1;
+        }
+        
+        /* Task Row States */
+        .task-row { transition: all 0.2s; }
+        .task-row.processing { opacity: 0.5; pointer-events: none; }
+        .task-row.selected { background: #eff6ff !important; }
+        .dark .task-row.selected { background: rgba(59, 130, 246, 0.1) !important; }
+        
+        /* Tooltip */
+        .tooltip { position: relative; }
+        .tooltip::after {
+            content: attr(data-tooltip);
+            position: absolute;
+            bottom: 100%;
+            left: 50%;
+            transform: translateX(-50%);
+            padding: 6px 10px;
+            background: #1f2937;
+            color: white;
+            font-size: 12px;
+            border-radius: 6px;
+            white-space: nowrap;
+            opacity: 0;
+            visibility: hidden;
+            transition: all 0.2s;
+            z-index: 50;
+        }
+        .tooltip:hover::after { opacity: 1; visibility: visible; }
+    </style>
+</head>
+<body class="p-4 md:p-8 min-h-screen text-gray-800 dark:text-gray-100">
+
+    <!-- Toast Container -->
+    <div id="toastContainer" class="toast-container"></div>
+
+    <div class="max-w-7xl mx-auto">
+        <!-- Top Bar -->
+        <div class="flex justify-between items-center mb-6">
+            <h1 class="text-2xl font-bold flex items-center gap-2">
+                <i class="fa-solid fa-robot text-blue-600"></i>
+                <span>Turing AI Recruiter</span>
+                <span class="text-xs font-normal bg-blue-100 text-blue-600 px-2 py-0.5 rounded-full">V10</span>
+            </h1>
+            <div class="flex gap-3">
+                <button onclick="openConfigModal()" class="text-sm bg-white dark:bg-gray-800 px-4 py-2 rounded-lg hover:bg-gray-50 border border-gray-200 dark:border-gray-700 shadow-sm"><i class="fa-solid fa-cog"></i> Config</button>
+                <button onclick="toggleDarkMode()" class="text-sm bg-white dark:bg-gray-800 px-4 py-2 rounded-lg hover:bg-gray-50 border border-gray-200 dark:border-gray-700 shadow-sm"><i class="fa-solid fa-moon dark:hidden"></i><i class="fa-solid fa-sun hidden dark:inline"></i></button>
+            </div>
+        </div>
+
+        <div class="glass rounded-2xl shadow-xl overflow-hidden min-h-[80vh]">
+            <!-- Tab Navigation -->
+            <div class="flex border-b border-gray-200 dark:border-gray-700 px-6 bg-gray-50/50 dark:bg-gray-800/50">
+                <div class="nav-tab active px-6 py-4 font-semibold text-sm flex items-center gap-2" onclick="switchTab('outreach', this)"><i class="fa-solid fa-users-viewfinder"></i> Outreach Manager</div>
+                <div class="nav-tab px-6 py-4 font-semibold text-sm flex items-center gap-2" onclick="switchTab('negotiation', this)"><i class="fa-solid fa-hand-holding-dollar"></i> Negotiation AI</div>
+                <div class="nav-tab px-6 py-4 font-semibold text-sm flex items-center gap-2" onclick="switchTab('tasks', this)"><i class="fa-solid fa-clipboard-check"></i> Task List</div>
+            </div>
+
+            <div class="p-6 md:p-8">
+
+                <!-- TAB 1: OUTREACH MANAGER -->
+                <div id="tab-outreach" class="tab-content">
+                    <div class="grid grid-cols-1 lg:grid-cols-12 gap-5 mb-8">
+                        <div class="lg:col-span-3">
+                            <label class="block text-xs font-bold uppercase mb-2 text-gray-500">Job ID</label>
+                            <input type="number" id="jobId" class="input-field font-mono" placeholder="51000">
+                        </div>
+                        <div class="lg:col-span-7">
+                            <label class="block text-xs font-bold uppercase mb-2 text-gray-500">Pipeline Stages</label>
+                            <div class="flex flex-wrap gap-2">
+                                <div class="smart-chip" onclick="toggleChip(this)" data-value="Interested">Interested</div>
+                                <div class="smart-chip" onclick="toggleChip(this)" data-value="Passed VetSmith">Passed VetSmith</div>
+                                <div class="smart-chip" onclick="toggleChip(this)" data-value="Pending Review">Pending Review</div>
+                                <div class="smart-chip" onclick="toggleChip(this)" data-value="Completed Testing">Completed Testing</div>
+                                <div class="smart-chip" onclick="toggleChip(this)" data-value="Ready for Selection">Ready for Selection</div>
+                            </div>
+                        </div>
+                        <div class="lg:col-span-2 flex items-end gap-2">
+                            <button id="fetchBtn" onclick="fetchData()" class="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl shadow-lg transition flex items-center justify-center gap-2"><i class="fa-solid fa-search"></i> <span>Fetch</span></button>
+                            <button onclick="openManualInput()" class="bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-200 font-bold py-3 px-4 rounded-xl shadow transition" title="Manual Test Mode"><i class="fa-solid fa-vial"></i></button>
+                        </div>
+                    </div>
+                    <div id="tableContainer" class="hidden">
+                        <div class="flex justify-between items-center mb-4 bg-blue-50 dark:bg-blue-900/20 p-3 rounded-lg border border-blue-100 dark:border-blue-800">
+                            <div class="text-sm font-semibold text-blue-800 dark:text-blue-300"><span id="selectedCount">0</span> candidates selected</div>
+                            <button onclick="openEmailPanel()" class="text-sm bg-blue-600 text-white px-4 py-1.5 rounded-lg font-medium hover:bg-blue-700 shadow-sm"><i class="fa-solid fa-envelope mr-1"></i> Compose Email</button>
+                        </div>
+                        <div class="overflow-x-auto rounded-lg border border-gray-200 dark:border-gray-700">
+                            <table id="devTable" class="w-full text-left text-sm">
+                                <thead class="bg-gray-50 dark:bg-gray-800 uppercase text-xs font-bold text-gray-500">
+                                    <tr><th class="px-4 py-3 text-center"><input type="checkbox" onclick="toggleAllRows(this)"></th><th class="px-4 py-3">ID</th><th class="px-4 py-3">Name</th><th class="px-4 py-3">Email</th><th class="px-4 py-3">Status</th><th class="px-4 py-3">History</th></tr>
+                                </thead>
+                                <tbody class="divide-y divide-gray-200 dark:divide-gray-700 bg-white dark:bg-gray-900"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- TAB 2: NEGOTIATION AI SETTINGS (UPDATED - No Walk-away) -->
+                <div id="tab-negotiation" class="tab-content hidden-tab">
+                    <div class="max-w-4xl mx-auto">
+                        <div class="mb-6 pb-6 border-b border-gray-200 dark:border-gray-700">
+                            <h2 class="text-2xl font-bold text-gray-900 dark:text-white">Negotiation Configuration</h2>
+                            <p class="text-sm text-gray-500 mt-1">Configure how the AI Agent negotiates rates for specific jobs.</p>
+                        </div>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+                            <div class="space-y-6">
+                                <div>
+                                    <label class="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-1">Select Active Job ID</label>
+                                    <select id="activeJobsDropdown" onchange="selectJobFromDropdown(this.value)" class="input-field cursor-pointer"><option value="">-- Select or Enter New --</option></select>
+                                    <p class="text-xs text-gray-500 mt-1 mb-2">Select an existing configuration to edit</p>
+                                    <label class="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-1">Target Job ID (Manual Entry)</label>
+                                    <input type="number" id="negJobId" class="input-field" placeholder="51000" onchange="loadNegotiationConfig()">
+                                </div>
+                                <!-- UPDATED: Removed Walk-away Rate -->
+                                <div class="grid grid-cols-2 gap-3">
+                                    <div>
+                                        <label class="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-1">Target Rate</label>
+                                        <div class="relative">
+                                            <span class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">$</span>
+                                            <input type="number" id="targetRate" class="input-field pl-7" placeholder="22">
+                                        </div>
+                                        <p class="text-xs text-gray-400 mt-1">Ideal rate to negotiate</p>
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-1">Max Rate</label>
+                                        <div class="relative">
+                                            <span class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">$</span>
+                                            <input type="number" id="maxRate" class="input-field pl-7" placeholder="28">
+                                        </div>
+                                        <p class="text-xs text-gray-400 mt-1">Absolute maximum</p>
+                                    </div>
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-1">Negotiation Style</label>
+                                    <select id="negStyle" class="input-field cursor-pointer">
+                                        <option value="Friendly but firm">Friendly but firm</option>
+                                        <option value="Professional and direct">Professional and direct</option>
+                                        <option value="Empathetic">Empathetic</option>
+                                        <option value="Aggressive">High-pressure / Urgent</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-1">Special Rules</label>
+                                    <textarea id="specialRules" rows="2" class="input-field" placeholder="e.g. Can offer signing bonus up to $500..."></textarea>
+                                </div>
+                            </div>
+                            <div class="space-y-6">
+                                <div class="bg-blue-50 dark:bg-blue-900/10 p-5 rounded-xl border border-blue-100 dark:border-blue-800">
+                                    <h3 class="font-bold text-blue-800 dark:text-blue-300 mb-2 text-sm uppercase flex items-center gap-2">
+                                        <i class="fa-solid fa-file-lines"></i> Job Description
+                                    </h3>
+                                    <p class="text-xs text-gray-500 mb-2">Paste the JD so AI knows the role context and can answer candidate questions accurately.</p>
+                                    <textarea id="jobDescription" rows="8" class="input-field text-sm" placeholder="Role: LLM Trainer
+Requirements:
+- 3+ years experience in technical field
+- Experience with any programming language
+- Strong analytical skills
+
+Responsibilities:
+- Train and evaluate AI models
+- Provide quality feedback
+- Work on cutting-edge AI projects
+
+This is a freelance, fully remote position."></textarea>
+                                </div>
+                                <button onclick="saveNegotiationSettings()" class="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-3.5 rounded-xl shadow-lg transition flex items-center justify-center gap-2"><i class="fa-solid fa-save"></i> <span>Save Configuration</span></button>
+                            </div>
+                        </div>
+                        
+                        <!-- Info Boxes -->
+                        <div class="mt-8 grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div class="bg-gray-50 dark:bg-gray-800/50 p-4 rounded-xl border border-gray-200 dark:border-gray-700">
+                                <h4 class="font-bold text-gray-700 dark:text-gray-300 text-sm mb-2 flex items-center gap-2">
+                                    <i class="fa-solid fa-circle-info text-blue-500"></i> AI Context (Auto-included)
+                                </h4>
+                                <p class="text-xs text-gray-500">The AI automatically includes Turing's company info and freelance perks. It knows this is a freelance position and won't mention full-time benefits.</p>
+                            </div>
+                            <div class="bg-amber-50 dark:bg-amber-900/10 p-4 rounded-xl border border-amber-200 dark:border-amber-800">
+                                <h4 class="font-bold text-amber-700 dark:text-amber-300 text-sm mb-2 flex items-center gap-2">
+                                    <i class="fa-solid fa-lightbulb text-amber-500"></i> FAQ Support
+                                </h4>
+                                <p class="text-xs text-gray-500">Add FAQs to the <code class="bg-gray-200 dark:bg-gray-700 px-1 rounded">Negotiation_FAQs</code> sheet. AI will use them to answer candidate questions!</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- TAB 3: TASKS (IMPROVED UI/UX) -->
+                <div id="tab-tasks" class="tab-content hidden-tab">
+                    
+                    <!-- Stats Cards -->
+                    <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+                        <div class="bg-white dark:bg-gray-800 rounded-xl p-4 border border-gray-200 dark:border-gray-700 shadow-sm">
+                            <div class="text-2xl font-bold text-gray-900 dark:text-white" id="statTotal">-</div>
+                            <div class="text-xs font-medium text-gray-500 uppercase">Total Active</div>
+                        </div>
+                        <div class="bg-blue-50 dark:bg-blue-900/20 rounded-xl p-4 border border-blue-200 dark:border-blue-800">
+                            <div class="text-2xl font-bold text-blue-600" id="statActive">-</div>
+                            <div class="text-xs font-medium text-blue-600 uppercase">AI Negotiating</div>
+                        </div>
+                        <div class="bg-amber-50 dark:bg-amber-900/20 rounded-xl p-4 border border-amber-200 dark:border-amber-800">
+                            <div class="text-2xl font-bold text-amber-600" id="statHuman">-</div>
+                            <div class="text-xs font-medium text-amber-600 uppercase">Needs Human</div>
+                        </div>
+                        <div class="bg-green-50 dark:bg-green-900/20 rounded-xl p-4 border border-green-200 dark:border-green-800">
+                            <div class="text-2xl font-bold text-green-600" id="statAccepted">-</div>
+                            <div class="text-xs font-medium text-green-600 uppercase">Offer Accepted</div>
+                        </div>
+                    </div>
+                    
+                    <!-- Top Action Bar -->
+                    <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6">
+                        <div>
+                            <h2 class="text-xl font-bold text-gray-900 dark:text-white">Active Negotiations</h2>
+                            <p class="text-sm text-gray-500">Monitor AI negotiations and manage human escalations.</p>
+                        </div>
+                        <div class="flex gap-2 flex-wrap">
+                            <div class="relative">
+                                <i class="fa-solid fa-filter absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"></i>
+                                <select id="taskJobFilter" onchange="filterTasks()" class="pl-10 pr-4 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                    <option value="all">All Jobs</option>
+                                </select>
+                            </div>
+                            <div class="relative">
+                                <i class="fa-solid fa-tag absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"></i>
+                                <select id="taskStatusFilter" onchange="filterTasks()" class="pl-10 pr-4 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                    <option value="all">All Statuses</option>
+                                    <option value="Initial Outreach">Initial Outreach</option>
+                                    <option value="Active">AI Active</option>
+                                    <option value="Human-Negotiation">Human Required</option>
+                                    <option value="Offer Accepted">Accepted</option>
+                                </select>
+                            </div>
+                            <button id="runAiBtn" onclick="manualTriggerAI()" class="bg-purple-600 hover:bg-purple-700 text-white text-sm font-bold py-2 px-4 rounded-lg shadow-sm transition flex items-center gap-2">
+                                <i class="fa-solid fa-wand-magic-sparkles"></i> <span>Run AI Now</span>
+                            </button>
+                            <button onclick="loadTasks()" class="bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-200 text-sm font-bold py-2 px-4 rounded-lg transition tooltip" data-tooltip="Refresh">
+                                <i class="fa-solid fa-rotate"></i>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Bulk Actions (Hidden by default) -->
+                    <div id="bulkActionsBar" class="hidden mb-4 bg-blue-50 dark:bg-blue-900/20 p-3 rounded-lg border border-blue-200 dark:border-blue-800 flex items-center justify-between">
+                        <span class="text-sm font-semibold text-blue-800 dark:text-blue-300">
+                            <span id="bulkSelectedCount">0</span> tasks selected
+                        </span>
+                        <div class="flex gap-2">
+                            <button onclick="bulkCompleteSelected()" class="text-sm bg-green-600 text-white px-3 py-1.5 rounded-lg font-medium hover:bg-green-700">
+                                <i class="fa-solid fa-check mr-1"></i> Complete Selected
+                            </button>
+                            <button onclick="clearTaskSelection()" class="text-sm bg-gray-200 dark:bg-gray-700 px-3 py-1.5 rounded-lg font-medium hover:bg-gray-300 dark:hover:bg-gray-600">
+                                Clear
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- AI Progress Panel (Hidden by default) -->
+                    <div id="aiProgressPanel" class="hidden mb-6 bg-purple-50 dark:bg-purple-900/20 rounded-xl p-4 border border-purple-200 dark:border-purple-800">
+                        <div class="flex items-center justify-between mb-3">
+                            <div class="flex items-center gap-2">
+                                <i class="fa-solid fa-robot text-purple-600 animate-pulse"></i>
+                                <span class="font-bold text-purple-800 dark:text-purple-300">AI Negotiator Running...</span>
+                            </div>
+                            <span id="aiProgressStatus" class="text-sm text-purple-600">Initializing...</span>
+                        </div>
+                        <div class="log-container bg-white dark:bg-gray-900 rounded-lg p-2 border border-purple-100 dark:border-purple-800" id="aiLogContainer">
+                            <!-- Logs will appear here -->
+                        </div>
+                    </div>
+
+                    <!-- Task Table -->
+                    <div class="overflow-hidden rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm">
+                        <table class="w-full text-left">
+                            <thead class="bg-gray-50 dark:bg-gray-900 text-xs uppercase font-bold text-gray-500">
+                                <tr>
+                                    <th class="px-3 py-4 text-center w-10">
+                                        <input type="checkbox" onchange="toggleAllTasks(this)" class="task-master-check">
+                                    </th>
+                                    <th class="px-4 py-4">Job ID</th>
+                                    <th class="px-4 py-4">Name</th>
+                                    <th class="px-4 py-4">Email</th>
+                                    <th class="px-4 py-4">Tag</th>
+                                    <th class="px-4 py-4">AI Notes</th>
+                                    <th class="px-4 py-4">Last Activity</th>
+                                    <th class="px-4 py-4 text-right">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="taskListBody" class="divide-y divide-gray-200 dark:divide-gray-700 bg-white dark:bg-gray-800">
+                                <!-- Tasks injected here -->
+                            </tbody>
+                        </table>
+                    </div>
+                    
+                    <!-- Empty State -->
+                    <div id="emptyTaskState" class="hidden text-center py-12">
+                        <i class="fa-solid fa-inbox text-4xl text-gray-300 dark:text-gray-600 mb-4"></i>
+                        <p class="text-gray-500">No active tasks found. Send outreach emails to get started.</p>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+    </div>
+
+    <!-- Email Slide Panel (IMPROVED) -->
+    <div id="emailPanelOverlay" class="slide-panel-overlay" onclick="closeEmailPanel()"></div>
+    <div id="emailPanel" class="slide-panel">
+        <div class="p-6 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
+            <h2 class="text-xl font-bold dark:text-white flex items-center gap-2">
+                <i class="fa-solid fa-envelope text-blue-500"></i> Compose Email
+            </h2>
+            <button onclick="closeEmailPanel()" class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">
+                <i class="fa-solid fa-times text-xl"></i>
+            </button>
+        </div>
+        
+        <div class="flex-1 overflow-y-auto p-6">
+            <!-- Recipients Preview -->
+            <div class="mb-4">
+                <label class="block text-xs font-bold uppercase mb-2 text-gray-500">Recipients</label>
+                <div class="bg-gray-50 dark:bg-gray-800 rounded-lg p-3 border border-gray-200 dark:border-gray-700">
+                    <span id="emailRecipientCount" class="text-sm font-semibold text-blue-600">0</span>
+                    <span class="text-sm text-gray-500">candidates selected</span>
+                    <div id="emailRecipientPreview" class="mt-2 text-xs text-gray-400 max-h-20 overflow-y-auto"></div>
+                </div>
+            </div>
+            
+            <div class="mb-4">
+                <label class="block text-xs font-bold uppercase mb-2 text-gray-500">Subject</label>
+                <input id="emailSubject" class="input-field" placeholder="Subject line...">
+            </div>
+            
+            <div class="mb-4">
+                <label class="block text-xs font-bold uppercase mb-2 text-gray-500">
+                    Body 
+                    <span class="font-normal text-gray-400">(use {{name}} for personalization)</span>
+                </label>
+                <textarea id="emailBody" class="input-field h-48 font-mono text-sm" placeholder="Hi {{name}},
+
+We have an exciting opportunity..."></textarea>
+            </div>
+            
+            <div class="bg-amber-50 dark:bg-amber-900/10 p-3 rounded-lg border border-amber-200 dark:border-amber-800 text-xs text-amber-700 dark:text-amber-300">
+                <i class="fa-solid fa-lightbulb mr-1"></i>
+                <strong>Tip:</strong> {{name}} will be replaced with the candidate's first name.
+            </div>
+        </div>
+        
+        <!-- Send Area -->
+        <div class="p-6 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50">
+            <!-- Progress Bar (hidden by default) -->
+            <div id="sendProgressContainer" class="hidden mb-4">
+                <div class="flex justify-between text-xs text-gray-500 mb-1">
+                    <span id="sendProgressText">Sending...</span>
+                    <span id="sendProgressCount">0/0</span>
+                </div>
+                <div class="progress-bar">
+                    <div id="sendProgressBar" class="progress-bar-fill" style="width: 0%"></div>
+                </div>
+            </div>
+            
+            <button id="sendEmailBtn" onclick="sendEmails()" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3.5 rounded-xl shadow-lg transition flex items-center justify-center gap-2">
+                <i class="fa-solid fa-paper-plane"></i> <span>Send Emails</span>
+            </button>
+        </div>
+    </div>
+    
+    <!-- Manual Input Modal -->
+    <div id="manualInputModal" class="fixed inset-0 z-50 hidden bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
+        <div class="bg-white dark:bg-gray-800 rounded-2xl shadow-xl w-full max-w-lg p-6">
+            <h2 class="text-xl font-bold mb-2 dark:text-white flex items-center gap-2">
+                <i class="fa-solid fa-vial text-purple-500"></i> Manual Test Mode
+            </h2>
+            <p class="text-sm text-gray-500 mb-4">Paste emails to test the negotiation AI without fetching real data.</p>
+            <div class="mb-4">
+                <label class="block text-xs font-bold uppercase mb-2 text-gray-500">Candidate Data (CSV: Email, Name)</label>
+                <textarea id="manualDataInput" class="input-field h-32 font-mono text-sm" placeholder="myemail@test.com, John Doe&#10;other@test.com, Jane Smith"></textarea>
+            </div>
+            <div class="flex justify-end gap-2">
+                <button onclick="document.getElementById('manualInputModal').classList.add('hidden')" class="px-4 py-2 rounded-lg bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600">Cancel</button>
+                <button onclick="loadManualData()" class="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg font-bold">Load to Table</button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Config Modal -->
+    <div id="configModal" class="fixed inset-0 z-50 hidden bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
+        <div class="bg-white dark:bg-gray-800 rounded-2xl shadow-xl p-6 w-full max-w-md">
+            <h3 class="text-xl font-bold mb-2 dark:text-white">Settings</h3>
+            <p class="text-sm text-gray-500 mb-4">Enter your Google Sheets URL for logging</p>
+            <input type="text" id="sheetUrl" class="input-field mb-4" placeholder="https://docs.google.com/spreadsheets/d/...">
+            <div class="flex justify-end gap-2">
+                <button onclick="document.getElementById('configModal').classList.add('hidden')" class="px-4 py-2 rounded-lg bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600">Cancel</button>
+                <button onclick="saveConfig()" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">Save</button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- AI Notes Modal (Improved) -->
+    <div id="notesModal" class="fixed inset-0 z-50 hidden bg-black/50 backdrop-blur-sm flex items-center justify-center p-4" onclick="if(event.target === this) this.classList.add('hidden')">
+        <div class="bg-white dark:bg-gray-800 rounded-2xl shadow-xl w-full max-w-lg overflow-hidden">
+            <div class="p-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between bg-gradient-to-r from-purple-50 to-blue-50 dark:from-purple-900/20 dark:to-blue-900/20">
+                <h3 class="text-lg font-bold dark:text-white flex items-center gap-2">
+                    <i class="fa-solid fa-robot text-purple-500"></i> AI Negotiation Notes
+                </h3>
+                <button onclick="document.getElementById('notesModal').classList.add('hidden')" class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">
+                    <i class="fa-solid fa-times text-xl"></i>
+                </button>
+            </div>
+            <div class="p-5">
+                <div id="notesModalContent" class="text-sm text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-900 p-4 rounded-xl border border-gray-200 dark:border-gray-700 min-h-[100px] max-h-[300px] overflow-y-auto whitespace-pre-wrap leading-relaxed">
+                    -
+                </div>
+                <p class="text-xs text-gray-400 mt-3 flex items-center gap-1">
+                    <i class="fa-solid fa-circle-info"></i>
+                    These notes are auto-generated by AI based on the conversation
+                </p>
+            </div>
+            <div class="p-4 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50 flex justify-end">
+                <button onclick="document.getElementById('notesModal').classList.add('hidden')" class="px-4 py-2 rounded-lg bg-gray-200 hover:bg-gray-300 dark:bg-gray-700 dark:hover:bg-gray-600 font-medium text-sm">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let tableData = [];
+        let selectedDevs = new Set();
+        let allTasks = [];
+        let selectedTasks = new Set();
+        let cachedJobIds = [];
+
+        // ===== TOAST NOTIFICATIONS =====
+        function showToast(message, type = 'info', duration = 4000) {
+            const container = document.getElementById('toastContainer');
+            const toast = document.createElement('div');
+            toast.className = `toast toast-${type}`;
+            
+            const icons = {
+                success: 'check-circle',
+                error: 'circle-xmark',
+                warning: 'triangle-exclamation',
+                info: 'circle-info'
+            };
+            
+            toast.innerHTML = `
+                <i class="fa-solid fa-${icons[type] || 'circle-info'}"></i>
+                <span>${message}</span>
+            `;
+            
+            container.appendChild(toast);
+            
+            setTimeout(() => {
+                toast.classList.add('hiding');
+                setTimeout(() => toast.remove(), 300);
+            }, duration);
+        }
+
+        // ===== TAB SWITCHING =====
+        function switchTab(tabName, btn) {
+            document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden-tab'));
+            document.getElementById('tab-' + tabName).classList.remove('hidden-tab');
+            document.querySelectorAll('.nav-tab').forEach(el => el.classList.remove('active'));
+            btn.classList.add('active');
+            if(tabName === 'tasks') loadTasks();
+            if(tabName === 'negotiation') refreshJobDropdown();
+        }
+
+        // ===== OUTREACH TAB =====
+        function toggleChip(el) { el.classList.toggle('active'); }
+        
+        function fetchData() {
+            const jobId = document.getElementById('jobId').value;
+            const stages = Array.from(document.querySelectorAll('.smart-chip.active')).map(e => e.dataset.value);
+            if(!jobId || stages.length === 0) {
+                showToast("Please enter Job ID and select at least one stage", "warning");
+                return;
+            }
+            
+            const btn = document.getElementById('fetchBtn');
+            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Fetching...';
+            btn.disabled = true;
+            
+            document.getElementById('tableContainer').classList.remove('hidden');
+            google.script.run
+                .withSuccessHandler(data => { 
+                    tableData = data; 
+                    renderTable(data);
+                    btn.innerHTML = '<i class="fa-solid fa-search"></i> <span>Fetch</span>';
+                    btn.disabled = false;
+                    showToast(`Found ${data.length} candidates`, "success");
+                })
+                .withFailureHandler(err => {
+                    btn.innerHTML = '<i class="fa-solid fa-search"></i> <span>Fetch</span>';
+                    btn.disabled = false;
+                    showToast("Error: " + err.message, "error");
+                })
+                .getDevelopers(jobId, stages);
+        }
+        
+        function openManualInput() { document.getElementById('manualInputModal').classList.remove('hidden'); }
+        
+        function loadManualData() {
+            const raw = document.getElementById('manualDataInput').value;
+            if(!raw.trim()) return;
+            const lines = raw.split('\n');
+            const manualData = lines.map((line) => {
+                const [email, name] = line.split(',');
+                if(!email) return null;
+                return { 
+                    developer_id: `TEST-${Math.floor(Math.random()*10000)}`, 
+                    full_name: name ? name.trim() : 'Test Candidate', 
+                    email: email.trim(), 
+                    status: 'Manual Test', 
+                    is_sent: false 
+                };
+            }).filter(d => d !== null);
+            tableData = manualData;
+            document.getElementById('tableContainer').classList.remove('hidden');
+            renderTable(tableData);
+            document.getElementById('manualInputModal').classList.add('hidden');
+            showToast(`Loaded ${manualData.length} test candidates`, "success");
+        }
+        
+        function renderTable(data) {
+            const tbody = document.querySelector('#devTable tbody');
+            tbody.innerHTML = '';
+            data.forEach(d => {
+                const tr = document.createElement('tr');
+                tr.className = 'hover:bg-gray-50 dark:hover:bg-gray-700/50';
+                tr.innerHTML = `
+                    <td class="px-4 py-3 text-center"><input type="checkbox" onchange="toggleDev('${d.developer_id}')" class="dev-check"></td>
+                    <td class="px-4 py-3 font-mono text-xs">${d.developer_id}</td>
+                    <td class="px-4 py-3 font-bold">${d.full_name}</td>
+                    <td class="px-4 py-3 text-gray-500">${d.email}</td>
+                    <td class="px-4 py-3"><span class="px-2 py-1 bg-gray-100 dark:bg-gray-700 rounded text-xs font-bold">${d.status}</span></td>
+                    <td class="px-4 py-3 text-xs">${d.is_sent ? '<span class="text-green-600"><i class="fa-solid fa-check mr-1"></i>Sent</span>' : '<span class="text-gray-400">New</span>'}</td>
+                `;
+                tbody.appendChild(tr);
+            });
+            document.getElementById('selectedCount').innerText = '0';
+            selectedDevs.clear();
+        }
+        
+        function toggleDev(id) { 
+            selectedDevs.has(id) ? selectedDevs.delete(id) : selectedDevs.add(id); 
+            document.getElementById('selectedCount').innerText = selectedDevs.size; 
+        }
+        
+        function toggleAllRows(master) { 
+            const checks = document.querySelectorAll('.dev-check'); 
+            checks.forEach((c, i) => { 
+                c.checked = master.checked; 
+                const dev = tableData[i]; 
+                master.checked ? selectedDevs.add(dev.developer_id) : selectedDevs.delete(dev.developer_id); 
+            }); 
+            document.getElementById('selectedCount').innerText = selectedDevs.size; 
+        }
+        
+        // ===== EMAIL PANEL (IMPROVED) =====
+        function openEmailPanel() {
+            if(selectedDevs.size === 0) {
+                showToast("Please select at least one candidate", "warning");
+                return;
+            }
+            
+            // Update recipient preview
+            document.getElementById('emailRecipientCount').textContent = selectedDevs.size;
+            const recipients = tableData.filter(d => selectedDevs.has(d.developer_id));
+            const preview = recipients.slice(0, 5).map(r => r.email).join(', ');
+            document.getElementById('emailRecipientPreview').textContent = 
+                recipients.length > 5 ? preview + ` +${recipients.length - 5} more` : preview;
+            
+            document.getElementById('emailPanelOverlay').classList.add('open');
+            document.getElementById('emailPanel').classList.add('open');
+        }
+        
+        function closeEmailPanel() {
+            document.getElementById('emailPanelOverlay').classList.remove('open');
+            document.getElementById('emailPanel').classList.remove('open');
+        }
+        
+        function sendEmails() {
+            const subject = document.getElementById('emailSubject').value;
+            const body = document.getElementById('emailBody').value;
+            const recipients = tableData.filter(d => selectedDevs.has(d.developer_id)).map(d => ({
+                name: d.full_name, 
+                email: d.email, 
+                devId: d.developer_id
+            }));
+            const jobId = document.getElementById('jobId').value;
+            
+            if(!recipients.length) {
+                showToast("No recipients selected", "warning");
+                return;
+            }
+            if(!jobId) {
+                showToast("Please enter a Job ID in the main form", "warning");
+                return;
+            }
+            if(!subject || !body) {
+                showToast("Please enter subject and body", "warning");
+                return;
+            }
+            
+            // Show progress
+            const btn = document.getElementById('sendEmailBtn');
+            const progressContainer = document.getElementById('sendProgressContainer');
+            
+            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Sending...';
+            btn.disabled = true;
+            btn.classList.add('sending-indicator');
+            
+            progressContainer.classList.remove('hidden');
+            document.getElementById('sendProgressText').textContent = 'Sending emails...';
+            document.getElementById('sendProgressCount').textContent = `0/${recipients.length}`;
+            document.getElementById('sendProgressBar').style.width = '0%';
+            
+            // Animate progress bar (simulated since we don't have real-time updates)
+            let progress = 0;
+            const progressInterval = setInterval(() => {
+                progress += Math.random() * 15;
+                if(progress > 90) progress = 90;
+                document.getElementById('sendProgressBar').style.width = progress + '%';
+            }, 300);
+            
+            google.script.run
+                .withSuccessHandler(result => {
+                    clearInterval(progressInterval);
+                    document.getElementById('sendProgressBar').style.width = '100%';
+                    
+                    setTimeout(() => {
+                        btn.innerHTML = '<i class="fa-solid fa-paper-plane"></i> <span>Send Emails</span>';
+                        btn.disabled = false;
+                        btn.classList.remove('sending-indicator');
+                        progressContainer.classList.add('hidden');
+                        
+                        if(result.sent > 0) {
+                            showToast(`Successfully sent ${result.sent} emails!`, "success");
+                            if(result.skipped > 0) {
+                                showToast(`${result.skipped} already in system (skipped)`, "info");
+                            }
+                            closeEmailPanel();
+                            // Refresh table to show sent status
+                            fetchData();
+                        } else if(result.skipped > 0) {
+                            showToast(`All ${result.skipped} candidates already in system`, "warning");
+                        } else {
+                            showToast("No emails sent", "warning");
+                        }
+                        
+                        if(result.errors && result.errors.length > 0) {
+                            showToast(`${result.errors.length} failed`, "error");
+                        }
+                    }, 500);
+                })
+                .withFailureHandler(err => {
+                    clearInterval(progressInterval);
+                    btn.innerHTML = '<i class="fa-solid fa-paper-plane"></i> <span>Send Emails</span>';
+                    btn.disabled = false;
+                    btn.classList.remove('sending-indicator');
+                    progressContainer.classList.add('hidden');
+                    showToast("Error: " + err.message, "error");
+                })
+                .sendBulkEmails(recipients, "Recruiter", subject, body, jobId, {});
+        }
+
+        // ===== NEGOTIATION TAB (UPDATED - No Walk-away) =====
+        function loadNegotiationConfig() { 
+            const jobId = document.getElementById('negJobId').value; 
+            if(!jobId) return; 
+            google.script.run.withSuccessHandler(config => { 
+                if(config) { 
+                    document.getElementById('targetRate').value = config.targetRate || ''; 
+                    document.getElementById('maxRate').value = config.maxRate || ''; 
+                    document.getElementById('negStyle').value = config.style || 'Friendly but firm'; 
+                    document.getElementById('specialRules').value = config.specialRules || '';
+                    document.getElementById('jobDescription').value = config.jobDescription || '';
+                } else {
+                    document.getElementById('targetRate').value = '';
+                    document.getElementById('maxRate').value = '';
+                    document.getElementById('negStyle').value = 'Friendly but firm';
+                    document.getElementById('specialRules').value = '';
+                    document.getElementById('jobDescription').value = '';
+                }
+            }).getNegotiationConfig(jobId); 
+        }
+        
+        function refreshJobDropdown() { 
+            google.script.run.withSuccessHandler(jobs => { 
+                const select = document.getElementById('activeJobsDropdown'); 
+                select.innerHTML = '<option value="">-- Select or Enter New --</option>'; 
+                jobs.forEach(j => { 
+                    const opt = document.createElement('option'); 
+                    opt.value = j; 
+                    opt.text = "Job " + j; 
+                    select.appendChild(opt); 
+                }); 
+            }).getJobConfigList(); 
+        }
+        
+        function selectJobFromDropdown(val) { 
+            if(!val) return; 
+            document.getElementById('negJobId').value = val; 
+            loadNegotiationConfig(); 
+        }
+        
+        function saveNegotiationSettings() { 
+            const jobId = document.getElementById('negJobId').value; 
+            if(!jobId) {
+                showToast("Please enter a Job ID", "warning");
+                return;
+            }
+            // UPDATED: Removed walkAwayRate
+            const config = { 
+                targetRate: document.getElementById('targetRate').value, 
+                maxRate: document.getElementById('maxRate').value, 
+                style: document.getElementById('negStyle').value, 
+                specialRules: document.getElementById('specialRules').value,
+                jobDescription: document.getElementById('jobDescription').value
+            }; 
+            google.script.run
+                .withSuccessHandler(() => { 
+                    showToast("Configuration saved!", "success");
+                    refreshJobDropdown(); 
+                })
+                .withFailureHandler(err => showToast("Error: " + err.message, "error"))
+                .saveNegotiationConfig(jobId, config); 
+        }
+        
+        // ===== AI TRIGGER WITH PROGRESS =====
+        function manualTriggerAI() {
+            if(!confirm("Start AI negotiation sweep? This will process all configured jobs.")) return;
+            
+            const btn = document.getElementById('runAiBtn');
+            const progressPanel = document.getElementById('aiProgressPanel');
+            const logContainer = document.getElementById('aiLogContainer');
+            const statusEl = document.getElementById('aiProgressStatus');
+            
+            progressPanel.classList.remove('hidden');
+            logContainer.innerHTML = '';
+            addLog('info', 'Starting AI Negotiator...');
+            
+            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Running...';
+            btn.disabled = true;
+            btn.classList.add('opacity-50', 'cursor-not-allowed');
+            
+            google.script.run
+                .withSuccessHandler(res => {
+                    btn.innerHTML = '<i class="fa-solid fa-wand-magic-sparkles"></i> <span>Run AI Now</span>';
+                    btn.disabled = false;
+                    btn.classList.remove('opacity-50', 'cursor-not-allowed');
+                    
+                    if(res.status === 'Success') {
+                        statusEl.textContent = 'Completed!';
+                        
+                        if(res.log && res.log.length > 0) {
+                            res.log.forEach(l => addLog(l.type, l.message));
+                        }
+                        
+                        // Build summary message
+                        let summary = `✓ Complete! Replied: ${res.stats.replied}, Escalated: ${res.stats.escalated}, Accepted: ${res.stats.accepted}, Skipped: ${res.stats.skipped}`;
+                        if(res.stats.synced > 0) {
+                            summary += `, Gmail Synced: ${res.stats.synced}`;
+                        }
+                        if(res.stats.cleaned > 0) {
+                            summary += `, Labels Cleaned: ${res.stats.cleaned}`;
+                        }
+                        addLog('success', summary);
+                        
+                        showToast(`AI completed: ${res.stats.replied} replied, ${res.stats.accepted} accepted`, "success");
+                        if(res.stats.synced > 0) {
+                            showToast(`Synced ${res.stats.synced} from Gmail`, "info");
+                        }
+                        loadTasks();
+                    } else {
+                        statusEl.textContent = 'Error';
+                        addLog('error', 'Error: ' + res.message);
+                        showToast("AI Error: " + res.message, "error");
+                    }
+                })
+                .withFailureHandler(err => {
+                    btn.innerHTML = '<i class="fa-solid fa-wand-magic-sparkles"></i> <span>Run AI Now</span>';
+                    btn.disabled = false;
+                    btn.classList.remove('opacity-50', 'cursor-not-allowed');
+                    statusEl.textContent = 'Failed';
+                    addLog('error', 'Failed: ' + err.message);
+                    showToast("Failed: " + err.message, "error");
+                })
+                .runAutoNegotiator();
+        }
+        
+        function addLog(type, message) {
+            const container = document.getElementById('aiLogContainer');
+            const entry = document.createElement('div');
+            entry.className = `log-entry log-${type}`;
+            
+            const icon = type === 'success' ? 'check-circle' : 
+                         type === 'warning' ? 'triangle-exclamation' : 
+                         type === 'error' ? 'circle-xmark' : 'circle-info';
+            
+            entry.innerHTML = `<i class="fa-solid fa-${icon} mr-1"></i> ${message}`;
+            container.appendChild(entry);
+            container.scrollTop = container.scrollHeight;
+        }
+
+        // ===== TASKS TAB (IMPROVED) =====
+        function loadTasks() {
+            const tbody = document.getElementById('taskListBody');
+            const emptyState = document.getElementById('emptyTaskState');
+            
+            tbody.innerHTML = '<tr><td colspan="8" class="p-8 text-center"><i class="fa-solid fa-spinner fa-spin text-2xl text-gray-400"></i><p class="mt-2 text-gray-500">Loading tasks...</p></td></tr>';
+            emptyState.classList.add('hidden');
+            selectedTasks.clear();
+            updateBulkActionsBar();
+            
+            // Load stats
+            google.script.run.withSuccessHandler(stats => {
+                document.getElementById('statTotal').textContent = stats.total;
+                document.getElementById('statActive').textContent = stats.active;
+                document.getElementById('statHuman').textContent = stats.human;
+                document.getElementById('statAccepted').textContent = stats.accepted;
+            }).getTaskStats();
+            
+            // Load tasks with current filters
+            const filters = {
+                jobId: document.getElementById('taskJobFilter').value,
+                status: document.getElementById('taskStatusFilter').value
+            };
+            
+            google.script.run.withSuccessHandler(result => {
+                allTasks = result.tasks;
+                cachedJobIds = result.jobIds;
+                updateJobFilter(cachedJobIds);
+                renderTasks(result.tasks);
+            }).withFailureHandler(err => {
+                tbody.innerHTML = `<tr><td colspan="8" class="p-4 text-center text-red-500">Error loading tasks: ${err.message}</td></tr>`;
+                showToast("Error loading tasks", "error");
+            }).getAllTasks(filters);
+        }
+
+        function filterTasks() {
+            // Server-side filtering
+            loadTasks();
+        }
+
+        function updateJobFilter(jobIds) {
+            const filter = document.getElementById('taskJobFilter');
+            const currentVal = filter.value;
+            
+            filter.innerHTML = '<option value="all">All Jobs</option>';
+            jobIds.forEach(j => {
+                const opt = document.createElement('option');
+                opt.value = j;
+                opt.text = "Job " + j;
+                if(String(j) === currentVal) opt.selected = true;
+                filter.appendChild(opt);
+            });
+        }
+
+        function renderTasks(tasks) {
+            const tbody = document.getElementById('taskListBody');
+            const emptyState = document.getElementById('emptyTaskState');
+            
+            tbody.innerHTML = '';
+            
+            if(!tasks || tasks.length === 0) {
+                tbody.parentElement.parentElement.classList.add('hidden');
+                emptyState.classList.remove('hidden');
+                return;
+            }
+            
+            tbody.parentElement.parentElement.classList.remove('hidden');
+            emptyState.classList.add('hidden');
+            
+            tasks.forEach(t => {
+                let badgeClass = 'badge-initial';
+                if(t.tags.includes('Human')) badgeClass = 'badge-human';
+                else if(t.status === 'Offer Accepted') badgeClass = 'badge-completed';
+                else if(t.tags.includes('AI-Attempt-2')) badgeClass = 'badge-ai-2';
+                else if(t.tags.includes('AI-Attempt-1')) badgeClass = 'badge-ai-1';
+                else if(t.tags.includes('Initial')) badgeClass = 'badge-initial';
+
+                const row = document.createElement('tr');
+                row.className = 'task-row hover:bg-gray-50 dark:hover:bg-gray-700/50 transition';
+                row.dataset.email = t.email;
+                
+                const hasNotes = t.aiNotes && t.aiNotes.length > 0;
+                
+                row.innerHTML = `
+                    <td class="px-3 py-3 text-center">
+                        <input type="checkbox" class="task-check" onchange="toggleTaskSelection('${t.email}')" ${selectedTasks.has(t.email) ? 'checked' : ''}>
+                    </td>
+                    <td class="px-4 py-3 font-mono text-sm text-gray-600 dark:text-gray-400">${t.jobId}</td>
+                    <td class="px-4 py-3 font-semibold text-gray-900 dark:text-white">${t.name || 'Unknown'}</td>
+                    <td class="px-4 py-3 text-gray-600 dark:text-gray-300 text-sm">${t.email}</td>
+                    <td class="px-4 py-3">
+                        <span class="px-2.5 py-1 rounded-md text-xs font-bold ${badgeClass}">
+                            ${t.tags}
+                        </span>
+                    </td>
+                    <td class="px-4 py-3">
+                        ${hasNotes ? `
+                            <button onclick="showNotes(\`${encodeURIComponent(t.aiNotes)}\`)" class="text-xs text-left text-gray-600 dark:text-gray-300 hover:text-blue-600 flex items-center gap-1 max-w-[200px] group">
+                                <i class="fa-solid fa-comment-dots text-blue-500 flex-shrink-0"></i>
+                                <span class="truncate">${t.aiNotes.substring(0, 40)}${t.aiNotes.length > 40 ? '...' : ''}</span>
+                                <i class="fa-solid fa-expand text-gray-400 group-hover:text-blue-500 flex-shrink-0 ml-1"></i>
+                            </button>
+                        ` : '<span class="text-xs text-gray-400">-</span>'}
+                    </td>
+                    <td class="px-4 py-3 text-xs text-gray-500">${t.lastReply || 'N/A'}</td>
+                    <td class="px-4 py-3 text-right">
+                        <div class="flex gap-1 justify-end">
+                            ${t.threadId ? `
+                                <a href="https://mail.google.com/mail/u/0/#inbox/${t.threadId}" target="_blank" class="tooltip text-xs bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-600 dark:text-gray-300 px-2.5 py-1.5 rounded-lg" data-tooltip="View in Gmail">
+                                    <i class="fa-solid fa-envelope-open"></i>
+                                </a>
+                            ` : ''}
+                            <button onclick="markAsDone('${t.email}', this)" class="text-xs bg-white border border-gray-300 hover:bg-green-50 hover:border-green-300 dark:bg-gray-700 dark:border-gray-600 dark:hover:bg-green-900/20 text-gray-700 dark:text-gray-200 px-2.5 py-1.5 rounded-lg font-bold transition">
+                                <i class="fa-solid fa-check text-green-500"></i>
+                            </button>
+                        </div>
+                    </td>
+                `;
+                tbody.appendChild(row);
+            });
+        }
+
+        function showNotes(encodedNotes) {
+            try {
+                const notes = decodeURIComponent(encodedNotes);
+                document.getElementById('notesModalContent').innerText = notes;
+                document.getElementById('notesModal').classList.remove('hidden');
+            } catch(e) {
+                console.error("Error showing notes:", e);
+                document.getElementById('notesModalContent').innerText = "Could not load notes";
+                document.getElementById('notesModal').classList.remove('hidden');
+            }
+        }
+
+        function toggleTaskSelection(email) {
+            if(selectedTasks.has(email)) {
+                selectedTasks.delete(email);
+            } else {
+                selectedTasks.add(email);
+            }
+            updateBulkActionsBar();
+            
+            // Update row highlight
+            document.querySelectorAll('.task-row').forEach(row => {
+                if(row.dataset.email === email) {
+                    row.classList.toggle('selected', selectedTasks.has(email));
+                }
+            });
+        }
+        
+        function toggleAllTasks(master) {
+            const checks = document.querySelectorAll('.task-check');
+            checks.forEach(c => {
+                c.checked = master.checked;
+                const row = c.closest('.task-row');
+                if(row) {
+                    const email = row.dataset.email;
+                    if(master.checked) {
+                        selectedTasks.add(email);
+                        row.classList.add('selected');
+                    } else {
+                        selectedTasks.delete(email);
+                        row.classList.remove('selected');
+                    }
+                }
+            });
+            updateBulkActionsBar();
+        }
+        
+        function clearTaskSelection() {
+            selectedTasks.clear();
+            document.querySelectorAll('.task-check').forEach(c => c.checked = false);
+            document.querySelectorAll('.task-row').forEach(r => r.classList.remove('selected'));
+            document.querySelector('.task-master-check').checked = false;
+            updateBulkActionsBar();
+        }
+        
+        function updateBulkActionsBar() {
+            const bar = document.getElementById('bulkActionsBar');
+            const count = document.getElementById('bulkSelectedCount');
+            
+            if(selectedTasks.size > 0) {
+                bar.classList.remove('hidden');
+                count.textContent = selectedTasks.size;
+            } else {
+                bar.classList.add('hidden');
+            }
+        }
+        
+        function bulkCompleteSelected() {
+            if(selectedTasks.size === 0) return;
+            
+            if(!confirm(`Complete ${selectedTasks.size} selected tasks?`)) return;
+            
+            const emails = Array.from(selectedTasks);
+            
+            showToast(`Completing ${emails.length} tasks...`, "info");
+            
+            google.script.run
+                .withSuccessHandler(result => {
+                    showToast(`Completed ${result.success} tasks`, "success");
+                    if(result.failed > 0) {
+                        showToast(`${result.failed} failed`, "warning");
+                    }
+                    loadTasks();
+                })
+                .withFailureHandler(err => {
+                    showToast("Error: " + err.message, "error");
+                })
+                .bulkComplete(emails, "Bulk Completed");
+        }
+
+        function markAsDone(email, btn) {
+            const row = btn.closest('.task-row');
+            row.classList.add('processing');
+            
+            const originalHtml = btn.innerHTML;
+            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>';
+            btn.disabled = true;
+            
+            google.script.run
+                .withSuccessHandler(result => {
+                    if(result.success) {
+                        showToast("Task completed!", "success");
+                        loadTasks();
+                    } else {
+                        showToast("Error: " + result.message, "error");
+                        row.classList.remove('processing');
+                        btn.innerHTML = originalHtml;
+                        btn.disabled = false;
+                    }
+                })
+                .withFailureHandler(err => {
+                    showToast("Error: " + err.message, "error");
+                    row.classList.remove('processing');
+                    btn.innerHTML = originalHtml;
+                    btn.disabled = false;
+                })
+                .moveToCompleted(email, "Manually Completed");
+        }
+
+        // ===== CONFIG & UTILS =====
+        function openConfigModal() { 
+            document.getElementById('configModal').classList.remove('hidden'); 
+        }
+        
+        function saveConfig() { 
+            const url = document.getElementById('sheetUrl').value;
+            if(!url) {
+                showToast("Please enter a valid URL", "warning");
+                return;
+            }
+            
+            google.script.run
+                .withSuccessHandler(() => {
+                    showToast("Settings saved!", "success");
+                    document.getElementById('configModal').classList.add('hidden');
+                })
+                .withFailureHandler(err => showToast("Error: " + err.message, "error"))
+                .saveLogSheetUrl(url);
+        }
+        
+        function toggleDarkMode() { 
+            document.documentElement.classList.toggle('dark'); 
+        }
+        
+        // ===== INIT =====
+        $(document).ready(() => { 
+            google.script.run.withSuccessHandler(url => {
+                document.getElementById('sheetUrl').value = url || '';
+            }).getStoredSheetUrl(); 
+        });
+    </script>
+</body>
+</html>
