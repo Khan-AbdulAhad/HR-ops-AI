@@ -1,4 +1,4 @@
-# Turing AI Recruiter V11
+# Turing AI Recruiter V12
 
 A Google Apps Script-based recruitment automation platform for managing developer outreach, AI-powered rate negotiation, and automated follow-up emails.
 
@@ -51,6 +51,13 @@ A Google Apps Script-based recruitment automation platform for managing develope
 - **Data Consumption Logging**: Tracks BigQuery usage, email sends, and API calls
 - **Manual Sent Logs**: Mark candidates as contacted outside this system
 - **Agency/Subcontractor Detection**: Identifies independent vs agency developers
+
+### Daily Reports
+- **Automated Daily Reports**: Get activity summaries emailed to you
+- **Per-Job Statistics**: AI replies, human negotiations, data gathering, follow-ups per Job ID
+- **HTML Table Format**: Beautiful email reports with stats cards and tables
+- **Historical Tracking**: All reports saved to Daily_Reports sheet for reference
+- **Trigger Support**: Set up daily triggers to receive automated reports
 
 ---
 
@@ -314,6 +321,7 @@ The app automatically creates these sheets:
 | `Manual_Sent_Logs` | Candidates marked as manually contacted |
 | `Data_Fetch_Logs` | API usage and data consumption tracking |
 | `Follow_Up_Queue` | Automated follow-up status tracking |
+| `Daily_Reports` | Historical daily activity reports per Job ID |
 | `Job_XXXXX_Details` | Per-job candidate details (created dynamically) |
 
 ### Adding FAQs
