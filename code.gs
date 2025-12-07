@@ -51,7 +51,7 @@ function saveLogSheetUrl(url) {
 }
 
 function ensureSheetsExist(ss) {
-  const sheets = ['Email_Logs', 'Email_Templates', 'Negotiation_Config', 'Negotiation_Tasks', 'Negotiation_State', 'Negotiation_FAQs', 'Negotiation_Completed'];
+  const sheets = ['Email_Logs', 'Email_Templates', 'Negotiation_Config', 'Negotiation_Tasks', 'Negotiation_State', 'Negotiation_FAQs', 'Negotiation_Completed', 'Rate_Tiers'];
   sheets.forEach(name => {
     if (!ss.getSheetByName(name)) ss.insertSheet(name);
   });
@@ -61,16 +61,30 @@ function ensureSheetsExist(ss) {
   if (confSheet.getLastRow() === 0) confSheet.appendRow(['Job ID', 'Target Rate', 'Max Rate', 'Style', 'Special Rules', 'Job Description', 'Last Updated']);
 
   const taskSheet = ss.getSheetByName('Negotiation_Tasks');
-  if (taskSheet.getLastRow() === 0) taskSheet.appendRow(['Timestamp', 'Job ID', 'Name', 'Email', 'Agreed Rate', 'Status', 'Dev ID', 'Thread ID']);
+  if (taskSheet.getLastRow() === 0) taskSheet.appendRow(['Timestamp', 'Job ID', 'Name', 'Email', 'Agreed Rate', 'Status', 'Dev ID', 'Thread ID', 'Region']);
 
+  // UPDATED: Added Region column to track developer's region for rate tiers
   const stateSheet = ss.getSheetByName('Negotiation_State');
-  if (stateSheet.getLastRow() === 0) stateSheet.appendRow(['Email', 'Job ID', 'Attempt Count', 'Last Offer', 'Status', 'Last Reply Time', 'Dev ID', 'Name', 'AI Notes', 'Thread ID']);
+  if (stateSheet.getLastRow() === 0) stateSheet.appendRow(['Email', 'Job ID', 'Attempt Count', 'Last Offer', 'Status', 'Last Reply Time', 'Dev ID', 'Name', 'AI Notes', 'Thread ID', 'Region']);
 
   const faqSheet = ss.getSheetByName('Negotiation_FAQs');
   if (faqSheet.getLastRow() === 0) faqSheet.appendRow(['Question', 'Answer']);
 
   const compSheet = ss.getSheetByName('Negotiation_Completed');
-  if (compSheet.getLastRow() === 0) compSheet.appendRow(['Timestamp', 'Job ID', 'Email', 'Name', 'Final Status', 'Notes', 'Dev ID']);
+  if (compSheet.getLastRow() === 0) compSheet.appendRow(['Timestamp', 'Job ID', 'Email', 'Name', 'Final Status', 'Notes', 'Dev ID', 'Region']);
+
+  // Rate Tiers sheet - for region-based rate management
+  const rateTiersSheet = ss.getSheetByName('Rate_Tiers');
+  if (rateTiersSheet.getLastRow() === 0) {
+    rateTiersSheet.appendRow(['Job ID', 'Region', 'Target Rate', 'Max Rate', 'Notes']);
+    // Add example data for reference
+    rateTiersSheet.appendRow(['EXAMPLE', 'US/Canada', 35, 45, 'Tier 1 - High cost regions']);
+    rateTiersSheet.appendRow(['EXAMPLE', 'Europe', 30, 40, 'Tier 2 - Medium-high cost']);
+    rateTiersSheet.appendRow(['EXAMPLE', 'LATAM', 20, 28, 'Tier 3 - Medium cost']);
+    rateTiersSheet.appendRow(['EXAMPLE', 'APAC', 18, 25, 'Tier 4 - Lower cost']);
+    rateTiersSheet.appendRow(['EXAMPLE', 'India', 15, 22, 'Tier 5 - Lowest cost']);
+    rateTiersSheet.appendRow(['EXAMPLE', 'Default', 25, 35, 'Fallback for unknown regions']);
+  }
 
   // Note: Job-specific details sheets (Job_XXX_Details) are created dynamically
   // when outreach emails are sent - see getOrCreateJobDetailsSheet()
@@ -153,6 +167,368 @@ function getFAQs() {
     }
   }
   return faqText;
+}
+
+// --- RATE TIERS MANAGEMENT (Region-Based Pricing) ---
+
+/**
+ * Get all rate tiers for a specific job
+ * Returns array of tier objects: { region, targetRate, maxRate, notes }
+ */
+function getRateTiersForJob(jobId) {
+  const url = getStoredSheetUrl();
+  if(!url) return [];
+
+  const ss = SpreadsheetApp.openByUrl(url);
+  const sheet = ss.getSheetByName('Rate_Tiers');
+  if(!sheet) return [];
+
+  const data = sheet.getDataRange().getValues();
+  const tiers = [];
+
+  for(let i=1; i<data.length; i++) {
+    if(String(data[i][0]) === String(jobId)) {
+      tiers.push({
+        region: data[i][1],
+        targetRate: Number(data[i][2]) || 0,
+        maxRate: Number(data[i][3]) || 0,
+        notes: data[i][4] || ''
+      });
+    }
+  }
+
+  return tiers;
+}
+
+/**
+ * Country-to-Region mapping for flexible matching
+ * Maps common country names/codes to their tier regions
+ */
+const COUNTRY_TO_REGION_MAP = {
+  // India
+  'india': 'India',
+  'in': 'India',
+  'ind': 'India',
+
+  // US/Canada (North America Tier 1)
+  'us': 'US/Canada',
+  'usa': 'US/Canada',
+  'united states': 'US/Canada',
+  'america': 'US/Canada',
+  'canada': 'US/Canada',
+  'ca': 'US/Canada',
+
+  // Europe
+  'uk': 'Europe',
+  'united kingdom': 'Europe',
+  'england': 'Europe',
+  'germany': 'Europe',
+  'de': 'Europe',
+  'france': 'Europe',
+  'fr': 'Europe',
+  'spain': 'Europe',
+  'es': 'Europe',
+  'italy': 'Europe',
+  'it': 'Europe',
+  'netherlands': 'Europe',
+  'nl': 'Europe',
+  'poland': 'Europe',
+  'pl': 'Europe',
+  'portugal': 'Europe',
+  'sweden': 'Europe',
+  'norway': 'Europe',
+  'denmark': 'Europe',
+  'finland': 'Europe',
+  'ireland': 'Europe',
+  'austria': 'Europe',
+  'switzerland': 'Europe',
+  'belgium': 'Europe',
+  'europe': 'Europe',
+  'eu': 'Europe',
+
+  // LATAM (Latin America)
+  'mexico': 'LATAM',
+  'mx': 'LATAM',
+  'brazil': 'LATAM',
+  'br': 'LATAM',
+  'argentina': 'LATAM',
+  'ar': 'LATAM',
+  'colombia': 'LATAM',
+  'co': 'LATAM',
+  'chile': 'LATAM',
+  'cl': 'LATAM',
+  'peru': 'LATAM',
+  'pe': 'LATAM',
+  'venezuela': 'LATAM',
+  'ecuador': 'LATAM',
+  'uruguay': 'LATAM',
+  'costa rica': 'LATAM',
+  'panama': 'LATAM',
+  'latam': 'LATAM',
+  'latin america': 'LATAM',
+  'south america': 'LATAM',
+
+  // APAC (Asia-Pacific excluding India)
+  'china': 'APAC',
+  'cn': 'APAC',
+  'japan': 'APAC',
+  'jp': 'APAC',
+  'korea': 'APAC',
+  'south korea': 'APAC',
+  'kr': 'APAC',
+  'australia': 'APAC',
+  'au': 'APAC',
+  'new zealand': 'APAC',
+  'nz': 'APAC',
+  'singapore': 'APAC',
+  'sg': 'APAC',
+  'malaysia': 'APAC',
+  'my': 'APAC',
+  'indonesia': 'APAC',
+  'id': 'APAC',
+  'philippines': 'APAC',
+  'ph': 'APAC',
+  'vietnam': 'APAC',
+  'vn': 'APAC',
+  'thailand': 'APAC',
+  'th': 'APAC',
+  'taiwan': 'APAC',
+  'tw': 'APAC',
+  'hong kong': 'APAC',
+  'hk': 'APAC',
+  'apac': 'APAC',
+  'asia': 'APAC',
+  'asia pacific': 'APAC',
+
+  // Eastern Europe (often separate tier)
+  'ukraine': 'Eastern Europe',
+  'ua': 'Eastern Europe',
+  'russia': 'Eastern Europe',
+  'ru': 'Eastern Europe',
+  'romania': 'Eastern Europe',
+  'ro': 'Eastern Europe',
+  'bulgaria': 'Eastern Europe',
+  'bg': 'Eastern Europe',
+  'czech': 'Eastern Europe',
+  'czech republic': 'Eastern Europe',
+  'cz': 'Eastern Europe',
+  'hungary': 'Eastern Europe',
+  'hu': 'Eastern Europe',
+  'serbia': 'Eastern Europe',
+  'croatia': 'Eastern Europe',
+  'eastern europe': 'Eastern Europe',
+
+  // Africa
+  'nigeria': 'Africa',
+  'ng': 'Africa',
+  'kenya': 'Africa',
+  'ke': 'Africa',
+  'south africa': 'Africa',
+  'za': 'Africa',
+  'egypt': 'Africa',
+  'eg': 'Africa',
+  'ghana': 'Africa',
+  'morocco': 'Africa',
+  'africa': 'Africa',
+
+  // Middle East
+  'israel': 'Middle East',
+  'il': 'Middle East',
+  'uae': 'Middle East',
+  'dubai': 'Middle East',
+  'saudi arabia': 'Middle East',
+  'sa': 'Middle East',
+  'pakistan': 'Middle East',
+  'pk': 'Middle East',
+  'bangladesh': 'Middle East',
+  'bd': 'Middle East',
+  'middle east': 'Middle East'
+};
+
+/**
+ * Normalize region/country to a standard tier name
+ */
+function normalizeRegion(regionInput) {
+  if(!regionInput) return '';
+
+  const cleanInput = String(regionInput).toLowerCase().trim();
+
+  // Direct mapping lookup
+  if(COUNTRY_TO_REGION_MAP[cleanInput]) {
+    return COUNTRY_TO_REGION_MAP[cleanInput];
+  }
+
+  // Return as-is if it's already a standard tier name
+  const standardTiers = ['india', 'us/canada', 'europe', 'latam', 'apac', 'eastern europe', 'africa', 'middle east', 'default'];
+  if(standardTiers.includes(cleanInput)) {
+    // Capitalize properly
+    return cleanInput.split('/').map(s => s.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')).join('/');
+  }
+
+  // Return original input for custom regions
+  return regionInput;
+}
+
+/**
+ * Get rate tier for a specific region within a job
+ * Falls back to 'Default' tier if region not found, then to job's base config
+ * Now supports country names like "India", "US", "Mexico" etc.
+ */
+function getRateForRegion(jobId, region, ss) {
+  if(!ss) {
+    const url = getStoredSheetUrl();
+    if(!url) return null;
+    ss = SpreadsheetApp.openByUrl(url);
+  }
+
+  const sheet = ss.getSheetByName('Rate_Tiers');
+  if(!sheet) return null;
+
+  const data = sheet.getDataRange().getValues();
+
+  // Normalize the input region to a standard tier name
+  const normalizedRegion = normalizeRegion(region);
+  const cleanRegion = String(normalizedRegion || '').toLowerCase().trim();
+  const cleanJobId = String(jobId);
+
+  let exactMatch = null;
+  let defaultMatch = null;
+
+  for(let i=1; i<data.length; i++) {
+    if(String(data[i][0]) === cleanJobId) {
+      const tierRegion = String(data[i][1] || '').toLowerCase().trim();
+
+      // Check for exact match (case-insensitive)
+      if(tierRegion === cleanRegion) {
+        exactMatch = {
+          region: data[i][1],
+          targetRate: Number(data[i][2]) || 0,
+          maxRate: Number(data[i][3]) || 0,
+          notes: data[i][4] || ''
+        };
+        break;
+      }
+
+      // Check for partial match (region contains or is contained)
+      if(!exactMatch && (tierRegion.includes(cleanRegion) || cleanRegion.includes(tierRegion))) {
+        exactMatch = {
+          region: data[i][1],
+          targetRate: Number(data[i][2]) || 0,
+          maxRate: Number(data[i][3]) || 0,
+          notes: data[i][4] || ''
+        };
+      }
+
+      // Capture default tier
+      if(tierRegion === 'default') {
+        defaultMatch = {
+          region: 'Default',
+          targetRate: Number(data[i][2]) || 0,
+          maxRate: Number(data[i][3]) || 0,
+          notes: data[i][4] || ''
+        };
+      }
+    }
+  }
+
+  // Return exact match, or default, or null
+  return exactMatch || defaultMatch || null;
+}
+
+/**
+ * Save or update a rate tier for a job
+ */
+function saveRateTier(jobId, region, targetRate, maxRate, notes) {
+  const url = getStoredSheetUrl();
+  if(!url) return { success: false, message: "No config URL" };
+
+  const ss = SpreadsheetApp.openByUrl(url);
+  ensureSheetsExist(ss);
+
+  const sheet = ss.getSheetByName('Rate_Tiers');
+  const data = sheet.getDataRange().getValues();
+
+  const cleanJobId = String(jobId);
+  const cleanRegion = String(region || '').trim();
+
+  // Check if this tier already exists
+  for(let i=1; i<data.length; i++) {
+    if(String(data[i][0]) === cleanJobId &&
+       String(data[i][1]).toLowerCase() === cleanRegion.toLowerCase()) {
+      // Update existing row
+      sheet.getRange(i+1, 3, 1, 3).setValues([[targetRate, maxRate, notes || '']]);
+      return { success: true, message: "Updated existing tier", isUpdate: true };
+    }
+  }
+
+  // Add new row
+  sheet.appendRow([jobId, region, targetRate, maxRate, notes || '']);
+  return { success: true, message: "Added new tier", isUpdate: false };
+}
+
+/**
+ * Delete a rate tier
+ */
+function deleteRateTier(jobId, region) {
+  const url = getStoredSheetUrl();
+  if(!url) return { success: false, message: "No config URL" };
+
+  const ss = SpreadsheetApp.openByUrl(url);
+  const sheet = ss.getSheetByName('Rate_Tiers');
+  if(!sheet) return { success: false, message: "Rate_Tiers sheet not found" };
+
+  const data = sheet.getDataRange().getValues();
+  const cleanJobId = String(jobId);
+  const cleanRegion = String(region || '').toLowerCase().trim();
+
+  for(let i=data.length-1; i>=1; i--) {
+    if(String(data[i][0]) === cleanJobId &&
+       String(data[i][1]).toLowerCase() === cleanRegion) {
+      sheet.deleteRow(i+1);
+      return { success: true, message: "Tier deleted" };
+    }
+  }
+
+  return { success: false, message: "Tier not found" };
+}
+
+/**
+ * Copy rate tiers from one job to another (useful for similar jobs)
+ */
+function copyRateTiers(sourceJobId, targetJobId) {
+  const tiers = getRateTiersForJob(sourceJobId);
+  if(tiers.length === 0) return { success: false, message: "No tiers found for source job" };
+
+  let copied = 0;
+  tiers.forEach(tier => {
+    const result = saveRateTier(targetJobId, tier.region, tier.targetRate, tier.maxRate, tier.notes);
+    if(result.success) copied++;
+  });
+
+  return { success: true, message: `Copied ${copied} tiers to job ${targetJobId}` };
+}
+
+/**
+ * Get all unique regions used across all jobs (for UI dropdown)
+ */
+function getAllRegions() {
+  const url = getStoredSheetUrl();
+  if(!url) return [];
+
+  const ss = SpreadsheetApp.openByUrl(url);
+  const sheet = ss.getSheetByName('Rate_Tiers');
+  if(!sheet) return [];
+
+  const data = sheet.getDataRange().getValues();
+  const regions = new Set();
+
+  for(let i=1; i<data.length; i++) {
+    if(data[i][1] && data[i][0] !== 'EXAMPLE') {
+      regions.add(data[i][1]);
+    }
+  }
+
+  return Array.from(regions).sort();
 }
 
 // --- CANDIDATE DETAILS EXTRACTION (JOB-SPECIFIC SHEETS) ---
@@ -249,7 +625,7 @@ function getOrCreateJobDetailsSheet(ss, jobId, emailBody) {
 
   // Store questions metadata in first row as JSON (hidden later or in a config)
   // Build headers: fixed columns + dynamic question columns + status columns
-  const fixedHeaders = ['Timestamp', 'Email', 'Name', 'Dev ID', 'Thread ID'];
+  const fixedHeaders = ['Timestamp', 'Email', 'Name', 'Dev ID', 'Thread ID', 'Region'];
   const questionHeaders = questions.map(q => q.header);
   const statusHeaders = ['Negotiation Notes', 'Status', 'Agreed Rate'];
 
@@ -367,8 +743,17 @@ Return ONLY the JSON object, no other text.
 
 /**
  * Save or update candidate details in the job-specific sheet
+ * @param {Spreadsheet} ss - Spreadsheet object
+ * @param {string} jobId - Job ID
+ * @param {string} candidateEmail - Candidate's email
+ * @param {string} candidateName - Candidate's name
+ * @param {string} devId - Developer ID
+ * @param {string} threadId - Gmail thread ID
+ * @param {Object} answers - Extracted answers object
+ * @param {string} status - Current status
+ * @param {string} region - Developer's region for rate tier (optional)
  */
-function saveJobCandidateDetails(ss, jobId, candidateEmail, candidateName, devId, threadId, answers, status) {
+function saveJobCandidateDetails(ss, jobId, candidateEmail, candidateName, devId, threadId, answers, status, region) {
   const sheetName = `Job_${jobId}_Details`;
   const sheet = ss.getSheetByName(sheetName);
 
@@ -389,6 +774,7 @@ function saveJobCandidateDetails(ss, jobId, candidateEmail, candidateName, devId
   const nameColIdx = headers.indexOf('Name');
   const devIdColIdx = headers.indexOf('Dev ID');
   const threadIdColIdx = headers.indexOf('Thread ID');
+  const regionColIdx = headers.indexOf('Region');
   const notesColIdx = headers.indexOf('Negotiation Notes');
   const statusColIdx = headers.indexOf('Status');
   const agreedRateColIdx = headers.indexOf('Agreed Rate');
@@ -411,6 +797,7 @@ function saveJobCandidateDetails(ss, jobId, candidateEmail, candidateName, devId
   rowData[nameColIdx] = candidateName;
   rowData[devIdColIdx] = devId || 'N/A';
   rowData[threadIdColIdx] = threadId || '';
+  if(regionColIdx !== -1) rowData[regionColIdx] = region || '';
   rowData[notesColIdx] = answers.negotiation_notes || '';
   rowData[statusColIdx] = status || (answers.is_negotiating ? 'Negotiating' : 'Details Provided');
 
@@ -427,11 +814,16 @@ function saveJobCandidateDetails(ss, jobId, candidateEmail, candidateName, devId
     const existingRow = data[existingRowIndex - 1];
     for (let col = 0; col < headers.length; col++) {
       // For question columns, keep existing if new is empty/NOT_PROVIDED
-      if (col >= 5 && col < headers.length - 3) { // Question columns
+      // Region column is at index 5, questions start at 6
+      if (col >= 6 && col < headers.length - 3) { // Question columns
         if ((!rowData[col] || rowData[col] === 'NOT_PROVIDED') &&
             existingRow[col] && existingRow[col] !== 'NOT_PROVIDED') {
           rowData[col] = existingRow[col];
         }
+      }
+      // Keep existing region if new one is empty
+      if (col === regionColIdx && !rowData[col] && existingRow[col]) {
+        rowData[col] = existingRow[col];
       }
     }
     sheet.getRange(existingRowIndex, 1, 1, rowData.length).setValues([rowData]);
@@ -503,13 +895,16 @@ function getJobOutreachEmail(ss, jobId) {
 
 function getAllTasks(filters) {
   const url = getStoredSheetUrl();
-  if(!url) return { tasks: [], jobIds: [] };
-  
+  if(!url) return { tasks: [], jobIds: [], stats: { total: 0, active: 0, human: 0, accepted: 0 } };
+
   const ss = SpreadsheetApp.openByUrl(url);
-  ensureSheetsExist(ss);
-  
+  // Skip ensureSheetsExist here for speed - sheets should already exist
+
   const tasks = [];
   const jobIdSet = new Set();
+
+  // Stats counters
+  let statActive = 0, statHuman = 0, statAccepted = 0;
 
   // Apply filters if provided
   const jobFilter = filters?.jobId || 'all';
@@ -522,18 +917,25 @@ function getAllTasks(filters) {
   
   for(let i=1; i<stateData.length; i++) {
     if(!stateData[i][0]) continue;
-    
+
     const jobId = String(stateData[i][1]);
     const status = stateData[i][4] || 'Active';
     const attempts = Number(stateData[i][2]) || 0;
-    
+
     // Collect all job IDs for filter dropdown
     jobIdSet.add(jobId);
-    
+
+    // Count stats (always, regardless of filters)
+    if(status === 'Human-Negotiation') {
+      statHuman++;
+    } else {
+      statActive++;
+    }
+
     // Apply filters server-side
     if(jobFilter !== 'all' && jobId !== jobFilter) continue;
     if(statusFilter !== 'all' && status !== statusFilter) continue;
-    
+
     let tag = '';
     if(status === 'Human-Negotiation') {
       tag = 'Human-Negotiation';
@@ -558,21 +960,25 @@ function getAllTasks(filters) {
     });
   }
 
-  // 2. Get Accepted Offers (Tasks) - only if status filter allows
-  if(statusFilter === 'all' || statusFilter === 'Offer Accepted') {
-    const taskSheet = ss.getSheetByName('Negotiation_Tasks');
+  // 2. Get Accepted Offers (Tasks) - always count for stats, filter for display
+  const taskSheet = ss.getSheetByName('Negotiation_Tasks');
+  if(taskSheet) {
     const taskData = taskSheet.getDataRange().getValues();
-    
+
     for(let i=1; i<taskData.length; i++) {
       if(!taskData[i][3]) continue;
       if(taskData[i][5] === 'Archived') continue;
-      
+
       const jobId = String(taskData[i][1]);
       jobIdSet.add(jobId);
-      
-      // Apply job filter
+
+      // Count for stats (always)
+      statAccepted++;
+
+      // Apply filters for display
+      if(statusFilter !== 'all' && statusFilter !== 'Offer Accepted') continue;
       if(jobFilter !== 'all' && jobId !== jobFilter) continue;
-      
+
       tasks.push({
         email: taskData[i][3],
         jobId: jobId,
@@ -589,9 +995,15 @@ function getAllTasks(filters) {
     }
   }
 
-  return { 
-    tasks: tasks, 
-    jobIds: Array.from(jobIdSet).sort() 
+  return {
+    tasks: tasks,
+    jobIds: Array.from(jobIdSet).sort(),
+    stats: {
+      total: statActive + statHuman + statAccepted,
+      active: statActive,
+      human: statHuman,
+      accepted: statAccepted
+    }
   };
 }
 
@@ -851,14 +1263,15 @@ function sendBulkEmails(recipients, senderName, subject, htmlBody, jobId, opts) 
       // Log the email
       logSheet.appendRow([new Date(), jobId, r.email, r.name, threadId, "Initial"]);
 
-      // Add to state with thread ID
-      stateSheet.appendRow([r.email, jobId, 0, "Initial Sent", "Initial Outreach", new Date(), r.devId || "N/A", r.name, "", threadId]);
+      // Add to state with thread ID and Region (column 11)
+      const region = r.region || '';
+      stateSheet.appendRow([r.email, jobId, 0, "Initial Sent", "Initial Outreach", new Date(), r.devId || "N/A", r.name, "", threadId, region]);
       existingEmails.add(emailKey);
 
-      // Add candidate to job details sheet with initial status
+      // Add candidate to job details sheet with initial status and region
       try {
         const initialAnswers = { is_negotiating: false, negotiation_notes: '' };
-        saveJobCandidateDetails(ss, jobId, r.email, r.name, r.devId || 'N/A', threadId, initialAnswers, 'Outreach Sent');
+        saveJobCandidateDetails(ss, jobId, r.email, r.name, r.devId || 'N/A', threadId, initialAnswers, 'Outreach Sent', region);
       } catch(detailsError) {
         console.error("Failed to add candidate to details sheet:", detailsError);
       }
@@ -1059,7 +1472,8 @@ function processJobNegotiations(jobId, rules, ss, faqContent) {
       attempts: Number(stateData[r][2]) || 0,
       status: stateData[r][4],
       name: stateData[r][7] || 'Unknown',
-      devId: stateData[r][6] || 'N/A'
+      devId: stateData[r][6] || 'N/A',
+      region: stateData[r][10] || '' // Column 11 = Region
     });
   }
   
@@ -1108,11 +1522,12 @@ function processJobNegotiations(jobId, rules, ss, faqContent) {
     // Get state from cache
     const stateKey = cleanCandidateEmail + '_' + String(jobId);
     const state = stateMap.get(stateKey);
-    
+
     let stateRowIndex = state ? state.rowIndex : -1;
     let attempts = state ? state.attempts : 0;
     let candidateName = state ? state.name : 'Unknown';
     let devId = state ? state.devId : 'N/A';
+    let candidateRegion = state ? state.region : '';
     
     if (state && state.status === 'Human-Negotiation') {
       jobStats.skipped++;
@@ -1163,10 +1578,21 @@ function processJobNegotiations(jobId, rules, ss, faqContent) {
     }
 
     const isFirstResponse = attempts === 0;
-    
+
     // Calculate offer amounts based on attempt
-    const targetRate = Number(rules.target) || 25;
-    const maxRate = Number(rules.max) || 30;
+    // Use region-specific rates if available, otherwise fall back to job config rates
+    let targetRate = Number(rules.target) || 25;
+    let maxRate = Number(rules.max) || 30;
+
+    if (candidateRegion) {
+      const regionRates = getRateForRegion(jobId, candidateRegion, ss);
+      if (regionRates) {
+        targetRate = regionRates.targetRate || targetRate;
+        maxRate = regionRates.maxRate || maxRate;
+        jobStats.log.push({type: 'info', message: `${candidateEmail} - Using ${regionRates.region || candidateRegion} region rates: target=$${targetRate}, max=$${maxRate}`});
+      }
+    }
+
     const firstOfferRate = Math.round(targetRate * 0.7); // 70% of target for first offer
     const secondOfferRate = targetRate; // 100% of target for second offer
     const currentOfferRate = attempts === 0 ? firstOfferRate : secondOfferRate;
@@ -1303,11 +1729,10 @@ Respond with ONLY the email text OR the ACTION code. No other explanations.
       if(attempts < 2) {
         // Force negotiation on early attempts
         jobStats.log.push({type: 'warning', message: `${candidateEmail} - Attempt ${attempts + 1}/2: AI wanted to escalate, forcing negotiation`});
-        
+
         const candidateMessage = lastMsg.getPlainBody().substring(0, 500);
-        
-        // Calculate offer for this attempt
-        const targetRate = Number(rules.target) || 25;
+
+        // Use already-calculated region-specific rates (targetRate and maxRate are set above)
         const currentOffer = attempts === 0 ? Math.round(targetRate * 0.7) : targetRate;
         
         const retryPrompt = `
@@ -1319,7 +1744,7 @@ CANDIDATE'S ACTUAL MESSAGE:
 CANDIDATE NAME: ${candidateName}
 
 YOUR OFFER FOR THIS ATTEMPT: $${currentOffer}/hr
-(You can go slightly higher if they push back, up to $${rules.max}/hr maximum)
+(You can go slightly higher if they push back, up to $${maxRate}/hr maximum)
 
 JOB CONTEXT:
 ${rules.jobDescription || 'Freelance AI/Tech role'}
