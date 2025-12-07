@@ -31,8 +31,21 @@ const STAGE_CONFIG = {
 
 function doGet() {
   return HtmlService.createHtmlOutputFromFile('index')
-      .setTitle('Turing AI Recruiter V10')
+      .setTitle('Turing AI Recruiter V11')
       .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+}
+
+/**
+ * Get the currently logged-in user's email
+ * Used to display who is logged in and track data consumption
+ */
+function getUserEmail() {
+  try {
+    return Session.getActiveUser().getEmail() || '';
+  } catch(e) {
+    console.error("Could not get user email:", e);
+    return '';
+  }
 }
 
 function getStoredSheetUrl() {
@@ -51,7 +64,8 @@ function saveLogSheetUrl(url) {
 }
 
 function ensureSheetsExist(ss) {
-  const sheets = ['Email_Logs', 'Email_Templates', 'Negotiation_Config', 'Negotiation_Tasks', 'Negotiation_State', 'Negotiation_FAQs', 'Negotiation_Completed', 'Rate_Tiers'];
+  // Include new sheets: Manual_Sent_Logs, Data_Fetch_Logs, Follow_Up_Queue
+  const sheets = ['Email_Logs', 'Email_Templates', 'Negotiation_Config', 'Negotiation_Tasks', 'Negotiation_State', 'Negotiation_FAQs', 'Negotiation_Completed', 'Rate_Tiers', 'Manual_Sent_Logs', 'Data_Fetch_Logs', 'Follow_Up_Queue'];
   sheets.forEach(name => {
     if (!ss.getSheetByName(name)) ss.insertSheet(name);
   });
@@ -88,6 +102,311 @@ function ensureSheetsExist(ss) {
 
   // Note: Job-specific details sheets (Job_XXX_Details) are created dynamically
   // when outreach emails are sent - see getOrCreateJobDetailsSheet()
+
+  // Email_Templates sheet - for saving/loading email templates
+  const templatesSheet = ss.getSheetByName('Email_Templates');
+  if (templatesSheet.getLastRow() === 0) templatesSheet.appendRow(['Template Name', 'Subject', 'Body', 'Job ID', 'Created Date']);
+
+  // Manual_Sent_Logs sheet - for tracking manually sent emails outside this system
+  const manualSentSheet = ss.getSheetByName('Manual_Sent_Logs');
+  if (manualSentSheet.getLastRow() === 0) manualSentSheet.appendRow(['Timestamp', 'Job ID', 'Developer ID', 'Email', 'Name', 'Note', 'Marked By']);
+
+  // Data_Fetch_Logs sheet - for tracking data consumption with user info
+  const dataFetchSheet = ss.getSheetByName('Data_Fetch_Logs');
+  if (dataFetchSheet.getLastRow() === 0) dataFetchSheet.appendRow(['Timestamp', 'Source', 'Context', 'Data Size (Bytes)', 'Duration (ms)', 'Details', 'User']);
+
+  // Follow_Up_Queue sheet - for tracking automated follow-ups (12hr and 28hr)
+  const followUpSheet = ss.getSheetByName('Follow_Up_Queue');
+  if (followUpSheet.getLastRow() === 0) followUpSheet.appendRow(['Email', 'Job ID', 'Thread ID', 'Name', 'Dev ID', 'Initial Send Time', 'Follow Up 1 Sent', 'Follow Up 2 Sent', 'Status', 'Last Updated'])
+}
+
+// --- DATA CONSUMPTION LOGGING ---
+
+/**
+ * Log data consumption for tracking/auditing purposes
+ * @param {string} source - Where data came from (BigQuery, OpenAI, Gmail, etc.)
+ * @param {string} context - What the data was used for (Job-51000, Negotiation, etc.)
+ * @param {number} byteSize - Size of data in bytes
+ * @param {number} durationMs - How long the operation took in milliseconds
+ * @param {string} details - Additional details about the operation
+ */
+function logDataConsumption(source, context, byteSize, durationMs, details) {
+  const url = getStoredSheetUrl();
+  if(!url) return;
+
+  try {
+    const ss = SpreadsheetApp.openByUrl(url);
+
+    // Get current user email
+    let userEmail = 'System/Automated';
+    try {
+      const email = Session.getActiveUser().getEmail();
+      if (email) userEmail = email;
+    } catch (e) {
+      // Fallback if permission issues or running in a context without a user
+    }
+
+    let sheet = ss.getSheetByName('Data_Fetch_Logs');
+    if (!sheet) {
+      sheet = ss.insertSheet('Data_Fetch_Logs');
+      sheet.appendRow(['Timestamp', 'Source', 'Context', 'Data Size (Bytes)', 'Duration (ms)', 'Details', 'User']);
+    }
+
+    sheet.appendRow([
+      new Date(),
+      source,
+      context,
+      byteSize,
+      durationMs,
+      details || '',
+      userEmail
+    ]);
+  } catch (e) {
+    console.error("Failed to log data consumption:", e);
+  }
+}
+
+// --- MANUAL SENT LOGS ---
+
+/**
+ * Get manual sent logs for a job
+ * @param {number} jobId - The Job ID to get logs for
+ * @returns {Map} Map of developer IDs to their manual sent info
+ */
+function getManualSentLogs(jobId) {
+  const url = getStoredSheetUrl();
+  if (!url) return new Map();
+
+  try {
+    const ss = SpreadsheetApp.openByUrl(url);
+    const sheet = ss.getSheetByName("Manual_Sent_Logs");
+    if (!sheet) return new Map();
+
+    const lastRow = sheet.getLastRow();
+    if (lastRow <= 1) return new Map();
+
+    const data = sheet.getDataRange().getValues();
+    const logMap = new Map();
+
+    for (let i = 1; i < data.length; i++) {
+      // Column B (index 1) = Job ID, Column C (index 2) = Developer ID
+      if (String(data[i][1]) === String(jobId)) {
+        const devId = String(data[i][2]);
+        const note = data[i][5] || '';
+
+        if (!logMap.has(devId)) {
+          logMap.set(devId, { count: 0, note: note });
+        }
+        logMap.get(devId).count++;
+        // Keep the most recent note
+        if (note) {
+          logMap.get(devId).note = note;
+        }
+      }
+    }
+
+    console.log(`Found ${logMap.size} manual sent entries for Job ${jobId}`);
+    return logMap;
+  } catch(e) {
+    console.error("Error reading Manual_Sent_Logs:", e);
+    return new Map();
+  }
+}
+
+/**
+ * Mark developers as manually sent (sent outside this system)
+ * @param {Array} developerIds - Array of developer IDs to mark
+ * @param {string} jobId - The Job ID
+ * @param {string} note - Optional note about why/how they were sent
+ */
+function markAsManualSent(developerIds, jobId, note) {
+  const url = getStoredSheetUrl();
+  if (!url) return { success: false, error: "No config URL set" };
+
+  try {
+    const ss = SpreadsheetApp.openByUrl(url);
+    ensureSheetsExist(ss);
+
+    const sheet = ss.getSheetByName("Manual_Sent_Logs");
+    if (!sheet) {
+      return { success: false, error: "Manual_Sent_Logs sheet not found" };
+    }
+
+    const markedBy = Session.getActiveUser().getEmail() || 'Unknown';
+    const timestamp = new Date();
+    let marked = 0;
+
+    developerIds.forEach(devId => {
+      // Schema: Timestamp, Job ID, Developer ID, Email, Name, Note, Marked By
+      sheet.appendRow([
+        timestamp,
+        jobId,
+        devId,
+        '',  // Email - optional, can be filled later
+        '',  // Name - optional
+        note || 'Manually marked as sent',
+        markedBy
+      ]);
+      marked++;
+    });
+
+    SpreadsheetApp.flush();
+
+    console.log(`Marked ${marked} developers as manually sent for Job ${jobId}`);
+    return { success: true, marked: marked };
+
+  } catch (e) {
+    console.error("Error in markAsManualSent:", e);
+    return { success: false, error: e.message };
+  }
+}
+
+// --- EMAIL TEMPLATES ---
+
+/**
+ * Get email templates for a specific job
+ * @param {string} jobId - The Job ID to get templates for
+ * @returns {Array} Array of template objects
+ */
+function getJobTemplates(jobId) {
+  const url = getStoredSheetUrl();
+  if(!url) {
+    console.log("getJobTemplates: No sheet URL configured");
+    return [];
+  }
+
+  try {
+    const ss = SpreadsheetApp.openByUrl(url);
+    const sheet = ss.getSheetByName("Email_Templates");
+
+    if(!sheet) {
+      console.log("getJobTemplates: Email_Templates sheet not found");
+      return [];
+    }
+
+    const lastRow = sheet.getLastRow();
+    if(lastRow <= 1) {
+      console.log("getJobTemplates: No templates found (empty sheet or only headers)");
+      return [];
+    }
+
+    const data = sheet.getDataRange().getValues();
+    const templates = [];
+    const requestedJobId = String(jobId).trim();
+
+    for(let i = 1; i < data.length; i++) {
+      const templateJobId = String(data[i][3] || '').trim();
+
+      // Include templates that match the job ID or have no job ID (global templates)
+      if(templateJobId === requestedJobId || templateJobId === '') {
+        templates.push({
+          name: String(data[i][0] || `Template ${i}`).trim(),
+          subject: String(data[i][1] || '').trim(),
+          body: String(data[i][2] || ''),
+          jobId: templateJobId,
+          createdDate: data[i][4] ? new Date(data[i][4]).toLocaleString() : 'Unknown'
+        });
+      }
+    }
+
+    console.log(`getJobTemplates: Found ${templates.length} templates for Job ${requestedJobId}`);
+    return templates;
+
+  } catch(e) {
+    console.error("getJobTemplates Error:", e);
+    return [];
+  }
+}
+
+/**
+ * Get all email templates
+ * @returns {Array} Array of all template objects
+ */
+function getAllTemplates() {
+  const url = getStoredSheetUrl();
+  if(!url) return [];
+
+  try {
+    const ss = SpreadsheetApp.openByUrl(url);
+    const sheet = ss.getSheetByName("Email_Templates");
+
+    if(!sheet) return [];
+
+    const lastRow = sheet.getLastRow();
+    if(lastRow <= 1) return [];
+
+    const data = sheet.getDataRange().getValues();
+    const templates = [];
+
+    for(let i = 1; i < data.length; i++) {
+      if(data[i][0]) {
+        templates.push({
+          name: String(data[i][0]).trim(),
+          subject: String(data[i][1] || '').trim(),
+          body: String(data[i][2] || ''),
+          jobId: String(data[i][3] || '').trim(),
+          createdDate: data[i][4] ? new Date(data[i][4]).toLocaleString() : 'Unknown'
+        });
+      }
+    }
+
+    return templates;
+  } catch(e) {
+    console.error("getAllTemplates Error:", e);
+    return [];
+  }
+}
+
+/**
+ * Save an email template
+ * @param {string} templateName - Name of the template
+ * @param {string} subject - Email subject
+ * @param {string} body - Email body HTML
+ * @param {string} jobId - Job ID (optional - leave empty for global templates)
+ * @returns {Object} Result object with success status
+ */
+function saveEmailTemplate(templateName, subject, body, jobId) {
+  const url = getStoredSheetUrl();
+  if(!url) return { success: false, error: "No config URL" };
+
+  try {
+    const ss = SpreadsheetApp.openByUrl(url);
+    ensureSheetsExist(ss);
+
+    const sheet = ss.getSheetByName("Email_Templates");
+    if(!sheet) return { success: false, error: "Templates sheet not found" };
+
+    const data = sheet.getDataRange().getValues();
+    const cleanName = String(templateName).trim();
+    const cleanJobId = String(jobId || '').trim();
+
+    // Check if template with same name and job ID exists
+    let existingRow = -1;
+    for(let i = 1; i < data.length; i++) {
+      const existingName = String(data[i][0]).trim();
+      const existingJobId = String(data[i][3] || '').trim();
+
+      if(existingName === cleanName && existingJobId === cleanJobId) {
+        existingRow = i + 1;
+        break;
+      }
+    }
+
+    if(existingRow > 0) {
+      // Update existing template
+      sheet.getRange(existingRow, 2, 1, 2).setValues([[subject, body]]);
+      sheet.getRange(existingRow, 5).setValue(new Date());
+      return { success: true, message: "Template updated", isUpdate: true };
+    } else {
+      // Add new template
+      sheet.appendRow([cleanName, subject, body, cleanJobId, new Date()]);
+      return { success: true, message: "Template saved", isUpdate: false };
+    }
+
+  } catch(e) {
+    console.error("saveEmailTemplate Error:", e);
+    return { success: false, error: e.message };
+  }
 }
 
 // --- NEGOTIATION CONFIGURATION (UPDATED - No Walk Away) ---
@@ -1276,12 +1595,27 @@ function sendBulkEmails(recipients, senderName, subject, htmlBody, jobId, opts) 
         console.error("Failed to add candidate to details sheet:", detailsError);
       }
 
+      // Add to follow-up queue for automated 12hr and 28hr follow-ups
+      try {
+        addToFollowUpQueue(r.email, jobId, threadId, r.name, r.devId || 'N/A');
+      } catch(followUpError) {
+        console.error("Failed to add to follow-up queue:", followUpError);
+      }
+
       count++;
     } catch(e) {
       console.error(e);
       errors.push(`Failed for ${r.email}: ${e.message}`);
     }
   });
+
+  // Log data consumption for tracking
+  try {
+    const dataSize = JSON.stringify(recipients).length;
+    logDataConsumption('Gmail', `Job-${jobId}`, dataSize, 0, `Sent ${count} emails, skipped ${skipped}`);
+  } catch(logError) {
+    console.error("Failed to log data consumption:", logError);
+  }
 
   return {success: true, sent: count, skipped: skipped, total: total, errors: errors};
 }
@@ -2318,4 +2652,325 @@ function getTaskStats() {
 function getThreadUrl(threadId) {
   if(!threadId) return null;
   return `https://mail.google.com/mail/u/0/#inbox/${threadId}`;
+}
+
+// ======================================================
+// ===       AUTOMATED FOLLOW-UP EMAIL SYSTEM         ===
+// ======================================================
+
+/**
+ * Follow-up timing configuration
+ * FOLLOW_UP_1_HOURS: Hours after initial email to send first follow-up (12 hours)
+ * FOLLOW_UP_2_HOURS: Hours after initial email to send second follow-up (28 hours)
+ */
+const FOLLOW_UP_CONFIG = {
+  FOLLOW_UP_1_HOURS: 12,  // First follow-up after 12 hours
+  FOLLOW_UP_2_HOURS: 28   // Second follow-up after 28 hours (third total reachout)
+};
+
+/**
+ * Add a sent email to the follow-up queue
+ * Called automatically when emails are sent via sendBulkEmails
+ */
+function addToFollowUpQueue(email, jobId, threadId, name, devId) {
+  const url = getStoredSheetUrl();
+  if(!url) return { success: false };
+
+  try {
+    const ss = SpreadsheetApp.openByUrl(url);
+    let sheet = ss.getSheetByName('Follow_Up_Queue');
+
+    if(!sheet) {
+      sheet = ss.insertSheet('Follow_Up_Queue');
+      sheet.appendRow(['Email', 'Job ID', 'Thread ID', 'Name', 'Dev ID', 'Initial Send Time', 'Follow Up 1 Sent', 'Follow Up 2 Sent', 'Status', 'Last Updated']);
+    }
+
+    // Check if already in queue
+    const data = sheet.getDataRange().getValues();
+    const cleanEmail = String(email).toLowerCase().trim();
+
+    for(let i = 1; i < data.length; i++) {
+      if(String(data[i][0]).toLowerCase().trim() === cleanEmail && String(data[i][1]) === String(jobId)) {
+        console.log(`Email ${email} already in follow-up queue for Job ${jobId}`);
+        return { success: true, message: "Already in queue" };
+      }
+    }
+
+    // Add new entry
+    sheet.appendRow([
+      email,
+      jobId,
+      threadId,
+      name,
+      devId || 'N/A',
+      new Date(),        // Initial Send Time
+      false,             // Follow Up 1 Sent
+      false,             // Follow Up 2 Sent
+      'Pending',         // Status
+      new Date()         // Last Updated
+    ]);
+
+    return { success: true, message: "Added to queue" };
+  } catch(e) {
+    console.error("Error adding to follow-up queue:", e);
+    return { success: false, error: e.message };
+  }
+}
+
+/**
+ * Check and process follow-up emails
+ * This should be called periodically (e.g., every hour via time-based trigger)
+ * Sends follow-up emails if no response received after 12 hours (first) and 28 hours (second)
+ */
+function processFollowUpQueue() {
+  const url = getStoredSheetUrl();
+  if(!url) return { processed: 0, followUp1Sent: 0, followUp2Sent: 0, log: [] };
+
+  const log = [];
+  let followUp1Sent = 0;
+  let followUp2Sent = 0;
+
+  try {
+    const ss = SpreadsheetApp.openByUrl(url);
+    const sheet = ss.getSheetByName('Follow_Up_Queue');
+
+    if(!sheet) {
+      log.push({ type: 'warning', message: 'Follow_Up_Queue sheet not found' });
+      return { processed: 0, followUp1Sent: 0, followUp2Sent: 0, log: log };
+    }
+
+    const data = sheet.getDataRange().getValues();
+    if(data.length <= 1) {
+      log.push({ type: 'info', message: 'No items in follow-up queue' });
+      return { processed: 0, followUp1Sent: 0, followUp2Sent: 0, log: log };
+    }
+
+    const now = new Date();
+    let processed = 0;
+
+    for(let i = 1; i < data.length; i++) {
+      const email = data[i][0];
+      const jobId = data[i][1];
+      const threadId = data[i][2];
+      const name = data[i][3];
+      const devId = data[i][4];
+      const initialSendTime = new Date(data[i][5]);
+      const followUp1Done = data[i][6] === true || data[i][6] === 'TRUE';
+      const followUp2Done = data[i][7] === true || data[i][7] === 'TRUE';
+      const status = data[i][8];
+
+      // Skip completed or responded items
+      if(status === 'Responded' || status === 'Completed' || (followUp1Done && followUp2Done)) {
+        continue;
+      }
+
+      // Check if there's been a response (check Gmail thread)
+      if(threadId) {
+        try {
+          const thread = GmailApp.getThreadById(threadId);
+          if(thread) {
+            const messages = thread.getMessages();
+            if(messages.length > 1) {
+              // There's a response - check if last message is from candidate
+              const lastMsg = messages[messages.length - 1];
+              const myEmail = Session.getActiveUser().getEmail().toLowerCase();
+              const lastSender = lastMsg.getFrom().toLowerCase();
+
+              if(!lastSender.includes(myEmail)) {
+                // Candidate has responded - mark as responded
+                sheet.getRange(i + 1, 9).setValue('Responded');
+                sheet.getRange(i + 1, 10).setValue(new Date());
+                log.push({ type: 'success', message: `${email} has responded - removed from queue` });
+                processed++;
+                continue;
+              }
+            }
+          }
+        } catch(threadError) {
+          console.error(`Error checking thread for ${email}:`, threadError);
+        }
+      }
+
+      // Calculate hours since initial send
+      const hoursSinceSend = (now - initialSendTime) / (1000 * 60 * 60);
+
+      // Check if first follow-up is due (12 hours)
+      if(!followUp1Done && hoursSinceSend >= FOLLOW_UP_CONFIG.FOLLOW_UP_1_HOURS) {
+        const result = sendFollowUpEmail(email, jobId, threadId, name, 1);
+        if(result.success) {
+          sheet.getRange(i + 1, 7).setValue(true); // Mark Follow Up 1 Sent
+          sheet.getRange(i + 1, 10).setValue(new Date());
+          followUp1Sent++;
+          log.push({ type: 'success', message: `Sent 1st follow-up to ${email} (${hoursSinceSend.toFixed(1)}hrs)` });
+        } else {
+          log.push({ type: 'error', message: `Failed 1st follow-up to ${email}: ${result.error}` });
+        }
+        processed++;
+      }
+      // Check if second follow-up is due (28 hours)
+      else if(followUp1Done && !followUp2Done && hoursSinceSend >= FOLLOW_UP_CONFIG.FOLLOW_UP_2_HOURS) {
+        const result = sendFollowUpEmail(email, jobId, threadId, name, 2);
+        if(result.success) {
+          sheet.getRange(i + 1, 8).setValue(true); // Mark Follow Up 2 Sent
+          sheet.getRange(i + 1, 9).setValue('Completed'); // All follow-ups done
+          sheet.getRange(i + 1, 10).setValue(new Date());
+          followUp2Sent++;
+          log.push({ type: 'success', message: `Sent 2nd follow-up to ${email} (${hoursSinceSend.toFixed(1)}hrs)` });
+        } else {
+          log.push({ type: 'error', message: `Failed 2nd follow-up to ${email}: ${result.error}` });
+        }
+        processed++;
+      }
+    }
+
+    SpreadsheetApp.flush();
+
+    log.push({ type: 'info', message: `Processed ${processed} items. 1st follow-ups: ${followUp1Sent}, 2nd follow-ups: ${followUp2Sent}` });
+
+    return {
+      processed: processed,
+      followUp1Sent: followUp1Sent,
+      followUp2Sent: followUp2Sent,
+      log: log
+    };
+
+  } catch(e) {
+    console.error("Error processing follow-up queue:", e);
+    return { processed: 0, followUp1Sent: 0, followUp2Sent: 0, log: [{ type: 'error', message: e.message }] };
+  }
+}
+
+/**
+ * Send a follow-up email using AI to generate contextual content
+ * @param {string} email - Recipient email
+ * @param {string} jobId - Job ID
+ * @param {string} threadId - Gmail thread ID to reply to
+ * @param {string} name - Recipient name
+ * @param {number} followUpNumber - 1 for first follow-up, 2 for second
+ */
+function sendFollowUpEmail(email, jobId, threadId, name, followUpNumber) {
+  try {
+    // Get job config for context
+    const jobConfig = getNegotiationConfig(jobId);
+    const jobDescription = jobConfig ? jobConfig.jobDescription : '';
+    const firstName = name ? name.split(' ')[0] : 'there';
+
+    // Generate follow-up email content using AI
+    const prompt = `
+You are a recruiter at Turing sending a follow-up email. This is follow-up #${followUpNumber} to a candidate who hasn't responded.
+
+CONTEXT:
+- Candidate Name: ${name}
+- Job ID: ${jobId}
+${jobDescription ? `- Job Description: ${jobDescription.substring(0, 500)}...` : ''}
+- This is follow-up ${followUpNumber} of 2
+
+FOLLOW-UP GUIDELINES:
+${followUpNumber === 1 ? `
+- This is the FIRST follow-up (sent 12 hours after initial email)
+- Be friendly and casual
+- Briefly remind them of the opportunity
+- Ask if they have any questions
+- Keep it short (3-4 sentences max)
+` : `
+- This is the SECOND and FINAL follow-up (sent 28 hours after initial email)
+- Express that you want to make sure they saw your previous messages
+- Mention this is a time-sensitive opportunity
+- Keep it professional but slightly more urgent
+- This is the last outreach, so be clear about that
+- Keep it short (3-4 sentences max)
+`}
+
+Write ONLY the email body (no subject line). Start with "Hi ${firstName}," and end with appropriate sign-off.
+`;
+
+    const emailBody = callAI(prompt);
+
+    // Get the thread and send reply
+    if(threadId) {
+      const thread = GmailApp.getThreadById(threadId);
+      if(thread) {
+        // Use the custom sender reply function
+        sendReplyWithSenderName(thread, emailBody, 'Turing Recruitment Team');
+
+        // Log the follow-up
+        const url = getStoredSheetUrl();
+        if(url) {
+          const ss = SpreadsheetApp.openByUrl(url);
+          const logSheet = ss.getSheetByName('Email_Logs');
+          if(logSheet) {
+            logSheet.appendRow([new Date(), jobId, email, name, threadId, `Follow-up ${followUpNumber}`]);
+          }
+        }
+
+        return { success: true };
+      }
+    }
+
+    // If no thread ID, send new email (fallback)
+    const messages = GmailApp.search(`to:${email}`);
+    if(messages && messages.length > 0) {
+      const thread = messages[0];
+      thread.reply(emailBody);
+      return { success: true };
+    }
+
+    return { success: false, error: "Could not find thread to reply to" };
+
+  } catch(e) {
+    console.error(`Error sending follow-up email to ${email}:`, e);
+    return { success: false, error: e.message };
+  }
+}
+
+/**
+ * Manual trigger to run follow-up processing
+ * Can be called from the UI or set up as a time-based trigger
+ */
+function runFollowUpProcessor() {
+  console.log("Starting follow-up processor...");
+  const result = processFollowUpQueue();
+  console.log(`Follow-up processing complete. Results:`, result);
+  return result;
+}
+
+/**
+ * Get follow-up queue statistics
+ */
+function getFollowUpStats() {
+  const url = getStoredSheetUrl();
+  if(!url) return { pending: 0, followUp1Done: 0, followUp2Done: 0, responded: 0 };
+
+  try {
+    const ss = SpreadsheetApp.openByUrl(url);
+    const sheet = ss.getSheetByName('Follow_Up_Queue');
+
+    if(!sheet) return { pending: 0, followUp1Done: 0, followUp2Done: 0, responded: 0 };
+
+    const data = sheet.getDataRange().getValues();
+
+    let pending = 0, followUp1Done = 0, followUp2Done = 0, responded = 0;
+
+    for(let i = 1; i < data.length; i++) {
+      const f1Done = data[i][6] === true || data[i][6] === 'TRUE';
+      const f2Done = data[i][7] === true || data[i][7] === 'TRUE';
+      const status = data[i][8];
+
+      if(status === 'Responded') {
+        responded++;
+      } else if(f2Done) {
+        followUp2Done++;
+      } else if(f1Done) {
+        followUp1Done++;
+      } else {
+        pending++;
+      }
+    }
+
+    return { pending, followUp1Done, followUp2Done, responded };
+
+  } catch(e) {
+    console.error("Error getting follow-up stats:", e);
+    return { pending: 0, followUp1Done: 0, followUp2Done: 0, responded: 0 };
+  }
 }
