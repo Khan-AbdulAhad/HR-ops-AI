@@ -689,21 +689,75 @@ We have an exciting opportunity..."></textarea>
         </div>
     </div>
     
-    <!-- Config Modal -->
+    <!-- Config Modal (Expanded with Triggers) -->
     <div id="configModal" class="fixed inset-0 z-50 hidden bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
-        <div class="bg-white dark:bg-gray-800 rounded-2xl shadow-xl p-6 w-full max-w-md">
-            <h3 class="text-xl font-bold mb-2 dark:text-white">Settings</h3>
-            <p class="text-sm text-gray-500 mb-4">Enter your Google Sheets URL for logging</p>
-            <input type="text" id="sheetUrl" class="input-field mb-4" placeholder="https://docs.google.com/spreadsheets/d/...">
-            <div class="flex justify-end gap-2">
-                <button onclick="document.getElementById('configModal').classList.add('hidden')" class="px-4 py-2 rounded-lg bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600">Cancel</button>
-                <button id="saveConfigBtn" onclick="saveConfig()" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 min-w-[80px] justify-center">
-                    <span id="saveConfigText">Save</span>
-                    <svg id="saveConfigSpinner" class="hidden animate-spin h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                    </svg>
-                </button>
+        <div class="bg-white dark:bg-gray-800 rounded-2xl shadow-xl p-6 w-full max-w-lg max-h-[90vh] overflow-y-auto">
+            <h3 class="text-xl font-bold mb-4 dark:text-white flex items-center gap-2">
+                <i class="fa-solid fa-cog text-blue-500"></i> Settings
+            </h3>
+
+            <!-- Sheet URL Section -->
+            <div class="mb-6">
+                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Google Sheets URL</label>
+                <p class="text-xs text-gray-500 mb-2">Enter your Google Sheets URL for logging data</p>
+                <input type="text" id="sheetUrl" class="input-field mb-3" placeholder="https://docs.google.com/spreadsheets/d/...">
+                <div class="flex justify-end">
+                    <button id="saveConfigBtn" onclick="saveConfig()" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 min-w-[80px] justify-center">
+                        <span id="saveConfigText">Save</span>
+                        <svg id="saveConfigSpinner" class="hidden animate-spin h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Divider -->
+            <div class="border-t border-gray-200 dark:border-gray-700 my-4"></div>
+
+            <!-- Automated Triggers Section -->
+            <div class="mb-4">
+                <div class="flex items-center justify-between mb-3">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">Automated Triggers</label>
+                        <p class="text-xs text-gray-500">Required for follow-ups and daily reports</p>
+                    </div>
+                    <button onclick="refreshTriggerStatus()" class="text-sm text-blue-600 hover:text-blue-700 flex items-center gap-1">
+                        <i class="fa-solid fa-sync-alt" id="triggerRefreshIcon"></i> Refresh
+                    </button>
+                </div>
+
+                <!-- Trigger Status Container -->
+                <div id="triggerStatusContainer" class="space-y-2">
+                    <div class="flex items-center justify-center py-4 text-gray-500">
+                        <i class="fa-solid fa-spinner fa-spin mr-2"></i> Loading trigger status...
+                    </div>
+                </div>
+
+                <!-- Create All Triggers Button -->
+                <div id="createTriggersSection" class="hidden mt-3">
+                    <button id="createAllTriggersBtn" onclick="createAllTriggers()" class="w-full px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2">
+                        <i class="fa-solid fa-plus-circle"></i>
+                        <span id="createTriggersText">Create Missing Triggers</span>
+                        <svg id="createTriggersSpinner" class="hidden animate-spin h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                    </button>
+                </div>
+
+                <!-- All Good Message -->
+                <div id="allTriggersGood" class="hidden mt-3 p-3 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg">
+                    <div class="flex items-center gap-2 text-green-700 dark:text-green-400">
+                        <i class="fa-solid fa-check-circle"></i>
+                        <span class="text-sm font-medium">All triggers are set up and running!</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Close Button -->
+            <div class="flex justify-end mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
+                <button onclick="document.getElementById('configModal').classList.add('hidden')" class="px-4 py-2 rounded-lg bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600">Close</button>
             </div>
         </div>
     </div>
@@ -1684,10 +1738,148 @@ We have an exciting opportunity..."></textarea>
         }
 
         // ===== CONFIG & UTILS =====
-        function openConfigModal() { 
-            document.getElementById('configModal').classList.remove('hidden'); 
+        function openConfigModal() {
+            document.getElementById('configModal').classList.remove('hidden');
+            // Load trigger status when modal opens
+            refreshTriggerStatus();
         }
-        
+
+        // ===== TRIGGER MANAGEMENT =====
+        function refreshTriggerStatus() {
+            const container = document.getElementById('triggerStatusContainer');
+            const createSection = document.getElementById('createTriggersSection');
+            const allGoodSection = document.getElementById('allTriggersGood');
+            const refreshIcon = document.getElementById('triggerRefreshIcon');
+
+            // Show loading
+            container.innerHTML = `
+                <div class="flex items-center justify-center py-4 text-gray-500">
+                    <i class="fa-solid fa-spinner fa-spin mr-2"></i> Loading trigger status...
+                </div>
+            `;
+            refreshIcon.classList.add('fa-spin');
+            createSection.classList.add('hidden');
+            allGoodSection.classList.add('hidden');
+
+            google.script.run
+                .withSuccessHandler(result => {
+                    refreshIcon.classList.remove('fa-spin');
+                    if (!result.success) {
+                        container.innerHTML = `
+                            <div class="p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg text-red-600 dark:text-red-400 text-sm">
+                                <i class="fa-solid fa-exclamation-circle mr-1"></i> ${result.error || 'Failed to load trigger status'}
+                            </div>
+                        `;
+                        return;
+                    }
+
+                    renderTriggerStatus(result.status);
+                })
+                .withFailureHandler(err => {
+                    refreshIcon.classList.remove('fa-spin');
+                    container.innerHTML = `
+                        <div class="p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg text-red-600 dark:text-red-400 text-sm">
+                            <i class="fa-solid fa-exclamation-circle mr-1"></i> Error: ${err.message}
+                        </div>
+                    `;
+                })
+                .getTriggerStatus();
+        }
+
+        function renderTriggerStatus(status) {
+            const container = document.getElementById('triggerStatusContainer');
+            const createSection = document.getElementById('createTriggersSection');
+            const allGoodSection = document.getElementById('allTriggersGood');
+
+            let html = '';
+            status.triggers.forEach(trigger => {
+                const statusClass = trigger.exists
+                    ? 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800'
+                    : 'bg-yellow-50 dark:bg-yellow-900/20 border-yellow-200 dark:border-yellow-800';
+                const iconClass = trigger.exists
+                    ? 'fa-check-circle text-green-500'
+                    : 'fa-exclamation-triangle text-yellow-500';
+                const statusText = trigger.exists ? 'Active' : 'Missing';
+                const statusBadgeClass = trigger.exists
+                    ? 'bg-green-100 text-green-700 dark:bg-green-800 dark:text-green-300'
+                    : 'bg-yellow-100 text-yellow-700 dark:bg-yellow-800 dark:text-yellow-300';
+                const typeIcon = trigger.type === 'hourly' ? 'fa-clock' : 'fa-calendar-day';
+
+                html += `
+                    <div class="p-3 rounded-lg border ${statusClass}">
+                        <div class="flex items-start justify-between">
+                            <div class="flex items-start gap-2">
+                                <i class="fa-solid ${iconClass} mt-0.5"></i>
+                                <div>
+                                    <div class="text-sm font-medium text-gray-800 dark:text-gray-200">${trigger.functionName}</div>
+                                    <div class="text-xs text-gray-500 dark:text-gray-400">${trigger.description}</div>
+                                    <div class="flex items-center gap-2 mt-1">
+                                        <span class="text-xs text-gray-400"><i class="fa-solid ${typeIcon} mr-1"></i>${trigger.type === 'hourly' ? 'Every hour' : 'Daily at 8 AM'}</span>
+                                    </div>
+                                </div>
+                            </div>
+                            <span class="text-xs px-2 py-0.5 rounded-full ${statusBadgeClass}">${statusText}</span>
+                        </div>
+                    </div>
+                `;
+            });
+
+            container.innerHTML = html;
+
+            // Show/hide create button based on missing triggers
+            if (status.missingCount > 0) {
+                createSection.classList.remove('hidden');
+                allGoodSection.classList.add('hidden');
+                document.getElementById('createTriggersText').textContent =
+                    status.missingCount === 1
+                        ? 'Create Missing Trigger'
+                        : `Create ${status.missingCount} Missing Triggers`;
+            } else {
+                createSection.classList.add('hidden');
+                allGoodSection.classList.remove('hidden');
+            }
+        }
+
+        function createAllTriggers() {
+            const btn = document.getElementById('createAllTriggersBtn');
+            const btnText = document.getElementById('createTriggersText');
+            const spinner = document.getElementById('createTriggersSpinner');
+
+            btn.disabled = true;
+            btnText.textContent = 'Creating...';
+            spinner.classList.remove('hidden');
+
+            google.script.run
+                .withSuccessHandler(result => {
+                    btn.disabled = false;
+                    btnText.textContent = 'Create Missing Triggers';
+                    spinner.classList.add('hidden');
+
+                    if (result.success) {
+                        const r = result.results;
+                        if (r.created.length > 0) {
+                            showToast(`Created ${r.created.length} trigger(s)!`, 'success');
+                        } else if (r.alreadyExisted.length > 0) {
+                            showToast('All triggers already exist', 'info');
+                        }
+                        if (r.failed.length > 0) {
+                            showToast(`Failed to create ${r.failed.length} trigger(s)`, 'error');
+                        }
+                        // Refresh the status
+                        refreshTriggerStatus();
+                    } else {
+                        showToast(result.error || 'Failed to create triggers', 'error');
+                    }
+                })
+                .withFailureHandler(err => {
+                    btn.disabled = false;
+                    btnText.textContent = 'Create Missing Triggers';
+                    spinner.classList.add('hidden');
+                    showToast('Error: ' + err.message, 'error');
+                })
+                .createAllMissingTriggers();
+        }
+
         function saveConfig() {
             const url = document.getElementById('sheetUrl').value;
             if(!url) {

@@ -147,33 +147,39 @@ const CONFIG = {
 };
 ```
 
-### Step 4: Set Up Triggers
+### Step 4: Set Up Triggers (Automatic)
 
-Triggers automate the AI negotiation and follow-up processing.
+Triggers automate the follow-up emails and daily reports. **The app can now automatically create these triggers for you!**
+
+#### Automatic Setup (Recommended)
+1. Open your deployed Web App URL
+2. Click the **Config** button (gear icon)
+3. Look at the **Automated Triggers** section
+4. If any triggers are missing (shown in yellow), click **"Create Missing Triggers"**
+5. The app will automatically create:
+   - **Follow-Up Processor** - Runs every hour to send follow-up emails
+   - **Daily Report** - Runs daily at 8 AM to send activity reports
+
+#### Manual Setup (Alternative)
+If you prefer to set up triggers manually:
 
 1. In Apps Script, click **Triggers** (clock icon on the left)
 2. Click **+ Add Trigger**
 
-#### Trigger 1: Auto-Negotiator (Optional)
-| Setting | Value |
-|---------|-------|
-| Function | `runAutoNegotiator` |
-| Deployment | `Head` |
-| Event source | `Time-driven` |
-| Type | `Hour timer` |
-| Interval | `Every hour` or `Every 2 hours` |
-
-#### Trigger 2: Follow-Up Processor (Recommended)
-| Setting | Value |
-|---------|-------|
-| Function | `runFollowUpProcessor` |
-| Deployment | `Head` |
-| Event source | `Time-driven` |
-| Type | `Hour timer` |
-| Interval | `Every hour` |
+| Trigger | Function | Type | Interval |
+|---------|----------|------|----------|
+| Follow-Up Processor | `runFollowUpProcessor` | Time-driven (Hour) | Every hour |
+| Daily Report | `runDailyReportTrigger` | Time-driven (Day) | 8 AM |
 
 3. Click **Save** for each trigger
 4. Authorize when prompted
+
+#### Trigger Status
+You can check trigger status anytime:
+- Open Config modal to see which triggers are active
+- Green = Active and running
+- Yellow = Missing (needs to be created)
+- Click "Refresh" to update status
 
 ### Step 5: First Run Configuration
 

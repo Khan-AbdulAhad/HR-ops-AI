@@ -3565,3 +3565,219 @@ function getDailyReportHistory(limit) {
     return [];
   }
 }
+
+// ==========================================
+// TRIGGER MANAGEMENT SYSTEM
+// ==========================================
+
+/**
+ * Configuration for all required triggers
+ * Each trigger has: functionName, type (hourly/daily), description
+ */
+const REQUIRED_TRIGGERS = [
+  {
+    functionName: 'runFollowUpProcessor',
+    type: 'hourly',
+    description: 'Processes follow-up emails (1st at 12hrs, 2nd at 28hrs)',
+    everyHours: 1
+  },
+  {
+    functionName: 'runDailyReportTrigger',
+    type: 'daily',
+    description: 'Sends daily activity report email',
+    atHour: 8 // 8 AM
+  }
+];
+
+/**
+ * Get status of all triggers - which exist and which are missing
+ * @returns {Object} Status of each required trigger
+ */
+function getTriggerStatus() {
+  try {
+    const allTriggers = ScriptApp.getProjectTriggers();
+    const status = {
+      triggers: [],
+      existingCount: 0,
+      missingCount: 0,
+      totalRequired: REQUIRED_TRIGGERS.length
+    };
+
+    REQUIRED_TRIGGERS.forEach(required => {
+      const existingTrigger = allTriggers.find(t =>
+        t.getHandlerFunction() === required.functionName
+      );
+
+      const triggerInfo = {
+        functionName: required.functionName,
+        type: required.type,
+        description: required.description,
+        exists: !!existingTrigger,
+        triggerId: existingTrigger ? existingTrigger.getUniqueId() : null
+      };
+
+      if (existingTrigger) {
+        triggerInfo.lastRun = null; // Can't get this from ScriptApp
+        status.existingCount++;
+      } else {
+        status.missingCount++;
+      }
+
+      status.triggers.push(triggerInfo);
+    });
+
+    return { success: true, status };
+
+  } catch (e) {
+    console.error("Error getting trigger status:", e);
+    return { success: false, error: e.message };
+  }
+}
+
+/**
+ * Create a single trigger by function name
+ * @param {string} functionName - The function to create trigger for
+ * @returns {Object} Result of trigger creation
+ */
+function createTrigger(functionName) {
+  try {
+    const config = REQUIRED_TRIGGERS.find(t => t.functionName === functionName);
+    if (!config) {
+      return { success: false, error: `Unknown trigger function: ${functionName}` };
+    }
+
+    // Check if trigger already exists
+    const existingTriggers = ScriptApp.getProjectTriggers();
+    const existing = existingTriggers.find(t => t.getHandlerFunction() === functionName);
+    if (existing) {
+      return { success: true, message: 'Trigger already exists', alreadyExisted: true };
+    }
+
+    // Create the appropriate trigger type
+    let trigger;
+    if (config.type === 'hourly') {
+      trigger = ScriptApp.newTrigger(functionName)
+        .timeBased()
+        .everyHours(config.everyHours || 1)
+        .create();
+    } else if (config.type === 'daily') {
+      trigger = ScriptApp.newTrigger(functionName)
+        .timeBased()
+        .everyDays(1)
+        .atHour(config.atHour || 8)
+        .create();
+    }
+
+    return {
+      success: true,
+      message: `Trigger created for ${functionName}`,
+      triggerId: trigger.getUniqueId(),
+      alreadyExisted: false
+    };
+
+  } catch (e) {
+    console.error(`Error creating trigger for ${functionName}:`, e);
+    return { success: false, error: e.message };
+  }
+}
+
+/**
+ * Create all missing triggers at once
+ * @returns {Object} Results of trigger creation
+ */
+function createAllMissingTriggers() {
+  try {
+    const results = {
+      created: [],
+      alreadyExisted: [],
+      failed: []
+    };
+
+    REQUIRED_TRIGGERS.forEach(config => {
+      const result = createTrigger(config.functionName);
+      if (result.success) {
+        if (result.alreadyExisted) {
+          results.alreadyExisted.push(config.functionName);
+        } else {
+          results.created.push(config.functionName);
+        }
+      } else {
+        results.failed.push({ functionName: config.functionName, error: result.error });
+      }
+    });
+
+    return {
+      success: true,
+      results,
+      message: `Created ${results.created.length} triggers, ${results.alreadyExisted.length} already existed, ${results.failed.length} failed`
+    };
+
+  } catch (e) {
+    console.error("Error creating triggers:", e);
+    return { success: false, error: e.message };
+  }
+}
+
+/**
+ * Delete a specific trigger by function name
+ * @param {string} functionName - The function whose trigger to delete
+ * @returns {Object} Result of deletion
+ */
+function deleteTrigger(functionName) {
+  try {
+    const triggers = ScriptApp.getProjectTriggers();
+    const trigger = triggers.find(t => t.getHandlerFunction() === functionName);
+
+    if (!trigger) {
+      return { success: false, error: 'Trigger not found' };
+    }
+
+    ScriptApp.deleteTrigger(trigger);
+    return { success: true, message: `Trigger deleted for ${functionName}` };
+
+  } catch (e) {
+    console.error(`Error deleting trigger for ${functionName}:`, e);
+    return { success: false, error: e.message };
+  }
+}
+
+/**
+ * Delete all project triggers (use with caution)
+ * @returns {Object} Result of deletion
+ */
+function deleteAllTriggers() {
+  try {
+    const triggers = ScriptApp.getProjectTriggers();
+    let deleted = 0;
+
+    triggers.forEach(trigger => {
+      ScriptApp.deleteTrigger(trigger);
+      deleted++;
+    });
+
+    return { success: true, message: `Deleted ${deleted} triggers` };
+
+  } catch (e) {
+    console.error("Error deleting triggers:", e);
+    return { success: false, error: e.message };
+  }
+}
+
+/**
+ * Get detailed information about all project triggers
+ * @returns {Array} List of all triggers with details
+ */
+function getAllTriggersInfo() {
+  try {
+    const triggers = ScriptApp.getProjectTriggers();
+    return triggers.map(t => ({
+      id: t.getUniqueId(),
+      functionName: t.getHandlerFunction(),
+      eventType: t.getEventType().toString(),
+      triggerSource: t.getTriggerSource().toString()
+    }));
+  } catch (e) {
+    console.error("Error getting triggers info:", e);
+    return [];
+  }
+}
