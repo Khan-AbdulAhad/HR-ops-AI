@@ -3508,11 +3508,15 @@ function sendDailyReportEmail(recipientEmail, reportDate) {
 /**
  * Trigger function to run daily report automatically
  * Set up a time-based trigger to run this function daily
+ * Sends YESTERDAY's report (so 8 AM trigger sends previous day's full activity)
  */
 function runDailyReportTrigger() {
   const userEmail = Session.getActiveUser().getEmail();
   if (userEmail) {
-    sendDailyReportEmail(userEmail);
+    // Get yesterday's date for the report
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    sendDailyReportEmail(userEmail, yesterday);
   }
 }
 
