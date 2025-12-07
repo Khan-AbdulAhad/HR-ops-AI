@@ -234,7 +234,7 @@
                         <div class="overflow-x-auto rounded-lg border border-gray-200 dark:border-gray-700">
                             <table id="devTable" class="w-full text-left text-sm">
                                 <thead class="bg-gray-50 dark:bg-gray-800 uppercase text-xs font-bold text-gray-500">
-                                    <tr><th class="px-4 py-3 text-center"><input type="checkbox" onclick="toggleAllRows(this)"></th><th class="px-4 py-3">ID</th><th class="px-4 py-3">Name</th><th class="px-4 py-3">Email</th><th class="px-4 py-3">Region</th><th class="px-4 py-3">Status</th><th class="px-4 py-3">History</th></tr>
+                                    <tr><th class="px-4 py-3 text-center"><input type="checkbox" onclick="toggleAllRows(this)"></th><th class="px-4 py-3">ID</th><th class="px-4 py-3">Name</th><th class="px-4 py-3">Email</th><th class="px-4 py-3">Type</th><th class="px-4 py-3">Stage</th><th class="px-4 py-3">History</th></tr>
                                 </thead>
                                 <tbody class="divide-y divide-gray-200 dark:divide-gray-700 bg-white dark:bg-gray-900"></tbody>
                             </table>
@@ -1013,15 +1013,38 @@ We have an exciting opportunity..."></textarea>
             data.forEach(d => {
                 const tr = document.createElement('tr');
                 tr.className = 'hover:bg-gray-50 dark:hover:bg-gray-700/50';
-                const regionDisplay = d.region ? `<span class="px-2 py-1 bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 rounded text-xs font-medium">${d.region}</span>` : '<span class="text-gray-400 text-xs">-</span>';
+
+                // Type display: Independent, Agency Contractor, Agency Sub-Contractor
+                let typeDisplay = '';
+                const candidateStatus = d.candidate_status || 'Independent';
+                if (candidateStatus === 'Independent') {
+                    typeDisplay = '<span class="px-2 py-1 bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-300 rounded text-xs font-medium">Independent</span>';
+                } else if (candidateStatus === 'Agency Contractor') {
+                    typeDisplay = `<span class="px-2 py-1 bg-purple-50 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 rounded text-xs font-medium" title="${d.agency_name || 'Agency'}">Agency</span>`;
+                } else if (candidateStatus === 'Agency Sub-Contractor') {
+                    typeDisplay = `<span class="px-2 py-1 bg-orange-50 dark:bg-orange-900/30 text-orange-700 dark:text-orange-300 rounded text-xs font-medium" title="${d.agency_name || 'Sub-Contractor'}">Sub-Con</span>`;
+                } else {
+                    typeDisplay = `<span class="px-2 py-1 bg-gray-100 dark:bg-gray-700 rounded text-xs font-medium">${candidateStatus}</span>`;
+                }
+
+                // History display: show sent status and manual sent status
+                let historyDisplay = '';
+                if (d.is_sent) {
+                    historyDisplay = '<span class="text-green-600"><i class="fa-solid fa-check mr-1"></i>Sent</span>';
+                } else if (d.is_manual_sent) {
+                    historyDisplay = `<span class="text-amber-600" title="${d.manual_sent_note || 'Marked as manually sent'}"><i class="fa-solid fa-hand-point-right mr-1"></i>Manual</span>`;
+                } else {
+                    historyDisplay = '<span class="text-gray-400">New</span>';
+                }
+
                 tr.innerHTML = `
                     <td class="px-4 py-3 text-center"><input type="checkbox" onchange="toggleDev('${d.developer_id}')" class="dev-check"></td>
                     <td class="px-4 py-3 font-mono text-xs">${d.developer_id}</td>
                     <td class="px-4 py-3 font-bold">${d.full_name}</td>
                     <td class="px-4 py-3 text-gray-500">${d.email}</td>
-                    <td class="px-4 py-3">${regionDisplay}</td>
+                    <td class="px-4 py-3">${typeDisplay}</td>
                     <td class="px-4 py-3"><span class="px-2 py-1 bg-gray-100 dark:bg-gray-700 rounded text-xs font-bold">${d.status}</span></td>
-                    <td class="px-4 py-3 text-xs">${d.is_sent ? '<span class="text-green-600"><i class="fa-solid fa-check mr-1"></i>Sent</span>' : '<span class="text-gray-400">New</span>'}</td>
+                    <td class="px-4 py-3 text-xs">${historyDisplay}</td>
                 `;
                 tbody.appendChild(tr);
             });

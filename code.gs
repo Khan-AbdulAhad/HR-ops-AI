@@ -1449,51 +1449,180 @@ function moveToCompleted(email, finalStatus, jobIdFilter) {
   return { success: moved, message: moved ? "Moved to completed" : "Email not found", jobId: taskInfo.jobId };
 }
 
-// --- OUTREACH FETCHING ---
+// ==============================================================
+// ===  FIXED getDevelopers - WITH AGENCY/SUBCONTRACTOR SUPPORT ===
+// ==============================================================
 
 function getDevelopers(jobId, selectedStages) {
   if (!jobId || !selectedStages || selectedStages.length === 0) throw new Error("Missing inputs");
   const cleanJobId = Number(jobId);
-  const logs = getEmailLogs(cleanJobId); 
+
+  // Get both regular logs AND manual sent logs (guard with empty Map)
+  const logs = getEmailLogs(cleanJobId) || new Map();
+  const manualLogs = getManualSentLogs(cleanJobId) || new Map();
+
+  // Build per-stage query chunks (use single quotes for SQL string literals)
   let queryChunks = [];
   selectedStages.forEach(stage => {
     const config = STAGE_CONFIG[stage];
     if (config) {
-      const q = config.type === 'flag' 
-        ? `SELECT DISTINCT main.developer_id, "${stage}" as stage_label FROM ${config.table} main WHERE main.job_id = ${cleanJobId} AND ${config.condition}`
-        : `SELECT DISTINCT main.developer_id, "${stage}" as stage_label FROM ${config.table} main LEFT JOIN ms2_job_match_status s ON main.job_match_status_id = s.id WHERE main.job_id = ${cleanJobId} AND s.system_name = "${config.system_name}"`;
+      const q = config.type === 'flag'
+        ? `SELECT DISTINCT main.developer_id, '${stage}' as stage_label FROM ${config.table} main WHERE main.job_id = ${cleanJobId} AND ${config.condition}`
+        : `SELECT DISTINCT main.developer_id, '${stage}' as stage_label FROM ${config.table} main LEFT JOIN ms2_job_match_status s ON main.job_match_status_id = s.id WHERE main.job_id = ${cleanJobId} AND s.system_name = '${config.system_name}'`;
       queryChunks.push(q);
+    } else {
+      console.warn(`getDevelopers: Unknown stage requested: ${stage}`);
     }
   });
+
+  if (queryChunks.length === 0) {
+    console.log("getDevelopers: No valid stages selected");
+    return [];
+  }
+
   const unionQuery = queryChunks.join(' UNION ALL ');
+
+  // Use GROUP_CONCAT + SUBSTRING_INDEX to pick the highest-priority stage per developer
+  // Priority (1 = highest) encoded in ORDER BY CASE expression below:
   const innerQuery = `
-    WITH target_devs AS (${unionQuery}),
-    unique_ids AS (SELECT DISTINCT developer_id FROM target_devs),
-    dev_details AS (SELECT id, full_name, email FROM user_list_v4 WHERE id IN (SELECT developer_id FROM unique_ids))
-    SELECT td.developer_id, d.full_name, d.email, td.stage_label
-    FROM target_devs td JOIN dev_details d ON td.developer_id = d.id
+    WITH target_devs AS (
+      ${unionQuery}
+    ),
+    -- For each developer, order their stages by our priority and take the first
+    unique_devs AS (
+      SELECT
+        td.developer_id,
+        SUBSTRING_INDEX(
+          GROUP_CONCAT(DISTINCT td.stage_label
+            ORDER BY CASE td.stage_label
+              WHEN 'Selected for Trial' THEN 1
+              WHEN 'Ready for Selection' THEN 2
+              WHEN 'On Hold - Onboarding' THEN 3
+              WHEN 'Developer Backout' THEN 4
+              WHEN 'Completed Testing' THEN 5
+              WHEN 'Pending Onboarding' THEN 6
+              WHEN 'Pending Review' THEN 7
+              WHEN 'Passed VetSmith' THEN 8
+              WHEN 'Interested' THEN 9
+              ELSE 99 END
+            SEPARATOR ','
+          ),
+          ',', 1
+        ) AS stage_label
+      FROM target_devs td
+      GROUP BY td.developer_id
+    ),
+    unique_ids AS (
+      SELECT DISTINCT developer_id FROM unique_devs
+    ),
+    -- FIXED: Properly aggregate agency data with developer_type and review_status filter
+    agency_info AS (
+      SELECT
+        dev_id,
+        IF(MAX(IF(developer_type = 'sub_contractor', 1, 0)) = 1, 'Sub Contractor', 'Contractor') AS agency_sub_con,
+        MAX(a.name) AS agency_name
+      FROM ms2_agency_devs ad
+      LEFT JOIN ms2_agencies a ON ad.agency_id = a.id
+      LEFT JOIN ms2_agency_devs_applications ada ON ad.id = ada.agency_dev_id
+      WHERE review_status = 'approved'
+      GROUP BY dev_id
+    ),
+    dev_details AS (
+      SELECT
+        d.id,
+        d.full_name,
+        d.email,
+        CASE
+          WHEN ai.agency_sub_con = 'Sub Contractor' THEN 'Agency Sub-Contractor'
+          WHEN ai.agency_sub_con = 'Contractor' THEN 'Agency Contractor'
+          ELSE 'Independent'
+        END AS candidate_status,
+        COALESCE(ai.agency_name, '') AS agency_name
+      FROM user_list_v4 d
+      LEFT JOIN agency_info ai ON d.id = ai.dev_id
+      WHERE d.id IN (SELECT developer_id FROM unique_ids)
+    )
+    SELECT ud.developer_id, d.full_name, d.email, ud.stage_label AS status, d.candidate_status, d.agency_name
+    FROM unique_devs ud
+    JOIN dev_details d ON ud.developer_id = d.id
   `;
+
   const finalSql = `SELECT * FROM EXTERNAL_QUERY("${CONFIG.EXTERNAL_CONN}", """${innerQuery}""")`;
+
   try {
+    const startTime = new Date().getTime();
+
     let queryResults = BigQuery.Jobs.query({ query: finalSql, useLegacySql: false }, CONFIG.PROJECT_ID);
     let job = queryResults.jobReference;
     while (!queryResults.jobComplete) {
       Utilities.sleep(500);
       queryResults = BigQuery.Jobs.getQueryResults(CONFIG.PROJECT_ID, job.jobId);
     }
-    return (queryResults.rows || []).map(row => {
-      const email = row.f[2].v;
-      const log = logs ? logs.get(email.toLowerCase()) : null;
-      return {
-        developer_id: row.f[0].v,
-        full_name: row.f[1].v,
-        email: email,
-        status: row.f[3].v,
-        is_sent: !!log,
-        sent_count: log ? log.count : 0
-      };
+
+    const endTime = new Date().getTime();
+    const rows = queryResults.rows || [];
+    const dataSizeBytes = JSON.stringify(rows).length;
+
+    // Log data consumption
+    try {
+      logDataConsumption('BigQuery', `Job-${cleanJobId}`, dataSizeBytes, endTime - startTime, `Rows returned: ${rows.length}`);
+    } catch (le) {
+      console.warn("logDataConsumption call failed:", le);
+    }
+
+    // Map results into developer objects (ensure uniqueness by developer_id as a safety net)
+    const devMap = new Map();
+    (rows || []).forEach(row => {
+      // BigQuery EXTERNAL_QUERY returns row.f[].v shape
+      const devId = row.f[0] && row.f[0].v ? String(row.f[0].v) : null;
+      if (!devId) return;
+
+      const fullName = row.f[1] && row.f[1].v ? row.f[1].v : '';
+      const email = row.f[2] && row.f[2].v ? row.f[2].v : '';
+      const status = row.f[3] && row.f[3].v ? row.f[3].v : '';
+      const candidateStatus = row.f[4] && row.f[4].v ? row.f[4].v : 'Independent';
+      const agencyName = row.f[5] && row.f[5].v ? row.f[5].v : '';
+
+      // Defensive uniqueness: if we already have the dev, merge conservatively
+      if (!devMap.has(devId)) {
+        const emailLower = String(email).toLowerCase().trim();
+        const log = logs ? logs.get(emailLower) : null;
+        const manualLog = manualLogs ? manualLogs.get(String(devId)) : null;
+
+        devMap.set(devId, {
+          developer_id: devId,
+          full_name: fullName,
+          email: email,
+          status: status,
+          is_sent: !!log,
+          sent_count: log ? log.count : 0,
+          is_manual_sent: !!manualLog,
+          manual_sent_count: manualLog ? manualLog.count : 0,
+          manual_sent_note: manualLog ? manualLog.note : null,
+          candidate_status: candidateStatus,
+          agency_name: agencyName
+        });
+      } else {
+        // Shouldn't usually happen now, but merge counts safely
+        const existing = devMap.get(devId);
+        const emailLower = String(email).toLowerCase().trim();
+        const log = logs ? logs.get(emailLower) : null;
+        const manualLog = manualLogs ? manualLogs.get(String(devId)) : null;
+
+        existing.is_sent = existing.is_sent || !!log;
+        existing.sent_count = Math.max(existing.sent_count || 0, log ? log.count : 0);
+        existing.is_manual_sent = existing.is_manual_sent || !!manualLog;
+        existing.manual_sent_count = Math.max(existing.manual_sent_count || 0, manualLog ? manualLog.count : 0);
+        if (!existing.agency_name && agencyName) existing.agency_name = agencyName;
+      }
     });
+
+    const result = Array.from(devMap.values());
+    console.log(`getDevelopers: Returning ${result.length} unique developers for Job ${cleanJobId}`);
+    return result;
+
   } catch (e) {
+    console.error("getDevelopers Error:", e);
     throw new Error(e.toString());
   }
 }
