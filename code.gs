@@ -2236,9 +2236,14 @@ function processJobNegotiations(jobId, rules, ss, faqContent) {
       }
     }
 
-    // Always use target rate as the primary offer - don't start lower
-    const currentOfferRate = targetRate;
-    
+    // Progressive offer strategy:
+    // Attempt 1 (attempts=0): 80% of target rate
+    // Attempt 2 (attempts=1): 100% of target rate
+    // Attempt 3+ (attempts>=2): Human escalation
+    const firstOfferRate = Math.round(targetRate * 0.8); // 80% of target for first offer
+    const secondOfferRate = targetRate; // 100% of target for second offer
+    const currentOfferRate = attempts === 0 ? firstOfferRate : secondOfferRate;
+
     // ENHANCED AI PROMPT with better negotiation strategy (NEVER reveal target!)
     const prompt = `
 You are a recruiter at Turing negotiating a rate for Job ID ${jobId}.
@@ -2257,24 +2262,25 @@ ${rules.jobDescription || 'No specific job description provided.'}
 
 === NEGOTIATION RULES ===
 ${attempts === 0 ? `
-**FIRST ATTEMPT - Start with Target Rate:**
-- YOUR OFFER: $${targetRate}/hr - This is what you MUST offer
-- DO NOT offer anything higher than $${targetRate}/hr on this first attempt, no matter what rate they ask for
-- Even if they request $100/hr, you respond with YOUR offer of $${targetRate}/hr
-- Be confident and direct: "We can offer $${targetRate}/hr for this role"
+**FIRST ATTEMPT - Start at 80% of Target:**
+- YOUR OFFER: $${firstOfferRate}/hr - This is what you MUST offer (80% of our target)
+- DO NOT offer anything higher than $${firstOfferRate}/hr on this first attempt, no matter what rate they ask for
+- Even if they request $100/hr, you respond with YOUR offer of $${firstOfferRate}/hr
+- Be confident and direct: "We can offer $${firstOfferRate}/hr for this role"
 - NEVER mention any "target rate" or "budget" or "aim for" - just state your offer confidently
 ` : `
-**SECOND ATTEMPT - Final Offer:**
-- Offer Rate: $${targetRate}/hr (try this first!)
-- Maximum you can approve: $${maxRate}/hr (ONLY as absolute last resort if they explicitly refuse $${targetRate}/hr)
-- You should try to keep them at $${targetRate}/hr before going to max
-- Only offer $${maxRate}/hr if they are explicitly firm and demanding higher
+**SECOND ATTEMPT - Full Target Rate:**
+- YOUR OFFER: $${secondOfferRate}/hr - This is what you MUST offer (our full target rate)
+- DO NOT offer anything higher than $${secondOfferRate}/hr, no matter what
+- If they don't accept $${secondOfferRate}/hr, that's okay - we will escalate to human
+- Be confident and direct: "We can offer $${secondOfferRate}/hr for this role"
 - NEVER mention any "target rate" or "budget" - just state what you can offer
+- DO NOT offer max rate - only humans can approve rates above $${secondOfferRate}/hr
 `}
 
 - Negotiation Style: ${rules.style}
 - Special Instructions: ${rules.special || 'None'}
-- Current Attempt: ${attempts + 1} of 2
+- Current Attempt: ${attempts + 1} of 2 (human escalation after attempt 2)
 
 === CRITICAL RULES - READ CAREFULLY ===
 1. **NEVER reveal internal numbers**: Do not say "we aim for", "our target is", "our budget is", or "we're looking at". Just state your offer directly.
@@ -2314,27 +2320,27 @@ ${conversationHistory}
 
 === RESPONSE INSTRUCTIONS ===
 ${isFirstResponse ? `
-THIS IS THE FIRST RESPONSE - Offer $${targetRate}/hr (MANDATORY)
-- You MUST offer exactly $${targetRate}/hr - this is non-negotiable for the first attempt
+THIS IS THE FIRST RESPONSE - Offer $${firstOfferRate}/hr (MANDATORY - 80% of target)
+- You MUST offer exactly $${firstOfferRate}/hr - this is non-negotiable for the first attempt
 - Present this rate confidently without justification
-- If they asked for a higher rate (even $100/hr), acknowledge their experience but offer $${targetRate}/hr
+- If they asked for a higher rate (even $100/hr), acknowledge their experience but offer $${firstOfferRate}/hr
 - ONLY answer questions they EXPLICITLY asked - do NOT volunteer information they didn't request
 - NEVER say "we aim for" or "our target is" or reveal any internal numbers
 - NEVER use ACTION: ESCALATE on first attempt
 ` : `
-THIS IS ATTEMPT ${attempts + 1} - Try $${targetRate}/hr first
-- Start by offering $${targetRate}/hr again as your "best offer"
-- ONLY if they explicitly say they cannot accept $${targetRate}/hr, you may go up to $${maxRate}/hr
-- Be more flexible but still professional
+THIS IS ATTEMPT ${attempts + 1} - Offer $${secondOfferRate}/hr (MANDATORY - full target rate)
+- You MUST offer exactly $${secondOfferRate}/hr - this is your final AI offer
+- DO NOT offer anything higher - max rate ($${maxRate}/hr) can only be approved by humans
+- If they don't accept $${secondOfferRate}/hr, that's fine - we will escalate to human
 - ONLY answer questions they EXPLICITLY asked - do NOT volunteer information they didn't request
-- You may escalate ONLY if they demand significantly above $${maxRate}/hr
+- You may escalate if they explicitly refuse $${secondOfferRate}/hr
 `}
 
 === RESPONSE FORMAT ===
-1. If they clearly ACCEPT an offer at or below $${maxRate}/hr: 
+1. If they clearly ACCEPT an offer at or below $${secondOfferRate}/hr:
    Reply with: ACTION: ACCEPT [$RATE]
 
-2. If this is attempt 2 AND they refuse to negotiate reasonably (demanding way above $${maxRate}/hr):
+2. If this is attempt 2 AND they refuse $${secondOfferRate}/hr or demand higher:
    Reply with: ACTION: ESCALATE [REASON: brief reason here]
 
 3. Otherwise, write a professional email:
@@ -2396,24 +2402,25 @@ CANDIDATE'S ACTUAL MESSAGE:
 CANDIDATE NAME: ${candidateName}
 
 YOUR OFFER FOR THIS ATTEMPT: $${currentOffer}/hr (this is MANDATORY - do not offer higher)
-${attempts === 0 ? `This is the first attempt - you MUST offer exactly $${currentOffer}/hr, no higher.` : `You can go up to $${maxRate}/hr ONLY if they explicitly refuse $${currentOffer}/hr.`}
+${attempts === 0 ? `This is the first attempt (80% of target) - you MUST offer exactly $${currentOffer}/hr, no higher.` : `This is the second attempt (full target) - you MUST offer exactly $${currentOffer}/hr. DO NOT offer max rate - only humans can approve higher rates.`}
 
 JOB CONTEXT:
 ${rules.jobDescription || 'Freelance AI/Tech role'}
 
-FAQs (use these to answer any questions):
+FAQs (ONLY use if candidate explicitly asks a question):
 ${faqContent}
 
 CRITICAL RULES:
 1. NEVER say "we aim for", "our target is", "our budget is" - just state your offer confidently
 2. Say "We can offer $${currentOffer}/hr for this role" - be direct and confident
-3. If answering multiple questions, put each answer on a SEPARATE LINE
-4. This is FREELANCE - never mention full-time benefits
+3. ONLY answer questions the candidate EXPLICITLY asked - do NOT volunteer information
+4. "Let me know if you need anything else" is NOT a question - it's a polite closing
+5. This is FREELANCE - never mention full-time benefits
 
-TASK: 
+TASK:
 1. Read the candidate's message above carefully
 2. Note the ACTUAL rate they mentioned (if any)
-3. Answer any questions they asked (on separate lines)
+3. ONLY answer questions they EXPLICITLY asked (not implied or anticipated)
 4. Make your offer of $${currentOffer}/hr confidently
 5. Keep the tone ${rules.style}
 
