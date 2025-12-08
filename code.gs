@@ -1212,19 +1212,48 @@ function saveJobCandidateDetails(ss, jobId, candidateEmail, candidateName, devId
   rowData[threadIdColIdx] = threadId || '';
   if(regionColIdx !== -1) rowData[regionColIdx] = region || '';
   rowData[notesColIdx] = answers.negotiation_notes || '';
-  rowData[statusColIdx] = status || (answers.is_negotiating ? 'Negotiating' : 'Details Provided');
 
-  // Fill in question answers
+  // Fill in question answers and track data completeness
+  let totalQuestions = 0;
+  let answeredQuestions = 0;
+  let pendingQuestions = [];
+
   questions.forEach(q => {
     const colIdx = headers.indexOf(q.header);
-    if (colIdx !== -1 && answers[q.header]) {
-      rowData[colIdx] = answers[q.header];
+    if (colIdx !== -1) {
+      totalQuestions++;
+      const answer = answers[q.header];
+      if (answer && answer !== 'NOT_PROVIDED' && answer !== 'PARSE_ERROR') {
+        answeredQuestions++;
+        rowData[colIdx] = answer;
+      } else {
+        pendingQuestions.push(q.header);
+      }
     }
   });
+
+  // Determine data gathering status automatically
+  let dataGatheringStatus = status; // Use passed status if provided (e.g., 'Human Escalation')
+
+  if (!status || status === 'Negotiating' || status === 'Details Provided' || status === 'Pending' || status === 'Data Complete') {
+    if (answers.is_negotiating) {
+      dataGatheringStatus = 'Negotiating';
+    } else if (totalQuestions > 0 && answeredQuestions === totalQuestions) {
+      dataGatheringStatus = 'Data Complete';
+    } else if (answeredQuestions > 0) {
+      dataGatheringStatus = 'Pending';
+    } else {
+      dataGatheringStatus = 'Pending';
+    }
+  }
+
+  rowData[statusColIdx] = dataGatheringStatus;
 
   if (existingRowIndex > -1) {
     // Merge with existing data - keep non-empty existing values
     const existingRow = data[existingRowIndex - 1];
+    let mergedAnsweredCount = 0;
+
     for (let col = 0; col < headers.length; col++) {
       // For question columns, keep existing if new is empty/NOT_PROVIDED
       // Region column is at index 5, questions start at 6
@@ -1233,18 +1262,39 @@ function saveJobCandidateDetails(ss, jobId, candidateEmail, candidateName, devId
             existingRow[col] && existingRow[col] !== 'NOT_PROVIDED') {
           rowData[col] = existingRow[col];
         }
+        // Count answered questions after merge
+        if (rowData[col] && rowData[col] !== 'NOT_PROVIDED' && rowData[col] !== 'PARSE_ERROR') {
+          mergedAnsweredCount++;
+        }
       }
       // Keep existing region if new one is empty
       if (col === regionColIdx && !rowData[col] && existingRow[col]) {
         rowData[col] = existingRow[col];
       }
     }
+
+    // Recalculate status after merge (unless it's a special status like 'Offer Accepted' or 'Human Escalation')
+    const preserveStatuses = ['Offer Accepted', 'Human Escalation', 'Escalated', 'Completed'];
+    const existingStatus = existingRow[statusColIdx];
+
+    if (!preserveStatuses.some(s => String(existingStatus).includes(s)) &&
+        !preserveStatuses.some(s => String(status).includes(s))) {
+      if (totalQuestions > 0 && mergedAnsweredCount === totalQuestions) {
+        rowData[statusColIdx] = 'Data Complete';
+      } else if (mergedAnsweredCount > 0 && !answers.is_negotiating) {
+        rowData[statusColIdx] = 'Pending';
+      }
+    } else if (preserveStatuses.some(s => String(existingStatus).includes(s))) {
+      // Keep existing special status
+      rowData[statusColIdx] = existingStatus;
+    }
+
     sheet.getRange(existingRowIndex, 1, 1, rowData.length).setValues([rowData]);
-    return { success: true, message: "Updated existing candidate", isUpdate: true };
+    return { success: true, message: "Updated existing candidate", isUpdate: true, dataComplete: mergedAnsweredCount === totalQuestions };
   } else {
     // Add new row
     sheet.appendRow(rowData);
-    return { success: true, message: "Added new candidate", isUpdate: false };
+    return { success: true, message: "Added new candidate", isUpdate: false, dataComplete: answeredQuestions === totalQuestions };
   }
 }
 
@@ -2072,10 +2122,39 @@ function processJobNegotiations(jobId, rules, ss, faqContent) {
     const msgs = thread.getMessages();
     const lastMsg = msgs[msgs.length - 1];
     const lastSender = lastMsg.getFrom().toLowerCase();
-    
+
+    // Skip if last message was from us (check both email and common sender names)
     if (myEmail && myEmail.length > 3 && lastSender.indexOf(myEmail) > -1) {
       jobStats.skipped++;
       return;
+    }
+
+    // Also check for common sender names used by our system
+    const ourSenderNames = ['recruiter', 'turing recruitment', 'turing team'];
+    const isSentByUs = ourSenderNames.some(name => lastSender.includes(name));
+    if (isSentByUs) {
+      jobStats.skipped++;
+      jobStats.log.push({type: 'info', message: `Skipped thread - last message from our system`});
+      return;
+    }
+
+    // Prevent duplicate replies: Check if we sent a message in the last 5 minutes
+    if (msgs.length > 1) {
+      const recentMessages = msgs.slice(-3); // Check last 3 messages
+      const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
+
+      for (const msg of recentMessages) {
+        const msgSender = msg.getFrom().toLowerCase();
+        const msgDate = msg.getDate();
+        const wasFromUs = (myEmail && msgSender.indexOf(myEmail) > -1) ||
+                          ourSenderNames.some(name => msgSender.includes(name));
+
+        if (wasFromUs && msgDate > fiveMinutesAgo) {
+          jobStats.skipped++;
+          jobStats.log.push({type: 'info', message: `Skipped thread - we replied recently (${Math.round((Date.now() - msgDate.getTime()) / 1000)}s ago)`});
+          return;
+        }
+      }
     }
     
     // Extract candidate email
@@ -2157,9 +2236,8 @@ function processJobNegotiations(jobId, rules, ss, faqContent) {
       }
     }
 
-    const firstOfferRate = Math.round(targetRate * 0.7); // 70% of target for first offer
-    const secondOfferRate = targetRate; // 100% of target for second offer
-    const currentOfferRate = attempts === 0 ? firstOfferRate : secondOfferRate;
+    // Always use target rate as the primary offer - don't start lower
+    const currentOfferRate = targetRate;
     
     // ENHANCED AI PROMPT with better negotiation strategy (NEVER reveal target!)
     const prompt = `
@@ -2179,14 +2257,18 @@ ${rules.jobDescription || 'No specific job description provided.'}
 
 === NEGOTIATION RULES ===
 ${attempts === 0 ? `
-**FIRST ATTEMPT - Start Low:**
-- Offer Rate: $${firstOfferRate}/hr (this is your opening offer)
-- You can go up to $${secondOfferRate}/hr if they push back strongly
+**FIRST ATTEMPT - Start with Target Rate:**
+- YOUR OFFER: $${targetRate}/hr - This is what you MUST offer
+- DO NOT offer anything higher than $${targetRate}/hr on this first attempt, no matter what rate they ask for
+- Even if they request $100/hr, you respond with YOUR offer of $${targetRate}/hr
+- Be confident and direct: "We can offer $${targetRate}/hr for this role"
 - NEVER mention any "target rate" or "budget" or "aim for" - just state your offer confidently
 ` : `
 **SECOND ATTEMPT - Final Offer:**
-- Offer Rate: $${secondOfferRate}/hr (this is your best offer)
-- Maximum you can approve: $${maxRate}/hr (only if they're very firm and qualified)
+- Offer Rate: $${targetRate}/hr (try this first!)
+- Maximum you can approve: $${maxRate}/hr (ONLY as absolute last resort if they explicitly refuse $${targetRate}/hr)
+- You should try to keep them at $${targetRate}/hr before going to max
+- Only offer $${maxRate}/hr if they are explicitly firm and demanding higher
 - NEVER mention any "target rate" or "budget" - just state what you can offer
 `}
 
@@ -2200,15 +2282,18 @@ ${attempts === 0 ? `
 3. **This is FREELANCE**: Never mention full-time benefits, team culture, or long-term employment
 4. **Answer questions on NEW LINES**: If answering multiple questions, put each answer on a separate line for readability
 
-=== FREQUENTLY ASKED QUESTIONS ===
+=== FREQUENTLY ASKED QUESTIONS (Reference Only) ===
 ${faqContent}
 
 **IMPORTANT FAQ INSTRUCTIONS:**
-If the candidate asks ANY question that matches or is similar to the FAQs above:
-1. Use the provided answer as your source of truth
-2. Paraphrase naturally in your own words
-3. Put each answer on a SEPARATE LINE for better readability
-4. If their question isn't covered by FAQs, answer based on the job description
+- ONLY use these FAQs if the candidate EXPLICITLY asks a question
+- Do NOT proactively volunteer information - only answer what they ask
+- If they didn't ask any questions, do NOT include any FAQ answers in your response
+- "Let me know if you need anything else" is NOT a question - it's a polite closing
+- If they DO ask a question that matches an FAQ:
+  1. Use the provided answer as your source of truth
+  2. Paraphrase naturally in your own words
+  3. Put each answer on a SEPARATE LINE for better readability
 
 === CONVERSATION HISTORY ===
 ${conversationHistory}
@@ -2229,17 +2314,19 @@ ${conversationHistory}
 
 === RESPONSE INSTRUCTIONS ===
 ${isFirstResponse ? `
-THIS IS THE FIRST RESPONSE - Offer $${firstOfferRate}/hr
+THIS IS THE FIRST RESPONSE - Offer $${targetRate}/hr (MANDATORY)
+- You MUST offer exactly $${targetRate}/hr - this is non-negotiable for the first attempt
 - Present this rate confidently without justification
-- If they asked for a higher rate, acknowledge their experience but present your offer
-- Answer any questions they have (on separate lines if multiple)
+- If they asked for a higher rate (even $100/hr), acknowledge their experience but offer $${targetRate}/hr
+- ONLY answer questions they EXPLICITLY asked - do NOT volunteer information they didn't request
 - NEVER say "we aim for" or "our target is" or reveal any internal numbers
 - NEVER use ACTION: ESCALATE on first attempt
 ` : `
-THIS IS ATTEMPT ${attempts + 1} - Offer up to $${secondOfferRate}/hr
-- You can now offer $${secondOfferRate}/hr as your "best offer"
-- If they're highly qualified and firm, you can go up to $${maxRate}/hr maximum
+THIS IS ATTEMPT ${attempts + 1} - Try $${targetRate}/hr first
+- Start by offering $${targetRate}/hr again as your "best offer"
+- ONLY if they explicitly say they cannot accept $${targetRate}/hr, you may go up to $${maxRate}/hr
 - Be more flexible but still professional
+- ONLY answer questions they EXPLICITLY asked - do NOT volunteer information they didn't request
 - You may escalate ONLY if they demand significantly above $${maxRate}/hr
 `}
 
@@ -2297,8 +2384,9 @@ Respond with ONLY the email text OR the ACTION code. No other explanations.
         const candidateMessage = lastMsg.getPlainBody().substring(0, 500);
 
         // Use already-calculated region-specific rates (targetRate and maxRate are set above)
-        const currentOffer = attempts === 0 ? Math.round(targetRate * 0.7) : targetRate;
-        
+        // Always use target rate - don't start lower
+        const currentOffer = targetRate;
+
         const retryPrompt = `
 You are a recruiter at Turing. You MUST write a negotiation email - escalation is NOT an option.
 
@@ -2307,8 +2395,8 @@ CANDIDATE'S ACTUAL MESSAGE:
 
 CANDIDATE NAME: ${candidateName}
 
-YOUR OFFER FOR THIS ATTEMPT: $${currentOffer}/hr
-(You can go slightly higher if they push back, up to $${maxRate}/hr maximum)
+YOUR OFFER FOR THIS ATTEMPT: $${currentOffer}/hr (this is MANDATORY - do not offer higher)
+${attempts === 0 ? `This is the first attempt - you MUST offer exactly $${currentOffer}/hr, no higher.` : `You can go up to $${maxRate}/hr ONLY if they explicitly refuse $${currentOffer}/hr.`}
 
 JOB CONTEXT:
 ${rules.jobDescription || 'Freelance AI/Tech role'}
