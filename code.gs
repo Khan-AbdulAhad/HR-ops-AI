@@ -2254,6 +2254,152 @@ function processJobNegotiations(jobId, rules, ss, faqContent) {
     const secondOfferRate = targetRate; // 100% of target for second offer
     const currentOfferRate = attempts === 0 ? firstOfferRate : secondOfferRate;
 
+    // AI-POWERED RATE ANALYSIS: Use AI to intelligently analyze developer's message and decide action
+    const rateAnalysisPrompt = `
+You are analyzing a candidate's message to determine their rate expectation and recommend an action.
+
+CANDIDATE'S MESSAGE:
+"${candidateLatestMessage}"
+
+OUR RATE PARAMETERS:
+- Target Rate: $${targetRate}/hr (maximum we want to pay)
+- First Offer Rate: $${firstOfferRate}/hr (80% of target - for first attempt)
+- Current Attempt: ${attempts + 1}
+
+TASK:
+Analyze the candidate's message and determine:
+1. What hourly rate are they proposing or expecting? (extract the exact number if mentioned)
+2. Are they accepting a previous offer we made?
+3. What action should we take?
+
+DECISION RULES:
+- If candidate proposes/expects a rate AT OR BELOW $${targetRate}/hr → ACTION: AUTO_ACCEPT
+- If candidate explicitly ACCEPTS an offer we made → ACTION: AUTO_ACCEPT
+- If candidate proposes a rate ABOVE $${targetRate}/hr but seems negotiable → ACTION: COUNTER
+- If candidate is firm on a rate ABOVE $${targetRate}/hr → ACTION: ESCALATE
+- If no clear rate mentioned, continue negotiation → ACTION: COUNTER
+
+RESPONSE FORMAT (JSON only):
+{
+  "proposed_rate": <number or null if not mentioned>,
+  "is_accepting_offer": <true/false>,
+  "action": "<AUTO_ACCEPT|COUNTER|ESCALATE>",
+  "reason": "<brief explanation of your decision>",
+  "candidate_flexibility": "<flexible|firm|unclear>"
+}
+
+Return ONLY the JSON object, no other text.
+`;
+
+    let rateAnalysis = null;
+    try {
+      const analysisResponse = callAI(rateAnalysisPrompt);
+      const cleanResponse = analysisResponse.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+      rateAnalysis = JSON.parse(cleanResponse);
+      jobStats.log.push({type: 'info', message: `${candidateEmail} - AI rate analysis: ${rateAnalysis.action} (rate: $${rateAnalysis.proposed_rate || 'not specified'}, reason: ${rateAnalysis.reason})`});
+    } catch(e) {
+      console.error("Failed to parse rate analysis:", e);
+      // Continue with normal negotiation if analysis fails
+    }
+
+    // If AI recommends AUTO_ACCEPT (rate at or below target, or accepting our offer)
+    if (rateAnalysis && rateAnalysis.action === 'AUTO_ACCEPT') {
+      const rate = rateAnalysis.proposed_rate || targetRate;
+      jobStats.log.push({type: 'success', message: `${candidateEmail} - AI recommends AUTO-ACCEPT at $${rate}/hr (target: $${targetRate}/hr)`});
+
+      // Record the acceptance
+      taskSheet.appendRow([new Date(), jobId, candidateName, candidateEmail, rate, "Pending Archive", devId, thread.getId()]);
+
+      // Update job-specific details sheet with accepted status and rate
+      try {
+        updateJobCandidateStatus(ss, jobId, candidateEmail, 'Offer Accepted', `$${rate}/hr`);
+      } catch(detailsErr) {
+        console.error("Failed to update job details sheet:", detailsErr);
+      }
+
+      // Extract job details for the acceptance email
+      const jobDescription = rules.jobDescription || '';
+
+      // Send detailed acceptance confirmation email with project info
+      const acceptPrompt = `
+You are a recruiter at Turing. Write a professional acceptance confirmation email to ${candidateName.split(' ')[0]}.
+
+CANDIDATE NAME: ${candidateName.split(' ')[0]}
+AGREED RATE: $${rate}/hr
+
+JOB DESCRIPTION FOR CONTEXT:
+${jobDescription}
+
+TASK:
+Write an email that includes ALL of the following points:
+1. Thank them for sharing their rate alignment
+2. Confirm you are sharing all the details with the team
+3. Acknowledge the project details from the JD (mention if it's remote, hours per week if specified, etc.)
+4. Inform them their profile is currently under client review
+5. If approved and selected, you will reach out to confirm the onboarding date and provide further details along with contract specifics
+
+IMPORTANT:
+- Extract work arrangement details from the JD (remote/hybrid, hours per week, etc.)
+- If hours not specified in JD, mention "full-time commitment" or "as per project requirements"
+- Keep the tone warm and professional
+- DO NOT make up details not in the JD
+
+FORMAT:
+Hi [First Name],
+
+Thank you for sharing your alignment on the rate. I am sharing all the details with the team.
+
+Please acknowledge that the project your profile is being considered for is [extract from JD: remote/location, hours per week if mentioned].
+
+Please be aware that your profile is currently under client review. If approved and selected, we will reach out to confirm the onboarding date and provide further details along with contract specifics.
+
+Best regards,
+Turing Recruitment Team
+
+Write ONLY the email, nothing else.
+`;
+      const acceptEmail = callAI(acceptPrompt);
+      sendReplyWithSenderName(thread, acceptEmail, 'Recruiter');
+      markCompleted(thread);
+
+      if(stateRowIndex > -1) {
+        stateSheet.deleteRow(stateRowIndex);
+        stateMap.delete(stateKey);
+      }
+
+      jobStats.accepted++;
+      jobStats.log.push({type: 'success', message: `${candidateEmail} AUTO-ACCEPTED at $${rate}/hr`});
+      return; // Skip the rest of negotiation logic
+    }
+
+    // If AI recommends ESCALATE (candidate firm on rate above target)
+    if (rateAnalysis && rateAnalysis.action === 'ESCALATE' && attempts >= 1) {
+      const escalationReason = rateAnalysis.reason || 'Candidate firm on rate above target';
+      jobStats.log.push({type: 'warning', message: `${candidateEmail} - AI recommends ESCALATE: ${escalationReason}`});
+
+      // Generate summary for human handoff
+      const aiSummaryNotes = generateAISummaryNotes(conversationHistory, candidateEmail, '', attempts, escalationReason);
+
+      // Escalate to human with detailed handoff
+      escalateToHuman(thread, escalationReason, candidateName, aiSummaryNotes);
+
+      if(stateRowIndex > -1) {
+        stateSheet.getRange(stateRowIndex, 5).setValue("Human-Negotiation");
+        stateSheet.getRange(stateRowIndex, 9).setValue(aiSummaryNotes);
+      }
+
+      // Update job-specific details sheet with escalation status
+      try {
+        updateJobCandidateStatus(ss, jobId, candidateEmail, `Escalated: ${escalationReason}`, null);
+      } catch(detailsErr) {
+        console.error("Failed to update job details sheet:", detailsErr);
+      }
+
+      jobStats.escalated++;
+      jobStats.log.push({type: 'warning', message: `${candidateEmail} escalated: ${escalationReason}`});
+      return; // Skip the rest of negotiation logic
+    }
+
     // ENHANCED AI PROMPT with better negotiation strategy (NEVER reveal target!)
     const prompt = `
 You are a recruiter at Turing negotiating a rate for Job ID ${jobId}.
@@ -2522,21 +2668,46 @@ Write ONLY the note, nothing else.
         console.error("Failed to update job details sheet:", detailsErr);
       }
 
-      const acceptPrompt = `
-Write a brief, warm confirmation email to ${candidateName.split(' ')[0]} confirming they've accepted the rate of $${rate}/hr for a freelance position at Turing.
+      // Extract job details for the acceptance email
+      const jobDescription = rules.jobDescription || '';
 
-Keep it short (3-4 sentences). Mention:
-- Thank them for accepting
-- Confirm the rate
-- Say next steps/contract details will follow shortly
+      // Send detailed acceptance confirmation email with project info
+      const acceptPrompt = `
+You are a recruiter at Turing. Write a professional acceptance confirmation email to ${candidateName.split(' ')[0]}.
+
+CANDIDATE NAME: ${candidateName.split(' ')[0]}
+AGREED RATE: $${rate}/hr
+
+JOB DESCRIPTION FOR CONTEXT:
+${jobDescription}
+
+TASK:
+Write an email that includes ALL of the following points:
+1. Thank them for sharing their rate alignment
+2. Confirm you are sharing all the details with the team
+3. Acknowledge the project details from the JD (mention if it's remote, hours per week if specified, etc.)
+4. Inform them their profile is currently under client review
+5. If approved and selected, you will reach out to confirm the onboarding date and provide further details along with contract specifics
+
+IMPORTANT:
+- Extract work arrangement details from the JD (remote/hybrid, hours per week, etc.)
+- If hours not specified in JD, mention "full-time commitment" or "as per project requirements"
+- Keep the tone warm and professional
+- DO NOT make up details not in the JD
 
 FORMAT:
-Hi [Name],
+Hi [First Name],
 
-[Your message]
+Thank you for sharing your alignment on the rate. I am sharing all the details with the team.
+
+Please acknowledge that the project your profile is being considered for is [extract from JD: remote/location, hours per week if mentioned].
+
+Please be aware that your profile is currently under client review. If approved and selected, we will reach out to confirm the onboarding date and provide further details along with contract specifics.
 
 Best regards,
 Turing Recruitment Team
+
+Write ONLY the email, nothing else.
 `;
       const acceptEmail = callAI(acceptPrompt);
       sendReplyWithSenderName(thread, acceptEmail, 'Recruiter');
@@ -2620,48 +2791,50 @@ function escalateToHuman(thread, reason, candidateName, conversationContext) {
   try {
     const label = GmailApp.getUserLabelByName("Human-Negotiation") || GmailApp.createLabel("Human-Negotiation");
     thread.addLabel(label);
-    
-    // Generate handoff message using AI
+
+    // Generate handoff message - inform candidate about talent ops taking over
     const firstName = candidateName ? candidateName.split(' ')[0] : 'there';
-    
+
     const handoffPrompt = `
-You are a recruiter at Turing. You need to write a brief, warm handoff email to a candidate.
+You are a recruiter at Turing. You need to write a handoff email to a candidate whose rate negotiation needs human attention.
 
 CANDIDATE NAME: ${firstName}
 CONTEXT: ${conversationContext || 'Rate negotiation needs human attention'}
 
 TASK:
-Write a short, professional email (3-4 sentences) that:
-1. Thanks them for their response and patience
-2. Lets them know a member of the Talent Operations team will take over
-3. Assures them they'll hear back shortly about the final rate and next steps
-4. Sounds natural and warm, not robotic
+Write a professional email that clearly communicates:
+1. Thank them for sharing their rate expectation
+2. You have shared their message with the Talent Operations team member
+3. The team will get back to them with an update on the rates
+4. Keep a positive, professional tone
 
-DO NOT:
-- Apologize excessively
-- Mention "AI" or "automated"
-- Sound like a template
-- Be too formal or stiff
+IMPORTANT POINTS TO INCLUDE:
+- Acknowledge you received their message about rates
+- Explicitly mention you are sharing this with a Talent Operations team member
+- They will receive an update on the rate discussion shortly
+- Thank them for their patience
 
 FORMAT:
 Hi ${firstName},
 
-[Your message - 3-4 natural sentences]
+Thank you for sharing your rate expectation. I have shared your message with a member of our Talent Operations team, and they will get back to you shortly with an update on the rates.
+
+We appreciate your patience and interest in this opportunity.
 
 Best regards,
 Turing Recruitment Team
 
-Write ONLY the email, nothing else.
+Write ONLY the email, nothing else. Keep it concise (3-4 sentences).
 `;
-    
+
     const handoffMessage = callAI(handoffPrompt);
     sendReplyWithSenderName(thread, handoffMessage, 'Recruiter');
-    
+
   } catch(e) {
     console.error("Failed to escalate to human:", e);
     // Fallback to simple reply if AI fails
     try {
-      const fallbackMsg = `Hi ${candidateName ? candidateName.split(' ')[0] : 'there'},\n\nThank you for your response. A member of our Talent Operations team will be in touch shortly to continue this discussion.\n\nBest regards,\nTuring Recruitment Team`;
+      const fallbackMsg = `Hi ${candidateName ? candidateName.split(' ')[0] : 'there'},\n\nThank you for sharing your rate expectation. I have shared your message with a member of our Talent Operations team, and they will get back to you shortly with an update on the rates.\n\nWe appreciate your patience and interest in this opportunity.\n\nBest regards,\nTuring Recruitment Team`;
       sendReplyWithSenderName(thread, fallbackMsg, 'Recruiter');
     } catch(e2) {}
   }
