@@ -2254,6 +2254,74 @@ function processJobNegotiations(jobId, rules, ss, faqContent) {
     const secondOfferRate = targetRate; // 100% of target for second offer
     const currentOfferRate = attempts === 0 ? firstOfferRate : secondOfferRate;
 
+    // AUTO-ACCEPT: Check if developer is proposing a rate at or below target rate
+    // Extract any rate mentioned in the candidate's message
+    const ratePatterns = [
+      /\$(\d+(?:\.\d{1,2})?)\s*(?:\/?\s*(?:per\s*)?(?:hr|hour))?/gi,  // $32, $32/hr, $32 per hour
+      /(\d+(?:\.\d{1,2})?)\s*(?:\/?\s*(?:per\s*)?(?:hr|hour))/gi,     // 32/hr, 32 per hour
+      /(\d+(?:\.\d{1,2})?)\s*dollars?\s*(?:\/?\s*(?:per\s*)?(?:hr|hour))?/gi  // 32 dollars per hour
+    ];
+
+    let devProposedRate = null;
+    for (const pattern of ratePatterns) {
+      const matches = candidateLatestMessage.match(pattern);
+      if (matches && matches.length > 0) {
+        // Extract the numeric value from the last match (most likely the proposed rate)
+        const lastMatch = matches[matches.length - 1];
+        const numMatch = lastMatch.match(/(\d+(?:\.\d{1,2})?)/);
+        if (numMatch) {
+          devProposedRate = parseFloat(numMatch[1]);
+          break;
+        }
+      }
+    }
+
+    // If developer proposed a rate at or below our target, auto-accept immediately
+    if (devProposedRate !== null && devProposedRate <= targetRate) {
+      jobStats.log.push({type: 'success', message: `${candidateEmail} - Dev proposed $${devProposedRate}/hr which is at or below target $${targetRate}/hr - AUTO-ACCEPTING`});
+
+      // Record the acceptance
+      const rate = devProposedRate;
+      taskSheet.appendRow([new Date(), jobId, candidateName, candidateEmail, rate, "Pending Archive", devId, thread.getId()]);
+
+      // Update job-specific details sheet with accepted status and rate
+      try {
+        updateJobCandidateStatus(ss, jobId, candidateEmail, 'Offer Accepted', `$${rate}/hr`);
+      } catch(detailsErr) {
+        console.error("Failed to update job details sheet:", detailsErr);
+      }
+
+      // Send acceptance confirmation email
+      const acceptPrompt = `
+Write a brief, warm confirmation email to ${candidateName.split(' ')[0]} confirming their rate of $${rate}/hr for a freelance position at Turing.
+
+Keep it short (3-4 sentences). Mention:
+- Thank them for confirming their rate expectation
+- Confirm the rate of $${rate}/hr
+- Say next steps/contract details will follow shortly
+
+FORMAT:
+Hi [Name],
+
+[Your message]
+
+Best regards,
+Turing Recruitment Team
+`;
+      const acceptEmail = callAI(acceptPrompt);
+      sendReplyWithSenderName(thread, acceptEmail, 'Recruiter');
+      markCompleted(thread);
+
+      if(stateRowIndex > -1) {
+        stateSheet.deleteRow(stateRowIndex);
+        stateMap.delete(stateKey);
+      }
+
+      jobStats.accepted++;
+      jobStats.log.push({type: 'success', message: `${candidateEmail} AUTO-ACCEPTED at $${rate}/hr (below target $${targetRate}/hr)`});
+      return; // Skip the rest of negotiation logic
+    }
+
     // ENHANCED AI PROMPT with better negotiation strategy (NEVER reveal target!)
     const prompt = `
 You are a recruiter at Turing negotiating a rate for Job ID ${jobId}.
