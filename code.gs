@@ -52,6 +52,91 @@ function getStoredSheetUrl() {
   return PropertiesService.getUserProperties().getProperty('LOG_SHEET_URL') || "";
 }
 
+// ==========================================
+// CACHING SYSTEM FOR FAST DATA LOADING
+// ==========================================
+
+// In-memory cache for spreadsheet object (persists during single execution)
+let _cachedSpreadsheet = null;
+let _cachedSpreadsheetUrl = null;
+
+/**
+ * Get spreadsheet with in-memory caching (fast for multiple calls in same execution)
+ */
+function getCachedSpreadsheet() {
+  const url = getStoredSheetUrl();
+  if (!url) return null;
+
+  // Return cached spreadsheet if URL matches
+  if (_cachedSpreadsheet && _cachedSpreadsheetUrl === url) {
+    return _cachedSpreadsheet;
+  }
+
+  // Open and cache
+  _cachedSpreadsheet = SpreadsheetApp.openByUrl(url);
+  _cachedSpreadsheetUrl = url;
+  return _cachedSpreadsheet;
+}
+
+/**
+ * Get sheet data with CacheService caching (fast across multiple executions)
+ * @param {string} sheetName - Name of the sheet
+ * @param {number} cacheSeconds - How long to cache (default 60 seconds)
+ * @returns {Array} Sheet data as 2D array
+ */
+function getCachedSheetData(sheetName, cacheSeconds = 60) {
+  const cache = CacheService.getUserCache();
+  const cacheKey = 'sheet_' + sheetName;
+
+  // Try to get from cache first
+  const cached = cache.get(cacheKey);
+  if (cached) {
+    try {
+      return JSON.parse(cached);
+    } catch(e) {
+      // Cache corrupted, fetch fresh
+    }
+  }
+
+  // Fetch from spreadsheet
+  const ss = getCachedSpreadsheet();
+  if (!ss) return [];
+
+  const sheet = ss.getSheetByName(sheetName);
+  if (!sheet) return [];
+
+  const data = sheet.getDataRange().getValues();
+
+  // Cache the data (CacheService has 100KB limit per key, so check size)
+  try {
+    const jsonData = JSON.stringify(data);
+    if (jsonData.length < 90000) { // Leave some margin
+      cache.put(cacheKey, jsonData, cacheSeconds);
+    }
+  } catch(e) {
+    // Data too large to cache, that's okay
+  }
+
+  return data;
+}
+
+/**
+ * Invalidate cache for a specific sheet (call after writing to sheet)
+ */
+function invalidateSheetCache(sheetName) {
+  const cache = CacheService.getUserCache();
+  cache.remove('sheet_' + sheetName);
+}
+
+/**
+ * Invalidate all sheet caches
+ */
+function invalidateAllSheetCaches() {
+  const cache = CacheService.getUserCache();
+  const sheetNames = ['Negotiation_State', 'Negotiation_Tasks', 'Negotiation_Config', 'Negotiation_Completed', 'Negotiation_FAQs'];
+  sheetNames.forEach(name => cache.remove('sheet_' + name));
+}
+
 function saveLogSheetUrl(url) {
   const cleanUrl = url ? url.trim() : "";
   if(!cleanUrl) throw new Error("Invalid URL");
@@ -418,10 +503,10 @@ function saveEmailTemplate(templateName, subject, body, jobId) {
 function saveNegotiationConfig(jobId, config) {
   const url = getStoredSheetUrl();
   if(!url) return;
-  const ss = SpreadsheetApp.openByUrl(url);
+  const ss = getCachedSpreadsheet();
   const sheet = ss.getSheetByName('Negotiation_Config');
   const data = sheet.getDataRange().getValues();
-  
+
   let found = false;
   for(let i=1; i<data.length; i++) {
     if(String(data[i][0]) === String(jobId)) {
@@ -432,19 +517,23 @@ function saveNegotiationConfig(jobId, config) {
       break;
     }
   }
-  
+
   if(!found) {
     sheet.appendRow([jobId, config.targetRate, config.maxRate, config.style, config.specialRules, config.jobDescription || '', new Date()]);
   }
+
+  // Invalidate cache after save
+  invalidateSheetCache('Negotiation_Config');
 }
 
 function getNegotiationConfig(jobId) {
   const url = getStoredSheetUrl();
   if(!url) return null;
-  const ss = SpreadsheetApp.openByUrl(url);
-  const sheet = ss.getSheetByName('Negotiation_Config');
-  const data = sheet.getDataRange().getValues();
-  
+
+  // Use caching for faster loading
+  const data = getCachedSheetData('Negotiation_Config', 60); // 60 second cache
+  if(!data || data.length === 0) return null;
+
   for(let i=1; i<data.length; i++) {
     if(String(data[i][0]) === String(jobId)) {
       return {
@@ -462,9 +551,11 @@ function getNegotiationConfig(jobId) {
 function getJobConfigList() {
   const url = getStoredSheetUrl();
   if(!url) return [];
-  const ss = SpreadsheetApp.openByUrl(url);
-  const sheet = ss.getSheetByName('Negotiation_Config');
-  const data = sheet.getDataRange().getValues();
+
+  // Use caching for faster loading
+  const data = getCachedSheetData('Negotiation_Config', 60); // 60 second cache
+  if(!data || data.length === 0) return [];
+
   const jobs = [];
   for(let i=1; i<data.length; i++) {
     if(data[i][0]) jobs.push(String(data[i][0]));
@@ -477,11 +568,10 @@ function getJobConfigList() {
 function getFAQs() {
   const url = getStoredSheetUrl();
   if(!url) return "";
-  const ss = SpreadsheetApp.openByUrl(url);
-  const sheet = ss.getSheetByName('Negotiation_FAQs');
-  const data = sheet.getDataRange().getValues();
 
-  if(data.length <= 1) return "No specific FAQs available.";
+  // Use caching for faster loading
+  const data = getCachedSheetData('Negotiation_FAQs', 120); // 2 minute cache (FAQs change rarely)
+  if(!data || data.length <= 1) return "No specific FAQs available.";
 
   let faqText = "";
   for(let i=1; i<data.length; i++) {
@@ -1220,9 +1310,7 @@ function getAllTasks(filters) {
   const url = getStoredSheetUrl();
   if(!url) return { tasks: [], jobIds: [], stats: { total: 0, active: 0, human: 0, accepted: 0 } };
 
-  const ss = SpreadsheetApp.openByUrl(url);
-  // Skip ensureSheetsExist here for speed - sheets should already exist
-
+  // Use caching for faster loading
   const tasks = [];
   const jobIdSet = new Set();
 
@@ -1233,10 +1321,9 @@ function getAllTasks(filters) {
   const jobFilter = filters?.jobId || 'all';
   const statusFilter = filters?.status || 'all';
 
-  // 1. Get Active Negotiations (State)
-  const stateSheet = ss.getSheetByName('Negotiation_State');
-  if(!stateSheet) return { tasks: [], jobIds: [] };
-  const stateData = stateSheet.getDataRange().getValues();
+  // 1. Get Active Negotiations (State) - with caching
+  const stateData = getCachedSheetData('Negotiation_State', 30); // 30 second cache
+  if(!stateData || stateData.length === 0) return { tasks: [], jobIds: [], stats: { total: 0, active: 0, human: 0, accepted: 0 } };
   
   for(let i=1; i<stateData.length; i++) {
     if(!stateData[i][0]) continue;
@@ -1283,11 +1370,9 @@ function getAllTasks(filters) {
     });
   }
 
-  // 2. Get Accepted Offers (Tasks) - always count for stats, filter for display
-  const taskSheet = ss.getSheetByName('Negotiation_Tasks');
-  if(taskSheet) {
-    const taskData = taskSheet.getDataRange().getValues();
-
+  // 2. Get Accepted Offers (Tasks) - with caching
+  const taskData = getCachedSheetData('Negotiation_Tasks', 30); // 30 second cache
+  if(taskData && taskData.length > 0) {
     for(let i=1; i<taskData.length; i++) {
       if(!taskData[i][3]) continue;
       if(taskData[i][5] === 'Archived') continue;
@@ -1448,6 +1533,13 @@ function moveToCompleted(email, finalStatus, jobIdFilter) {
       console.error("Failed to add Completed label to Gmail:", e);
       // Don't fail the whole operation just because labeling failed
     }
+  }
+
+  // Invalidate caches after modifying data
+  if(moved) {
+    invalidateSheetCache('Negotiation_State');
+    invalidateSheetCache('Negotiation_Tasks');
+    invalidateSheetCache('Negotiation_Completed');
   }
 
   return { success: moved, message: moved ? "Moved to completed" : "Email not found", jobId: taskInfo.jobId };
@@ -1748,6 +1840,11 @@ function sendBulkEmails(recipients, senderName, subject, htmlBody, jobId, opts) 
     logDataConsumption('Gmail', `Job-${jobId}`, dataSize, 0, `Sent ${count} emails, skipped ${skipped}`);
   } catch(logError) {
     console.error("Failed to log data consumption:", logError);
+  }
+
+  // Invalidate cache after adding new tasks
+  if(count > 0) {
+    invalidateSheetCache('Negotiation_State');
   }
 
   return {success: true, sent: count, skipped: skipped, total: total, errors: errors};
@@ -3579,6 +3676,12 @@ function getDailyReportHistory(limit) {
  * Each trigger has: functionName, type (hourly/daily), description
  */
 const REQUIRED_TRIGGERS = [
+  {
+    functionName: 'runAutoNegotiator',
+    type: 'hourly',
+    description: 'Processes Gmail negotiations automatically (sync, cleanup, AI replies)',
+    everyHours: 1
+  },
   {
     functionName: 'runFollowUpProcessor',
     type: 'hourly',
