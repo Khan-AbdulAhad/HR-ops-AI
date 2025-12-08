@@ -2064,13 +2064,21 @@ function runAutoNegotiator() {
 function processJobNegotiations(jobId, rules, ss, faqContent) {
   const query = `label:Job-${jobId}`;
   let threads = [];
-  
+
   try {
     threads = GmailApp.search(query, 0, 50);
-  } catch(e) { 
-    return {replied:0, escalated:0, accepted:0, skipped:0, processed:0, log:[{type:'error', message:`Gmail search failed for Job ${jobId}: ${e.message}`}]}; 
+  } catch(e) {
+    return {replied:0, escalated:0, accepted:0, skipped:0, processed:0, log:[{type:'error', message:`Gmail search failed for Job ${jobId}: ${e.message}`}]};
   }
-  
+
+  // Warn if no threads found - may indicate job ID mismatch
+  if (threads.length === 0) {
+    return {
+      replied:0, escalated:0, accepted:0, skipped:0, processed:0, detailsExtracted:0,
+      log:[{type:'warning', message:`No email threads found with label "Job-${jobId}". Check that the Job ID in Negotiation_Config matches the Gmail labels.`}]
+    };
+  }
+
   const stateSheet = ss.getSheetByName('Negotiation_State');
   const taskSheet = ss.getSheetByName('Negotiation_Tasks');
 
@@ -2111,11 +2119,12 @@ function processJobNegotiations(jobId, rules, ss, faqContent) {
   
   threads.forEach(thread => {
     jobStats.processed++;
-    
+
     const labels = thread.getLabels().map(l => l.getName());
-    
+
     if (labels.includes("Completed")) {
       jobStats.skipped++;
+      jobStats.log.push({type: 'info', message: `Skipped thread: Already completed`});
       return;
     }
 
@@ -2123,9 +2132,9 @@ function processJobNegotiations(jobId, rules, ss, faqContent) {
     const lastMsg = msgs[msgs.length - 1];
     const lastSender = lastMsg.getFrom().toLowerCase();
 
-    // Skip if last message was from us (check both email and common sender names)
     if (myEmail && myEmail.length > 3 && lastSender.indexOf(myEmail) > -1) {
       jobStats.skipped++;
+      jobStats.log.push({type: 'info', message: `Skipped thread: Waiting for candidate reply (last message from ${myEmail})`});
       return;
     }
 
@@ -2174,6 +2183,7 @@ function processJobNegotiations(jobId, rules, ss, faqContent) {
     
     if (state && state.status === 'Human-Negotiation') {
       jobStats.skipped++;
+      jobStats.log.push({type: 'info', message: `Skipped ${cleanCandidateEmail}: Already escalated to human negotiation`});
       return;
     }
     
