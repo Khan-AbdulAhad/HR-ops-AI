@@ -852,65 +852,21 @@ We have an exciting opportunity..."></textarea>
         let cachedTemplates = [];
         let currentUserEmail = '';
 
-        // Helper function to safely check if google.script.run is available
-        function isGoogleScriptAvailable() {
-            return typeof google !== 'undefined' && google.script && google.script.run;
-        }
-
-        // Helper to get google.script.run or return a mock object that does nothing
-        function getGoogleScript() {
-            if (isGoogleScriptAvailable()) {
-                return google.script.run;
-            }
-            // Return a mock object that allows chaining but does nothing
-            var mock = {
-                withSuccessHandler: function(fn) { return mock; },
-                withFailureHandler: function(fn) {
-                    // Call failure handler with error message
-                    if (fn) fn({ message: 'Google Apps Script not available' });
-                    return mock;
-                }
-            };
-            // Add a proxy to handle any method call
-            return new Proxy(mock, {
-                get: function(target, prop) {
-                    if (prop in target) return target[prop];
-                    return function() {
-                        console.log('Called ' + prop + ' but google.script.run not available');
-                        return mock;
-                    };
-                }
-            });
-        }
-
         // ===== INIT: Load user email on page load =====
         document.addEventListener('DOMContentLoaded', function() {
             loadUserEmail();
         });
 
         function loadUserEmail() {
-            try {
-                if (typeof google !== 'undefined' && google.script && google.script.run) {
-                    google.script.run
-                        .withSuccessHandler(function(email) {
-                            currentUserEmail = email || 'Unknown';
-                            var el = document.getElementById('userEmailText');
-                            if (el) el.textContent = email || 'Not signed in';
-                        })
-                        .withFailureHandler(function(err) {
-                            var el = document.getElementById('userEmailText');
-                            if (el) el.textContent = 'Not available';
-                        })
-                        .getUserEmail();
-                } else {
-                    var el = document.getElementById('userEmailText');
-                    if (el) el.textContent = 'Standalone mode';
-                }
-            } catch(e) {
-                console.log('loadUserEmail error:', e);
-                var el = document.getElementById('userEmailText');
-                if (el) el.textContent = 'Error';
-            }
+            google.script.run
+                .withSuccessHandler(function(email) {
+                    currentUserEmail = email || 'Unknown';
+                    document.getElementById('userEmailText').textContent = email || 'Not signed in';
+                })
+                .withFailureHandler(function(err) {
+                    document.getElementById('userEmailText').textContent = 'Not available';
+                })
+                .getUserEmail();
         }
 
         // ===== TOAST NOTIFICATIONS =====
@@ -2122,36 +2078,17 @@ We have an exciting opportunity..."></textarea>
                 })
                 .saveLogSheetUrl(url);
         }
-        
-        function toggleDarkMode() { 
-            document.documentElement.classList.toggle('dark'); 
-        }
-        
-        // ===== INIT =====
-        // Safely initialize - check if google.script.run is available (only works in Apps Script environment)
-        function safeInit() {
-            try {
-                if (typeof google !== 'undefined' && google.script && google.script.run) {
-                    google.script.run.withSuccessHandler(function(url) {
-                        var sheetUrlEl = document.getElementById('sheetUrl');
-                        if (sheetUrlEl) sheetUrlEl.value = url || '';
-                    }).withFailureHandler(function(err) {
-                        console.log('Could not load sheet URL:', err);
-                    }).getStoredSheetUrl();
-                } else {
-                    console.log('google.script.run not available - running in standalone mode');
-                }
-            } catch(e) {
-                console.log('Init error:', e);
-            }
+
+        function toggleDarkMode() {
+            document.documentElement.classList.toggle('dark');
         }
 
-        // Use jQuery if available, otherwise use DOMContentLoaded
-        if (typeof $ !== 'undefined' && $.fn && $.fn.jquery) {
-            $(document).ready(safeInit);
-        } else {
-            document.addEventListener('DOMContentLoaded', safeInit);
-        }
+        // ===== INIT =====
+        $(document).ready(function() {
+            google.script.run.withSuccessHandler(function(url) {
+                document.getElementById('sheetUrl').value = url || '';
+            }).getStoredSheetUrl();
+        });
     </script>
 </body>
 </html>
