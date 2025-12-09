@@ -1178,8 +1178,27 @@ function saveJobCandidateDetails(ss, jobId, candidateEmail, candidateName, devId
   const cleanEmail = String(candidateEmail).toLowerCase().trim();
   const questions = getJobQuestions(jobId);
 
-  // Get headers from sheet
+  // Get headers from sheet first
   const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+
+  // Fixed column headers that are NOT question columns
+  const fixedHeaders = ['Timestamp', 'Email', 'Name', 'Dev ID', 'Thread ID', 'Region', 'Negotiation Notes', 'Status', 'Agreed Rate'];
+
+  // Log for debugging
+  console.log(`saveJobCandidateDetails: jobId=${jobId}, email=${cleanEmail}, questions=${questions.length}, answers=${JSON.stringify(answers)}`);
+
+  // If no questions configured or questions don't match sheet, auto-detect from sheet headers
+  let effectiveQuestions = questions;
+  if (!questions || questions.length === 0) {
+    console.warn(`No questions configured for job ${jobId}, auto-detecting from sheet headers`);
+    effectiveQuestions = [];
+    headers.forEach(h => {
+      if (h && !fixedHeaders.includes(h)) {
+        effectiveQuestions.push({ header: h, question: h });
+      }
+    });
+    console.log(`Auto-detected ${effectiveQuestions.length} question columns: ${effectiveQuestions.map(q => q.header).join(', ')}`);
+  }
 
   // Find fixed column indices
   const emailColIdx = headers.indexOf('Email');
@@ -1218,7 +1237,7 @@ function saveJobCandidateDetails(ss, jobId, candidateEmail, candidateName, devId
   let answeredQuestions = 0;
   let pendingQuestions = [];
 
-  questions.forEach(q => {
+  effectiveQuestions.forEach(q => {
     const colIdx = headers.indexOf(q.header);
     if (colIdx !== -1) {
       totalQuestions++;
@@ -1254,10 +1273,16 @@ function saveJobCandidateDetails(ss, jobId, candidateEmail, candidateName, devId
     const existingRow = data[existingRowIndex - 1];
     let mergedAnsweredCount = 0;
 
+    // Build a set of question column indices for accurate merging
+    const questionColIndices = new Set();
+    effectiveQuestions.forEach(q => {
+      const idx = headers.indexOf(q.header);
+      if (idx !== -1) questionColIndices.add(idx);
+    });
+
     for (let col = 0; col < headers.length; col++) {
       // For question columns, keep existing if new is empty/NOT_PROVIDED
-      // Region column is at index 5, questions start at 6
-      if (col >= 6 && col < headers.length - 3) { // Question columns
+      if (questionColIndices.has(col)) {
         if ((!rowData[col] || rowData[col] === 'NOT_PROVIDED') &&
             existingRow[col] && existingRow[col] !== 'NOT_PROVIDED') {
           rowData[col] = existingRow[col];
@@ -2268,23 +2293,37 @@ OUR RATE PARAMETERS:
 
 TASK:
 Analyze the candidate's message and determine:
-1. What hourly rate are they proposing or expecting? (extract the exact number if mentioned)
+1. What hourly rate are they proposing, expecting, or asking for? (extract the exact number)
 2. Are they accepting a previous offer we made?
 3. What action should we take?
 
+IMPORTANT INTERPRETATION RULES:
+- "Can I get $X?" = They are asking for $X (treat as a rate proposal of $X)
+- "I would like $X" = They are proposing $X
+- "I expect $X" = They are proposing $X
+- "I want $X" = They are proposing $X
+- "How about $X?" = They are counter-proposing $X
+- ANY mention of a specific dollar amount by the candidate = Their proposed/expected rate
+- Questions about rate ("can I get...?", "is $X possible?") should be treated as rate proposals
+
 DECISION RULES:
-- If candidate proposes/expects a rate AT OR BELOW $${targetRate}/hr → ACTION: AUTO_ACCEPT
+- If candidate mentions/asks for a rate AT OR BELOW $${targetRate}/hr → ACTION: AUTO_ACCEPT (accept their rate!)
 - If candidate explicitly ACCEPTS an offer we made → ACTION: AUTO_ACCEPT
-- If candidate proposes a rate ABOVE $${targetRate}/hr but seems negotiable → ACTION: COUNTER
-- If candidate is firm on a rate ABOVE $${targetRate}/hr → ACTION: ESCALATE
-- If no clear rate mentioned, continue negotiation → ACTION: COUNTER
+- If candidate mentions/asks for a rate ABOVE $${targetRate}/hr → ACTION: COUNTER (we will counter with target rate)
+- If candidate is very firm on a rate ABOVE $${targetRate}/hr after multiple attempts → ACTION: ESCALATE
+- If no clear rate mentioned → ACTION: COUNTER
+
+CRITICAL:
+- If they ask "can I get $41?" and our target is $50, that means $41 <= $50, so AUTO_ACCEPT at $41
+- If they ask "can I get $41?" and our target is $40, that means $41 > $40, so COUNTER
+- Always extract the EXACT rate number they mentioned
 
 RESPONSE FORMAT (JSON only):
 {
-  "proposed_rate": <number or null if not mentioned>,
+  "proposed_rate": <number - the rate they mentioned/asked for, or null if none>,
   "is_accepting_offer": <true/false>,
   "action": "<AUTO_ACCEPT|COUNTER|ESCALATE>",
-  "reason": "<brief explanation of your decision>",
+  "reason": "<brief explanation including the comparison: their rate vs our target>",
   "candidate_flexibility": "<flexible|firm|unclear>"
 }
 
@@ -2398,6 +2437,68 @@ Write ONLY the email, nothing else.
       jobStats.escalated++;
       jobStats.log.push({type: 'warning', message: `${candidateEmail} escalated: ${escalationReason}`});
       return; // Skip the rest of negotiation logic
+    }
+
+    // CRITICAL SAFEGUARD: Never offer more than what the candidate is asking for
+    // If candidate asks for $41 and our scheduled offer is $50, we should accept $41 (not offer $50!)
+    const candidateProposedRate = rateAnalysis ? rateAnalysis.proposed_rate : null;
+    if (candidateProposedRate !== null && candidateProposedRate < currentOfferRate) {
+      // Candidate is asking for LESS than what we were going to offer - accept their rate!
+      jobStats.log.push({type: 'success', message: `${candidateEmail} - Candidate asking $${candidateProposedRate}/hr which is LESS than our offer of $${currentOfferRate}/hr - accepting their lower rate!`});
+
+      const rate = candidateProposedRate;
+      taskSheet.appendRow([new Date(), jobId, candidateName, candidateEmail, rate, "Pending Archive", devId, thread.getId()]);
+
+      try {
+        updateJobCandidateStatus(ss, jobId, candidateEmail, 'Offer Accepted', `$${rate}/hr`);
+      } catch(detailsErr) {
+        console.error("Failed to update job details sheet:", detailsErr);
+      }
+
+      const jobDescription = rules.jobDescription || '';
+      const acceptPrompt = `
+You are a recruiter at Turing. Write a professional acceptance confirmation email to ${candidateName.split(' ')[0]}.
+
+CANDIDATE NAME: ${candidateName.split(' ')[0]}
+AGREED RATE: $${rate}/hr
+
+JOB DESCRIPTION FOR CONTEXT:
+${jobDescription}
+
+TASK:
+Write an email that includes ALL of the following points:
+1. Thank them for sharing their rate alignment
+2. Confirm you are sharing all the details with the team
+3. Acknowledge the project details from the JD (mention if it's remote, hours per week if specified, etc.)
+4. Inform them their profile is currently under client review
+5. If approved and selected, you will reach out to confirm the onboarding date and provide further details along with contract specifics
+
+FORMAT:
+Hi [First Name],
+
+Thank you for sharing your alignment on the rate. I am sharing all the details with the team.
+
+Please acknowledge that the project your profile is being considered for is [extract from JD: remote/location, hours per week if mentioned].
+
+Please be aware that your profile is currently under client review. If approved and selected, we will reach out to confirm the onboarding date and provide further details along with contract specifics.
+
+Best regards,
+Turing Recruitment Team
+
+Write ONLY the email, nothing else.
+`;
+      const acceptEmail = callAI(acceptPrompt);
+      sendReplyWithSenderName(thread, acceptEmail, 'Recruiter');
+      markCompleted(thread);
+
+      if(stateRowIndex > -1) {
+        stateSheet.deleteRow(stateRowIndex);
+        stateMap.delete(stateKey);
+      }
+
+      jobStats.accepted++;
+      jobStats.log.push({type: 'success', message: `${candidateEmail} ACCEPTED at $${rate}/hr (candidate asked less than our offer)`});
+      return;
     }
 
     // ENHANCED AI PROMPT with better negotiation strategy (NEVER reveal target!)
@@ -3574,7 +3675,7 @@ function generateDailyReport(reportDate) {
           // Check if it's human intervention or AI reply
           if (status.includes('human') || status.includes('manual')) {
             reportByJobId[jobId].humanNegotiationsSent++;
-          } else if (status.includes('active') || status.includes('accepted') || status.includes('succeeded')) {
+          } else if (status.includes('active') || status.includes('accepted') || status.includes('succeeded') || status.includes('counter offer') || status.includes('counter-offer') || status.includes('pending')) {
             reportByJobId[jobId].aiRepliesSucceeded++;
           }
         }
@@ -3780,7 +3881,7 @@ function sendDailyReportEmail(recipientEmail, reportDate) {
     </head>
     <body>
       <div class="container">
-        <h1>📊 Daily Activity Report</h1>
+        <h1>Daily Activity Report</h1>
         <p><strong>Date:</strong> ${report.reportDate}</p>
         <p><strong>Generated:</strong> ${new Date().toLocaleString()}</p>
 
@@ -3859,7 +3960,7 @@ function sendDailyReportEmail(recipientEmail, reportDate) {
     </html>`;
 
     // Send the email
-    GmailApp.sendEmail(email, `📊 Daily Activity Report - ${report.reportDate}`, '', {
+    GmailApp.sendEmail(email, `Daily Activity Report - ${report.reportDate}`, '', {
       htmlBody: html,
       name: 'Turing AI Recruiter'
     });
