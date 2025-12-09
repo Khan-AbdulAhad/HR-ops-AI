@@ -1178,8 +1178,27 @@ function saveJobCandidateDetails(ss, jobId, candidateEmail, candidateName, devId
   const cleanEmail = String(candidateEmail).toLowerCase().trim();
   const questions = getJobQuestions(jobId);
 
-  // Get headers from sheet
+  // Get headers from sheet first
   const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+
+  // Fixed column headers that are NOT question columns
+  const fixedHeaders = ['Timestamp', 'Email', 'Name', 'Dev ID', 'Thread ID', 'Region', 'Negotiation Notes', 'Status', 'Agreed Rate'];
+
+  // Log for debugging
+  console.log(`saveJobCandidateDetails: jobId=${jobId}, email=${cleanEmail}, questions=${questions.length}, answers=${JSON.stringify(answers)}`);
+
+  // If no questions configured or questions don't match sheet, auto-detect from sheet headers
+  let effectiveQuestions = questions;
+  if (!questions || questions.length === 0) {
+    console.warn(`No questions configured for job ${jobId}, auto-detecting from sheet headers`);
+    effectiveQuestions = [];
+    headers.forEach(h => {
+      if (h && !fixedHeaders.includes(h)) {
+        effectiveQuestions.push({ header: h, question: h });
+      }
+    });
+    console.log(`Auto-detected ${effectiveQuestions.length} question columns: ${effectiveQuestions.map(q => q.header).join(', ')}`);
+  }
 
   // Find fixed column indices
   const emailColIdx = headers.indexOf('Email');
@@ -1218,7 +1237,7 @@ function saveJobCandidateDetails(ss, jobId, candidateEmail, candidateName, devId
   let answeredQuestions = 0;
   let pendingQuestions = [];
 
-  questions.forEach(q => {
+  effectiveQuestions.forEach(q => {
     const colIdx = headers.indexOf(q.header);
     if (colIdx !== -1) {
       totalQuestions++;
@@ -1254,10 +1273,16 @@ function saveJobCandidateDetails(ss, jobId, candidateEmail, candidateName, devId
     const existingRow = data[existingRowIndex - 1];
     let mergedAnsweredCount = 0;
 
+    // Build a set of question column indices for accurate merging
+    const questionColIndices = new Set();
+    effectiveQuestions.forEach(q => {
+      const idx = headers.indexOf(q.header);
+      if (idx !== -1) questionColIndices.add(idx);
+    });
+
     for (let col = 0; col < headers.length; col++) {
       // For question columns, keep existing if new is empty/NOT_PROVIDED
-      // Region column is at index 5, questions start at 6
-      if (col >= 6 && col < headers.length - 3) { // Question columns
+      if (questionColIndices.has(col)) {
         if ((!rowData[col] || rowData[col] === 'NOT_PROVIDED') &&
             existingRow[col] && existingRow[col] !== 'NOT_PROVIDED') {
           rowData[col] = existingRow[col];
@@ -3650,7 +3675,7 @@ function generateDailyReport(reportDate) {
           // Check if it's human intervention or AI reply
           if (status.includes('human') || status.includes('manual')) {
             reportByJobId[jobId].humanNegotiationsSent++;
-          } else if (status.includes('active') || status.includes('accepted') || status.includes('succeeded')) {
+          } else if (status.includes('active') || status.includes('accepted') || status.includes('succeeded') || status.includes('counter offer') || status.includes('counter-offer') || status.includes('pending')) {
             reportByJobId[jobId].aiRepliesSucceeded++;
           }
         }
@@ -3856,7 +3881,7 @@ function sendDailyReportEmail(recipientEmail, reportDate) {
     </head>
     <body>
       <div class="container">
-        <h1>📊 Daily Activity Report</h1>
+        <h1>Daily Activity Report</h1>
         <p><strong>Date:</strong> ${report.reportDate}</p>
         <p><strong>Generated:</strong> ${new Date().toLocaleString()}</p>
 
@@ -3935,7 +3960,7 @@ function sendDailyReportEmail(recipientEmail, reportDate) {
     </html>`;
 
     // Send the email
-    GmailApp.sendEmail(email, `📊 Daily Activity Report - ${report.reportDate}`, '', {
+    GmailApp.sendEmail(email, `Daily Activity Report - ${report.reportDate}`, '', {
       htmlBody: html,
       name: 'Turing AI Recruiter'
     });
