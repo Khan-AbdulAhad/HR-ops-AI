@@ -149,8 +149,8 @@ function saveLogSheetUrl(url) {
 }
 
 function ensureSheetsExist(ss) {
-  // Include new sheets: Manual_Sent_Logs, Data_Fetch_Logs, Follow_Up_Queue, Daily_Reports
-  const sheets = ['Email_Logs', 'Email_Templates', 'Negotiation_Config', 'Negotiation_Tasks', 'Negotiation_State', 'Negotiation_FAQs', 'Negotiation_Completed', 'Rate_Tiers', 'Manual_Sent_Logs', 'Data_Fetch_Logs', 'Follow_Up_Queue', 'Daily_Reports'];
+  // Include new sheets: Manual_Sent_Logs, Data_Fetch_Logs, Follow_Up_Queue, Daily_Reports, Unresponsive_Devs
+  const sheets = ['Email_Logs', 'Email_Templates', 'Negotiation_Config', 'Negotiation_Tasks', 'Negotiation_State', 'Negotiation_FAQs', 'Negotiation_Completed', 'Rate_Tiers', 'Manual_Sent_Logs', 'Data_Fetch_Logs', 'Follow_Up_Queue', 'Daily_Reports', 'Unresponsive_Devs'];
   sheets.forEach(name => {
     if (!ss.getSheetByName(name)) ss.insertSheet(name);
   });
@@ -207,6 +207,10 @@ function ensureSheetsExist(ss) {
   // Daily_Reports sheet - for storing daily activity reports
   const dailyReportsSheet = ss.getSheetByName('Daily_Reports');
   if (dailyReportsSheet.getLastRow() === 0) dailyReportsSheet.appendRow(['Report Date', 'Job ID', 'AI Replies Succeeded', 'Human Negotiations Sent', 'Data Gathering Emails', 'First Follow-Ups Sent', 'Second Follow-Ups Sent', 'Total Outreach', 'Generated At', 'Sent To']);
+
+  // Unresponsive_Devs sheet - for tracking developers who didn't respond after all follow-ups
+  const unresponsiveSheet = ss.getSheetByName('Unresponsive_Devs');
+  if (unresponsiveSheet.getLastRow() === 0) unresponsiveSheet.appendRow(['Email', 'Job ID', 'Name', 'Dev ID', 'Thread ID', 'Initial Send Time', 'Follow Up 1 Time', 'Follow Up 2 Time', 'Marked Unresponsive', 'Days Since Initial']);
 }
 
 // --- DATA CONSUMPTION LOGGING ---
@@ -3274,7 +3278,16 @@ function getThreadUrl(threadId) {
  */
 const FOLLOW_UP_CONFIG = {
   FOLLOW_UP_1_HOURS: 12,  // First follow-up after 12 hours
-  FOLLOW_UP_2_HOURS: 28   // Second follow-up after 28 hours (third total reachout)
+  FOLLOW_UP_2_HOURS: 28,  // Second follow-up after 28 hours (third total reachout)
+  UNRESPONSIVE_HOURS: 76  // Mark as unresponsive 48 hours after 2nd follow-up (28 + 48 = 76 hours)
+};
+
+// Gmail labels for follow-up tracking
+const FOLLOW_UP_LABELS = {
+  AWAITING_RESPONSE: 'Awaiting-Response',
+  FOLLOW_UP_1_SENT: 'Follow-Up-1-Sent',
+  FOLLOW_UP_2_SENT: 'Follow-Up-2-Sent',
+  UNRESPONSIVE: 'Unresponsive'
 };
 
 /**
@@ -3319,6 +3332,20 @@ function addToFollowUpQueue(email, jobId, threadId, name, devId) {
       new Date()         // Last Updated
     ]);
 
+    // Add "Awaiting-Response" Gmail label to the thread
+    if(threadId) {
+      try {
+        const thread = GmailApp.getThreadById(threadId);
+        if(thread) {
+          const label = GmailApp.getUserLabelByName(FOLLOW_UP_LABELS.AWAITING_RESPONSE) ||
+                        GmailApp.createLabel(FOLLOW_UP_LABELS.AWAITING_RESPONSE);
+          thread.addLabel(label);
+        }
+      } catch(labelError) {
+        console.error("Error adding Awaiting-Response label:", labelError);
+      }
+    }
+
     return { success: true, message: "Added to queue" };
   } catch(e) {
     console.error("Error adding to follow-up queue:", e);
@@ -3330,36 +3357,53 @@ function addToFollowUpQueue(email, jobId, threadId, name, devId) {
  * Check and process follow-up emails
  * This should be called periodically (e.g., every hour via time-based trigger)
  * Sends follow-up emails if no response received after 12 hours (first) and 28 hours (second)
+ * Marks as unresponsive after 48 hours past 2nd follow-up (76 hours total)
  */
 function processFollowUpQueue() {
   const url = getStoredSheetUrl();
-  if(!url) return { processed: 0, followUp1Sent: 0, followUp2Sent: 0, log: [] };
+  if(!url) return { processed: 0, followUp1Sent: 0, followUp2Sent: 0, unresponsiveMarked: 0, log: [] };
 
   const log = [];
   let followUp1Sent = 0;
   let followUp2Sent = 0;
+  let unresponsiveMarked = 0;
 
   try {
     const ss = SpreadsheetApp.openByUrl(url);
+    ensureSheetsExist(ss);
     const sheet = ss.getSheetByName('Follow_Up_Queue');
 
     if(!sheet) {
       log.push({ type: 'warning', message: 'Follow_Up_Queue sheet not found' });
-      return { processed: 0, followUp1Sent: 0, followUp2Sent: 0, log: log };
+      return { processed: 0, followUp1Sent: 0, followUp2Sent: 0, unresponsiveMarked: 0, log: log };
     }
 
     const data = sheet.getDataRange().getValues();
     if(data.length <= 1) {
       log.push({ type: 'info', message: 'No items in follow-up queue' });
-      return { processed: 0, followUp1Sent: 0, followUp2Sent: 0, log: log };
+      return { processed: 0, followUp1Sent: 0, followUp2Sent: 0, unresponsiveMarked: 0, log: log };
+    }
+
+    // Get negotiation state data to check if candidates are already in active negotiations
+    const stateSheet = ss.getSheetByName('Negotiation_State');
+    const stateData = stateSheet ? stateSheet.getDataRange().getValues() : [];
+    const activeNegotiations = new Set();
+    for(let j = 1; j < stateData.length; j++) {
+      const stateEmail = String(stateData[j][0]).toLowerCase().trim();
+      const stateJobId = String(stateData[j][1]);
+      if(stateEmail && stateJobId) {
+        activeNegotiations.add(`${stateEmail}|${stateJobId}`);
+      }
     }
 
     const now = new Date();
     let processed = 0;
+    const myEmail = Session.getActiveUser().getEmail().toLowerCase();
+    const rowsToDelete = []; // Track rows to delete (for moving to unresponsive)
 
     for(let i = 1; i < data.length; i++) {
-      const email = data[i][0];
-      const jobId = data[i][1];
+      const email = String(data[i][0]).toLowerCase().trim();
+      const jobId = String(data[i][1]);
       const threadId = data[i][2];
       const name = data[i][3];
       const devId = data[i][4];
@@ -3368,31 +3412,51 @@ function processFollowUpQueue() {
       const followUp2Done = data[i][7] === true || data[i][7] === 'TRUE';
       const status = data[i][8];
 
-      // Skip completed or responded items
-      if(status === 'Responded' || status === 'Completed' || (followUp1Done && followUp2Done)) {
+      // Skip already processed items
+      if(status === 'Responded' || status === 'Unresponsive') {
         continue;
       }
 
-      // Check if there's been a response (check Gmail thread)
+      // Check if candidate is already in active negotiation (in Negotiation_State)
+      const negotiationKey = `${email}|${jobId}`;
+      if(activeNegotiations.has(negotiationKey)) {
+        // Mark as responded since they're in active negotiation
+        sheet.getRange(i + 1, 9).setValue('Responded');
+        sheet.getRange(i + 1, 10).setValue(new Date());
+        updateFollowUpLabels(threadId, 'responded');
+        log.push({ type: 'success', message: `${email} is in active negotiation - marked as responded` });
+        processed++;
+        continue;
+      }
+
+      // IMPROVED: Check Gmail thread for ANY candidate response (not just last message)
       if(threadId) {
         try {
           const thread = GmailApp.getThreadById(threadId);
           if(thread) {
             const messages = thread.getMessages();
-            if(messages.length > 1) {
-              // There's a response - check if last message is from candidate
-              const lastMsg = messages[messages.length - 1];
-              const myEmail = Session.getActiveUser().getEmail().toLowerCase();
-              const lastSender = lastMsg.getFrom().toLowerCase();
+            let candidateHasResponded = false;
 
-              if(!lastSender.includes(myEmail)) {
-                // Candidate has responded - mark as responded
-                sheet.getRange(i + 1, 9).setValue('Responded');
-                sheet.getRange(i + 1, 10).setValue(new Date());
-                log.push({ type: 'success', message: `${email} has responded - removed from queue` });
-                processed++;
-                continue;
+            // Check ALL messages to see if candidate has replied at any point
+            for(let m = 1; m < messages.length; m++) {
+              const msg = messages[m];
+              const sender = msg.getFrom().toLowerCase();
+
+              // If any message is from someone other than us, they've responded
+              if(!sender.includes(myEmail)) {
+                candidateHasResponded = true;
+                break;
               }
+            }
+
+            if(candidateHasResponded) {
+              // Candidate has responded at some point - mark as responded
+              sheet.getRange(i + 1, 9).setValue('Responded');
+              sheet.getRange(i + 1, 10).setValue(new Date());
+              updateFollowUpLabels(threadId, 'responded');
+              log.push({ type: 'success', message: `${email} has responded - marked in queue` });
+              processed++;
+              continue;
             }
           }
         } catch(threadError) {
@@ -3403,12 +3467,28 @@ function processFollowUpQueue() {
       // Calculate hours since initial send
       const hoursSinceSend = (now - initialSendTime) / (1000 * 60 * 60);
 
+      // Check if should be marked as unresponsive (76 hours = 28 + 48 hours after 2nd follow-up)
+      if(followUp1Done && followUp2Done && hoursSinceSend >= FOLLOW_UP_CONFIG.UNRESPONSIVE_HOURS) {
+        // Move to Unresponsive_Devs sheet
+        const moveResult = moveToUnresponsive(ss, email, jobId, name, devId, threadId, initialSendTime, data[i]);
+        if(moveResult.success) {
+          sheet.getRange(i + 1, 9).setValue('Unresponsive');
+          sheet.getRange(i + 1, 10).setValue(new Date());
+          updateFollowUpLabels(threadId, 'unresponsive');
+          unresponsiveMarked++;
+          log.push({ type: 'warning', message: `${email} marked unresponsive (${hoursSinceSend.toFixed(1)}hrs since initial)` });
+        }
+        processed++;
+        continue;
+      }
+
       // Check if first follow-up is due (12 hours)
       if(!followUp1Done && hoursSinceSend >= FOLLOW_UP_CONFIG.FOLLOW_UP_1_HOURS) {
         const result = sendFollowUpEmail(email, jobId, threadId, name, 1);
         if(result.success) {
           sheet.getRange(i + 1, 7).setValue(true); // Mark Follow Up 1 Sent
           sheet.getRange(i + 1, 10).setValue(new Date());
+          updateFollowUpLabels(threadId, 'followup1');
           followUp1Sent++;
           log.push({ type: 'success', message: `Sent 1st follow-up to ${email} (${hoursSinceSend.toFixed(1)}hrs)` });
         } else {
@@ -3421,8 +3501,8 @@ function processFollowUpQueue() {
         const result = sendFollowUpEmail(email, jobId, threadId, name, 2);
         if(result.success) {
           sheet.getRange(i + 1, 8).setValue(true); // Mark Follow Up 2 Sent
-          sheet.getRange(i + 1, 9).setValue('Completed'); // All follow-ups done
           sheet.getRange(i + 1, 10).setValue(new Date());
+          updateFollowUpLabels(threadId, 'followup2');
           followUp2Sent++;
           log.push({ type: 'success', message: `Sent 2nd follow-up to ${email} (${hoursSinceSend.toFixed(1)}hrs)` });
         } else {
@@ -3434,18 +3514,117 @@ function processFollowUpQueue() {
 
     SpreadsheetApp.flush();
 
-    log.push({ type: 'info', message: `Processed ${processed} items. 1st follow-ups: ${followUp1Sent}, 2nd follow-ups: ${followUp2Sent}` });
+    log.push({ type: 'info', message: `Processed ${processed} items. 1st: ${followUp1Sent}, 2nd: ${followUp2Sent}, Unresponsive: ${unresponsiveMarked}` });
 
     return {
       processed: processed,
       followUp1Sent: followUp1Sent,
       followUp2Sent: followUp2Sent,
+      unresponsiveMarked: unresponsiveMarked,
       log: log
     };
 
   } catch(e) {
     console.error("Error processing follow-up queue:", e);
-    return { processed: 0, followUp1Sent: 0, followUp2Sent: 0, log: [{ type: 'error', message: e.message }] };
+    return { processed: 0, followUp1Sent: 0, followUp2Sent: 0, unresponsiveMarked: 0, log: [{ type: 'error', message: e.message }] };
+  }
+}
+
+/**
+ * Update Gmail labels for follow-up status changes
+ * @param {string} threadId - Gmail thread ID
+ * @param {string} newStatus - 'followup1', 'followup2', 'responded', or 'unresponsive'
+ */
+function updateFollowUpLabels(threadId, newStatus) {
+  if(!threadId) return;
+
+  try {
+    const thread = GmailApp.getThreadById(threadId);
+    if(!thread) return;
+
+    // Get or create all follow-up labels
+    const awaitingLabel = GmailApp.getUserLabelByName(FOLLOW_UP_LABELS.AWAITING_RESPONSE) ||
+                          GmailApp.createLabel(FOLLOW_UP_LABELS.AWAITING_RESPONSE);
+    const followUp1Label = GmailApp.getUserLabelByName(FOLLOW_UP_LABELS.FOLLOW_UP_1_SENT) ||
+                           GmailApp.createLabel(FOLLOW_UP_LABELS.FOLLOW_UP_1_SENT);
+    const followUp2Label = GmailApp.getUserLabelByName(FOLLOW_UP_LABELS.FOLLOW_UP_2_SENT) ||
+                           GmailApp.createLabel(FOLLOW_UP_LABELS.FOLLOW_UP_2_SENT);
+    const unresponsiveLabel = GmailApp.getUserLabelByName(FOLLOW_UP_LABELS.UNRESPONSIVE) ||
+                              GmailApp.createLabel(FOLLOW_UP_LABELS.UNRESPONSIVE);
+
+    // Remove all follow-up labels first
+    try { thread.removeLabel(awaitingLabel); } catch(e) {}
+    try { thread.removeLabel(followUp1Label); } catch(e) {}
+    try { thread.removeLabel(followUp2Label); } catch(e) {}
+    try { thread.removeLabel(unresponsiveLabel); } catch(e) {}
+
+    // Add appropriate label based on new status
+    switch(newStatus) {
+      case 'followup1':
+        thread.addLabel(followUp1Label);
+        break;
+      case 'followup2':
+        thread.addLabel(followUp2Label);
+        break;
+      case 'unresponsive':
+        thread.addLabel(unresponsiveLabel);
+        break;
+      case 'responded':
+        // No label needed for responded - all labels removed
+        break;
+    }
+  } catch(e) {
+    console.error("Error updating follow-up labels:", e);
+  }
+}
+
+/**
+ * Move a candidate to the Unresponsive_Devs sheet
+ * @param {Spreadsheet} ss - Spreadsheet object
+ * @param {string} email - Candidate email
+ * @param {string} jobId - Job ID
+ * @param {string} name - Candidate name
+ * @param {string} devId - Developer ID
+ * @param {string} threadId - Gmail thread ID
+ * @param {Date} initialSendTime - Initial email send time
+ * @param {Array} rowData - Original row data from Follow_Up_Queue
+ * @returns {Object} Result with success status
+ */
+function moveToUnresponsive(ss, email, jobId, name, devId, threadId, initialSendTime, rowData) {
+  try {
+    let unresponsiveSheet = ss.getSheetByName('Unresponsive_Devs');
+
+    if(!unresponsiveSheet) {
+      unresponsiveSheet = ss.insertSheet('Unresponsive_Devs');
+      unresponsiveSheet.appendRow(['Email', 'Job ID', 'Name', 'Dev ID', 'Thread ID', 'Initial Send Time', 'Follow Up 1 Time', 'Follow Up 2 Time', 'Marked Unresponsive', 'Days Since Initial']);
+    }
+
+    // Calculate days since initial send
+    const now = new Date();
+    const daysSinceInitial = Math.round((now - initialSendTime) / (1000 * 60 * 60 * 24) * 10) / 10;
+
+    // Get follow-up timestamps from original data if available
+    const followUp1Time = rowData[6] === true || rowData[6] === 'TRUE' ? (rowData[9] || 'N/A') : 'N/A';
+    const followUp2Time = rowData[7] === true || rowData[7] === 'TRUE' ? (rowData[9] || 'N/A') : 'N/A';
+
+    // Add to Unresponsive_Devs sheet
+    unresponsiveSheet.appendRow([
+      email,
+      jobId,
+      name,
+      devId || 'N/A',
+      threadId || 'N/A',
+      initialSendTime,
+      followUp1Time,
+      followUp2Time,
+      now,
+      daysSinceInitial
+    ]);
+
+    return { success: true };
+  } catch(e) {
+    console.error("Error moving to unresponsive:", e);
+    return { success: false, error: e.message };
   }
 }
 
@@ -3548,25 +3727,31 @@ function runFollowUpProcessor() {
  */
 function getFollowUpStats() {
   const url = getStoredSheetUrl();
-  if(!url) return { pending: 0, followUp1Done: 0, followUp2Done: 0, responded: 0 };
+  if(!url) return { pending: 0, followUp1Done: 0, followUp2Done: 0, responded: 0, unresponsive: 0, jobIds: [] };
 
   try {
     const ss = SpreadsheetApp.openByUrl(url);
     const sheet = ss.getSheetByName('Follow_Up_Queue');
 
-    if(!sheet) return { pending: 0, followUp1Done: 0, followUp2Done: 0, responded: 0 };
+    if(!sheet) return { pending: 0, followUp1Done: 0, followUp2Done: 0, responded: 0, unresponsive: 0, jobIds: [] };
 
     const data = sheet.getDataRange().getValues();
 
-    let pending = 0, followUp1Done = 0, followUp2Done = 0, responded = 0;
+    let pending = 0, followUp1Done = 0, followUp2Done = 0, responded = 0, unresponsive = 0;
+    const jobIdSet = new Set();
 
     for(let i = 1; i < data.length; i++) {
       const f1Done = data[i][6] === true || data[i][6] === 'TRUE';
       const f2Done = data[i][7] === true || data[i][7] === 'TRUE';
       const status = data[i][8];
+      const jobId = String(data[i][1]);
+
+      if(jobId) jobIdSet.add(jobId);
 
       if(status === 'Responded') {
         responded++;
+      } else if(status === 'Unresponsive') {
+        unresponsive++;
       } else if(f2Done) {
         followUp2Done++;
       } else if(f1Done) {
@@ -3576,11 +3761,97 @@ function getFollowUpStats() {
       }
     }
 
-    return { pending, followUp1Done, followUp2Done, responded };
+    return { pending, followUp1Done, followUp2Done, responded, unresponsive, jobIds: Array.from(jobIdSet).sort() };
 
   } catch(e) {
     console.error("Error getting follow-up stats:", e);
-    return { pending: 0, followUp1Done: 0, followUp2Done: 0, responded: 0 };
+    return { pending: 0, followUp1Done: 0, followUp2Done: 0, responded: 0, unresponsive: 0, jobIds: [] };
+  }
+}
+
+/**
+ * Get follow-up queue data for the UI table with filters
+ * @param {Object} filters - Optional filters { jobId: 'all'|jobId, status: 'all'|status }
+ * @returns {Object} Queue data with items and jobIds for filter dropdowns
+ */
+function getFollowUpQueueData(filters) {
+  const url = getStoredSheetUrl();
+  if(!url) return { items: [], jobIds: [] };
+
+  try {
+    const ss = SpreadsheetApp.openByUrl(url);
+    const sheet = ss.getSheetByName('Follow_Up_Queue');
+
+    if(!sheet) return { items: [], jobIds: [] };
+
+    const data = sheet.getDataRange().getValues();
+    if(data.length <= 1) return { items: [], jobIds: [] };
+
+    const jobIdFilter = filters?.jobId || 'all';
+    const statusFilter = filters?.status || 'all';
+
+    const items = [];
+    const jobIdSet = new Set();
+
+    for(let i = 1; i < data.length; i++) {
+      const email = data[i][0];
+      const jobId = String(data[i][1]);
+      const threadId = data[i][2];
+      const name = data[i][3];
+      const devId = data[i][4];
+      const initialSendTime = data[i][5];
+      const f1Done = data[i][6] === true || data[i][6] === 'TRUE';
+      const f2Done = data[i][7] === true || data[i][7] === 'TRUE';
+      const status = data[i][8] || 'Pending';
+      const lastUpdated = data[i][9];
+
+      // Collect job IDs for filter dropdown
+      if(jobId) jobIdSet.add(jobId);
+
+      // Determine display status
+      let displayStatus = status;
+      if(status !== 'Responded' && status !== 'Unresponsive') {
+        if(f2Done) {
+          displayStatus = '2nd Follow-Up Sent';
+        } else if(f1Done) {
+          displayStatus = '1st Follow-Up Sent';
+        } else {
+          displayStatus = 'Awaiting Response';
+        }
+      }
+
+      // Apply filters
+      if(jobIdFilter !== 'all' && jobId !== jobIdFilter) continue;
+      if(statusFilter !== 'all') {
+        if(statusFilter === 'pending' && displayStatus !== 'Awaiting Response') continue;
+        if(statusFilter === 'followup1' && displayStatus !== '1st Follow-Up Sent') continue;
+        if(statusFilter === 'followup2' && displayStatus !== '2nd Follow-Up Sent') continue;
+        if(statusFilter === 'responded' && displayStatus !== 'Responded') continue;
+        if(statusFilter === 'unresponsive' && displayStatus !== 'Unresponsive') continue;
+      }
+
+      items.push({
+        email: email,
+        jobId: jobId,
+        name: name || 'Unknown',
+        devId: devId || 'N/A',
+        threadId: threadId || '',
+        initialSendTime: initialSendTime ? new Date(initialSendTime).toLocaleString() : 'N/A',
+        followUp1Sent: f1Done,
+        followUp2Sent: f2Done,
+        status: displayStatus,
+        lastUpdated: lastUpdated ? new Date(lastUpdated).toLocaleString() : 'N/A'
+      });
+    }
+
+    return {
+      items: items,
+      jobIds: Array.from(jobIdSet).sort()
+    };
+
+  } catch(e) {
+    console.error("Error getting follow-up queue data:", e);
+    return { items: [], jobIds: [] };
   }
 }
 
