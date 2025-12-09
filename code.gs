@@ -4574,3 +4574,163 @@ function getAllTriggersInfo() {
     return [];
   }
 }
+
+// ==========================================
+// FOLLOW-UP TABLE FUNCTIONS (UI Support)
+// ==========================================
+
+/**
+ * Get follow-up table data for the UI with filters
+ * Returns developers currently under follow-up with their details
+ * @param {Object} filters - Optional filters { jobId: 'all'|jobId, status: 'all'|'Pending'|'Follow-Up-1-Sent'|'Follow-Up-2-Sent' }
+ * @returns {Object} { data: [...], jobIds: [...] }
+ */
+function getFollowUpTableData(filters) {
+  const url = getStoredSheetUrl();
+  if (!url) return { data: [], jobIds: [] };
+
+  try {
+    const ss = SpreadsheetApp.openByUrl(url);
+    const sheet = ss.getSheetByName('Follow_Up_Queue');
+
+    if (!sheet || sheet.getLastRow() <= 1) return { data: [], jobIds: [] };
+
+    const data = sheet.getDataRange().getValues();
+    const jobIdFilter = filters?.jobId || 'all';
+    const statusFilter = filters?.status || 'all';
+
+    const items = [];
+    const jobIdSet = new Set();
+
+    // Headers: Email, Job ID, Thread ID, Name, Dev ID, Initial Send Time, Follow Up 1 Sent, Follow Up 2 Sent, Status, Last Updated
+    for (let i = 1; i < data.length; i++) {
+      const email = data[i][0];
+      const jobId = String(data[i][1] || '');
+      const threadId = data[i][2];
+      const name = data[i][3];
+      const devId = data[i][4];
+      const initialSendTime = data[i][5];
+      const f1Done = data[i][6] === true || data[i][6] === 'TRUE';
+      const f2Done = data[i][7] === true || data[i][7] === 'TRUE';
+      const status = data[i][8] || '';
+      const lastUpdated = data[i][9];
+
+      // Skip responded or already marked unresponsive
+      if (status === 'Responded' || status === 'Unresponsive') continue;
+
+      // Collect job IDs for filter dropdown
+      if (jobId) jobIdSet.add(jobId);
+
+      // Determine follow-up status for display
+      let followUpStatus = 'Pending';
+      if (f2Done) {
+        followUpStatus = 'Follow-Up-2-Sent';
+      } else if (f1Done) {
+        followUpStatus = 'Follow-Up-1-Sent';
+      }
+
+      // Apply job ID filter
+      if (jobIdFilter !== 'all' && jobId !== jobIdFilter) continue;
+
+      // Apply status filter
+      if (statusFilter !== 'all' && followUpStatus !== statusFilter) continue;
+
+      // Determine last reached out time
+      let lastReachedOut = initialSendTime;
+      if (lastUpdated && (f1Done || f2Done)) {
+        lastReachedOut = lastUpdated;
+      }
+
+      items.push({
+        email: email,
+        jobId: jobId,
+        name: name || 'Unknown',
+        devId: devId || '',
+        threadId: threadId || '',
+        followUpStatus: followUpStatus,
+        lastReachedOut: lastReachedOut ? new Date(lastReachedOut).toISOString() : null,
+        initialSendTime: initialSendTime ? new Date(initialSendTime).toISOString() : null
+      });
+    }
+
+    // Sort by last reached out (most recent first)
+    items.sort((a, b) => {
+      const timeA = a.lastReachedOut ? new Date(a.lastReachedOut) : new Date(0);
+      const timeB = b.lastReachedOut ? new Date(b.lastReachedOut) : new Date(0);
+      return timeB - timeA;
+    });
+
+    return {
+      data: items,
+      jobIds: Array.from(jobIdSet).sort()
+    };
+
+  } catch (e) {
+    console.error("Error getting follow-up table data:", e);
+    return { data: [], jobIds: [] };
+  }
+}
+
+/**
+ * Mark a developer as unresponsive and remove from follow-up queue
+ * Moves the entry to Unresponsive_Devs sheet and removes from Follow_Up_Queue
+ * @param {string} email - Developer email to mark as unresponsive
+ * @returns {Object} { success: boolean, message: string }
+ */
+function markFollowUpAsUnresponsive(email) {
+  if (!email) return { success: false, message: "Email is required" };
+
+  const url = getStoredSheetUrl();
+  if (!url) return { success: false, message: "No sheet URL configured" };
+
+  try {
+    const ss = SpreadsheetApp.openByUrl(url);
+    const sheet = ss.getSheetByName('Follow_Up_Queue');
+
+    if (!sheet) return { success: false, message: "Follow_Up_Queue sheet not found" };
+
+    const data = sheet.getDataRange().getValues();
+
+    // Find the row with this email
+    let rowIndex = -1;
+    let rowData = null;
+
+    for (let i = 1; i < data.length; i++) {
+      if (data[i][0] === email) {
+        rowIndex = i + 1; // Sheet rows are 1-indexed
+        rowData = data[i];
+        break;
+      }
+    }
+
+    if (rowIndex === -1) {
+      return { success: false, message: "Email not found in follow-up queue" };
+    }
+
+    // Extract data from the row
+    const jobId = rowData[1];
+    const threadId = rowData[2];
+    const name = rowData[3];
+    const devId = rowData[4];
+    const initialSendTime = rowData[5];
+
+    // Move to Unresponsive_Devs sheet
+    const moveResult = moveToUnresponsive(ss, email, jobId, name, devId, threadId, initialSendTime, rowData);
+
+    if (!moveResult.success) {
+      return { success: false, message: "Failed to move to unresponsive: " + (moveResult.error || "Unknown error") };
+    }
+
+    // Delete the row from Follow_Up_Queue
+    sheet.deleteRow(rowIndex);
+
+    // Invalidate cache
+    invalidateSheetCache('Follow_Up_Queue');
+
+    return { success: true, message: "Developer marked as unresponsive and removed from follow-up queue" };
+
+  } catch (e) {
+    console.error("Error marking as unresponsive:", e);
+    return { success: false, message: "Error: " + e.message };
+  }
+}
