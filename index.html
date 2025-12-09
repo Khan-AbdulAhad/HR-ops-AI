@@ -1001,25 +1001,33 @@ We have an exciting opportunity..."></textarea>
         function loadFollowUpStats() {
             google.script.run
                 .withSuccessHandler(function(stats) {
-                    document.getElementById('statPending').textContent = stats.pending || 0;
-                    document.getElementById('statFollowUp1').textContent = stats.followUp1Done || 0;
-                    document.getElementById('statFollowUp2').textContent = stats.followUp2Done || 0;
-                    document.getElementById('statResponded').textContent = stats.responded || 0;
-                    document.getElementById('statUnresponsive').textContent = stats.unresponsive || 0;
+                    var el;
+                    el = document.getElementById('statPending');
+                    if(el) el.textContent = stats.pending || 0;
+                    el = document.getElementById('statFollowUp1');
+                    if(el) el.textContent = stats.followUp1Done || 0;
+                    el = document.getElementById('statFollowUp2');
+                    if(el) el.textContent = stats.followUp2Done || 0;
+                    el = document.getElementById('statResponded');
+                    if(el) el.textContent = stats.responded || 0;
+                    el = document.getElementById('statUnresponsive');
+                    if(el) el.textContent = stats.unresponsive || 0;
 
                     // Populate job ID filter dropdown
-                    const jobFilter = document.getElementById('followUpJobFilter');
-                    const currentValue = jobFilter.value;
-                    jobFilter.innerHTML = '<option value="all">All Jobs</option>';
-                    if(stats.jobIds && stats.jobIds.length > 0) {
-                        stats.jobIds.forEach(function(jobId) {
-                            const opt = document.createElement('option');
-                            opt.value = jobId;
-                            opt.textContent = jobId;
-                            jobFilter.appendChild(opt);
-                        });
+                    var jobFilter = document.getElementById('followUpJobFilter');
+                    if(jobFilter) {
+                        var currentValue = jobFilter.value;
+                        jobFilter.innerHTML = '<option value="all">All Jobs</option>';
+                        if(stats.jobIds && stats.jobIds.length > 0) {
+                            stats.jobIds.forEach(function(jobId) {
+                                var opt = document.createElement('option');
+                                opt.value = jobId;
+                                opt.textContent = jobId;
+                                jobFilter.appendChild(opt);
+                            });
+                        }
+                        jobFilter.value = currentValue || 'all';
                     }
-                    jobFilter.value = currentValue || 'all';
                 })
                 .withFailureHandler(function(err) {
                     console.error("Failed to load follow-up stats:", err);
@@ -1028,10 +1036,19 @@ We have an exciting opportunity..."></textarea>
         }
 
         function loadFollowUpTable() {
-            const jobFilter = document.getElementById('followUpJobFilter').value;
-            const statusFilter = document.getElementById('followUpStatusFilter').value;
-
+            const jobFilterEl = document.getElementById('followUpJobFilter');
+            const statusFilterEl = document.getElementById('followUpStatusFilter');
             const tableBody = document.getElementById('followUpTableBody');
+
+            // Safety check - ensure elements exist
+            if(!jobFilterEl || !statusFilterEl || !tableBody) {
+                console.error("Follow-up table elements not found");
+                return;
+            }
+
+            const jobFilter = jobFilterEl.value;
+            const statusFilter = statusFilterEl.value;
+
             tableBody.innerHTML = '<tr><td colspan="7" class="px-4 py-8 text-center text-gray-400"><i class="fa-solid fa-spinner fa-spin mr-2"></i> Loading...</td></tr>';
 
             google.script.run
@@ -1043,21 +1060,21 @@ We have an exciting opportunity..."></textarea>
                         return;
                     }
 
-                    let html = '';
+                    var html = '';
                     items.forEach(function(item) {
-                        const statusBadge = getFollowUpStatusBadge(item.status);
-                        const threadLink = item.threadId ?
-                            `<a href="https://mail.google.com/mail/u/0/#inbox/${item.threadId}" target="_blank" class="text-blue-600 hover:text-blue-800"><i class="fa-solid fa-envelope mr-1"></i></a>` : '';
+                        var statusBadge = getFollowUpStatusBadge(item.status);
+                        var threadLink = item.threadId ?
+                            '<a href="https://mail.google.com/mail/u/0/#inbox/' + item.threadId + '" target="_blank" class="text-blue-600 hover:text-blue-800"><i class="fa-solid fa-envelope mr-1"></i></a>' : '';
 
-                        html += `<tr class="hover:bg-gray-50 dark:hover:bg-gray-700/50">
-                            <td class="px-4 py-3 font-medium text-gray-900 dark:text-white">${item.name}</td>
-                            <td class="px-4 py-3 text-gray-600 dark:text-gray-400">${item.email}</td>
-                            <td class="px-4 py-3"><span class="bg-blue-100 text-blue-800 text-xs font-medium px-2 py-0.5 rounded">${item.jobId}</span></td>
-                            <td class="px-4 py-3 text-gray-500 text-xs">${item.devId}</td>
-                            <td class="px-4 py-3 text-gray-500 text-xs">${item.initialSendTime}</td>
-                            <td class="px-4 py-3">${statusBadge}</td>
-                            <td class="px-4 py-3">${threadLink}</td>
-                        </tr>`;
+                        html += '<tr class="hover:bg-gray-50 dark:hover:bg-gray-700/50">' +
+                            '<td class="px-4 py-3 font-medium text-gray-900 dark:text-white">' + (item.name || '') + '</td>' +
+                            '<td class="px-4 py-3 text-gray-600 dark:text-gray-400">' + (item.email || '') + '</td>' +
+                            '<td class="px-4 py-3"><span class="bg-blue-100 text-blue-800 text-xs font-medium px-2 py-0.5 rounded">' + (item.jobId || '') + '</span></td>' +
+                            '<td class="px-4 py-3 text-gray-500 text-xs">' + (item.devId || '') + '</td>' +
+                            '<td class="px-4 py-3 text-gray-500 text-xs">' + (item.initialSendTime || '') + '</td>' +
+                            '<td class="px-4 py-3">' + statusBadge + '</td>' +
+                            '<td class="px-4 py-3">' + threadLink + '</td>' +
+                        '</tr>';
                     });
 
                     tableBody.innerHTML = html;
@@ -1070,47 +1087,54 @@ We have an exciting opportunity..."></textarea>
         }
 
         function getFollowUpStatusBadge(status) {
-            const badges = {
+            var badges = {
                 'Awaiting Response': '<span class="bg-gray-100 text-gray-700 text-xs font-medium px-2 py-1 rounded-full"><i class="fa-solid fa-clock mr-1"></i>Awaiting</span>',
                 '1st Follow-Up Sent': '<span class="bg-amber-100 text-amber-700 text-xs font-medium px-2 py-1 rounded-full"><i class="fa-solid fa-paper-plane mr-1"></i>1st Sent</span>',
                 '2nd Follow-Up Sent': '<span class="bg-orange-100 text-orange-700 text-xs font-medium px-2 py-1 rounded-full"><i class="fa-solid fa-paper-plane mr-1"></i>2nd Sent</span>',
                 'Responded': '<span class="bg-green-100 text-green-700 text-xs font-medium px-2 py-1 rounded-full"><i class="fa-solid fa-check mr-1"></i>Responded</span>',
                 'Unresponsive': '<span class="bg-red-100 text-red-700 text-xs font-medium px-2 py-1 rounded-full"><i class="fa-solid fa-user-slash mr-1"></i>Unresponsive</span>'
             };
-            return badges[status] || `<span class="bg-gray-100 text-gray-600 text-xs font-medium px-2 py-1 rounded-full">${status}</span>`;
+            return badges[status] || '<span class="bg-gray-100 text-gray-600 text-xs font-medium px-2 py-1 rounded-full">' + status + '</span>';
         }
 
         function filterFollowUpByStatus(status) {
-            document.getElementById('followUpStatusFilter').value = status;
-            loadFollowUpTable();
+            var el = document.getElementById('followUpStatusFilter');
+            if(el) {
+                el.value = status;
+                loadFollowUpTable();
+            }
         }
 
         function clearFollowUpFilters() {
-            document.getElementById('followUpJobFilter').value = 'all';
-            document.getElementById('followUpStatusFilter').value = 'all';
+            var jobEl = document.getElementById('followUpJobFilter');
+            var statusEl = document.getElementById('followUpStatusFilter');
+            if(jobEl) jobEl.value = 'all';
+            if(statusEl) statusEl.value = 'all';
             loadFollowUpTable();
         }
 
         function manualTriggerFollowUps() {
-            const btn = document.getElementById('runFollowUpBtn');
+            var btn = document.getElementById('runFollowUpBtn');
+            var progressPanel = document.getElementById('followUpProgressPanel');
+            var logContainer = document.getElementById('followUpLogContainer');
+            var progressStatus = document.getElementById('followUpProgressStatus');
+
+            if(!btn) return;
+
             btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> <span>Processing...</span>';
             btn.disabled = true;
 
-            const progressPanel = document.getElementById('followUpProgressPanel');
-            const logContainer = document.getElementById('followUpLogContainer');
-            const progressStatus = document.getElementById('followUpProgressStatus');
-
-            progressPanel.classList.remove('hidden');
-            logContainer.innerHTML = '';
-            progressStatus.textContent = 'Starting...';
+            if(progressPanel) progressPanel.classList.remove('hidden');
+            if(logContainer) logContainer.innerHTML = '';
+            if(progressStatus) progressStatus.textContent = 'Starting...';
 
             google.script.run
                 .withSuccessHandler(function(result) {
                     btn.innerHTML = '<i class="fa-solid fa-clock"></i> <span>Process Follow-Ups Now</span>';
                     btn.disabled = false;
 
-                    const unresponsiveText = result.unresponsiveMarked ? `, ${result.unresponsiveMarked} unresponsive` : '';
-                    progressStatus.textContent = `Done! ${result.followUp1Sent} first, ${result.followUp2Sent} second${unresponsiveText}`;
+                    var unresponsiveText = result.unresponsiveMarked ? ', ' + result.unresponsiveMarked + ' unresponsive' : '';
+                    if(progressStatus) progressStatus.textContent = 'Done! ' + result.followUp1Sent + ' first, ' + result.followUp2Sent + ' second' + unresponsiveText;
 
                     // Display logs
                     if(result.log && result.log.length > 0) {
@@ -1119,27 +1143,28 @@ We have an exciting opportunity..."></textarea>
                         });
                     }
 
-                    const totalSent = result.followUp1Sent + result.followUp2Sent;
-                    showToast(`Follow-ups processed! Sent: ${totalSent}${unresponsiveText}`, "success");
+                    var totalSent = result.followUp1Sent + result.followUp2Sent;
+                    showToast('Follow-ups processed! Sent: ' + totalSent + unresponsiveText, 'success');
                     loadFollowUpStats();
                     loadFollowUpTable();
                 })
                 .withFailureHandler(function(err) {
                     btn.innerHTML = '<i class="fa-solid fa-clock"></i> <span>Process Follow-Ups Now</span>';
                     btn.disabled = false;
-                    progressStatus.textContent = 'Error occurred';
-                    addFollowUpLog("Error: " + err.message, "error");
-                    showToast("Error processing follow-ups: " + err.message, "error");
+                    if(progressStatus) progressStatus.textContent = 'Error occurred';
+                    addFollowUpLog('Error: ' + err.message, 'error');
+                    showToast('Error processing follow-ups: ' + err.message, 'error');
                 })
                 .runFollowUpProcessor();
         }
 
         function addFollowUpLog(message, type) {
-            const container = document.getElementById('followUpLogContainer');
-            const icons = { info: 'circle-info', success: 'check', warning: 'triangle-exclamation', error: 'circle-xmark' };
-            const entry = document.createElement('div');
-            entry.className = `log-entry log-${type || 'info'}`;
-            entry.innerHTML = `<i class="fa-solid fa-${icons[type] || 'circle-info'} mr-1"></i> ${message}`;
+            var container = document.getElementById('followUpLogContainer');
+            if(!container) return;
+            var icons = { info: 'circle-info', success: 'check', warning: 'triangle-exclamation', error: 'circle-xmark' };
+            var entry = document.createElement('div');
+            entry.className = 'log-entry log-' + (type || 'info');
+            entry.innerHTML = '<i class="fa-solid fa-' + (icons[type] || 'circle-info') + ' mr-1"></i> ' + message;
             container.appendChild(entry);
             container.scrollTop = container.scrollHeight;
         }
