@@ -518,22 +518,26 @@ This is a freelance, fully remote position."></textarea>
                 <div id="tab-followups" class="tab-content hidden-tab">
 
                     <!-- Follow-up Stats Cards -->
-                    <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-                        <div class="bg-white dark:bg-gray-800 rounded-xl p-4 border border-gray-200 dark:border-gray-700 shadow-sm">
+                    <div class="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
+                        <div class="bg-white dark:bg-gray-800 rounded-xl p-4 border border-gray-200 dark:border-gray-700 shadow-sm cursor-pointer hover:shadow-md transition" onclick="filterFollowUpByStatus('pending')">
                             <div class="text-2xl font-bold text-gray-900 dark:text-white" id="statPending">-</div>
                             <div class="text-xs font-medium text-gray-500 uppercase">Awaiting Response</div>
                         </div>
-                        <div class="bg-amber-50 dark:bg-amber-900/20 rounded-xl p-4 border border-amber-200 dark:border-amber-800">
+                        <div class="bg-amber-50 dark:bg-amber-900/20 rounded-xl p-4 border border-amber-200 dark:border-amber-800 cursor-pointer hover:shadow-md transition" onclick="filterFollowUpByStatus('followup1')">
                             <div class="text-2xl font-bold text-amber-600" id="statFollowUp1">-</div>
                             <div class="text-xs font-medium text-amber-600 uppercase">1st Follow-up Sent</div>
                         </div>
-                        <div class="bg-orange-50 dark:bg-orange-900/20 rounded-xl p-4 border border-orange-200 dark:border-orange-800">
+                        <div class="bg-orange-50 dark:bg-orange-900/20 rounded-xl p-4 border border-orange-200 dark:border-orange-800 cursor-pointer hover:shadow-md transition" onclick="filterFollowUpByStatus('followup2')">
                             <div class="text-2xl font-bold text-orange-600" id="statFollowUp2">-</div>
                             <div class="text-xs font-medium text-orange-600 uppercase">2nd Follow-up Sent</div>
                         </div>
-                        <div class="bg-green-50 dark:bg-green-900/20 rounded-xl p-4 border border-green-200 dark:border-green-800">
+                        <div class="bg-green-50 dark:bg-green-900/20 rounded-xl p-4 border border-green-200 dark:border-green-800 cursor-pointer hover:shadow-md transition" onclick="filterFollowUpByStatus('responded')">
                             <div class="text-2xl font-bold text-green-600" id="statResponded">-</div>
                             <div class="text-xs font-medium text-green-600 uppercase">Responded</div>
+                        </div>
+                        <div class="bg-red-50 dark:bg-red-900/20 rounded-xl p-4 border border-red-200 dark:border-red-800 cursor-pointer hover:shadow-md transition" onclick="filterFollowUpByStatus('unresponsive')">
+                            <div class="text-2xl font-bold text-red-600" id="statUnresponsive">-</div>
+                            <div class="text-xs font-medium text-red-600 uppercase">Unresponsive</div>
                         </div>
                     </div>
 
@@ -547,9 +551,59 @@ This is a freelance, fully remote position."></textarea>
                             <button id="runFollowUpBtn" onclick="manualTriggerFollowUps()" class="bg-purple-600 hover:bg-purple-700 text-white text-sm font-bold py-2 px-4 rounded-lg shadow-sm transition flex items-center gap-2">
                                 <i class="fa-solid fa-clock"></i> <span>Process Follow-Ups Now</span>
                             </button>
-                            <button onclick="loadFollowUpStats()" class="bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-200 text-sm font-bold py-2 px-4 rounded-lg transition tooltip" data-tooltip="Refresh">
+                            <button onclick="loadFollowUpStats(); loadFollowUpTable();" class="bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-200 text-sm font-bold py-2 px-4 rounded-lg transition tooltip" data-tooltip="Refresh">
                                 <i class="fa-solid fa-rotate"></i>
                             </button>
+                        </div>
+                    </div>
+
+                    <!-- Follow-up Filters -->
+                    <div class="flex flex-wrap gap-4 mb-4">
+                        <div class="flex items-center gap-2">
+                            <label class="text-sm font-medium text-gray-600 dark:text-gray-400">Job ID:</label>
+                            <select id="followUpJobFilter" onchange="loadFollowUpTable()" class="input-field text-sm py-1.5 px-3 w-40">
+                                <option value="all">All Jobs</option>
+                            </select>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <label class="text-sm font-medium text-gray-600 dark:text-gray-400">Status:</label>
+                            <select id="followUpStatusFilter" onchange="loadFollowUpTable()" class="input-field text-sm py-1.5 px-3 w-48">
+                                <option value="all">All Statuses</option>
+                                <option value="pending">Awaiting Response</option>
+                                <option value="followup1">1st Follow-Up Sent</option>
+                                <option value="followup2">2nd Follow-Up Sent</option>
+                                <option value="responded">Responded</option>
+                                <option value="unresponsive">Unresponsive</option>
+                            </select>
+                        </div>
+                        <button onclick="clearFollowUpFilters()" class="text-sm text-blue-600 hover:text-blue-800 font-medium">
+                            <i class="fa-solid fa-times mr-1"></i> Clear Filters
+                        </button>
+                    </div>
+
+                    <!-- Follow-up Data Table -->
+                    <div class="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden mb-6">
+                        <div class="overflow-x-auto">
+                            <table class="w-full text-sm">
+                                <thead class="bg-gray-50 dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700">
+                                    <tr>
+                                        <th class="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase">Name</th>
+                                        <th class="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase">Email</th>
+                                        <th class="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase">Job ID</th>
+                                        <th class="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase">Dev ID</th>
+                                        <th class="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase">Initial Send</th>
+                                        <th class="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase">Status</th>
+                                        <th class="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase">Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="followUpTableBody" class="divide-y divide-gray-200 dark:divide-gray-700">
+                                    <tr>
+                                        <td colspan="7" class="px-4 py-8 text-center text-gray-400">
+                                            <i class="fa-solid fa-spinner fa-spin mr-2"></i> Loading follow-up data...
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
                         </div>
                     </div>
 
@@ -561,8 +615,9 @@ This is a freelance, fully remote position."></textarea>
                         <ul class="text-xs text-gray-600 dark:text-gray-400 space-y-1 ml-4 list-disc">
                             <li><strong>1st Follow-up:</strong> Sent 12 hours after initial outreach if no response</li>
                             <li><strong>2nd Follow-up:</strong> Sent 28 hours after initial outreach if still no response</li>
-                            <li>Follow-ups are automatically skipped if the candidate has responded</li>
-                            <li>AI generates contextual, friendly follow-up messages based on the job description</li>
+                            <li><strong>Unresponsive:</strong> Marked 48 hours after 2nd follow-up if still no response (moved to Unresponsive_Devs sheet)</li>
+                            <li>Follow-ups are automatically skipped if the candidate has responded or is in active negotiation</li>
+                            <li>Gmail labels are automatically updated: Awaiting-Response, Follow-Up-1-Sent, Follow-Up-2-Sent, Unresponsive</li>
                             <li>Set up a time-based trigger (Triggers > Add Trigger > runFollowUpProcessor) to run hourly for automation</li>
                         </ul>
                     </div>
@@ -848,7 +903,7 @@ We have an exciting opportunity..."></textarea>
             btn.classList.add('active');
             if(tabName === 'tasks') loadTasks();
             if(tabName === 'negotiation') refreshJobDropdown();
-            if(tabName === 'followups') loadFollowUpStats();
+            if(tabName === 'followups') { loadFollowUpStats(); loadFollowUpTable(); }
         }
 
         // ===== EMAIL TEMPLATES =====
@@ -950,11 +1005,90 @@ We have an exciting opportunity..."></textarea>
                     document.getElementById('statFollowUp1').textContent = stats.followUp1Done || 0;
                     document.getElementById('statFollowUp2').textContent = stats.followUp2Done || 0;
                     document.getElementById('statResponded').textContent = stats.responded || 0;
+                    document.getElementById('statUnresponsive').textContent = stats.unresponsive || 0;
+
+                    // Populate job ID filter dropdown
+                    const jobFilter = document.getElementById('followUpJobFilter');
+                    const currentValue = jobFilter.value;
+                    jobFilter.innerHTML = '<option value="all">All Jobs</option>';
+                    if(stats.jobIds && stats.jobIds.length > 0) {
+                        stats.jobIds.forEach(function(jobId) {
+                            const opt = document.createElement('option');
+                            opt.value = jobId;
+                            opt.textContent = jobId;
+                            jobFilter.appendChild(opt);
+                        });
+                    }
+                    jobFilter.value = currentValue || 'all';
                 })
                 .withFailureHandler(function(err) {
                     console.error("Failed to load follow-up stats:", err);
                 })
                 .getFollowUpStats();
+        }
+
+        function loadFollowUpTable() {
+            const jobFilter = document.getElementById('followUpJobFilter').value;
+            const statusFilter = document.getElementById('followUpStatusFilter').value;
+
+            const tableBody = document.getElementById('followUpTableBody');
+            tableBody.innerHTML = '<tr><td colspan="7" class="px-4 py-8 text-center text-gray-400"><i class="fa-solid fa-spinner fa-spin mr-2"></i> Loading...</td></tr>';
+
+            google.script.run
+                .withSuccessHandler(function(result) {
+                    const items = result.items || [];
+
+                    if(items.length === 0) {
+                        tableBody.innerHTML = '<tr><td colspan="7" class="px-4 py-8 text-center text-gray-400"><i class="fa-solid fa-inbox mr-2"></i> No follow-up items found</td></tr>';
+                        return;
+                    }
+
+                    let html = '';
+                    items.forEach(function(item) {
+                        const statusBadge = getFollowUpStatusBadge(item.status);
+                        const threadLink = item.threadId ?
+                            `<a href="https://mail.google.com/mail/u/0/#inbox/${item.threadId}" target="_blank" class="text-blue-600 hover:text-blue-800"><i class="fa-solid fa-envelope mr-1"></i></a>` : '';
+
+                        html += `<tr class="hover:bg-gray-50 dark:hover:bg-gray-700/50">
+                            <td class="px-4 py-3 font-medium text-gray-900 dark:text-white">${item.name}</td>
+                            <td class="px-4 py-3 text-gray-600 dark:text-gray-400">${item.email}</td>
+                            <td class="px-4 py-3"><span class="bg-blue-100 text-blue-800 text-xs font-medium px-2 py-0.5 rounded">${item.jobId}</span></td>
+                            <td class="px-4 py-3 text-gray-500 text-xs">${item.devId}</td>
+                            <td class="px-4 py-3 text-gray-500 text-xs">${item.initialSendTime}</td>
+                            <td class="px-4 py-3">${statusBadge}</td>
+                            <td class="px-4 py-3">${threadLink}</td>
+                        </tr>`;
+                    });
+
+                    tableBody.innerHTML = html;
+                })
+                .withFailureHandler(function(err) {
+                    console.error("Failed to load follow-up table:", err);
+                    tableBody.innerHTML = '<tr><td colspan="7" class="px-4 py-8 text-center text-red-400"><i class="fa-solid fa-exclamation-circle mr-2"></i> Error loading data</td></tr>';
+                })
+                .getFollowUpQueueData({ jobId: jobFilter, status: statusFilter });
+        }
+
+        function getFollowUpStatusBadge(status) {
+            const badges = {
+                'Awaiting Response': '<span class="bg-gray-100 text-gray-700 text-xs font-medium px-2 py-1 rounded-full"><i class="fa-solid fa-clock mr-1"></i>Awaiting</span>',
+                '1st Follow-Up Sent': '<span class="bg-amber-100 text-amber-700 text-xs font-medium px-2 py-1 rounded-full"><i class="fa-solid fa-paper-plane mr-1"></i>1st Sent</span>',
+                '2nd Follow-Up Sent': '<span class="bg-orange-100 text-orange-700 text-xs font-medium px-2 py-1 rounded-full"><i class="fa-solid fa-paper-plane mr-1"></i>2nd Sent</span>',
+                'Responded': '<span class="bg-green-100 text-green-700 text-xs font-medium px-2 py-1 rounded-full"><i class="fa-solid fa-check mr-1"></i>Responded</span>',
+                'Unresponsive': '<span class="bg-red-100 text-red-700 text-xs font-medium px-2 py-1 rounded-full"><i class="fa-solid fa-user-slash mr-1"></i>Unresponsive</span>'
+            };
+            return badges[status] || `<span class="bg-gray-100 text-gray-600 text-xs font-medium px-2 py-1 rounded-full">${status}</span>`;
+        }
+
+        function filterFollowUpByStatus(status) {
+            document.getElementById('followUpStatusFilter').value = status;
+            loadFollowUpTable();
+        }
+
+        function clearFollowUpFilters() {
+            document.getElementById('followUpJobFilter').value = 'all';
+            document.getElementById('followUpStatusFilter').value = 'all';
+            loadFollowUpTable();
         }
 
         function manualTriggerFollowUps() {
@@ -975,7 +1109,8 @@ We have an exciting opportunity..."></textarea>
                     btn.innerHTML = '<i class="fa-solid fa-clock"></i> <span>Process Follow-Ups Now</span>';
                     btn.disabled = false;
 
-                    progressStatus.textContent = `Done! ${result.followUp1Sent} first, ${result.followUp2Sent} second follow-ups sent`;
+                    const unresponsiveText = result.unresponsiveMarked ? `, ${result.unresponsiveMarked} unresponsive` : '';
+                    progressStatus.textContent = `Done! ${result.followUp1Sent} first, ${result.followUp2Sent} second${unresponsiveText}`;
 
                     // Display logs
                     if(result.log && result.log.length > 0) {
@@ -984,8 +1119,10 @@ We have an exciting opportunity..."></textarea>
                         });
                     }
 
-                    showToast(`Follow-ups processed! Sent: ${result.followUp1Sent + result.followUp2Sent}`, "success");
+                    const totalSent = result.followUp1Sent + result.followUp2Sent;
+                    showToast(`Follow-ups processed! Sent: ${totalSent}${unresponsiveText}`, "success");
                     loadFollowUpStats();
+                    loadFollowUpTable();
                 })
                 .withFailureHandler(function(err) {
                     btn.innerHTML = '<i class="fa-solid fa-clock"></i> <span>Process Follow-Ups Now</span>';
