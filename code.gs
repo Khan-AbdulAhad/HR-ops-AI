@@ -3396,6 +3396,29 @@ function processFollowUpQueue() {
       }
     }
 
+    // Also check Negotiation_Completed and Negotiation_Tasks for devs who already responded/completed
+    const completedSheet = ss.getSheetByName('Negotiation_Completed');
+    const completedData = completedSheet ? completedSheet.getDataRange().getValues() : [];
+    const completedNegotiations = new Set();
+    for(let j = 1; j < completedData.length; j++) {
+      const compEmail = String(completedData[j][2]).toLowerCase().trim(); // Email is column 3
+      const compJobId = String(completedData[j][1]);
+      if(compEmail && compJobId) {
+        completedNegotiations.add(`${compEmail}|${compJobId}`);
+      }
+    }
+
+    const tasksSheet = ss.getSheetByName('Negotiation_Tasks');
+    const tasksData = tasksSheet ? tasksSheet.getDataRange().getValues() : [];
+    const acceptedOffers = new Set();
+    for(let j = 1; j < tasksData.length; j++) {
+      const taskEmail = String(tasksData[j][3]).toLowerCase().trim(); // Email is column 4
+      const taskJobId = String(tasksData[j][1]);
+      if(taskEmail && taskJobId) {
+        acceptedOffers.add(`${taskEmail}|${taskJobId}`);
+      }
+    }
+
     const now = new Date();
     let processed = 0;
     const myEmail = Session.getActiveUser().getEmail().toLowerCase();
@@ -3417,14 +3440,16 @@ function processFollowUpQueue() {
         continue;
       }
 
-      // Check if candidate is already in active negotiation (in Negotiation_State)
+      // Check if candidate is already in active negotiation, completed, or has accepted offer
       const negotiationKey = `${email}|${jobId}`;
-      if(activeNegotiations.has(negotiationKey)) {
-        // Mark as responded since they're in active negotiation
+      if(activeNegotiations.has(negotiationKey) || completedNegotiations.has(negotiationKey) || acceptedOffers.has(negotiationKey)) {
+        // Mark as responded since they're in negotiation/completed/accepted
         sheet.getRange(i + 1, 9).setValue('Responded');
         sheet.getRange(i + 1, 10).setValue(new Date());
         updateFollowUpLabels(threadId, 'responded');
-        log.push({ type: 'success', message: `${email} is in active negotiation - marked as responded` });
+        const reason = activeNegotiations.has(negotiationKey) ? 'in active negotiation' :
+                       completedNegotiations.has(negotiationKey) ? 'in completed negotiations' : 'has accepted offer';
+        log.push({ type: 'success', message: `${email} ${reason} - marked as responded` });
         processed++;
         continue;
       }
@@ -3469,6 +3494,17 @@ function processFollowUpQueue() {
 
       // Check if should be marked as unresponsive (76 hours = 28 + 48 hours after 2nd follow-up)
       if(followUp1Done && followUp2Done && hoursSinceSend >= FOLLOW_UP_CONFIG.UNRESPONSIVE_HOURS) {
+        // SAFETY CHECK: Triple verify dev hasn't responded before marking unresponsive
+        // This is a final safeguard to prevent marking responded/negotiating devs as unresponsive
+        if(activeNegotiations.has(negotiationKey) || completedNegotiations.has(negotiationKey) || acceptedOffers.has(negotiationKey)) {
+          sheet.getRange(i + 1, 9).setValue('Responded');
+          sheet.getRange(i + 1, 10).setValue(new Date());
+          updateFollowUpLabels(threadId, 'responded');
+          log.push({ type: 'success', message: `${email} found in negotiations (safety check) - marked as responded` });
+          processed++;
+          continue;
+        }
+
         // Move to Unresponsive_Devs sheet
         const moveResult = moveToUnresponsive(ss, email, jobId, name, devId, threadId, initialSendTime, data[i]);
         if(moveResult.success) {
