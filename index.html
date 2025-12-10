@@ -547,6 +547,9 @@ This is a freelance, fully remote position."></textarea>
                             <button id="runFollowUpBtn" onclick="manualTriggerFollowUps()" class="bg-purple-600 hover:bg-purple-700 text-white text-sm font-bold py-2 px-4 rounded-lg shadow-sm transition flex items-center gap-2">
                                 <i class="fa-solid fa-clock"></i> <span>Process Follow-Ups Now</span>
                             </button>
+                            <button id="resetStatusBtn" onclick="resetFollowUpStatuses()" class="bg-amber-500 hover:bg-amber-600 text-white text-sm font-bold py-2 px-4 rounded-lg shadow-sm transition flex items-center gap-2 tooltip" data-tooltip="Re-verify and reset incorrectly marked 'Responded' entries">
+                                <i class="fa-solid fa-rotate-left"></i> <span>Reset Status</span>
+                            </button>
                             <button onclick="loadFollowUpStats()" class="bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-200 text-sm font-bold py-2 px-4 rounded-lg transition tooltip" data-tooltip="Refresh">
                                 <i class="fa-solid fa-rotate"></i>
                             </button>
@@ -1063,6 +1066,51 @@ We have an exciting opportunity..."></textarea>
             entry.innerHTML = `<i class="fa-solid fa-${icons[type] || 'circle-info'} mr-1"></i> ${message}`;
             container.appendChild(entry);
             container.scrollTop = container.scrollHeight;
+        }
+
+        function resetFollowUpStatuses() {
+            const btn = document.getElementById('resetStatusBtn');
+            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> <span>Resetting...</span>';
+            btn.disabled = true;
+
+            const progressPanel = document.getElementById('followUpProgressPanel');
+            const logContainer = document.getElementById('followUpLogContainer');
+            const progressStatus = document.getElementById('followUpProgressStatus');
+
+            progressPanel.classList.remove('hidden');
+            logContainer.innerHTML = '';
+            progressStatus.textContent = 'Re-verifying statuses...';
+
+            google.script.run
+                .withSuccessHandler(function(result) {
+                    btn.innerHTML = '<i class="fa-solid fa-rotate-left"></i> <span>Reset Status</span>';
+                    btn.disabled = false;
+
+                    progressStatus.textContent = `Done! ${result.reset} entries reset to Pending`;
+
+                    // Display logs
+                    if(result.log && result.log.length > 0) {
+                        result.log.forEach(function(logEntry) {
+                            const type = logEntry.includes('RESET') ? 'warning' : logEntry.includes('Verified') ? 'success' : 'info';
+                            addFollowUpLog(logEntry, type);
+                        });
+                    }
+
+                    if(result.reset > 0) {
+                        showToast(`Reset ${result.reset} entries back to Pending`, "success");
+                    } else {
+                        showToast("All entries verified - no changes needed", "info");
+                    }
+                    loadFollowUpStats();
+                })
+                .withFailureHandler(function(err) {
+                    btn.innerHTML = '<i class="fa-solid fa-rotate-left"></i> <span>Reset Status</span>';
+                    btn.disabled = false;
+                    progressStatus.textContent = 'Error occurred';
+                    addFollowUpLog("Error: " + err.message, "error");
+                    showToast("Error resetting statuses: " + err.message, "error");
+                })
+                .resetFollowUpStatus();
         }
 
         // ===== OUTREACH TAB =====
