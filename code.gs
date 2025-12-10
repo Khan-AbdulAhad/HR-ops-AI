@@ -3966,10 +3966,22 @@ function resetFollowUpStatus(emailToReset) {
       if(!actuallyResponded) {
         sheet.getRange(i + 1, 9).setValue('Pending'); // Reset Status
         sheet.getRange(i + 1, 10).setValue(new Date()); // Update Last Updated
-        // Update Gmail label to Awaiting-Response
-        updateFollowUpLabels(threadId, 'pending');
+
+        // Determine correct label based on follow-up state
+        const followUp1Done = data[i][6] === true || data[i][6] === 'TRUE';
+        const followUp2Done = data[i][7] === true || data[i][7] === 'TRUE';
+
+        let labelStatus = 'pending';
+        if(followUp2Done) {
+          labelStatus = 'followup2';
+        } else if(followUp1Done) {
+          labelStatus = 'followup1';
+        }
+
+        // Update Gmail label based on follow-up state
+        updateFollowUpLabels(threadId, labelStatus);
         resetCount++;
-        log.push(`${email}: RESET to Pending - no actual response found in thread`);
+        log.push(`${email}: RESET to Pending - no actual response found in thread (label: ${labelStatus})`);
       }
     }
 
