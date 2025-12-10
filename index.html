@@ -846,6 +846,62 @@ We have an exciting opportunity..."></textarea>
         </div>
     </div>
 
+    <!-- Complete Human Negotiation Modal -->
+    <div id="completeHumanModal" class="fixed inset-0 z-50 hidden bg-black/50 backdrop-blur-sm flex items-center justify-center p-4" onclick="if(event.target === this) closeCompleteHumanModal()">
+        <div class="bg-white dark:bg-gray-800 rounded-2xl shadow-xl w-full max-w-md overflow-hidden">
+            <div class="p-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between bg-gradient-to-r from-green-50 to-emerald-50 dark:from-green-900/20 dark:to-emerald-900/20">
+                <h3 class="text-lg font-bold dark:text-white flex items-center gap-2">
+                    <i class="fa-solid fa-handshake text-green-500"></i> Complete Human Negotiation
+                </h3>
+                <button onclick="closeCompleteHumanModal()" class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">
+                    <i class="fa-solid fa-times text-xl"></i>
+                </button>
+            </div>
+            <div class="p-5">
+                <div class="mb-4">
+                    <p class="text-sm text-gray-600 dark:text-gray-400 mb-1">Candidate:</p>
+                    <p id="completeHumanEmail" class="font-semibold text-gray-900 dark:text-white"></p>
+                </div>
+                <div class="mb-4">
+                    <label for="agreedRateInput" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                        Agreed Hourly Rate
+                    </label>
+                    <div class="relative">
+                        <span class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 font-medium">$</span>
+                        <input type="number" id="agreedRateInput" placeholder="e.g., 35"
+                               class="w-full pl-8 pr-16 py-3 border border-gray-300 dark:border-gray-600 rounded-xl bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-green-500 focus:border-transparent text-lg font-semibold">
+                        <span class="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 font-medium">/hr</span>
+                    </div>
+                </div>
+                <div class="mb-4">
+                    <label class="flex items-center gap-2 cursor-pointer">
+                        <input type="checkbox" id="noRateAgreed" onchange="toggleRateInput()" class="w-4 h-4 rounded border-gray-300 text-green-600 focus:ring-green-500">
+                        <span class="text-sm text-gray-600 dark:text-gray-400">No rate agreed (rejected/withdrawn/other)</span>
+                    </label>
+                </div>
+                <div id="completionStatusSection" class="mb-2">
+                    <label for="completionStatus" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                        Completion Status (optional)
+                    </label>
+                    <select id="completionStatus" class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-xl bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-green-500">
+                        <option value="">Offer Accepted (Human)</option>
+                        <option value="Rejected by Candidate">Rejected by Candidate</option>
+                        <option value="Candidate Withdrew">Candidate Withdrew</option>
+                        <option value="Rate Too High">Rate Too High - Rejected</option>
+                        <option value="No Response">No Response</option>
+                        <option value="Other">Other</option>
+                    </select>
+                </div>
+            </div>
+            <div class="p-4 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50 flex justify-end gap-2">
+                <button onclick="closeCompleteHumanModal()" class="px-4 py-2 rounded-lg bg-gray-200 hover:bg-gray-300 dark:bg-gray-700 dark:hover:bg-gray-600 font-medium text-sm">Cancel</button>
+                <button onclick="submitCompleteHuman()" id="completeHumanBtn" class="px-4 py-2 rounded-lg bg-green-600 hover:bg-green-700 text-white font-medium text-sm flex items-center gap-2">
+                    <i class="fa-solid fa-check"></i> Complete
+                </button>
+            </div>
+        </div>
+    </div>
+
     <script>
         let tableData = [];
         let selectedDevs = new Set();
@@ -1714,7 +1770,7 @@ We have an exciting opportunity..."></textarea>
                                     <i class="fa-solid fa-envelope-open"></i>
                                 </a>
                             ` : ''}
-                            <button onclick="markAsDone('${t.email}', this)" class="text-xs bg-white border border-gray-300 hover:bg-green-50 hover:border-green-300 dark:bg-gray-700 dark:border-gray-600 dark:hover:bg-green-900/20 text-gray-700 dark:text-gray-200 px-2.5 py-1.5 rounded-lg font-bold transition">
+                            <button onclick="markAsDone('${t.email}', '${t.jobId}', '${t.tags}', this)" class="text-xs bg-white border border-gray-300 hover:bg-green-50 hover:border-green-300 dark:bg-gray-700 dark:border-gray-600 dark:hover:bg-green-900/20 text-gray-700 dark:text-gray-200 px-2.5 py-1.5 rounded-lg font-bold transition">
                                 <i class="fa-solid fa-check text-green-500"></i>
                             </button>
                         </div>
@@ -1814,33 +1870,128 @@ We have an exciting opportunity..."></textarea>
                 .bulkComplete(emails, "Bulk Completed");
         }
 
-        function markAsDone(email, btn) {
+        // Store pending completion data for the modal
+        let pendingCompletion = { email: '', jobId: '', btn: null };
+
+        function markAsDone(email, jobId, status, btn) {
+            // Check if this is a human-escalated negotiation
+            const isHumanNegotiation = status && (
+                status.includes('Human') ||
+                status.includes('Escalated') ||
+                status.includes('Human-Negotiation')
+            );
+
+            if (isHumanNegotiation) {
+                // Show the rate input modal for human negotiations
+                pendingCompletion = { email, jobId, btn };
+                openCompleteHumanModal(email);
+                return;
+            }
+
+            // For non-human negotiations, complete directly
+            completeTaskDirectly(email, jobId, btn, "Manually Completed");
+        }
+
+        function completeTaskDirectly(email, jobId, btn, status, agreedRate = null) {
             const row = btn.closest('.task-row');
             row.classList.add('processing');
-            
+
             const originalHtml = btn.innerHTML;
             btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>';
             btn.disabled = true;
-            
-            google.script.run
-                .withSuccessHandler(result => {
-                    if(result.success) {
-                        showToast("Task completed!", "success");
-                        loadTasks();
-                    } else {
-                        showToast("Error: " + result.message, "error");
+
+            // Use completeHumanNegotiation if we have a rate, otherwise use moveToCompleted
+            if (agreedRate || status !== "Manually Completed") {
+                google.script.run
+                    .withSuccessHandler(result => {
+                        if(result.success) {
+                            showToast("Task completed!" + (agreedRate ? ` Rate: $${agreedRate}/hr` : ""), "success");
+                            loadTasks();
+                        } else {
+                            showToast("Error: " + result.message, "error");
+                            row.classList.remove('processing');
+                            btn.innerHTML = originalHtml;
+                            btn.disabled = false;
+                        }
+                    })
+                    .withFailureHandler(err => {
+                        showToast("Error: " + err.message, "error");
                         row.classList.remove('processing');
                         btn.innerHTML = originalHtml;
                         btn.disabled = false;
-                    }
-                })
-                .withFailureHandler(err => {
-                    showToast("Error: " + err.message, "error");
-                    row.classList.remove('processing');
-                    btn.innerHTML = originalHtml;
-                    btn.disabled = false;
-                })
-                .moveToCompleted(email, "Manually Completed");
+                    })
+                    .completeHumanNegotiation(email, jobId, agreedRate, status);
+            } else {
+                google.script.run
+                    .withSuccessHandler(result => {
+                        if(result.success) {
+                            showToast("Task completed!", "success");
+                            loadTasks();
+                        } else {
+                            showToast("Error: " + result.message, "error");
+                            row.classList.remove('processing');
+                            btn.innerHTML = originalHtml;
+                            btn.disabled = false;
+                        }
+                    })
+                    .withFailureHandler(err => {
+                        showToast("Error: " + err.message, "error");
+                        row.classList.remove('processing');
+                        btn.innerHTML = originalHtml;
+                        btn.disabled = false;
+                    })
+                    .moveToCompleted(email, status);
+            }
+        }
+
+        // Complete Human Negotiation Modal functions
+        function openCompleteHumanModal(email) {
+            document.getElementById('completeHumanEmail').textContent = email;
+            document.getElementById('agreedRateInput').value = '';
+            document.getElementById('noRateAgreed').checked = false;
+            document.getElementById('completionStatus').value = '';
+            document.getElementById('agreedRateInput').disabled = false;
+            document.getElementById('completeHumanModal').classList.remove('hidden');
+            document.getElementById('agreedRateInput').focus();
+        }
+
+        function closeCompleteHumanModal() {
+            document.getElementById('completeHumanModal').classList.add('hidden');
+            pendingCompletion = { email: '', jobId: '', btn: null };
+        }
+
+        function toggleRateInput() {
+            const noRate = document.getElementById('noRateAgreed').checked;
+            const rateInput = document.getElementById('agreedRateInput');
+            rateInput.disabled = noRate;
+            if (noRate) {
+                rateInput.value = '';
+            }
+        }
+
+        function submitCompleteHuman() {
+            const { email, jobId, btn } = pendingCompletion;
+            if (!email || !btn) {
+                showToast("Error: Missing completion data", "error");
+                closeCompleteHumanModal();
+                return;
+            }
+
+            const noRateAgreed = document.getElementById('noRateAgreed').checked;
+            const agreedRate = noRateAgreed ? null : document.getElementById('agreedRateInput').value;
+            const completionStatus = document.getElementById('completionStatus').value;
+
+            // Validate rate if not "no rate agreed"
+            if (!noRateAgreed && !agreedRate) {
+                showToast("Please enter the agreed rate or check 'No rate agreed'", "warning");
+                return;
+            }
+
+            // Determine the final status
+            let finalStatus = completionStatus || (agreedRate ? 'Offer Accepted (Human)' : 'Completed (Human)');
+
+            closeCompleteHumanModal();
+            completeTaskDirectly(email, jobId, btn, finalStatus, agreedRate);
         }
 
         // ===== CONFIG & UTILS =====
