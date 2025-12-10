@@ -1660,7 +1660,7 @@ We have an exciting opportunity..."></textarea>
         }
 
         // ===== TASKS TAB (IMPROVED) =====
-        function loadTasks() {
+        function loadTasks(forceRefresh = true) {
             const tbody = document.getElementById('taskListBody');
             const emptyState = document.getElementById('emptyTaskState');
 
@@ -1670,9 +1670,11 @@ We have an exciting opportunity..."></textarea>
             updateBulkActionsBar();
 
             // Load tasks with current filters - stats are now included in the response
+            // forceRefresh invalidates server-side cache for fresh data
             const filters = {
                 jobId: document.getElementById('taskJobFilter').value,
-                status: document.getElementById('taskStatusFilter').value
+                status: document.getElementById('taskStatusFilter').value,
+                forceRefresh: forceRefresh
             };
 
             google.script.run.withSuccessHandler(result => {
