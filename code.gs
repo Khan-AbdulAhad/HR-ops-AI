@@ -1454,6 +1454,12 @@ function getAllTasks(filters) {
   const url = getStoredSheetUrl();
   if(!url) return { tasks: [], jobIds: [], stats: { total: 0, active: 0, human: 0, accepted: 0 } };
 
+  // If forceRefresh is true, invalidate caches first
+  if (filters?.forceRefresh) {
+    invalidateSheetCache('Negotiation_State');
+    invalidateSheetCache('Negotiation_Tasks');
+  }
+
   // Use caching for faster loading
   const tasks = [];
   const jobIdSet = new Set();
@@ -2438,9 +2444,6 @@ Return ONLY the JSON object, no other text.
       const rate = rateAnalysis.proposed_rate || targetRate;
       jobStats.log.push({type: 'success', message: `${candidateEmail} - AI recommends AUTO-ACCEPT at $${rate}/hr (target: $${targetRate}/hr)`});
 
-      // Record the acceptance
-      taskSheet.appendRow([new Date(), jobId, candidateName, candidateEmail, rate, "Pending Archive", devId, thread.getId()]);
-
       // Update job-specific details sheet with accepted status and rate
       try {
         updateJobCandidateStatus(ss, jobId, candidateEmail, 'Offer Accepted', `$${rate}/hr`);
@@ -2493,13 +2496,33 @@ Write ONLY the email, nothing else.
       sendReplyWithSenderName(thread, acceptEmail, 'Recruiter');
       markCompleted(thread);
 
+      // Record directly in Negotiation_Completed (auto-completed, not pending)
+      const compSheet = ss.getSheetByName('Negotiation_Completed');
+      if (compSheet) {
+        compSheet.appendRow([
+          new Date(),
+          jobId,
+          candidateEmail,
+          candidateName,
+          `Offer Accepted at $${rate}/hr`,
+          'AI Auto-Accepted - Email sent',
+          devId,
+          candidateRegion || ''
+        ]);
+      }
+
+      // Remove from state sheet
       if(stateRowIndex > -1) {
         stateSheet.deleteRow(stateRowIndex);
         stateMap.delete(stateKey);
       }
 
+      // Invalidate caches so UI reflects the change immediately
+      invalidateSheetCache('Negotiation_State');
+      invalidateSheetCache('Negotiation_Completed');
+
       jobStats.accepted++;
-      jobStats.log.push({type: 'success', message: `${candidateEmail} AUTO-ACCEPTED at $${rate}/hr`});
+      jobStats.log.push({type: 'success', message: `${candidateEmail} AUTO-ACCEPTED at $${rate}/hr - Completed`});
       return; // Skip the rest of negotiation logic
     }
 
@@ -2852,8 +2875,6 @@ Write ONLY the note, nothing else.
       const rateMatch = aiResponse.match(/\[([^\]]+)\]/);
       const rate = rateMatch ? rateMatch[1].replace('$','').replace('/hr','').trim() : rules.target;
 
-      taskSheet.appendRow([new Date(), jobId, candidateName, candidateEmail, rate, "Pending Archive", devId, thread.getId()]);
-
       // Update job-specific details sheet with accepted status and rate
       try {
         updateJobCandidateStatus(ss, jobId, candidateEmail, 'Offer Accepted', `$${rate}/hr`);
@@ -2906,13 +2927,33 @@ Write ONLY the email, nothing else.
       sendReplyWithSenderName(thread, acceptEmail, 'Recruiter');
       markCompleted(thread);
 
+      // Record directly in Negotiation_Completed (auto-completed, not pending)
+      const compSheet = ss.getSheetByName('Negotiation_Completed');
+      if (compSheet) {
+        compSheet.appendRow([
+          new Date(),
+          jobId,
+          candidateEmail,
+          candidateName,
+          `Offer Accepted at $${rate}/hr`,
+          'AI Accepted - Email sent',
+          devId,
+          candidateRegion || ''
+        ]);
+      }
+
+      // Remove from state sheet
       if(stateRowIndex > -1) {
         stateSheet.deleteRow(stateRowIndex);
         stateMap.delete(stateKey);
       }
 
+      // Invalidate caches so UI reflects the change immediately
+      invalidateSheetCache('Negotiation_State');
+      invalidateSheetCache('Negotiation_Completed');
+
       jobStats.accepted++;
-      jobStats.log.push({type: 'success', message: `${candidateEmail} ACCEPTED at $${rate}/hr`});
+      jobStats.log.push({type: 'success', message: `${candidateEmail} ACCEPTED at $${rate}/hr - Completed`});
     } 
     else {
       sendReplyWithSenderName(thread, aiResponse, 'Recruiter');
@@ -4469,6 +4510,7 @@ function sendDailyReportEmail(recipientEmail, reportDate) {
  * Trigger function to run daily report automatically
  * Set up a time-based trigger to run this function daily
  * Sends YESTERDAY's report (so 8 AM trigger sends previous day's full activity)
+ * NOTE: If there's no activity for the day, NO email is sent (by design)
  */
 function runDailyReportTrigger() {
   const userEmail = Session.getActiveUser().getEmail();
@@ -4476,7 +4518,14 @@ function runDailyReportTrigger() {
     // Get yesterday's date for the report
     const yesterday = new Date();
     yesterday.setDate(yesterday.getDate() - 1);
-    sendDailyReportEmail(userEmail, yesterday);
+    const result = sendDailyReportEmail(userEmail, yesterday);
+
+    // Log the result for debugging
+    if (result.success) {
+      console.log(`Daily report sent to ${userEmail} for ${yesterday.toDateString()}`);
+    } else {
+      console.log(`Daily report NOT sent: ${result.error}`);
+    }
   }
 }
 
