@@ -3454,7 +3454,7 @@ function processFollowUpQueue() {
         continue;
       }
 
-      // IMPROVED: Check Gmail thread for ANY candidate response (not just last message)
+      // IMPROVED: Check Gmail thread for candidate response by verifying sender matches candidate email
       if(threadId) {
         try {
           const thread = GmailApp.getThreadById(threadId);
@@ -3463,13 +3463,20 @@ function processFollowUpQueue() {
             let candidateHasResponded = false;
 
             // Check ALL messages to see if candidate has replied at any point
+            // We need to verify the message is FROM the candidate's email, not just "not from us"
             for(let m = 1; m < messages.length; m++) {
               const msg = messages[m];
               const sender = msg.getFrom().toLowerCase();
 
-              // If any message is from someone other than us, they've responded
-              if(!sender.includes(myEmail)) {
+              // Extract just the email address from sender (handles "Name <email@domain.com>" format)
+              const senderEmailMatch = sender.match(/<([^>]+)>/) || [null, sender.replace(/.*<|>.*/g, '').trim()];
+              const senderEmail = senderEmailMatch[1] || sender.trim();
+
+              // Check if this message is FROM the candidate (not just "not from us")
+              // This prevents false positives from automated replies, other system messages, etc.
+              if(senderEmail.includes(email) || email.includes(senderEmail)) {
                 candidateHasResponded = true;
+                log.push({ type: 'info', message: `${email} found response from sender: ${senderEmail}` });
                 break;
               }
             }
@@ -3756,6 +3763,88 @@ function runFollowUpProcessor() {
   const result = processFollowUpQueue();
   console.log(`Follow-up processing complete. Results:`, result);
   return result;
+}
+
+/**
+ * Reset follow-up status for a specific email or all incorrectly marked "Responded" entries
+ * This function re-verifies each entry by checking if the candidate actually responded
+ * @param {string} emailToReset - Optional: specific email to reset. If not provided, checks all.
+ * @returns {Object} { success: boolean, reset: number, log: Array }
+ */
+function resetFollowUpStatus(emailToReset) {
+  const url = getStoredSheetUrl();
+  if(!url) return { success: false, reset: 0, log: ['No sheet URL configured'] };
+
+  const log = [];
+  let resetCount = 0;
+
+  try {
+    const ss = SpreadsheetApp.openByUrl(url);
+    const sheet = ss.getSheetByName('Follow_Up_Queue');
+
+    if(!sheet) {
+      return { success: false, reset: 0, log: ['Follow_Up_Queue sheet not found'] };
+    }
+
+    const data = sheet.getDataRange().getValues();
+    const myEmail = Session.getActiveUser().getEmail().toLowerCase();
+
+    for(let i = 1; i < data.length; i++) {
+      const email = String(data[i][0]).toLowerCase().trim();
+      const status = data[i][8];
+      const threadId = data[i][2];
+
+      // Skip if looking for specific email and this isn't it
+      if(emailToReset && email !== emailToReset.toLowerCase().trim()) continue;
+
+      // Only process "Responded" entries (to re-verify them)
+      if(status !== 'Responded') continue;
+
+      // Re-check Gmail thread to verify if candidate actually responded
+      let actuallyResponded = false;
+      if(threadId) {
+        try {
+          const thread = GmailApp.getThreadById(threadId);
+          if(thread) {
+            const messages = thread.getMessages();
+
+            // Check if any message is actually FROM the candidate
+            for(let m = 1; m < messages.length; m++) {
+              const msg = messages[m];
+              const sender = msg.getFrom().toLowerCase();
+
+              // Extract sender email
+              const senderEmailMatch = sender.match(/<([^>]+)>/) || [null, sender.replace(/.*<|>.*/g, '').trim()];
+              const senderEmail = senderEmailMatch[1] || sender.trim();
+
+              // Verify it's from the candidate
+              if(senderEmail.includes(email) || email.includes(senderEmail)) {
+                actuallyResponded = true;
+                log.push(`${email}: Verified - candidate did respond (from: ${senderEmail})`);
+                break;
+              }
+            }
+          }
+        } catch(threadError) {
+          log.push(`${email}: Error checking thread - ${threadError.message}`);
+        }
+      }
+
+      // If candidate did NOT actually respond, reset to Pending
+      if(!actuallyResponded) {
+        sheet.getRange(i + 1, 9).setValue('Pending'); // Reset Status
+        sheet.getRange(i + 1, 10).setValue(new Date()); // Update Last Updated
+        resetCount++;
+        log.push(`${email}: RESET to Pending - no actual response found in thread`);
+      }
+    }
+
+    return { success: true, reset: resetCount, log: log };
+
+  } catch(e) {
+    console.error("Error resetting follow-up status:", e);
+    return { success: false, reset: resetCount, log: [...log, `Error: ${e.message}`] };
+  }
 }
 
 /**
