@@ -1303,7 +1303,8 @@ function saveJobCandidateDetails(ss, jobId, candidateEmail, candidateName, devId
     }
 
     // Recalculate status after merge (unless it's a special status like 'Offer Accepted' or 'Human Escalation')
-    const preserveStatuses = ['Offer Accepted', 'Human Escalation', 'Escalated', 'Completed'];
+    // Note: Human-Negotiation and Pending Escalation are also preserved to not lose escalation info
+    const preserveStatuses = ['Offer Accepted', 'Human Escalation', 'Human-Negotiation', 'Escalated', 'Completed', 'Pending Escalation', 'Rate Agreed'];
     const existingStatus = existingRow[statusColIdx];
 
     if (!preserveStatuses.some(s => String(existingStatus).includes(s)) &&
@@ -1358,6 +1359,70 @@ function updateJobCandidateStatus(ss, jobId, candidateEmail, status, agreedRate)
   }
 
   return { success: false, message: "Candidate not found" };
+}
+
+/**
+ * Manually set the agreed rate for a candidate (for human negotiators)
+ * This updates the job-specific details sheet with the negotiated rate
+ */
+function setAgreedRateForCandidate(email, jobId, agreedRate) {
+  const url = getStoredSheetUrl();
+  if(!url) return { success: false, message: "No config URL" };
+
+  const ss = SpreadsheetApp.openByUrl(url);
+
+  // Format the rate consistently
+  let formattedRate = agreedRate;
+  if (agreedRate) {
+    // Remove any existing $ or /hr to normalize, then reformat
+    const rateNum = String(agreedRate).replace(/[$,\/hr\s]/gi, '');
+    if (!isNaN(parseFloat(rateNum))) {
+      formattedRate = `$${rateNum}/hr`;
+    }
+  }
+
+  try {
+    const result = updateJobCandidateStatus(ss, jobId, email, 'Rate Agreed (Human)', formattedRate);
+    if (result.success) {
+      return { success: true, message: `Agreed rate ${formattedRate} saved for ${email}` };
+    }
+    return result;
+  } catch(e) {
+    console.error("Failed to set agreed rate:", e);
+    return { success: false, message: "Failed to update: " + e.message };
+  }
+}
+
+/**
+ * Complete a human negotiation with an agreed rate
+ * This combines moveToCompleted with rate setting
+ */
+function completeHumanNegotiation(email, jobId, agreedRate, finalStatus) {
+  const url = getStoredSheetUrl();
+  if(!url) return { success: false, message: "No config URL" };
+
+  const ss = SpreadsheetApp.openByUrl(url);
+
+  // Format the rate
+  let formattedRate = null;
+  if (agreedRate) {
+    const rateNum = String(agreedRate).replace(/[$,\/hr\s]/gi, '');
+    if (!isNaN(parseFloat(rateNum))) {
+      formattedRate = `$${rateNum}/hr`;
+    }
+  }
+
+  // First, update the job details sheet with the rate and status
+  try {
+    const status = finalStatus || (agreedRate ? 'Offer Accepted (Human)' : 'Completed (Human)');
+    updateJobCandidateStatus(ss, jobId, email, status, formattedRate);
+  } catch(e) {
+    console.error("Failed to update job details:", e);
+  }
+
+  // Then move to completed
+  const result = moveToCompleted(email, finalStatus || 'Human Negotiation Complete', jobId);
+  return result;
 }
 
 /**
@@ -1532,7 +1597,7 @@ function moveToCompleted(email, finalStatus, jobIdFilter) {
   }
 
   let moved = false;
-  let taskInfo = { jobId: '', name: '', devId: '', threadId: '' };
+  let taskInfo = { jobId: '', name: '', devId: '', threadId: '', agreedRate: null };
   const cleanEmail = String(email).toLowerCase();
 
   // First, find info from Task Sheet
@@ -1542,11 +1607,14 @@ function moveToCompleted(email, finalStatus, jobIdFilter) {
       // If jobIdFilter is provided, only match if job ID matches
       if(jobIdFilter && String(taskData[i][1]) !== String(jobIdFilter)) continue;
 
+      // Column 4 contains the agreed rate from Task sheet
+      const rate = taskData[i][4];
       taskInfo = {
         jobId: taskData[i][1],
         name: taskData[i][2],
         devId: taskData[i][6] || 'N/A',
-        threadId: taskData[i][7] || ''
+        threadId: taskData[i][7] || '',
+        agreedRate: rate ? `$${rate}/hr` : null
       };
       compSheet.appendRow([new Date(), taskData[i][1], email, taskData[i][2], finalStatus || "Accepted", "Moved from Task List", taskData[i][6] || 'N/A']);
       taskSheet.deleteRow(i+1);
@@ -1585,10 +1653,10 @@ function moveToCompleted(email, finalStatus, jobIdFilter) {
     }
   }
 
-  // UPDATE JOB-SPECIFIC DETAILS SHEET - Mark as completed
+  // UPDATE JOB-SPECIFIC DETAILS SHEET - Mark as completed with agreed rate if available
   if(moved && taskInfo.jobId) {
     try {
-      updateJobCandidateStatus(ss, taskInfo.jobId, email, `Completed: ${finalStatus || 'Done'}`, null);
+      updateJobCandidateStatus(ss, taskInfo.jobId, email, `Completed: ${finalStatus || 'Done'}`, taskInfo.agreedRate);
     } catch(e) {
       console.error("Failed to update job details sheet:", e);
     }
@@ -2209,29 +2277,8 @@ function processJobNegotiations(jobId, rules, ss, faqContent) {
     let candidateName = state ? state.name : 'Unknown';
     let devId = state ? state.devId : 'N/A';
     let candidateRegion = state ? state.region : '';
-    
-    if (state && state.status === 'Human-Negotiation') {
-      jobStats.skipped++;
-      jobStats.log.push({type: 'info', message: `Skipped ${cleanCandidateEmail}: Already escalated to human negotiation`});
-      return;
-    }
-    
-    // Check attempt limit (2 AI attempts max)
-    if (attempts >= 2) {
-      // Generate AI summary notes before escalating
-      const aiSummaryNotes = generateAISummaryNotes(conversationHistory, candidateEmail, '', attempts, "Max AI attempts reached - candidate did not agree to offered rate");
-      
-      escalateToHuman(thread, "Max AI attempts reached", candidateName, `We've had ${attempts} negotiation rounds. ${aiSummaryNotes}`);
-      if(stateRowIndex > -1) {
-        stateSheet.getRange(stateRowIndex, 5).setValue("Human-Negotiation");
-        stateSheet.getRange(stateRowIndex, 9).setValue(aiSummaryNotes);
-      }
-      jobStats.escalated++;
-      jobStats.log.push({type: 'warning', message: `${candidateEmail} escalated: Max attempts reached`});
-      return;
-    }
-    
-    // Build conversation history
+
+    // Build conversation history FIRST (needed for escalation and data extraction)
     const recentMsgs = msgs.slice(-5);
     const conversationHistory = recentMsgs.map(m => {
       const from = m.getFrom();
@@ -2239,7 +2286,8 @@ function processJobNegotiations(jobId, rules, ss, faqContent) {
       return `[${isMe ? 'ME' : 'CANDIDATE'}]: ${m.getPlainBody().substring(0, 400)}`;
     }).join("\n---\n");
 
-    // Extract and save candidate details to job-specific sheet
+    // ALWAYS extract and save candidate details BEFORE any early returns
+    // This ensures we capture candidate data even during ongoing negotiation or escalation
     const candidateLatestMessage = lastMsg.getPlainBody();
     try {
       // Get the questions configured for this job
@@ -2248,8 +2296,18 @@ function processJobNegotiations(jobId, rules, ss, faqContent) {
       // Extract answers from candidate's message based on the questions
       const answers = extractAnswersFromResponse(candidateLatestMessage, questions, candidateName);
 
+      // Determine the appropriate status based on current state
+      let dataStatus = 'Negotiating';
+      if (state && state.status === 'Human-Negotiation') {
+        // Preserve human negotiation status - data still gets updated
+        dataStatus = 'Human-Negotiation';
+      } else if (attempts >= 2) {
+        // Will be escalated, but still save the data first
+        dataStatus = 'Pending Escalation';
+      }
+
       // Save to job-specific details sheet
-      const saveResult = saveJobCandidateDetails(ss, jobId, candidateEmail, candidateName, devId, thread.getId(), answers, 'Negotiating');
+      const saveResult = saveJobCandidateDetails(ss, jobId, candidateEmail, candidateName, devId, thread.getId(), answers, dataStatus);
       if(saveResult.success) {
         jobStats.detailsExtracted++;
         jobStats.log.push({type: 'info', message: `${candidateEmail} - Details extracted: ${answers.is_negotiating ? 'Negotiating' : 'Provided'}`});
@@ -2257,6 +2315,36 @@ function processJobNegotiations(jobId, rules, ss, faqContent) {
     } catch(detailsError) {
       // Don't block negotiation if details extraction fails
       console.error("Details extraction error for " + candidateEmail + ":", detailsError);
+    }
+
+    // Now handle special cases AFTER data extraction
+    if (state && state.status === 'Human-Negotiation') {
+      jobStats.skipped++;
+      jobStats.log.push({type: 'info', message: `Skipped AI negotiation for ${cleanCandidateEmail}: Already escalated to human (data was extracted)`});
+      return;
+    }
+
+    // Check attempt limit (2 AI attempts max)
+    if (attempts >= 2) {
+      // Generate AI summary notes before escalating
+      const aiSummaryNotes = generateAISummaryNotes(conversationHistory, candidateEmail, '', attempts, "Max AI attempts reached - candidate did not agree to offered rate");
+
+      escalateToHuman(thread, "Max AI attempts reached", candidateName, `We've had ${attempts} negotiation rounds. ${aiSummaryNotes}`);
+      if(stateRowIndex > -1) {
+        stateSheet.getRange(stateRowIndex, 5).setValue("Human-Negotiation");
+        stateSheet.getRange(stateRowIndex, 9).setValue(aiSummaryNotes);
+      }
+
+      // Update job details sheet with escalation status (data already saved above)
+      try {
+        updateJobCandidateStatus(ss, jobId, candidateEmail, 'Escalated: Max AI attempts', null);
+      } catch(detailsErr) {
+        console.error("Failed to update job details sheet:", detailsErr);
+      }
+
+      jobStats.escalated++;
+      jobStats.log.push({type: 'warning', message: `${candidateEmail} escalated: Max attempts reached (data was extracted)`});
+      return;
     }
 
     const isFirstResponse = attempts === 0;
