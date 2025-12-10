@@ -3732,6 +3732,9 @@ function updateFollowUpLabels(threadId, newStatus) {
 
     // Add appropriate label based on new status
     switch(newStatus) {
+      case 'pending':
+        thread.addLabel(awaitingLabel);
+        break;
       case 'followup1':
         thread.addLabel(followUp1Label);
         break;
@@ -3963,6 +3966,8 @@ function resetFollowUpStatus(emailToReset) {
       if(!actuallyResponded) {
         sheet.getRange(i + 1, 9).setValue('Pending'); // Reset Status
         sheet.getRange(i + 1, 10).setValue(new Date()); // Update Last Updated
+        // Update Gmail label to Awaiting-Response
+        updateFollowUpLabels(threadId, 'pending');
         resetCount++;
         log.push(`${email}: RESET to Pending - no actual response found in thread`);
       }
