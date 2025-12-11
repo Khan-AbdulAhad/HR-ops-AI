@@ -201,8 +201,9 @@ function ensureSheetsExist(ss) {
   if (dataFetchSheet.getLastRow() === 0) dataFetchSheet.appendRow(['Timestamp', 'Source', 'Context', 'Data Size (Bytes)', 'Duration (ms)', 'Details', 'User']);
 
   // Follow_Up_Queue sheet - for tracking automated follow-ups (12hr and 28hr)
+  // Column 11 (K) = Manual Override - when TRUE, prevents automatic status changes from processor
   const followUpSheet = ss.getSheetByName('Follow_Up_Queue');
-  if (followUpSheet.getLastRow() === 0) followUpSheet.appendRow(['Email', 'Job ID', 'Thread ID', 'Name', 'Dev ID', 'Initial Send Time', 'Follow Up 1 Sent', 'Follow Up 2 Sent', 'Status', 'Last Updated']);
+  if (followUpSheet.getLastRow() === 0) followUpSheet.appendRow(['Email', 'Job ID', 'Thread ID', 'Name', 'Dev ID', 'Initial Send Time', 'Follow Up 1 Sent', 'Follow Up 2 Sent', 'Status', 'Last Updated', 'Manual Override']);
 
   // Daily_Reports sheet - for storing daily activity reports
   const dailyReportsSheet = ss.getSheetByName('Daily_Reports');
@@ -3451,7 +3452,7 @@ function addToFollowUpQueue(email, jobId, threadId, name, devId) {
 
     if(!sheet) {
       sheet = ss.insertSheet('Follow_Up_Queue');
-      sheet.appendRow(['Email', 'Job ID', 'Thread ID', 'Name', 'Dev ID', 'Initial Send Time', 'Follow Up 1 Sent', 'Follow Up 2 Sent', 'Status', 'Last Updated']);
+      sheet.appendRow(['Email', 'Job ID', 'Thread ID', 'Name', 'Dev ID', 'Initial Send Time', 'Follow Up 1 Sent', 'Follow Up 2 Sent', 'Status', 'Last Updated', 'Manual Override']);
     }
 
     // Check if already in queue
@@ -3581,6 +3582,7 @@ function processFollowUpQueue() {
       const followUp1Done = data[i][6] === true || data[i][6] === 'TRUE';
       const followUp2Done = data[i][7] === true || data[i][7] === 'TRUE';
       const status = data[i][8];
+      const manualOverride = data[i][10] === true || data[i][10] === 'TRUE'; // Column 11 (index 10)
 
       // Skip already processed items
       if(status === 'Responded' || status === 'Unresponsive') {
@@ -3588,8 +3590,9 @@ function processFollowUpQueue() {
       }
 
       // Check if candidate is already in active negotiation, completed, or has accepted offer
+      // BUT skip this auto-marking if Manual Override is set (user manually reset this entry)
       const negotiationKey = `${email}|${jobId}`;
-      if(activeNegotiations.has(negotiationKey) || completedNegotiations.has(negotiationKey) || acceptedOffers.has(negotiationKey)) {
+      if(!manualOverride && (activeNegotiations.has(negotiationKey) || completedNegotiations.has(negotiationKey) || acceptedOffers.has(negotiationKey))) {
         // Mark as responded since they're in negotiation/completed/accepted
         sheet.getRange(i + 1, 9).setValue('Responded');
         sheet.getRange(i + 1, 10).setValue(new Date());
@@ -3602,7 +3605,8 @@ function processFollowUpQueue() {
       }
 
       // IMPROVED: Check Gmail thread for candidate response by verifying sender matches candidate email
-      if(threadId) {
+      // Skip auto-marking if Manual Override is set (user manually reset this entry)
+      if(threadId && !manualOverride) {
         try {
           const thread = GmailApp.getThreadById(threadId);
           if(thread) {
@@ -3647,7 +3651,14 @@ function processFollowUpQueue() {
       const hoursSinceSend = (now - initialSendTime) / (1000 * 60 * 60);
 
       // Check if should be marked as unresponsive (76 hours = 28 + 48 hours after 2nd follow-up)
+      // Skip all status changes if Manual Override is set - user wants to keep this entry as-is
       if(followUp1Done && followUp2Done && hoursSinceSend >= FOLLOW_UP_CONFIG.UNRESPONSIVE_HOURS) {
+        // If Manual Override is set, skip all automatic status changes for this entry
+        if(manualOverride) {
+          log.push({ type: 'info', message: `${email} has Manual Override set - skipping automatic status change` });
+          continue;
+        }
+
         // SAFETY CHECK: Triple verify dev hasn't responded before marking unresponsive
         // This is a final safeguard to prevent marking responded/negotiating devs as unresponsive
         if(activeNegotiations.has(negotiationKey) || completedNegotiations.has(negotiationKey) || acceptedOffers.has(negotiationKey)) {
@@ -3984,6 +3995,7 @@ function resetFollowUpStatus(emailToReset) {
       if(!actuallyResponded) {
         sheet.getRange(i + 1, 9).setValue('Pending'); // Reset Status
         sheet.getRange(i + 1, 10).setValue(new Date()); // Update Last Updated
+        sheet.getRange(i + 1, 11).setValue(true); // Set Manual Override flag to prevent auto-reprocessing
 
         // Determine correct label based on follow-up state
         const followUp1Done = data[i][6] === true || data[i][6] === 'TRUE';
@@ -3999,7 +4011,7 @@ function resetFollowUpStatus(emailToReset) {
         // Update Gmail label based on follow-up state
         updateFollowUpLabels(threadId, labelStatus);
         resetCount++;
-        log.push(`${email}: RESET to Pending - no actual response found in thread (label: ${labelStatus})`);
+        log.push(`${email}: RESET to Pending with Manual Override - no actual response found in thread (label: ${labelStatus})`);
       }
     }
 
