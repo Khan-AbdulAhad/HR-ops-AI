@@ -1099,7 +1099,7 @@ function extractAnswersFromResponse(candidateMessage, questions, candidateName) 
   const questionsList = questions.map((q, i) => `${i+1}. "${q.header}": ${q.question}`).join('\n');
 
   const prompt = `
-You are analyzing a candidate's email response to extract answers to specific questions.
+You are an intelligent data extraction assistant analyzing a candidate's email response to extract answers to specific questions.
 
 CANDIDATE'S MESSAGE:
 "${candidateMessage}"
@@ -1110,7 +1110,22 @@ QUESTIONS TO EXTRACT ANSWERS FOR:
 ${questionsList}
 
 TASK:
-For each question, extract the candidate's answer from their message.
+For each question, extract the candidate's answer from their message using semantic understanding.
+
+EXTRACTION STRATEGY:
+1. Understand the INTENT of each question, not just the literal words
+2. Match candidate's response to questions based on MEANING, not exact keywords
+3. Candidates often answer questions indirectly or use different phrasing - recognize these as valid answers
+4. If the candidate provides information that answers a question, extract it even if they didn't directly address that question
+
+COMMON SEMANTIC EQUIVALENTS (apply similar logic to any question type):
+- Start Date / Availability: "available for/from [date]", "free on [date]", "can join [date]", "ready by [date]"
+- Location: "based in [place]", "living in [place]", "from [place]", "I'm in [place]", "currently in [place]"
+- Rate / Salary: "expecting [amount]", "looking for [amount]", "my rate is [amount]", "charge [amount]"
+- Education: "studied at [school]", "graduated from [school]", "have a [degree]", "completed [degree]"
+- Experience: "[X] years in [field]", "working as [role] for [time]", "been doing [skill] since [year]"
+- Age: "I am [X] years old", "[X] y/o", "born in [year]"
+- Time Overlap / Schedule: "can work [hours]", "available during [time]", "my working hours are [time]"
 
 Return a JSON object where:
 - Keys are the exact header names from the questions
@@ -1124,8 +1139,9 @@ Use these special values when appropriate:
 Example response format:
 {
   "Expected Rate": "$45/hr",
-  "Start Date": "2 weeks from offer",
-  "Notice Period": "NOT_PROVIDED",
+  "Start Date": "12th December",
+  "Location": "Mumbai, India",
+  "Education": "NOT_PROVIDED",
   "Weekly Hours": "NEGOTIATING",
   "is_negotiating": true,
   "negotiation_notes": "Candidate wants to negotiate rate, asking for $45 but willing to discuss"
@@ -1133,9 +1149,11 @@ Example response format:
 
 IMPORTANT:
 - Always include "is_negotiating" (true/false) and "negotiation_notes" fields
-- Be precise - only extract what is explicitly stated
-- If they give a range, include the full range (e.g., "$40-50/hr")
-- Capture any concerns or conditions they mention in negotiation_notes
+- Extract the value the candidate actually mentions, even if different from what was asked
+  Example: Asked "Can you start December 5th?" → Candidate says "available for 12th dec" → Extract "12th dec"
+- If they give a range, include the full range (e.g., "$40-50/hr", "25-30 years old")
+- Capture any concerns, conditions, or counter-proposals in negotiation_notes
+- When in doubt about whether something answers a question, extract it rather than marking NOT_PROVIDED
 
 Return ONLY the JSON object, no other text.
 `;
