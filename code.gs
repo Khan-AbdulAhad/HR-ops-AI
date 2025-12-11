@@ -1133,9 +1133,11 @@ Example response format:
 
 IMPORTANT:
 - Always include "is_negotiating" (true/false) and "negotiation_notes" fields
-- Be precise - only extract what is explicitly stated
+- For Start Date: recognize phrases like "available for [date]", "available from [date]", "free on [date]", "can join on [date]" as valid start date answers. Even if the candidate mentions a different date than asked, extract the date they mention.
+  Example: If asked "Can you start December 5th?" and candidate says "I am available for 12th dec", extract "12th dec" as Start Date.
 - If they give a range, include the full range (e.g., "$40-50/hr")
 - Capture any concerns or conditions they mention in negotiation_notes
+- Look for semantic meaning, not just exact keyword matches
 
 Return ONLY the JSON object, no other text.
 `;
