@@ -4945,6 +4945,124 @@ function getFollowUpTableData(filters) {
 }
 
 /**
+ * Combined function to get both follow-up stats and table data in one API call
+ * This is more efficient than calling getFollowUpStats and getFollowUpTableData separately
+ * @param {Object} filters - Optional filters { jobId: 'all'|jobId, status: 'all'|status }
+ * @returns {Object} { stats: {...}, data: [...], jobIds: [...] }
+ */
+function getFollowUpDataCombined(filters) {
+  const url = getStoredSheetUrl();
+  if (!url) return {
+    stats: { pending: 0, followUp1Done: 0, followUp2Done: 0, responded: 0 },
+    data: [],
+    jobIds: []
+  };
+
+  try {
+    const ss = SpreadsheetApp.openByUrl(url);
+    const sheet = ss.getSheetByName('Follow_Up_Queue');
+
+    if (!sheet || sheet.getLastRow() <= 1) return {
+      stats: { pending: 0, followUp1Done: 0, followUp2Done: 0, responded: 0 },
+      data: [],
+      jobIds: []
+    };
+
+    const data = sheet.getDataRange().getValues();
+    const jobIdFilter = filters?.jobId || 'all';
+    const statusFilter = filters?.status || 'all';
+
+    // Stats counters
+    let pending = 0, followUp1Done = 0, followUp2Done = 0, responded = 0;
+    const items = [];
+    const jobIdSet = new Set();
+
+    // Process data in single pass
+    for (let i = 1; i < data.length; i++) {
+      const email = data[i][0];
+      const jobId = String(data[i][1] || '');
+      const threadId = data[i][2];
+      const name = data[i][3];
+      const devId = data[i][4];
+      const initialSendTime = data[i][5];
+      const f1Done = data[i][6] === true || data[i][6] === 'TRUE';
+      const f2Done = data[i][7] === true || data[i][7] === 'TRUE';
+      const status = data[i][8] || '';
+      const lastUpdated = data[i][9];
+
+      // Collect job IDs for filter dropdown
+      if (jobId) jobIdSet.add(jobId);
+
+      // Calculate stats (for all entries regardless of filter)
+      if (status === 'Responded') {
+        responded++;
+        continue; // Skip responded entries from table
+      } else if (status === 'Unresponsive') {
+        continue; // Skip unresponsive entries from table
+      } else if (f2Done) {
+        followUp2Done++;
+      } else if (f1Done) {
+        followUp1Done++;
+      } else {
+        pending++;
+      }
+
+      // Determine follow-up status for display
+      let followUpStatus = 'Pending';
+      if (f2Done) {
+        followUpStatus = 'Follow-Up-2-Sent';
+      } else if (f1Done) {
+        followUpStatus = 'Follow-Up-1-Sent';
+      }
+
+      // Apply job ID filter for table data
+      if (jobIdFilter !== 'all' && jobId !== jobIdFilter) continue;
+
+      // Apply status filter for table data
+      if (statusFilter !== 'all' && followUpStatus !== statusFilter) continue;
+
+      // Determine last reached out time
+      let lastReachedOut = initialSendTime;
+      if (lastUpdated && (f1Done || f2Done)) {
+        lastReachedOut = lastUpdated;
+      }
+
+      items.push({
+        email: email,
+        jobId: jobId,
+        name: name || 'Unknown',
+        devId: devId || '',
+        threadId: threadId || '',
+        followUpStatus: followUpStatus,
+        lastReachedOut: lastReachedOut ? new Date(lastReachedOut).toISOString() : null,
+        initialSendTime: initialSendTime ? new Date(initialSendTime).toISOString() : null
+      });
+    }
+
+    // Sort by last reached out (most recent first)
+    items.sort((a, b) => {
+      const timeA = a.lastReachedOut ? new Date(a.lastReachedOut) : new Date(0);
+      const timeB = b.lastReachedOut ? new Date(b.lastReachedOut) : new Date(0);
+      return timeB - timeA;
+    });
+
+    return {
+      stats: { pending, followUp1Done, followUp2Done, responded },
+      data: items,
+      jobIds: Array.from(jobIdSet).sort()
+    };
+
+  } catch (e) {
+    console.error("Error getting combined follow-up data:", e);
+    return {
+      stats: { pending: 0, followUp1Done: 0, followUp2Done: 0, responded: 0 },
+      data: [],
+      jobIds: []
+    };
+  }
+}
+
+/**
  * Mark a developer as unresponsive and remove from follow-up queue
  * Moves the entry to Unresponsive_Devs sheet and removes from Follow_Up_Queue
  * @param {string} email - Developer email to mark as unresponsive
