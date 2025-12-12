@@ -52,6 +52,14 @@ function getStoredSheetUrl() {
   return PropertiesService.getUserProperties().getProperty('LOG_SHEET_URL') || "";
 }
 
+/**
+ * Get the stored Jobs/Working sheet URL
+ * This sheet contains only Job_X_Details sheets for data collection
+ */
+function getStoredJobsSheetUrl() {
+  return PropertiesService.getUserProperties().getProperty('JOBS_SHEET_URL') || "";
+}
+
 // ==========================================
 // CACHING SYSTEM FOR FAST DATA LOADING
 // ==========================================
@@ -60,8 +68,12 @@ function getStoredSheetUrl() {
 let _cachedSpreadsheet = null;
 let _cachedSpreadsheetUrl = null;
 
+// In-memory cache for Jobs spreadsheet (separate from Database spreadsheet)
+let _cachedJobsSpreadsheet = null;
+let _cachedJobsSpreadsheetUrl = null;
+
 /**
- * Get spreadsheet with in-memory caching (fast for multiple calls in same execution)
+ * Get Database spreadsheet with in-memory caching (fast for multiple calls in same execution)
  */
 function getCachedSpreadsheet() {
   const url = getStoredSheetUrl();
@@ -76,6 +88,25 @@ function getCachedSpreadsheet() {
   _cachedSpreadsheet = SpreadsheetApp.openByUrl(url);
   _cachedSpreadsheetUrl = url;
   return _cachedSpreadsheet;
+}
+
+/**
+ * Get Jobs spreadsheet with in-memory caching
+ * This is the separate spreadsheet for Job_X_Details sheets
+ */
+function getCachedJobsSpreadsheet() {
+  const url = getStoredJobsSheetUrl();
+  if (!url) return null;
+
+  // Return cached spreadsheet if URL matches
+  if (_cachedJobsSpreadsheet && _cachedJobsSpreadsheetUrl === url) {
+    return _cachedJobsSpreadsheet;
+  }
+
+  // Open and cache
+  _cachedJobsSpreadsheet = SpreadsheetApp.openByUrl(url);
+  _cachedJobsSpreadsheetUrl = url;
+  return _cachedJobsSpreadsheet;
 }
 
 /**
@@ -137,6 +168,48 @@ function invalidateAllSheetCaches() {
   sheetNames.forEach(name => cache.remove('sheet_' + name));
 }
 
+/**
+ * Save both Database and Jobs sheet URLs
+ * @param {string} databaseUrl - URL for the Database sheet (core system sheets)
+ * @param {string} jobsUrl - URL for the Jobs sheet (Job_X_Details sheets)
+ */
+function saveSheetUrls(databaseUrl, jobsUrl) {
+  const cleanDbUrl = databaseUrl ? databaseUrl.trim() : "";
+  const cleanJobsUrl = jobsUrl ? jobsUrl.trim() : "";
+
+  if (!cleanDbUrl) throw new Error("Database Sheet URL is required");
+  if (!cleanJobsUrl) throw new Error("Jobs Sheet URL is required");
+
+  // Validate and setup Database sheet
+  try {
+    const dbSs = SpreadsheetApp.openByUrl(cleanDbUrl);
+    ensureSheetsExist(dbSs);
+    PropertiesService.getUserProperties().setProperty('LOG_SHEET_URL', cleanDbUrl);
+  } catch (e) {
+    throw new Error("Could not access Database Sheet. Please check the URL and permissions.");
+  }
+
+  // Validate and setup Jobs sheet
+  try {
+    const jobsSs = SpreadsheetApp.openByUrl(cleanJobsUrl);
+    // Just validate access, Job sheets are created dynamically
+    PropertiesService.getUserProperties().setProperty('JOBS_SHEET_URL', cleanJobsUrl);
+  } catch (e) {
+    throw new Error("Could not access Jobs Sheet. Please check the URL and permissions.");
+  }
+
+  // Clear in-memory caches to force refresh
+  _cachedSpreadsheet = null;
+  _cachedSpreadsheetUrl = null;
+  _cachedJobsSpreadsheet = null;
+  _cachedJobsSpreadsheetUrl = null;
+
+  return { success: true };
+}
+
+/**
+ * Legacy function - save only Database sheet URL (for backward compatibility)
+ */
 function saveLogSheetUrl(url) {
   const cleanUrl = url ? url.trim() : "";
   if(!cleanUrl) throw new Error("Invalid URL");
@@ -1179,7 +1252,7 @@ Return ONLY the JSON object, no other text.
 
 /**
  * Save or update candidate details in the job-specific sheet
- * @param {Spreadsheet} ss - Spreadsheet object
+ * @param {Spreadsheet} ss - DEPRECATED: Now uses Jobs spreadsheet internally
  * @param {string} jobId - Job ID
  * @param {string} candidateEmail - Candidate's email
  * @param {string} candidateName - Candidate's name
@@ -1190,8 +1263,15 @@ Return ONLY the JSON object, no other text.
  * @param {string} region - Developer's region for rate tier (optional)
  */
 function saveJobCandidateDetails(ss, jobId, candidateEmail, candidateName, devId, threadId, answers, status, region) {
+  // Use Jobs spreadsheet instead of the passed ss parameter
+  const jobsSs = getCachedJobsSpreadsheet();
+  if (!jobsSs) {
+    console.warn("Jobs Sheet URL not configured. Cannot save candidate details.");
+    return { success: false, message: "Jobs Sheet not configured" };
+  }
+
   const sheetName = `Job_${jobId}_Details`;
-  const sheet = ss.getSheetByName(sheetName);
+  const sheet = jobsSs.getSheetByName(sheetName);
 
   if (!sheet) {
     console.error(`Job details sheet not found: ${sheetName}`);
@@ -1349,10 +1429,18 @@ function saveJobCandidateDetails(ss, jobId, candidateEmail, candidateName, devId
 
 /**
  * Update candidate status in job details sheet (for completion/acceptance)
+ * @param {Spreadsheet} ss - DEPRECATED: Now uses Jobs spreadsheet internally
  */
 function updateJobCandidateStatus(ss, jobId, candidateEmail, status, agreedRate) {
+  // Use Jobs spreadsheet instead of the passed ss parameter
+  const jobsSs = getCachedJobsSpreadsheet();
+  if (!jobsSs) {
+    console.warn("Jobs Sheet URL not configured. Cannot update candidate status.");
+    return { success: false, message: "Jobs Sheet not configured" };
+  }
+
   const sheetName = `Job_${jobId}_Details`;
-  const sheet = ss.getSheetByName(sheetName);
+  const sheet = jobsSs.getSheetByName(sheetName);
 
   if (!sheet) return { success: false, message: "Sheet not found" };
 
@@ -1930,10 +2018,16 @@ function sendBulkEmails(recipients, senderName, subject, htmlBody, jobId, opts) 
 
   // CREATE JOB-SPECIFIC DETAILS SHEET if not exists
   // This analyzes the outreach email to determine what questions are being asked
+  // Job details sheets are created in the separate Jobs spreadsheet
   try {
-    const sheetResult = getOrCreateJobDetailsSheet(ss, jobId, htmlBody);
-    if(sheetResult.isNew) {
-      console.log(`Created new job details sheet: Job_${jobId}_Details with ${sheetResult.questions?.length || 0} question columns`);
+    const jobsSs = getCachedJobsSpreadsheet();
+    if (jobsSs) {
+      const sheetResult = getOrCreateJobDetailsSheet(jobsSs, jobId, htmlBody);
+      if(sheetResult.isNew) {
+        console.log(`Created new job details sheet: Job_${jobId}_Details with ${sheetResult.questions?.length || 0} question columns`);
+      }
+    } else {
+      console.warn("Jobs Sheet URL not configured. Job details sheet not created.");
     }
   } catch(sheetError) {
     console.error("Failed to create job details sheet:", sheetError);

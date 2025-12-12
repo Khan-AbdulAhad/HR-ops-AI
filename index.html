@@ -788,9 +788,20 @@ We have an exciting opportunity..."></textarea>
 
             <!-- Sheet URL Section -->
             <div class="mb-6">
-                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Google Sheets URL</label>
-                <p class="text-xs text-gray-500 mb-2">Enter your Google Sheets URL for logging data</p>
-                <input type="text" id="sheetUrl" class="input-field mb-3" placeholder="https://docs.google.com/spreadsheets/d/...">
+                <!-- Database Sheet URL -->
+                <div class="mb-4">
+                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Database Sheet URL</label>
+                    <p class="text-xs text-gray-500 mb-2">For system data: FAQs, Config, Logs, Negotiation State, etc.</p>
+                    <input type="text" id="sheetUrl" class="input-field" placeholder="https://docs.google.com/spreadsheets/d/...">
+                </div>
+
+                <!-- Jobs Sheet URL -->
+                <div class="mb-4">
+                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Jobs Sheet URL</label>
+                    <p class="text-xs text-gray-500 mb-2">For job-specific data: Job_X_Details sheets created per job</p>
+                    <input type="text" id="jobsSheetUrl" class="input-field" placeholder="https://docs.google.com/spreadsheets/d/...">
+                </div>
+
                 <div class="flex justify-end">
                     <button id="saveConfigBtn" onclick="saveConfig()" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 min-w-[80px] justify-center">
                         <span id="saveConfigText">Save</span>
@@ -2219,9 +2230,15 @@ We have an exciting opportunity..."></textarea>
         }
 
         function saveConfig() {
-            const url = document.getElementById('sheetUrl').value;
-            if(!url) {
-                showToast("Please enter a valid URL", "warning");
+            const databaseUrl = document.getElementById('sheetUrl').value;
+            const jobsUrl = document.getElementById('jobsSheetUrl').value;
+
+            if(!databaseUrl) {
+                showToast("Please enter the Database Sheet URL", "warning");
+                return;
+            }
+            if(!jobsUrl) {
+                showToast("Please enter the Jobs Sheet URL", "warning");
                 return;
             }
 
@@ -2252,7 +2269,7 @@ We have an exciting opportunity..."></textarea>
 
                     showToast("Error: " + err.message, "error");
                 })
-                .saveLogSheetUrl(url);
+                .saveSheetUrls(databaseUrl, jobsUrl);
         }
         
         function toggleDarkMode() {
@@ -2409,10 +2426,16 @@ We have an exciting opportunity..."></textarea>
         }
 
         // ===== INIT =====
-        $(document).ready(() => { 
+        $(document).ready(() => {
+            // Load Database Sheet URL
             google.script.run.withSuccessHandler(url => {
                 document.getElementById('sheetUrl').value = url || '';
-            }).getStoredSheetUrl(); 
+            }).getStoredSheetUrl();
+
+            // Load Jobs Sheet URL
+            google.script.run.withSuccessHandler(url => {
+                document.getElementById('jobsSheetUrl').value = url || '';
+            }).getStoredJobsSheetUrl();
         });
     </script>
 </body>
