@@ -9,6 +9,13 @@
  * - Better state management
  */
 
+// ============================================================
+// EMAIL CONFIGURATION - Easy to customize sender name & signature
+// ============================================================
+// Change these values to update all automated emails at once
+const EMAIL_SENDER_NAME = 'Turing Recruitment Team';  // Appears as sender name in recipient's inbox
+const EMAIL_SIGNATURE = 'Turing | Talent Operations';  // Appears at the end of emails
+
 const CONFIG = {
   PROJECT_ID: 'turing-230020',
   DATASET_ID: 'turing-230020',
@@ -2295,7 +2302,7 @@ function getOrCreateLabelId(name) {
 
 /**
  * Send a reply to a thread with custom sender name
- * This ensures AI replies show as "Recruiter" not the actual email
+ * This ensures AI replies show as the configured EMAIL_SENDER_NAME, not the actual email
  */
 function sendReplyWithSenderName(thread, replyBody, senderName) {
   try {
@@ -2316,7 +2323,7 @@ function sendReplyWithSenderName(thread, replyBody, senderName) {
     const nl = "\r\n";
     
     // Encode sender name and subject for UTF-8
-    const encodedSender = "=?utf-8?B?" + Utilities.base64Encode(senderName || 'Recruiter', Utilities.Charset.UTF_8) + "?=";
+    const encodedSender = "=?utf-8?B?" + Utilities.base64Encode(senderName || EMAIL_SENDER_NAME, Utilities.Charset.UTF_8) + "?=";
     const replySubject = subject.startsWith('Re:') ? subject : 'Re: ' + subject;
     const encodedSubject = "=?utf-8?B?" + Utilities.base64Encode(replySubject, Utilities.Charset.UTF_8) + "?=";
     
@@ -2507,8 +2514,8 @@ function processJobNegotiations(jobId, rules, ss, faqContent) {
       return;
     }
 
-    // Also check for common sender names used by our system
-    const ourSenderNames = ['recruiter', 'turing recruitment', 'turing team'];
+    // Also check for common sender names used by our system (includes configured sender name)
+    const ourSenderNames = ['recruiter', 'turing recruitment', 'turing team', EMAIL_SENDER_NAME.toLowerCase()];
     const isSentByUs = ourSenderNames.some(name => lastSender.includes(name));
     if (isSentByUs) {
       jobStats.skipped++;
@@ -2754,7 +2761,7 @@ Please acknowledge that the project your profile is being considered for is [ext
 Please be aware that your profile is currently under client review. If approved and selected, we will reach out to confirm the onboarding date and provide further details along with contract specifics.
 
 Best regards,
-Turing Recruitment Team
+${EMAIL_SIGNATURE}
 
 Write ONLY the email, nothing else.
 `;
@@ -2766,7 +2773,7 @@ Write ONLY the email, nothing else.
         return;
       }
 
-      sendReplyWithSenderName(thread, acceptEmail, 'Recruiter');
+      sendReplyWithSenderName(thread, acceptEmail, EMAIL_SENDER_NAME);
       markCompleted(thread);
 
       // Record directly in Negotiation_Completed (auto-completed, not pending)
@@ -2871,7 +2878,7 @@ Please acknowledge that the project your profile is being considered for is [ext
 Please be aware that your profile is currently under client review. If approved and selected, we will reach out to confirm the onboarding date and provide further details along with contract specifics.
 
 Best regards,
-Turing Recruitment Team
+${EMAIL_SIGNATURE}
 
 Write ONLY the email, nothing else.
 `;
@@ -2884,7 +2891,7 @@ Write ONLY the email, nothing else.
         return;
       }
 
-      sendReplyWithSenderName(thread, acceptEmail, 'Recruiter');
+      sendReplyWithSenderName(thread, acceptEmail, EMAIL_SENDER_NAME);
       markCompleted(thread);
 
       if(stateRowIndex > -1) {
@@ -3072,11 +3079,11 @@ Hi [First Name],
 [Call to action - ask if they can proceed]
 
 Best regards,
-Turing Recruitment Team
+${EMAIL_SIGNATURE}
 
 Write ONLY the email, nothing else.
 `;
-        
+
         const retryResponse = callAI(retryPrompt);
 
         // SECURITY: Validate email content before sending
@@ -3086,7 +3093,7 @@ Write ONLY the email, nothing else.
           return;
         }
 
-        sendReplyWithSenderName(thread, retryResponse, 'Recruiter');
+        sendReplyWithSenderName(thread, retryResponse, EMAIL_SENDER_NAME);
         
         const newAttemptCount = attempts + 1;
         
@@ -3189,7 +3196,7 @@ Please acknowledge that the project your profile is being considered for is [ext
 Please be aware that your profile is currently under client review. If approved and selected, we will reach out to confirm the onboarding date and provide further details along with contract specifics.
 
 Best regards,
-Turing Recruitment Team
+${EMAIL_SIGNATURE}
 
 Write ONLY the email, nothing else.
 `;
@@ -3202,7 +3209,7 @@ Write ONLY the email, nothing else.
         return;
       }
 
-      sendReplyWithSenderName(thread, acceptEmail, 'Recruiter');
+      sendReplyWithSenderName(thread, acceptEmail, EMAIL_SENDER_NAME);
       markCompleted(thread);
 
       // Record directly in Negotiation_Completed (auto-completed, not pending)
@@ -3241,7 +3248,7 @@ Write ONLY the email, nothing else.
         return;
       }
 
-      sendReplyWithSenderName(thread, aiResponse, 'Recruiter');
+      sendReplyWithSenderName(thread, aiResponse, EMAIL_SENDER_NAME);
       
       const newAttemptCount = attempts + 1;
       
@@ -3341,7 +3348,7 @@ Thank you for sharing your rate expectation. I have shared your message with a m
 We appreciate your patience and interest in this opportunity.
 
 Best regards,
-Turing Recruitment Team
+${EMAIL_SIGNATURE}
 
 Write ONLY the email, nothing else. Keep it concise (3-4 sentences).
 `;
@@ -3352,19 +3359,19 @@ Write ONLY the email, nothing else. Keep it concise (3-4 sentences).
     if (!validateEmailForSending(handoffMessage, {})) {
       console.error(`BLOCKED: Handoff message contained sensitive data.`);
       // Use safe fallback instead
-      const safeHandoff = `Hi ${firstName},\n\nThank you for sharing your rate expectation. I have shared your message with a member of our Talent Operations team, and they will get back to you shortly with an update on the rates.\n\nWe appreciate your patience and interest in this opportunity.\n\nBest regards,\nTuring Recruitment Team`;
-      sendReplyWithSenderName(thread, safeHandoff, 'Recruiter');
+      const safeHandoff = `Hi ${firstName},\n\nThank you for sharing your rate expectation. I have shared your message with a member of our Talent Operations team, and they will get back to you shortly with an update on the rates.\n\nWe appreciate your patience and interest in this opportunity.\n\nBest regards,\n${EMAIL_SIGNATURE}`;
+      sendReplyWithSenderName(thread, safeHandoff, EMAIL_SENDER_NAME);
       return;
     }
 
-    sendReplyWithSenderName(thread, handoffMessage, 'Recruiter');
+    sendReplyWithSenderName(thread, handoffMessage, EMAIL_SENDER_NAME);
 
   } catch(e) {
     console.error("Failed to escalate to human:", e);
     // Fallback to simple reply if AI fails
     try {
-      const fallbackMsg = `Hi ${candidateName ? candidateName.split(' ')[0] : 'there'},\n\nThank you for sharing your rate expectation. I have shared your message with a member of our Talent Operations team, and they will get back to you shortly with an update on the rates.\n\nWe appreciate your patience and interest in this opportunity.\n\nBest regards,\nTuring Recruitment Team`;
-      sendReplyWithSenderName(thread, fallbackMsg, 'Recruiter');
+      const fallbackMsg = `Hi ${candidateName ? candidateName.split(' ')[0] : 'there'},\n\nThank you for sharing your rate expectation. I have shared your message with a member of our Talent Operations team, and they will get back to you shortly with an update on the rates.\n\nWe appreciate your patience and interest in this opportunity.\n\nBest regards,\n${EMAIL_SIGNATURE}`;
+      sendReplyWithSenderName(thread, fallbackMsg, EMAIL_SENDER_NAME);
     } catch(e2) {}
   }
 }
@@ -4157,7 +4164,10 @@ NEVER include any of the following in your email:
 - Any terminology like "target rate", "max rate", "first offer", "second offer"
 - Information about how many times we've contacted them or our internal processes
 
-Write ONLY the email body (no subject line). Start with "Hi ${firstName}," and end with appropriate sign-off.
+Write ONLY the email body (no subject line). Start with "Hi ${firstName}," and end with:
+
+Best regards,
+${EMAIL_SIGNATURE}
 `;
 
     const emailBody = callAI(prompt);
@@ -4178,7 +4188,7 @@ Write ONLY the email body (no subject line). Start with "Hi ${firstName}," and e
       const thread = GmailApp.getThreadById(threadId);
       if(thread) {
         // Use the custom sender reply function
-        sendReplyWithSenderName(thread, emailBody, 'Turing Recruitment Team');
+        sendReplyWithSenderName(thread, emailBody, EMAIL_SENDER_NAME);
 
         // Log the follow-up
         const url = getStoredSheetUrl();
