@@ -27,6 +27,159 @@ const STAGE_CONFIG = {
   'Selected for Trial': { type: 'status', table: 'ms2_job_match', system_name: 'selected-for-trial' }
 };
 
+// --- SENSITIVE DATA PROTECTION ---
+
+/**
+ * List of patterns that should NEVER appear in candidate-facing emails
+ * These patterns detect internal system information that could be leaked
+ */
+const SENSITIVE_PATTERNS = [
+  // Job and system identifiers
+  /job\s*id\s*[:=]?\s*\d+/gi,
+  /job[-_]?\s*id\s*[:=]?\s*\d+/gi,
+  /reference\s*(number|id|#)\s*[:=]?\s*\d+/gi,
+  /dev\s*id\s*[:=]?\s*[a-z0-9-]+/gi,
+  /thread\s*id\s*[:=]?\s*[a-z0-9]+/gi,
+  /internal\s*id\s*[:=]?\s*[a-z0-9-]+/gi,
+
+  // Rate terminology (internal)
+  /target\s*rate/gi,
+  /max(imum)?\s*rate/gi,
+  /walk[-\s]?away\s*rate/gi,
+  /first\s*offer\s*rate/gi,
+  /second\s*offer\s*rate/gi,
+  /80%\s*of\s*(target|our)/gi,
+  /our\s*budget\s*(is|allows|permits)/gi,
+  /we\s*aim\s*for/gi,
+  /our\s*target\s*(is|rate)/gi,
+  /rate\s*ceiling/gi,
+  /rate\s*floor/gi,
+  /internal\s*rate/gi,
+
+  // Pipeline and status terminology
+  /pipeline\s*status/gi,
+  /internal\s*status/gi,
+  /outreach\s*history/gi,
+  /attempt\s*(count|number|\d+\s*of\s*\d+)/gi,
+  /escalat(e|ion)\s*(to\s*human|required|needed)/gi,
+  /ai\s*notes?/gi,
+  /internal\s*notes?/gi,
+  /negotiation\s*(state|status|stage)/gi,
+
+  // System process terminology
+  /follow[-\s]?up\s*(queue|system|#?\d+\s*of\s*\d+)/gi,
+  /automated\s*(system|process|outreach)/gi,
+  /human\s*escalation/gi,
+  /manual\s*override/gi,
+  /special\s*rules?/gi,
+  /negotiation\s*config/gi,
+
+  // Rate tier information
+  /rate\s*tier/gi,
+  /region(al)?\s*rate/gi,
+  /tier\s*\d+/gi
+];
+
+/**
+ * Sanitize AI-generated content to remove any accidentally leaked sensitive information
+ * @param {string} content - The AI-generated email content
+ * @param {Object} internalData - Optional object containing actual internal values to check for
+ * @returns {Object} { safe: boolean, content: string, violations: string[] }
+ */
+function sanitizeEmailContent(content, internalData = {}) {
+  if (!content) return { safe: true, content: '', violations: [] };
+
+  const violations = [];
+  let sanitizedContent = content;
+
+  // Check for pattern-based violations
+  for (const pattern of SENSITIVE_PATTERNS) {
+    const matches = content.match(pattern);
+    if (matches) {
+      violations.push(`Pattern detected: "${matches[0]}"`);
+    }
+  }
+
+  // Check for specific internal values if provided
+  if (internalData.jobId) {
+    const jobIdPattern = new RegExp(`\\b${internalData.jobId}\\b`, 'gi');
+    if (jobIdPattern.test(content)) {
+      violations.push(`Job ID "${internalData.jobId}" found in content`);
+    }
+  }
+
+  if (internalData.targetRate) {
+    // Check if target rate is mentioned with context that reveals it's a target
+    const targetRatePattern = new RegExp(`(target|aim|budget|internal).*\\$?${internalData.targetRate}`, 'gi');
+    if (targetRatePattern.test(content)) {
+      violations.push(`Target rate context detected`);
+    }
+  }
+
+  if (internalData.maxRate) {
+    // Check if max rate is mentioned with context that reveals it's a max
+    const maxRatePattern = new RegExp(`(max|maximum|ceiling|limit).*\\$?${internalData.maxRate}`, 'gi');
+    if (maxRatePattern.test(content)) {
+      violations.push(`Max rate context detected`);
+    }
+  }
+
+  if (internalData.devId) {
+    const devIdPattern = new RegExp(`\\b${internalData.devId}\\b`, 'gi');
+    if (devIdPattern.test(content)) {
+      violations.push(`Dev ID "${internalData.devId}" found in content`);
+    }
+  }
+
+  return {
+    safe: violations.length === 0,
+    content: sanitizedContent,
+    violations: violations
+  };
+}
+
+/**
+ * Validate that email content is safe to send to candidates
+ * Returns true if safe, throws error if violations found
+ * @param {string} content - Email content to validate
+ * @param {Object} context - Context with internal data to check against
+ * @returns {boolean}
+ */
+function validateEmailForSending(content, context = {}) {
+  const result = sanitizeEmailContent(content, context);
+
+  if (!result.safe) {
+    console.error('SECURITY ALERT: Sensitive data detected in email content');
+    console.error('Violations:', result.violations);
+
+    // Log the violation for audit purposes
+    try {
+      const url = getStoredSheetUrl();
+      if (url) {
+        const ss = SpreadsheetApp.openByUrl(url);
+        let auditSheet = ss.getSheetByName('Security_Audit_Log');
+        if (!auditSheet) {
+          auditSheet = ss.insertSheet('Security_Audit_Log');
+          auditSheet.appendRow(['Timestamp', 'Type', 'Violations', 'Content Preview', 'Context']);
+        }
+        auditSheet.appendRow([
+          new Date(),
+          'BLOCKED_EMAIL',
+          result.violations.join('; '),
+          content.substring(0, 200) + '...',
+          JSON.stringify(context).substring(0, 200)
+        ]);
+      }
+    } catch (logError) {
+      console.error('Failed to log security violation:', logError);
+    }
+
+    return false;
+  }
+
+  return true;
+}
+
 // --- SETUP ---
 
 function doGet() {
@@ -2606,6 +2759,13 @@ Turing Recruitment Team
 Write ONLY the email, nothing else.
 `;
       const acceptEmail = callAI(acceptPrompt);
+
+      // SECURITY: Validate email content before sending
+      if (!validateEmailForSending(acceptEmail, { jobId: jobId })) {
+        console.error(`BLOCKED: Auto-acceptance email to ${candidateEmail} contained sensitive data.`);
+        return;
+      }
+
       sendReplyWithSenderName(thread, acceptEmail, 'Recruiter');
       markCompleted(thread);
 
@@ -2716,6 +2876,14 @@ Turing Recruitment Team
 Write ONLY the email, nothing else.
 `;
       const acceptEmail = callAI(acceptPrompt);
+
+      // SECURITY: Validate email content before sending
+      if (!validateEmailForSending(acceptEmail, { jobId: jobId })) {
+        console.error(`BLOCKED: Acceptance email to ${candidateEmail} contained sensitive data.`);
+        jobStats.log.push({type: 'error', message: `${candidateEmail} - Acceptance email blocked. Check Security_Audit_Log.`});
+        return;
+      }
+
       sendReplyWithSenderName(thread, acceptEmail, 'Recruiter');
       markCompleted(thread);
 
@@ -2729,9 +2897,9 @@ Write ONLY the email, nothing else.
       return;
     }
 
-    // ENHANCED AI PROMPT with better negotiation strategy (NEVER reveal target!)
+    // ENHANCED AI PROMPT with better negotiation strategy
     const prompt = `
-You are a recruiter at Turing negotiating a rate for Job ID ${jobId}.
+You are a recruiter at Turing discussing a freelance opportunity.
 
 === ABOUT TURING ===
 Turing is one of the world's fastest-growing AI companies accelerating the advancement and deployment of powerful AI systems.
@@ -2745,46 +2913,48 @@ Perks of Freelancing With Turing:
 === JOB DESCRIPTION ===
 ${rules.jobDescription || 'No specific job description provided.'}
 
-=== NEGOTIATION RULES ===
+=== YOUR RATE OFFER ===
 ${attempts === 0 ? `
-**FIRST ATTEMPT - Start at 80% of Target:**
-- YOUR OFFER: $${firstOfferRate}/hr - This is what you MUST offer (80% of our target)
-- DO NOT offer anything higher than $${firstOfferRate}/hr on this first attempt, no matter what rate they ask for
-- Even if they request $100/hr, you respond with YOUR offer of $${firstOfferRate}/hr
+**YOUR OFFER: $${firstOfferRate}/hr**
+- Offer exactly $${firstOfferRate}/hr for this role
+- DO NOT offer anything higher on this response
 - Be confident and direct: "We can offer $${firstOfferRate}/hr for this role"
-- NEVER mention any "target rate" or "budget" or "aim for" - just state your offer confidently
 ` : `
-**SECOND ATTEMPT - Full Target Rate:**
-- YOUR OFFER: $${secondOfferRate}/hr - This is what you MUST offer (our full target rate)
-- DO NOT offer anything higher than $${secondOfferRate}/hr, no matter what
-- If they don't accept $${secondOfferRate}/hr, that's okay - we will escalate to human
+**YOUR OFFER: $${secondOfferRate}/hr**
+- Offer exactly $${secondOfferRate}/hr for this role
+- This is your final offer - DO NOT go higher
 - Be confident and direct: "We can offer $${secondOfferRate}/hr for this role"
-- NEVER mention any "target rate" or "budget" - just state what you can offer
-- DO NOT offer max rate - only humans can approve rates above $${secondOfferRate}/hr
+- If they don't accept, escalate for human review
 `}
 
 - Negotiation Style: ${rules.style}
-- Special Instructions: ${rules.special || 'None'}
-- Current Attempt: ${attempts + 1} of 2 (human escalation after attempt 2)
 
-=== CRITICAL RULES - READ CAREFULLY ===
-1. **NEVER reveal internal numbers**: Do not say "we aim for", "our target is", "our budget is", or "we're looking at". Just state your offer directly.
-2. **Be confident**: Say "We can offer $X/hr for this role" - not "We're hoping for" or "We'd like to offer"
-3. **This is FREELANCE**: Never mention full-time benefits, team culture, or long-term employment
-4. **Answer questions on NEW LINES**: If answering multiple questions, put each answer on a separate line for readability
+=== CRITICAL CONFIDENTIALITY RULES ===
+NEVER include or mention ANY of the following in your email:
+1. Job IDs, reference numbers, or internal identifiers
+2. Internal terminology: "target rate", "max rate", "budget", "ceiling", "first offer", "second offer"
+3. Phrases like "we aim for", "our target is", "our budget is", "we're looking at"
+4. Internal status, pipeline stage, outreach history, or attempt numbers
+5. Dev IDs, thread IDs, or any system identifiers
+6. Any hint about internal pricing strategy or escalation processes
+
+Just state your offer directly: "We can offer $X/hr for this role"
+
+=== HANDLING SENSITIVE QUESTIONS ===
+If the candidate asks about ANY of the following, DO NOT answer - instead say "I'd be happy to connect you with our team to discuss that further" and use ACTION: ESCALATE:
+- Internal processes, pipeline, or how decisions are made
+- Rate structures, tiers, or how rates are determined
+- Other candidates or comparison information
+- Internal policies or confidential business information
 
 === FREQUENTLY ASKED QUESTIONS (Reference Only) ===
 ${faqContent}
 
-**IMPORTANT FAQ INSTRUCTIONS:**
-- ONLY use these FAQs if the candidate EXPLICITLY asks a question
-- Do NOT proactively volunteer information - only answer what they ask
-- If they didn't ask any questions, do NOT include any FAQ answers in your response
-- "Let me know if you need anything else" is NOT a question - it's a polite closing
-- If they DO ask a question that matches an FAQ:
-  1. Use the provided answer as your source of truth
-  2. Paraphrase naturally in your own words
-  3. Put each answer on a SEPARATE LINE for better readability
+**FAQ INSTRUCTIONS:**
+- ONLY use these FAQs if the candidate EXPLICITLY asks a matching question
+- Do NOT proactively volunteer information
+- If they ask a question NOT in the FAQ and it seems sensitive, escalate to human
+- If they DO ask a question that matches an FAQ, paraphrase the answer naturally
 
 === CONVERSATION HISTORY ===
 ${conversationHistory}
@@ -2792,56 +2962,32 @@ ${conversationHistory}
 === EMAIL FORMATTING RULES ===
 1. Start with a warm greeting: "Hi [First Name],"
 2. Keep the main message to 2-3 short paragraphs
-3. If answering multiple questions, format like this:
-   
-   Regarding your questions:
-   
-   • [Answer to first question]
-   
-   • [Answer to second question]
-   
+3. If answering multiple questions, put each answer on a separate line
 4. End with a clear call to action
 5. Sign off professionally
-
-=== RESPONSE INSTRUCTIONS ===
-${isFirstResponse ? `
-THIS IS THE FIRST RESPONSE - Offer $${firstOfferRate}/hr (MANDATORY - 80% of target)
-- You MUST offer exactly $${firstOfferRate}/hr - this is non-negotiable for the first attempt
-- Present this rate confidently without justification
-- If they asked for a higher rate (even $100/hr), acknowledge their experience but offer $${firstOfferRate}/hr
-- ONLY answer questions they EXPLICITLY asked - do NOT volunteer information they didn't request
-- NEVER say "we aim for" or "our target is" or reveal any internal numbers
-- NEVER use ACTION: ESCALATE on first attempt
-` : `
-THIS IS ATTEMPT ${attempts + 1} - Offer $${secondOfferRate}/hr (MANDATORY - full target rate)
-- You MUST offer exactly $${secondOfferRate}/hr - this is your final AI offer
-- DO NOT offer anything higher - max rate ($${maxRate}/hr) can only be approved by humans
-- If they don't accept $${secondOfferRate}/hr, that's fine - we will escalate to human
-- ONLY answer questions they EXPLICITLY asked - do NOT volunteer information they didn't request
-- You may escalate if they explicitly refuse $${secondOfferRate}/hr
-`}
+6. **This is FREELANCE**: Never mention full-time benefits, team culture, or long-term employment
 
 === RESPONSE FORMAT ===
-1. If they clearly ACCEPT an offer at or below $${secondOfferRate}/hr:
+${isFirstResponse ? `
+- Offer $${firstOfferRate}/hr confidently
+- Present this rate without justification or internal terminology
+- If they asked for a higher rate, acknowledge their experience but state your offer
+- ONLY answer questions from the FAQ - for anything else, politely defer
+- Do NOT escalate on this response unless they ask sensitive questions
+` : `
+- Offer $${secondOfferRate}/hr as your final offer
+- If they explicitly refuse this rate, escalate
+- ONLY answer questions from the FAQ - for anything else, politely defer
+`}
+
+**Response Options:**
+1. If they ACCEPT an offer at or below $${secondOfferRate}/hr:
    Reply with: ACTION: ACCEPT [$RATE]
 
-2. If this is attempt 2 AND they refuse $${secondOfferRate}/hr or demand higher:
-   Reply with: ACTION: ESCALATE [REASON: brief reason here]
+2. If they refuse your offer or ask sensitive questions outside the FAQ:
+   Reply with: ACTION: ESCALATE [REASON: brief reason]
 
-3. Otherwise, write a professional email:
-   
-   Hi [First Name],
-
-   [Opening - acknowledge their message/questions]
-
-   [Your offer or counter-offer - state confidently without revealing targets]
-
-   [If answering questions, put on separate lines]
-
-   [Call to action]
-
-   Best regards,
-   Turing Recruitment Team
+3. Otherwise, write a professional email (no internal terminology)
 
 Respond with ONLY the email text OR the ACTION code. No other explanations.
     `;
@@ -2879,15 +3025,17 @@ Respond with ONLY the email text OR the ACTION code. No other explanations.
         const currentOffer = targetRate;
 
         const retryPrompt = `
-You are a recruiter at Turing. You MUST write a negotiation email - escalation is NOT an option.
+You are a recruiter at Turing. You MUST write a negotiation email.
 
 CANDIDATE'S ACTUAL MESSAGE:
 "${candidateMessage}"
 
 CANDIDATE NAME: ${candidateName}
 
-YOUR OFFER FOR THIS ATTEMPT: $${currentOffer}/hr (this is MANDATORY - do not offer higher)
-${attempts === 0 ? `This is the first attempt (80% of target) - you MUST offer exactly $${currentOffer}/hr, no higher.` : `This is the second attempt (full target) - you MUST offer exactly $${currentOffer}/hr. DO NOT offer max rate - only humans can approve higher rates.`}
+YOUR OFFER: $${currentOffer}/hr
+- Offer exactly $${currentOffer}/hr for this role
+- Be confident and direct: "We can offer $${currentOffer}/hr for this role"
+- DO NOT offer anything higher
 
 JOB CONTEXT:
 ${rules.jobDescription || 'Freelance AI/Tech role'}
@@ -2895,30 +3043,31 @@ ${rules.jobDescription || 'Freelance AI/Tech role'}
 FAQs (ONLY use if candidate explicitly asks a question):
 ${faqContent}
 
-CRITICAL RULES:
-1. NEVER say "we aim for", "our target is", "our budget is" - just state your offer confidently
-2. Say "We can offer $${currentOffer}/hr for this role" - be direct and confident
-3. ONLY answer questions the candidate EXPLICITLY asked - do NOT volunteer information
-4. "Let me know if you need anything else" is NOT a question - it's a polite closing
-5. This is FREELANCE - never mention full-time benefits
+=== CRITICAL CONFIDENTIALITY RULES ===
+NEVER include or mention ANY of the following in your email:
+1. Job IDs, reference numbers, or internal identifiers
+2. Internal terminology: "target rate", "max rate", "budget", "ceiling", "first offer", "second offer"
+3. Phrases like "we aim for", "our target is", "our budget is", "we're looking at"
+4. Internal status, pipeline stage, outreach history, or attempt numbers
+5. Any hint about internal pricing strategy or escalation processes
+6. This is FREELANCE - never mention full-time benefits
+
+Just state your offer directly: "We can offer $${currentOffer}/hr for this role"
 
 TASK:
 1. Read the candidate's message above carefully
-2. Note the ACTUAL rate they mentioned (if any)
-3. ONLY answer questions they EXPLICITLY asked (not implied or anticipated)
-4. Make your offer of $${currentOffer}/hr confidently
-5. Keep the tone ${rules.style}
+2. ONLY answer questions they EXPLICITLY asked - if question not in FAQ, politely defer
+3. Make your offer of $${currentOffer}/hr confidently
+4. Keep the tone ${rules.style}
 
 FORMAT:
 Hi [First Name],
 
 [Acknowledge their message]
 
-[Your offer - state directly without revealing any targets]
+[Your offer - state directly: "We can offer $X/hr for this role"]
 
-[If they asked questions, answer each on a new line like:
-• Answer to question 1
-• Answer to question 2]
+[If they asked questions from FAQ, answer each on a new line]
 
 [Call to action - ask if they can proceed]
 
@@ -2929,6 +3078,14 @@ Write ONLY the email, nothing else.
 `;
         
         const retryResponse = callAI(retryPrompt);
+
+        // SECURITY: Validate email content before sending
+        if (!validateEmailForSending(retryResponse, { jobId: jobId, targetRate: targetRate, maxRate: maxRate })) {
+          console.error(`BLOCKED: Negotiation email to ${candidateEmail} contained sensitive data.`);
+          jobStats.log.push({type: 'error', message: `${candidateEmail} - Email blocked due to sensitive content. Check Security_Audit_Log.`});
+          return;
+        }
+
         sendReplyWithSenderName(thread, retryResponse, 'Recruiter');
         
         const newAttemptCount = attempts + 1;
@@ -3037,6 +3194,14 @@ Turing Recruitment Team
 Write ONLY the email, nothing else.
 `;
       const acceptEmail = callAI(acceptPrompt);
+
+      // SECURITY: Validate email content before sending
+      if (!validateEmailForSending(acceptEmail, { jobId: jobId })) {
+        console.error(`BLOCKED: Acceptance email to ${candidateEmail} contained sensitive data.`);
+        jobStats.log.push({type: 'error', message: `${candidateEmail} - Acceptance email blocked. Check Security_Audit_Log.`});
+        return;
+      }
+
       sendReplyWithSenderName(thread, acceptEmail, 'Recruiter');
       markCompleted(thread);
 
@@ -3067,8 +3232,15 @@ Write ONLY the email, nothing else.
 
       jobStats.accepted++;
       jobStats.log.push({type: 'success', message: `${candidateEmail} ACCEPTED at $${rate}/hr - Completed`});
-    } 
+    }
     else {
+      // SECURITY: Validate AI response before sending
+      if (!validateEmailForSending(aiResponse, { jobId: jobId, targetRate: targetRate, maxRate: maxRate })) {
+        console.error(`BLOCKED: Negotiation email to ${candidateEmail} contained sensitive data.`);
+        jobStats.log.push({type: 'error', message: `${candidateEmail} - Email blocked due to sensitive content. Check Security_Audit_Log.`});
+        return;
+      }
+
       sendReplyWithSenderName(thread, aiResponse, 'Recruiter');
       
       const newAttemptCount = attempts + 1;
@@ -3175,6 +3347,16 @@ Write ONLY the email, nothing else. Keep it concise (3-4 sentences).
 `;
 
     const handoffMessage = callAI(handoffPrompt);
+
+    // SECURITY: Validate handoff message before sending
+    if (!validateEmailForSending(handoffMessage, {})) {
+      console.error(`BLOCKED: Handoff message contained sensitive data.`);
+      // Use safe fallback instead
+      const safeHandoff = `Hi ${firstName},\n\nThank you for sharing your rate expectation. I have shared your message with a member of our Talent Operations team, and they will get back to you shortly with an update on the rates.\n\nWe appreciate your patience and interest in this opportunity.\n\nBest regards,\nTuring Recruitment Team`;
+      sendReplyWithSenderName(thread, safeHandoff, 'Recruiter');
+      return;
+    }
+
     sendReplyWithSenderName(thread, handoffMessage, 'Recruiter');
 
   } catch(e) {
@@ -3947,8 +4129,7 @@ You are a recruiter at Turing sending a follow-up email. This is follow-up #${fo
 
 CONTEXT:
 - Candidate Name: ${name}
-- Job ID: ${jobId}
-${jobDescription ? `- Job Description: ${jobDescription.substring(0, 500)}...` : ''}
+${jobDescription ? `- Role Overview: ${jobDescription.substring(0, 500)}...` : ''}
 - This is follow-up ${followUpNumber} of 2
 
 FOLLOW-UP GUIDELINES:
@@ -3967,10 +4148,30 @@ ${followUpNumber === 1 ? `
 - Keep it short (3-4 sentences max)
 `}
 
+=== CRITICAL CONFIDENTIALITY RULES ===
+NEVER include any of the following in your email:
+- Job IDs, reference numbers, or internal identifiers
+- Any rates, budgets, or compensation figures
+- Internal status, pipeline stage, or outreach history
+- Dev IDs, thread IDs, or any system identifiers
+- Any terminology like "target rate", "max rate", "first offer", "second offer"
+- Information about how many times we've contacted them or our internal processes
+
 Write ONLY the email body (no subject line). Start with "Hi ${firstName}," and end with appropriate sign-off.
 `;
 
     const emailBody = callAI(prompt);
+
+    // SECURITY: Validate email content before sending
+    const isContentSafe = validateEmailForSending(emailBody, {
+      jobId: jobId,
+      devId: null // We don't have devId in this context, but still check patterns
+    });
+
+    if (!isContentSafe) {
+      console.error(`BLOCKED: Follow-up email to ${email} contained sensitive data. Email not sent.`);
+      return { success: false, error: "Email blocked due to sensitive content detection. Please check Security_Audit_Log." };
+    }
 
     // Get the thread and send reply
     if(threadId) {
@@ -3997,6 +4198,12 @@ Write ONLY the email body (no subject line). Start with "Hi ${firstName}," and e
     const messages = GmailApp.search(`to:${email}`);
     if(messages && messages.length > 0) {
       const thread = messages[0];
+
+      // SECURITY: Also validate for fallback path
+      if (!isContentSafe) {
+        return { success: false, error: "Email blocked due to sensitive content" };
+      }
+
       thread.reply(emailBody);
       return { success: true };
     }
