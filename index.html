@@ -9,7 +9,7 @@
     <link href="https://cdn.datatables.net/1.13.6/css/dataTables.tailwindcss.min.css" rel="stylesheet">
     <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 
     <script>
         tailwind.config = {
@@ -24,8 +24,8 @@
         }
     </script>
     <style>
-        body { 
-            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; 
+        body {
+            font-family: 'Poppins', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
             font-size: 15px;
             background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
         }
@@ -56,15 +56,26 @@
         .hidden-tab { display: none; }
         
         /* Toast Notifications */
-        .toast-container { position: fixed; top: 20px; right: 20px; z-index: 9999; display: flex; flex-direction: column; gap: 10px; }
-        .toast { padding: 14px 20px; border-radius: 12px; box-shadow: 0 10px 40px rgba(0,0,0,0.15); display: flex; align-items: center; gap: 12px; animation: slideIn 0.3s ease; min-width: 300px; }
+        .toast-container { position: fixed; top: 20px; right: 20px; z-index: 9999; display: flex; flex-direction: column; gap: 10px; max-width: 400px; }
+        .toast { padding: 14px 20px; border-radius: 12px; box-shadow: 0 10px 40px rgba(0,0,0,0.15); display: flex; align-items: center; gap: 12px; animation: slideIn 0.3s ease; min-width: 300px; position: relative; }
         .toast-success { background: linear-gradient(135deg, #10b981, #059669); color: white; }
         .toast-error { background: linear-gradient(135deg, #ef4444, #dc2626); color: white; }
         .toast-info { background: linear-gradient(135deg, #3b82f6, #2563eb); color: white; }
         .toast-warning { background: linear-gradient(135deg, #f59e0b, #d97706); color: white; }
+        .toast-close { position: absolute; top: 50%; right: 12px; transform: translateY(-50%); background: rgba(255,255,255,0.2); border: none; color: white; width: 24px; height: 24px; border-radius: 50%; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 12px; transition: background 0.2s; }
+        .toast-close:hover { background: rgba(255,255,255,0.3); }
+        .toast-content { flex: 1; padding-right: 24px; }
         @keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
         @keyframes slideOut { from { transform: translateX(0); opacity: 1; } to { transform: translateX(100%); opacity: 0; } }
         .toast.hiding { animation: slideOut 0.3s ease forwards; }
+
+        /* Collapsible Sections */
+        .collapsible-header { cursor: pointer; user-select: none; }
+        .collapsible-header:hover { opacity: 0.9; }
+        .collapsible-content { transition: max-height 0.3s ease, opacity 0.3s ease, padding 0.3s ease; overflow: hidden; }
+        .collapsible-content.collapsed { max-height: 0 !important; opacity: 0; padding-top: 0 !important; padding-bottom: 0 !important; }
+        .collapse-icon { transition: transform 0.3s ease; }
+        .collapse-icon.collapsed { transform: rotate(-90deg); }
         
         /* Status Log Styles */
         .log-container { max-height: 200px; overflow-y: auto; font-size: 0.75rem; }
@@ -470,17 +481,25 @@ This is a freelance, fully remote position."></textarea>
                         </div>
                     </div>
 
-                    <!-- AI Progress Panel (Hidden by default) -->
-                    <div id="aiProgressPanel" class="hidden mb-6 bg-purple-50 dark:bg-purple-900/20 rounded-xl p-4 border border-purple-200 dark:border-purple-800">
-                        <div class="flex items-center justify-between mb-3">
+                    <!-- AI Progress Panel (Hidden by default, collapsible) -->
+                    <div id="aiProgressPanel" class="hidden mb-6 bg-purple-50 dark:bg-purple-900/20 rounded-xl border border-purple-200 dark:border-purple-800 overflow-hidden">
+                        <div class="collapsible-header p-4 flex items-center justify-between" onclick="toggleCollapse('aiProgressContent', this)">
                             <div class="flex items-center gap-2">
-                                <i class="fa-solid fa-robot text-purple-600 animate-pulse"></i>
+                                <i class="fa-solid fa-robot text-purple-600 animate-pulse" id="aiProgressIcon"></i>
                                 <span class="font-bold text-purple-800 dark:text-purple-300">AI Negotiator Running...</span>
                             </div>
-                            <span id="aiProgressStatus" class="text-sm text-purple-600">Initializing...</span>
+                            <div class="flex items-center gap-3">
+                                <span id="aiProgressStatus" class="text-sm text-purple-600">Initializing...</span>
+                                <i class="fa-solid fa-chevron-down collapse-icon text-purple-500 text-xs"></i>
+                                <button onclick="event.stopPropagation(); closeProgressPanel('aiProgressPanel')" class="text-purple-400 hover:text-purple-600 ml-1" title="Close">
+                                    <i class="fa-solid fa-times"></i>
+                                </button>
+                            </div>
                         </div>
-                        <div class="log-container bg-white dark:bg-gray-900 rounded-lg p-2 border border-purple-100 dark:border-purple-800" id="aiLogContainer">
-                            <!-- Logs will appear here -->
+                        <div id="aiProgressContent" class="collapsible-content px-4 pb-4" style="max-height: 250px;">
+                            <div class="log-container bg-white dark:bg-gray-900 rounded-lg p-2 border border-purple-100 dark:border-purple-800" id="aiLogContainer">
+                                <!-- Logs will appear here -->
+                            </div>
                         </div>
                     </div>
 
@@ -556,18 +575,23 @@ This is a freelance, fully remote position."></textarea>
                         </div>
                     </div>
 
-                    <!-- Follow-up Info Box -->
-                    <div class="bg-blue-50 dark:bg-blue-900/20 p-4 rounded-xl border border-blue-200 dark:border-blue-800 mb-6">
-                        <h4 class="font-bold text-blue-700 dark:text-blue-300 text-sm mb-2 flex items-center gap-2">
-                            <i class="fa-solid fa-circle-info text-blue-500"></i> How Follow-Ups Work
-                        </h4>
-                        <ul class="text-xs text-gray-600 dark:text-gray-400 space-y-1 ml-4 list-disc">
-                            <li><strong>1st Follow-up:</strong> Sent 12 hours after initial outreach if no response</li>
-                            <li><strong>2nd Follow-up:</strong> Sent 28 hours after initial outreach if still no response</li>
-                            <li>Follow-ups are automatically skipped if the candidate has responded</li>
-                            <li>AI generates contextual, friendly follow-up messages based on the job description</li>
-                            <li>Set up a time-based trigger (Triggers > Add Trigger > runFollowUpProcessor) to run hourly for automation</li>
-                        </ul>
+                    <!-- Follow-up Info Box (Collapsible) -->
+                    <div class="bg-blue-50 dark:bg-blue-900/20 rounded-xl border border-blue-200 dark:border-blue-800 mb-6 overflow-hidden">
+                        <div class="collapsible-header p-4 flex items-center justify-between" onclick="toggleCollapse('followUpInfoContent', this)">
+                            <h4 class="font-bold text-blue-700 dark:text-blue-300 text-sm flex items-center gap-2">
+                                <i class="fa-solid fa-circle-info text-blue-500"></i> How Follow-Ups Work
+                            </h4>
+                            <i class="fa-solid fa-chevron-down collapse-icon text-blue-500 text-xs"></i>
+                        </div>
+                        <div id="followUpInfoContent" class="collapsible-content px-4 pb-4" style="max-height: 200px;">
+                            <ul class="text-xs text-gray-600 dark:text-gray-400 space-y-1 ml-4 list-disc">
+                                <li><strong>1st Follow-up:</strong> Sent 12 hours after initial outreach if no response</li>
+                                <li><strong>2nd Follow-up:</strong> Sent 28 hours after initial outreach if still no response</li>
+                                <li>Follow-ups are automatically skipped if the candidate has responded</li>
+                                <li>AI generates contextual, friendly follow-up messages based on the job description</li>
+                                <li>Set up a time-based trigger (Triggers > Add Trigger > runFollowUpProcessor) to run hourly for automation</li>
+                            </ul>
+                        </div>
                     </div>
 
                     <!-- Follow-Ups Table Section -->
@@ -625,17 +649,25 @@ This is a freelance, fully remote position."></textarea>
                         </div>
                     </div>
 
-                    <!-- Follow-up Progress Panel (Hidden by default) -->
-                    <div id="followUpProgressPanel" class="hidden mb-6 bg-purple-50 dark:bg-purple-900/20 rounded-xl p-4 border border-purple-200 dark:border-purple-800">
-                        <div class="flex items-center justify-between mb-3">
+                    <!-- Follow-up Progress Panel (Hidden by default, collapsible) -->
+                    <div id="followUpProgressPanel" class="hidden mb-6 bg-purple-50 dark:bg-purple-900/20 rounded-xl border border-purple-200 dark:border-purple-800 overflow-hidden">
+                        <div class="collapsible-header p-4 flex items-center justify-between" onclick="toggleCollapse('followUpProgressContent', this)">
                             <div class="flex items-center gap-2">
-                                <i class="fa-solid fa-clock text-purple-600 animate-pulse"></i>
+                                <i class="fa-solid fa-clock text-purple-600 animate-pulse" id="followUpProgressIcon"></i>
                                 <span class="font-bold text-purple-800 dark:text-purple-300">Processing Follow-Ups...</span>
                             </div>
-                            <span id="followUpProgressStatus" class="text-sm text-purple-600">Initializing...</span>
+                            <div class="flex items-center gap-3">
+                                <span id="followUpProgressStatus" class="text-sm text-purple-600">Initializing...</span>
+                                <i class="fa-solid fa-chevron-down collapse-icon text-purple-500 text-xs"></i>
+                                <button onclick="event.stopPropagation(); closeProgressPanel('followUpProgressPanel')" class="text-purple-400 hover:text-purple-600 ml-1" title="Close">
+                                    <i class="fa-solid fa-times"></i>
+                                </button>
+                            </div>
                         </div>
-                        <div class="log-container bg-white dark:bg-gray-900 rounded-lg p-2 border border-purple-100 dark:border-purple-800" id="followUpLogContainer">
-                            <!-- Logs will appear here -->
+                        <div id="followUpProgressContent" class="collapsible-content px-4 pb-4" style="max-height: 250px;">
+                            <div class="log-container bg-white dark:bg-gray-900 rounded-lg p-2 border border-purple-100 dark:border-purple-800" id="followUpLogContainer">
+                                <!-- Logs will appear here -->
+                            </div>
                         </div>
                     </div>
 
@@ -933,25 +965,47 @@ We have an exciting opportunity..."></textarea>
             const container = document.getElementById('toastContainer');
             const toast = document.createElement('div');
             toast.className = `toast toast-${type}`;
-            
+
             const icons = {
                 success: 'check-circle',
                 error: 'circle-xmark',
                 warning: 'triangle-exclamation',
                 info: 'circle-info'
             };
-            
+
             toast.innerHTML = `
                 <i class="fa-solid fa-${icons[type] || 'circle-info'}"></i>
-                <span>${message}</span>
+                <span class="toast-content">${message}</span>
+                <button class="toast-close" onclick="closeToast(this)" title="Close">
+                    <i class="fa-solid fa-times"></i>
+                </button>
             `;
-            
+
             container.appendChild(toast);
-            
-            setTimeout(() => {
+
+            // Store timeout ID so we can cancel it if user closes manually
+            const timeoutId = setTimeout(() => {
+                dismissToast(toast);
+            }, duration);
+            toast.dataset.timeoutId = timeoutId;
+        }
+
+        function closeToast(btn) {
+            const toast = btn.closest('.toast');
+            if (toast) {
+                // Clear the auto-dismiss timeout
+                if (toast.dataset.timeoutId) {
+                    clearTimeout(parseInt(toast.dataset.timeoutId));
+                }
+                dismissToast(toast);
+            }
+        }
+
+        function dismissToast(toast) {
+            if (toast && !toast.classList.contains('hiding')) {
                 toast.classList.add('hiding');
                 setTimeout(() => toast.remove(), 300);
-            }, duration);
+            }
         }
 
         // ===== TAB SWITCHING =====
@@ -1058,20 +1112,45 @@ We have an exciting opportunity..."></textarea>
 
         // ===== FOLLOW-UP FUNCTIONS =====
         function loadFollowUpStats() {
+            // Use combined function for faster loading (single API call instead of two)
+            const filters = {
+                jobId: document.getElementById('followUpJobFilter')?.value || 'all',
+                status: document.getElementById('followUpStatusFilter')?.value || 'all'
+            };
+
+            const tbody = document.getElementById('followUpTableBody');
+            const emptyState = document.getElementById('emptyFollowUpState');
+            const tableContainer = tbody?.closest('.overflow-hidden');
+
+            if (tbody) {
+                tbody.innerHTML = '<tr><td colspan="6" class="p-8 text-center text-gray-400"><i class="fa-solid fa-spinner fa-spin mr-2"></i>Loading...</td></tr>';
+            }
+            if (emptyState) emptyState.classList.add('hidden');
+            if (tableContainer) tableContainer.classList.remove('hidden');
+
             google.script.run
-                .withSuccessHandler(function(stats) {
-                    document.getElementById('statPending').textContent = stats.pending || 0;
-                    document.getElementById('statFollowUp1').textContent = stats.followUp1Done || 0;
-                    document.getElementById('statFollowUp2').textContent = stats.followUp2Done || 0;
-                    document.getElementById('statResponded').textContent = stats.responded || 0;
+                .withSuccessHandler(function(result) {
+                    // Update stats
+                    if (result.stats) {
+                        document.getElementById('statPending').textContent = result.stats.pending || 0;
+                        document.getElementById('statFollowUp1').textContent = result.stats.followUp1Done || 0;
+                        document.getElementById('statFollowUp2').textContent = result.stats.followUp2Done || 0;
+                        document.getElementById('statResponded').textContent = result.stats.responded || 0;
+                    }
+                    // Update table data
+                    followUpData = result.data || [];
+                    followUpJobIds = result.jobIds || [];
+                    updateFollowUpJobFilter(followUpJobIds);
+                    renderFollowUpTable(followUpData);
                 })
                 .withFailureHandler(function(err) {
-                    console.error("Failed to load follow-up stats:", err);
+                    console.error("Failed to load follow-up data:", err);
+                    if (tbody) {
+                        tbody.innerHTML = '<tr><td colspan="6" class="p-8 text-center text-red-500">Error loading data: ' + err.message + '</td></tr>';
+                    }
+                    showToast("Error loading follow-up data", "error");
                 })
-                .getFollowUpStats();
-
-            // Also load the follow-up table data
-            loadFollowUpData();
+                .getFollowUpDataCombined(filters);
         }
 
         function manualTriggerFollowUps() {
@@ -2180,36 +2259,34 @@ We have an exciting opportunity..."></textarea>
             document.documentElement.classList.toggle('dark');
         }
 
+        // ===== COLLAPSIBLE SECTIONS =====
+        function toggleCollapse(contentId, headerEl) {
+            const content = document.getElementById(contentId);
+            const icon = headerEl.querySelector('.collapse-icon');
+
+            if (content.classList.contains('collapsed')) {
+                content.classList.remove('collapsed');
+                if (icon) icon.classList.remove('collapsed');
+            } else {
+                content.classList.add('collapsed');
+                if (icon) icon.classList.add('collapsed');
+            }
+        }
+
+        function closeProgressPanel(panelId) {
+            const panel = document.getElementById(panelId);
+            if (panel) {
+                panel.classList.add('hidden');
+            }
+        }
+
         // ===== FOLLOW-UP TABLE FUNCTIONS =====
         let followUpData = [];
         let followUpJobIds = [];
 
         function loadFollowUpData() {
-            const tbody = document.getElementById('followUpTableBody');
-            const emptyState = document.getElementById('emptyFollowUpState');
-            const tableContainer = tbody.closest('.overflow-hidden');
-
-            tbody.innerHTML = '<tr><td colspan="6" class="p-8 text-center text-gray-400"><i class="fa-solid fa-spinner fa-spin mr-2"></i>Loading...</td></tr>';
-            emptyState.classList.add('hidden');
-            tableContainer.classList.remove('hidden');
-
-            const filters = {
-                jobId: document.getElementById('followUpJobFilter').value,
-                status: document.getElementById('followUpStatusFilter').value
-            };
-
-            google.script.run
-                .withSuccessHandler(function(result) {
-                    followUpData = result.data || [];
-                    followUpJobIds = result.jobIds || [];
-                    updateFollowUpJobFilter(followUpJobIds);
-                    renderFollowUpTable(followUpData);
-                })
-                .withFailureHandler(function(err) {
-                    tbody.innerHTML = '<tr><td colspan="6" class="p-8 text-center text-red-500">Error loading data: ' + err.message + '</td></tr>';
-                    showToast("Error loading follow-up data", "error");
-                })
-                .getFollowUpTableData(filters);
+            // Reuse the combined loading function for consistency
+            loadFollowUpStats();
         }
 
         function updateFollowUpJobFilter(jobIds) {
