@@ -382,8 +382,8 @@ function saveLogSheetUrl(url) {
 }
 
 function ensureSheetsExist(ss) {
-  // Include new sheets: Manual_Sent_Logs, Data_Fetch_Logs, Follow_Up_Queue, Daily_Reports, Unresponsive_Devs
-  const sheets = ['Email_Logs', 'Email_Templates', 'Negotiation_Config', 'Negotiation_Tasks', 'Negotiation_State', 'Negotiation_FAQs', 'Negotiation_Completed', 'Rate_Tiers', 'Manual_Sent_Logs', 'Data_Fetch_Logs', 'Follow_Up_Queue', 'Daily_Reports', 'Unresponsive_Devs'];
+  // Include new sheets: Manual_Sent_Logs, Data_Fetch_Logs, Follow_Up_Queue, Daily_Reports, Unresponsive_Devs, Email_Mismatch_Reports
+  const sheets = ['Email_Logs', 'Email_Templates', 'Negotiation_Config', 'Negotiation_Tasks', 'Negotiation_State', 'Negotiation_FAQs', 'Negotiation_Completed', 'Rate_Tiers', 'Manual_Sent_Logs', 'Data_Fetch_Logs', 'Follow_Up_Queue', 'Daily_Reports', 'Unresponsive_Devs', 'Email_Mismatch_Reports'];
   sheets.forEach(name => {
     if (!ss.getSheetByName(name)) ss.insertSheet(name);
   });
@@ -445,6 +445,66 @@ function ensureSheetsExist(ss) {
   // Unresponsive_Devs sheet - for tracking developers who didn't respond after all follow-ups
   const unresponsiveSheet = ss.getSheetByName('Unresponsive_Devs');
   if (unresponsiveSheet.getLastRow() === 0) unresponsiveSheet.appendRow(['Email', 'Job ID', 'Name', 'Dev ID', 'Thread ID', 'Initial Send Time', 'Follow Up 1 Time', 'Follow Up 2 Time', 'Marked Unresponsive', 'Days Since Initial']);
+
+  // Email_Mismatch_Reports sheet - for tracking when candidates reply from different email addresses
+  const mismatchSheet = ss.getSheetByName('Email_Mismatch_Reports');
+  if (mismatchSheet.getLastRow() === 0) mismatchSheet.appendRow(['Timestamp', 'Job ID', 'Expected Email', 'Actual Reply Email', 'Name', 'Dev ID', 'Thread ID', 'Context', 'Action Taken', 'Requires Review']);
+}
+
+/**
+ * Log an email mismatch when a candidate replies from a different email address
+ * @param {string} jobId - The Job ID
+ * @param {string} expectedEmail - The email we sent to / expected response from
+ * @param {string} actualEmail - The email that actually replied
+ * @param {string} name - Candidate name
+ * @param {string} devId - Developer ID
+ * @param {string} threadId - Gmail thread ID
+ * @param {string} context - Where the mismatch was detected (e.g., 'Follow-Up Queue', 'Negotiation Processing')
+ * @param {string} actionTaken - What action was taken (e.g., 'Marked as responded', 'Processed with fallback')
+ */
+function logEmailMismatch(jobId, expectedEmail, actualEmail, name, devId, threadId, context, actionTaken) {
+  const url = getStoredSheetUrl();
+  if(!url) return { success: false };
+
+  try {
+    const ss = SpreadsheetApp.openByUrl(url);
+    let sheet = ss.getSheetByName('Email_Mismatch_Reports');
+
+    if(!sheet) {
+      sheet = ss.insertSheet('Email_Mismatch_Reports');
+      sheet.appendRow(['Timestamp', 'Job ID', 'Expected Email', 'Actual Reply Email', 'Name', 'Dev ID', 'Thread ID', 'Context', 'Action Taken', 'Requires Review']);
+    }
+
+    // Check if this mismatch was already logged (avoid duplicates)
+    const data = sheet.getDataRange().getValues();
+    for(let i = 1; i < data.length; i++) {
+      if(String(data[i][1]) === String(jobId) &&
+         String(data[i][2]).toLowerCase() === String(expectedEmail).toLowerCase() &&
+         String(data[i][3]).toLowerCase() === String(actualEmail).toLowerCase()) {
+        // Already logged, skip
+        return { success: true, alreadyLogged: true };
+      }
+    }
+
+    sheet.appendRow([
+      new Date(),
+      jobId,
+      expectedEmail,
+      actualEmail,
+      name || 'Unknown',
+      devId || 'N/A',
+      threadId || '',
+      context,
+      actionTaken,
+      'Yes' // Requires review flag
+    ]);
+
+    console.log(`Email mismatch logged: Expected ${expectedEmail}, got ${actualEmail} for Job ${jobId}`);
+    return { success: true, alreadyLogged: false };
+  } catch(e) {
+    console.error("Error logging email mismatch:", e);
+    return { success: false, error: e.message };
+  }
 }
 
 // --- DATA CONSUMPTION LOGGING ---
@@ -2461,18 +2521,29 @@ function processJobNegotiations(jobId, rules, ss, faqContent) {
   let jobStats = {replied:0, escalated:0, accepted:0, skipped:0, processed:0, detailsExtracted:0, log:[]};
   
   // Cache state data for efficiency
+  // Build two maps: one by email+jobId, one by threadId+jobId (fallback for different email replies)
   const stateData = stateSheet.getDataRange().getValues();
   const stateMap = new Map();
+  const threadStateMap = new Map(); // Fallback map keyed by threadId_jobId
   for(let r=1; r<stateData.length; r++) {
-    const key = String(stateData[r][0]).toLowerCase() + '_' + String(stateData[r][1]);
-    stateMap.set(key, {
+    const emailKey = String(stateData[r][0]).toLowerCase() + '_' + String(stateData[r][1]);
+    const threadId = stateData[r][9] || ''; // Column 10 = Thread ID
+    const stateEntry = {
       rowIndex: r + 1,
       attempts: Number(stateData[r][2]) || 0,
       status: stateData[r][4],
       name: stateData[r][7] || 'Unknown',
       devId: stateData[r][6] || 'N/A',
-      region: stateData[r][10] || '' // Column 11 = Region
-    });
+      region: stateData[r][10] || '', // Column 11 = Region
+      originalEmail: String(stateData[r][0]).toLowerCase() // Store original email for mismatch tracking
+    };
+    stateMap.set(emailKey, stateEntry);
+
+    // Also index by threadId for fallback lookup when candidate replies from different email
+    if(threadId) {
+      const threadKey = threadId + '_' + String(stateData[r][1]);
+      threadStateMap.set(threadKey, stateEntry);
+    }
   }
   
   // Get current user email
@@ -2546,10 +2617,42 @@ function processJobNegotiations(jobId, rules, ss, faqContent) {
     const candidateEmailMatch = lastMsg.getFrom().match(/<([^>]+)>/);
     const candidateEmail = candidateEmailMatch ? candidateEmailMatch[1] : lastMsg.getFrom().replace(/.*<|>.*/g, '');
     const cleanCandidateEmail = candidateEmail.toLowerCase().trim();
-    
-    // Get state from cache
+
+    // Get state from cache (primary lookup by email)
     const stateKey = cleanCandidateEmail + '_' + String(jobId);
-    const state = stateMap.get(stateKey);
+    let state = stateMap.get(stateKey);
+    let usedThreadFallback = false;
+    let originalExpectedEmail = null;
+
+    // FALLBACK: If email lookup fails, try thread-based lookup (for different email replies)
+    if(!state) {
+      const currentThreadId = thread.getId();
+      const threadKey = currentThreadId + '_' + String(jobId);
+      const threadState = threadStateMap.get(threadKey);
+
+      if(threadState) {
+        state = threadState;
+        usedThreadFallback = true;
+        originalExpectedEmail = threadState.originalEmail;
+
+        // Log the email mismatch for user review
+        logEmailMismatch(
+          jobId,
+          originalExpectedEmail,
+          cleanCandidateEmail,
+          threadState.name,
+          threadState.devId,
+          currentThreadId,
+          'Negotiation Processing',
+          'Processed with thread fallback'
+        );
+
+        jobStats.log.push({
+          type: 'warning',
+          message: `${cleanCandidateEmail} replied from different email (expected: ${originalExpectedEmail}) - using thread fallback. Check Email_Mismatch_Reports.`
+        });
+      }
+    }
 
     let stateRowIndex = state ? state.rowIndex : -1;
     let attempts = state ? state.attempts : 0;
@@ -2613,6 +2716,9 @@ function processJobNegotiations(jobId, rules, ss, faqContent) {
         stateSheet.getRange(stateRowIndex, 5).setValue("Human-Negotiation");
         stateSheet.getRange(stateRowIndex, 9).setValue(aiSummaryNotes);
       }
+
+      // Remove Awaiting-Response label since we've responded and escalated
+      updateFollowUpLabels(thread.getId(), 'responded');
 
       // Update job details sheet with escalation status (data already saved above)
       try {
@@ -2776,6 +2882,9 @@ Write ONLY the email, nothing else.
       sendReplyWithSenderName(thread, acceptEmail, EMAIL_SENDER_NAME);
       markCompleted(thread);
 
+      // Remove Awaiting-Response label since offer is accepted and completed
+      updateFollowUpLabels(thread.getId(), 'responded');
+
       // Record directly in Negotiation_Completed (auto-completed, not pending)
       const compSheet = ss.getSheetByName('Negotiation_Completed');
       if (compSheet) {
@@ -2821,6 +2930,9 @@ Write ONLY the email, nothing else.
         stateSheet.getRange(stateRowIndex, 5).setValue("Human-Negotiation");
         stateSheet.getRange(stateRowIndex, 9).setValue(aiSummaryNotes);
       }
+
+      // Remove Awaiting-Response label since we've responded and escalated
+      updateFollowUpLabels(thread.getId(), 'responded');
 
       // Update job-specific details sheet with escalation status
       try {
@@ -2893,6 +3005,9 @@ Write ONLY the email, nothing else.
 
       sendReplyWithSenderName(thread, acceptEmail, EMAIL_SENDER_NAME);
       markCompleted(thread);
+
+      // Remove Awaiting-Response label since offer is accepted and completed
+      updateFollowUpLabels(thread.getId(), 'responded');
 
       if(stateRowIndex > -1) {
         stateSheet.deleteRow(stateRowIndex);
@@ -3123,11 +3238,14 @@ Write ONLY the note, nothing else.
           stateSheet.appendRow([cleanCandidateEmail, jobId, newAttemptCount, "Counter Offer", "Active", new Date(), devId, candidateName, noteText, thread.getId()]);
         }
         
+        // Remove Awaiting-Response label since we've now engaged with the candidate
+        updateFollowUpLabels(thread.getId(), 'responded');
+
         jobStats.replied++;
         jobStats.log.push({type: 'info', message: `${candidateEmail} - AI negotiated (attempt ${newAttemptCount}/2)`});
         return;
       }
-      
+
       // Allow escalation after 2 attempts - generate detailed summary
       const finalReason = escalationReason || "Candidate did not agree after 2 negotiation attempts";
       const aiSummaryNotes = generateAISummaryNotes(conversationHistory, candidateEmail, '', attempts, finalReason);
@@ -3211,6 +3329,9 @@ Write ONLY the email, nothing else.
 
       sendReplyWithSenderName(thread, acceptEmail, EMAIL_SENDER_NAME);
       markCompleted(thread);
+
+      // Remove Awaiting-Response label since offer is accepted and completed
+      updateFollowUpLabels(thread.getId(), 'responded');
 
       // Record directly in Negotiation_Completed (auto-completed, not pending)
       const compSheet = ss.getSheetByName('Negotiation_Completed');
@@ -3304,12 +3425,15 @@ Write ONLY the note, nothing else. Be specific about numbers.
       } else {
         stateSheet.appendRow([cleanCandidateEmail, jobId, newAttemptCount, "Counter Offer", "Active", new Date(), devId, candidateName, noteText, thread.getId()]);
       }
-      
+
+      // Remove Awaiting-Response label since we've now engaged with the candidate
+      updateFollowUpLabels(thread.getId(), 'responded');
+
       jobStats.replied++;
       jobStats.log.push({type: 'info', message: `${candidateEmail} - AI negotiated (attempt ${newAttemptCount}/2)`});
     }
   });
-  
+
   return jobStats;
 }
 
@@ -3888,6 +4012,7 @@ function processFollowUpQueue() {
       }
 
       // IMPROVED: Check Gmail thread for candidate response by verifying sender matches candidate email
+      // Also includes FALLBACK detection for responses from different email addresses in the same thread
       // Skip auto-marking if Manual Override is set (user manually reset this entry)
       if(threadId && !manualOverride) {
         try {
@@ -3895,6 +4020,11 @@ function processFollowUpQueue() {
           if(thread) {
             const messages = thread.getMessages();
             let candidateHasResponded = false;
+            let respondedFromDifferentEmail = false;
+            let actualReplyEmail = null;
+
+            // Get our email and common system sender names to exclude
+            const ourSenderNames = ['recruiter', 'turing recruitment', 'turing team', EMAIL_SENDER_NAME.toLowerCase()];
 
             // Check ALL messages to see if candidate has replied at any point
             // We need to verify the message is FROM the candidate's email, not just "not from us"
@@ -3906,21 +4036,47 @@ function processFollowUpQueue() {
               const senderEmailMatch = sender.match(/<([^>]+)>/) || [null, sender.replace(/.*<|>.*/g, '').trim()];
               const senderEmail = senderEmailMatch[1] || sender.trim();
 
-              // Check if this message is FROM the candidate (not just "not from us")
-              // This prevents false positives from automated replies, other system messages, etc.
+              // Check if this message is FROM US (skip these)
+              const isFromUs = (myEmail && senderEmail.includes(myEmail)) ||
+                               ourSenderNames.some(name => sender.includes(name));
+
+              if(isFromUs) continue; // Skip our own messages
+
+              // Check if this message is FROM the expected candidate email
               if(senderEmail.includes(email) || email.includes(senderEmail)) {
                 candidateHasResponded = true;
                 log.push({ type: 'info', message: `${email} found response from sender: ${senderEmail}` });
                 break;
               }
+
+              // FALLBACK: This is a non-system message from a DIFFERENT email in the same thread
+              // This could be the candidate replying from an alternate email address
+              if(!actualReplyEmail) {
+                actualReplyEmail = senderEmail;
+                respondedFromDifferentEmail = true;
+              }
             }
 
             if(candidateHasResponded) {
-              // Candidate has responded at some point - mark as responded
+              // Candidate has responded from expected email - mark as responded
               sheet.getRange(i + 1, 9).setValue('Responded');
               sheet.getRange(i + 1, 10).setValue(new Date());
               updateFollowUpLabels(threadId, 'responded');
               log.push({ type: 'success', message: `${email} has responded - marked in queue` });
+              processed++;
+              continue;
+            }
+
+            // FALLBACK: Response detected from a different email address
+            if(respondedFromDifferentEmail && actualReplyEmail) {
+              // Log the email mismatch for user review
+              logEmailMismatch(jobId, email, actualReplyEmail, name, devId, threadId, 'Follow-Up Queue', 'Marked as responded (different email)');
+
+              // Mark as responded with a note about the different email
+              sheet.getRange(i + 1, 9).setValue('Responded (Diff Email)');
+              sheet.getRange(i + 1, 10).setValue(new Date());
+              updateFollowUpLabels(threadId, 'responded');
+              log.push({ type: 'warning', message: `${email} - Response from DIFFERENT email (${actualReplyEmail}) - marked as responded. Review Email_Mismatch_Reports.` });
               processed++;
               continue;
             }
