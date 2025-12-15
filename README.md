@@ -1,4 +1,4 @@
-# Turing AI Recruiter V12
+# Turing AI Recruiter V2
 
 A Google Apps Script-based recruitment automation platform for managing developer outreach, AI-powered rate negotiation, and automated follow-up emails.
 
