@@ -2340,7 +2340,7 @@ function createMimeMessage(senderName, recipientEmail, subject, htmlBody) {
   const userEmail = Session.getActiveUser().getEmail();
   const nl = "\r\n";
   const encodedSubject = "=?utf-8?B?" + Utilities.base64Encode(subject, Utilities.Charset.UTF_8) + "?=";
-  const encodedSender = "=?utf-8?B?" + Utilities.base64Encode(senderName, Utilities.Charset.UTF_8) + "?=";
+  const encodedSender = "=?utf-8?B?" + Utilities.base64Encode(senderName || EMAIL_SENDER_NAME, Utilities.Charset.UTF_8) + "?=";
   let mime = `From: ${encodedSender} <${userEmail}>${nl}`;
   mime += `To: ${recipientEmail}${nl}`;
   mime += `Subject: ${encodedSubject}${nl}`;
@@ -3086,7 +3086,11 @@ ${conversationHistory}
 2. Keep the main message to 2-3 short paragraphs
 3. If answering multiple questions, put each answer on a separate line
 4. End with a clear call to action
-5. Sign off professionally
+5. ALWAYS end your email EXACTLY like this (copy this signature verbatim):
+
+Best regards,
+${EMAIL_SIGNATURE}
+
 6. **This is FREELANCE**: Never mention full-time benefits, team culture, or long-term employment
 
 === RESPONSE FORMAT ===
