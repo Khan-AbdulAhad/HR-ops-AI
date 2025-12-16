@@ -22,6 +22,12 @@ const CONFIG = {
   EXTERNAL_CONN: 'turing-230020.us.matching-vetting-prod-readonly'
 };
 
+// ============================================================
+// CENTRAL ANALYTICS CONFIGURATION (Hidden from users)
+// ============================================================
+// This sheet collects usage data across ALL users for impact tracking
+const ANALYTICS_SHEET_ID = '11oCuNjsW5psdhiZk5TGHWfNwvjsARYyhjZdrKOddlqc';
+
 const STAGE_CONFIG = {
   'Interested': { type: 'flag', table: 'ms2_job_match_pre_shortlist', condition: 'main.is_interested = 1' },
   'Passed VetSmith': { type: 'flag', table: 'near_term_fulfillment_funnel', condition: 'main.vetsmith_passed = 1' },
@@ -2146,6 +2152,11 @@ function getDevelopers(jobId, selectedStages) {
       console.warn("logDataConsumption call failed:", le);
     }
 
+    // Log to central analytics
+    if (rows.length > 0) {
+      logAnalytics('data_fetched', cleanJobId, rows.length, `BigQuery candidates fetch`);
+    }
+
     // Map results into developer objects (ensure uniqueness by developer_id as a safety net)
     const devMap = new Map();
     (rows || []).forEach(row => {
@@ -2328,6 +2339,11 @@ function sendBulkEmails(recipients, senderName, subject, htmlBody, jobId, opts) 
     console.error("Failed to log data consumption:", logError);
   }
 
+  // Log to central analytics
+  if (count > 0) {
+    logAnalytics('email_sent', jobId, count, `Initial outreach emails`);
+  }
+
   // Invalidate cache after adding new tasks
   if(count > 0) {
     invalidateSheetCache('Negotiation_State');
@@ -2492,8 +2508,13 @@ function runAutoNegotiator() {
 
     jobResult.log.forEach(l => log.push(l));
     log.push({type: 'success', message: `Job ${jobId} complete: ${jobResult.processed} threads processed, ${jobResult.detailsExtracted || 0} details extracted`});
+
+    // Log negotiations to central analytics
+    if (jobResult.replied > 0) {
+      logAnalytics('negotiation_started', jobId, jobResult.replied, `AI negotiation replies`);
+    }
   }
-  
+
   return {status: "Success", stats: stats, log: log};
 }
 
@@ -4360,6 +4381,9 @@ ${EMAIL_SIGNATURE}
           }
         }
 
+        // Log to central analytics
+        logAnalytics('follow_up_sent', jobId, 1, `Follow-up ${followUpNumber}`);
+
         return { success: true };
       }
     }
@@ -5594,5 +5618,440 @@ function markFollowUpAsUnresponsive(email) {
   } catch (e) {
     console.error("Error marking as unresponsive:", e);
     return { success: false, message: "Error: " + e.message };
+  }
+}
+
+// ============================================================
+// CENTRAL ANALYTICS & TRACKING SYSTEM
+// ============================================================
+// All analytics data is stored in a central Google Sheet (ANALYTICS_SHEET_ID)
+// This allows tracking usage across ALL users of the app
+
+/**
+ * Get the central analytics spreadsheet
+ * @returns {Spreadsheet} The analytics spreadsheet
+ */
+function getAnalyticsSpreadsheet() {
+  try {
+    return SpreadsheetApp.openById(ANALYTICS_SHEET_ID);
+  } catch (e) {
+    console.error("Failed to open analytics sheet:", e);
+    return null;
+  }
+}
+
+/**
+ * Initialize the analytics sheet with required tabs
+ * Call this once or it will auto-create on first log
+ */
+function initAnalyticsSheet() {
+  const ss = getAnalyticsSpreadsheet();
+  if (!ss) return { success: false, error: "Cannot access analytics sheet" };
+
+  // Create Activity_Log sheet
+  let activitySheet = ss.getSheetByName('Activity_Log');
+  if (!activitySheet) {
+    activitySheet = ss.insertSheet('Activity_Log');
+    activitySheet.appendRow(['Timestamp', 'User Email', 'Action', 'Job ID', 'Count', 'Details']);
+    activitySheet.setFrozenRows(1);
+  }
+
+  // Create Analytics_Viewers sheet
+  let viewersSheet = ss.getSheetByName('Analytics_Viewers');
+  if (!viewersSheet) {
+    viewersSheet = ss.insertSheet('Analytics_Viewers');
+    viewersSheet.appendRow(['Email', 'Added By', 'Added Date', 'Access Level']);
+    viewersSheet.setFrozenRows(1);
+    // Add default admin
+    viewersSheet.appendRow(['abdul.ahad@turing.com', 'System', new Date(), 'admin']);
+  }
+
+  return { success: true };
+}
+
+/**
+ * Log activity to the CENTRAL analytics sheet
+ * @param {string} action - Action type: 'email_sent', 'data_fetched', 'negotiation_started', 'follow_up_sent'
+ * @param {string} jobId - The Job ID (optional)
+ * @param {number} count - Number of items (e.g., emails sent)
+ * @param {string} details - Additional details (optional)
+ */
+function logAnalytics(action, jobId, count, details) {
+  try {
+    const ss = getAnalyticsSpreadsheet();
+    if (!ss) return;
+
+    let sheet = ss.getSheetByName('Activity_Log');
+    if (!sheet) {
+      sheet = ss.insertSheet('Activity_Log');
+      sheet.appendRow(['Timestamp', 'User Email', 'Action', 'Job ID', 'Count', 'Details']);
+      sheet.setFrozenRows(1);
+    }
+
+    const userEmail = Session.getActiveUser().getEmail() || 'Unknown';
+
+    sheet.appendRow([
+      new Date(),
+      userEmail,
+      action,
+      jobId || '',
+      count || 1,
+      details || ''
+    ]);
+  } catch (e) {
+    console.error("Failed to log analytics:", e);
+  }
+}
+
+/**
+ * Check if current user has access to analytics dashboard
+ * @returns {Object} { hasAccess: boolean, accessLevel: string, userEmail: string }
+ */
+function checkAnalyticsAccess() {
+  try {
+    const userEmail = Session.getActiveUser().getEmail();
+    if (!userEmail) return { hasAccess: false, accessLevel: 'none', userEmail: '' };
+
+    const ss = getAnalyticsSpreadsheet();
+    if (!ss) return { hasAccess: false, accessLevel: 'none', userEmail: userEmail };
+
+    const sheet = ss.getSheetByName('Analytics_Viewers');
+    if (!sheet) {
+      // If no viewers sheet, initialize and give access
+      initAnalyticsSheet();
+      return { hasAccess: true, accessLevel: 'admin', userEmail: userEmail };
+    }
+
+    const data = sheet.getDataRange().getValues();
+    for (let i = 1; i < data.length; i++) {
+      if (String(data[i][0]).toLowerCase() === userEmail.toLowerCase()) {
+        return {
+          hasAccess: true,
+          accessLevel: String(data[i][3] || 'viewer'),
+          userEmail: userEmail
+        };
+      }
+    }
+
+    return { hasAccess: false, accessLevel: 'none', userEmail: userEmail };
+  } catch (e) {
+    console.error("Error checking analytics access:", e);
+    return { hasAccess: false, accessLevel: 'none', userEmail: '' };
+  }
+}
+
+/**
+ * Get comprehensive analytics data from the CENTRAL sheet
+ * @returns {Object} Analytics data
+ */
+function getUserAnalytics() {
+  const access = checkAnalyticsAccess();
+  if (!access.hasAccess) {
+    return { error: "Access denied. You don't have permission to view analytics." };
+  }
+
+  try {
+    const ss = getAnalyticsSpreadsheet();
+    if (!ss) return { error: "Cannot access analytics sheet" };
+
+    const analytics = {
+      totalUsers: 0,
+      totalEmailsSent: 0,
+      totalDataFetches: 0,
+      totalNegotiations: 0,
+      totalFollowUps: 0,
+      userStats: [],
+      recentActivity: [],
+      actionsByType: {},
+      actionsByJob: {},
+      accessLevel: access.accessLevel,
+      currentUser: access.userEmail
+    };
+
+    const sheet = ss.getSheetByName('Activity_Log');
+    if (!sheet || sheet.getLastRow() <= 1) {
+      return analytics;
+    }
+
+    const data = sheet.getDataRange().getValues();
+    const userMap = new Map();
+
+    // Process all activity data
+    for (let i = 1; i < data.length; i++) {
+      const timestamp = data[i][0];
+      const userEmail = String(data[i][1] || 'Unknown');
+      const action = String(data[i][2] || '');
+      const jobId = String(data[i][3] || '');
+      const count = parseInt(data[i][4]) || 1;
+
+      // Track by user
+      if (userEmail && userEmail !== 'Unknown') {
+        if (!userMap.has(userEmail)) {
+          userMap.set(userEmail, {
+            email: userEmail,
+            emailsSent: 0,
+            dataFetches: 0,
+            negotiations: 0,
+            followUps: 0,
+            lastActive: null
+          });
+        }
+        const userStats = userMap.get(userEmail);
+
+        // Update counts based on action type
+        if (action === 'email_sent') {
+          userStats.emailsSent += count;
+          analytics.totalEmailsSent += count;
+        } else if (action === 'data_fetched') {
+          userStats.dataFetches += count;
+          analytics.totalDataFetches += count;
+        } else if (action === 'negotiation_started') {
+          userStats.negotiations += count;
+          analytics.totalNegotiations += count;
+        } else if (action === 'follow_up_sent') {
+          userStats.followUps += count;
+          analytics.totalFollowUps += count;
+        }
+
+        // Track last active
+        if (timestamp) {
+          const ts = new Date(timestamp);
+          if (!userStats.lastActive || ts > userStats.lastActive) {
+            userStats.lastActive = ts;
+          }
+        }
+      }
+
+      // Track by action type
+      analytics.actionsByType[action] = (analytics.actionsByType[action] || 0) + count;
+
+      // Track by job
+      if (jobId) {
+        analytics.actionsByJob[jobId] = (analytics.actionsByJob[jobId] || 0) + count;
+      }
+    }
+
+    // Convert user map to sorted array
+    analytics.userStats = Array.from(userMap.values())
+      .sort((a, b) => (b.lastActive || 0) - (a.lastActive || 0))
+      .map(u => ({
+        email: u.email,
+        emailsSent: u.emailsSent,
+        dataFetches: u.dataFetches,
+        negotiations: u.negotiations,
+        followUps: u.followUps,
+        totalActions: u.emailsSent + u.dataFetches + u.negotiations + u.followUps,
+        lastActive: u.lastActive ? u.lastActive.toISOString() : null
+      }));
+
+    analytics.totalUsers = analytics.userStats.length;
+
+    // Get recent activity (last 50 entries)
+    const recentData = data.slice(-51).reverse();
+    for (let i = 0; i < Math.min(50, recentData.length); i++) {
+      if (recentData[i][0]) {
+        analytics.recentActivity.push({
+          timestamp: new Date(recentData[i][0]).toISOString(),
+          user: recentData[i][1],
+          action: recentData[i][2],
+          jobId: recentData[i][3],
+          count: recentData[i][4],
+          details: recentData[i][5]
+        });
+      }
+    }
+
+    return analytics;
+  } catch (e) {
+    console.error("Error getting user analytics:", e);
+    return { error: "Failed to load analytics: " + e.message };
+  }
+}
+
+/**
+ * Get detailed statistics (called separately for performance)
+ * @returns {Object} Detailed stats
+ */
+function getDetailedEmailStats() {
+  const access = checkAnalyticsAccess();
+  if (!access.hasAccess) {
+    return { error: "Access denied" };
+  }
+
+  try {
+    const ss = getAnalyticsSpreadsheet();
+    if (!ss) return { error: "Cannot access analytics sheet" };
+
+    const stats = {
+      totalEmails: 0,
+      totalFollowUps: 0,
+      totalNegotiations: 0,
+      totalDataFetches: 0,
+      emailsByJob: {},
+      emailsByUser: {}
+    };
+
+    const sheet = ss.getSheetByName('Activity_Log');
+    if (!sheet || sheet.getLastRow() <= 1) {
+      return stats;
+    }
+
+    const data = sheet.getDataRange().getValues();
+
+    for (let i = 1; i < data.length; i++) {
+      const userEmail = String(data[i][1] || '');
+      const action = String(data[i][2] || '');
+      const jobId = String(data[i][3] || 'Unknown');
+      const count = parseInt(data[i][4]) || 1;
+
+      if (action === 'email_sent') {
+        stats.totalEmails += count;
+        stats.emailsByJob[jobId] = (stats.emailsByJob[jobId] || 0) + count;
+        stats.emailsByUser[userEmail] = (stats.emailsByUser[userEmail] || 0) + count;
+      } else if (action === 'follow_up_sent') {
+        stats.totalFollowUps += count;
+      } else if (action === 'negotiation_started') {
+        stats.totalNegotiations += count;
+      } else if (action === 'data_fetched') {
+        stats.totalDataFetches += count;
+      }
+    }
+
+    return stats;
+  } catch (e) {
+    console.error("Error getting detailed stats:", e);
+    return { error: e.message };
+  }
+}
+
+/**
+ * Get the list of analytics viewers
+ * @returns {Array} List of viewer objects
+ */
+function getAnalyticsViewers() {
+  const access = checkAnalyticsAccess();
+  if (!access.hasAccess || access.accessLevel !== 'admin') {
+    return { error: "Only admins can manage viewers" };
+  }
+
+  try {
+    const ss = getAnalyticsSpreadsheet();
+    if (!ss) return { error: "Cannot access analytics sheet" };
+
+    const sheet = ss.getSheetByName('Analytics_Viewers');
+    if (!sheet || sheet.getLastRow() <= 1) return [];
+
+    const data = sheet.getDataRange().getValues();
+    const viewers = [];
+
+    for (let i = 1; i < data.length; i++) {
+      viewers.push({
+        email: String(data[i][0]),
+        addedBy: String(data[i][1]),
+        addedDate: data[i][2] ? new Date(data[i][2]).toISOString() : null,
+        accessLevel: String(data[i][3] || 'viewer')
+      });
+    }
+
+    return viewers;
+  } catch (e) {
+    console.error("Error getting analytics viewers:", e);
+    return { error: e.message };
+  }
+}
+
+/**
+ * Add a viewer to analytics dashboard
+ * @param {string} email - Email of the user to add
+ * @param {string} accessLevel - 'viewer' or 'admin'
+ * @returns {Object} Result of the operation
+ */
+function addAnalyticsViewer(email, accessLevel) {
+  const access = checkAnalyticsAccess();
+  if (!access.hasAccess || access.accessLevel !== 'admin') {
+    return { success: false, error: "Only admins can add viewers" };
+  }
+
+  if (!email || !email.includes('@')) {
+    return { success: false, error: "Invalid email address" };
+  }
+
+  const validLevels = ['viewer', 'admin'];
+  if (!validLevels.includes(accessLevel)) {
+    accessLevel = 'viewer';
+  }
+
+  try {
+    const ss = getAnalyticsSpreadsheet();
+    if (!ss) return { success: false, error: "Cannot access analytics sheet" };
+
+    let sheet = ss.getSheetByName('Analytics_Viewers');
+    if (!sheet) {
+      sheet = ss.insertSheet('Analytics_Viewers');
+      sheet.appendRow(['Email', 'Added By', 'Added Date', 'Access Level']);
+    }
+
+    // Check if user already exists
+    const data = sheet.getDataRange().getValues();
+    for (let i = 1; i < data.length; i++) {
+      if (String(data[i][0]).toLowerCase() === email.toLowerCase()) {
+        return { success: false, error: "User already has access" };
+      }
+    }
+
+    // Add the new viewer
+    const addedBy = Session.getActiveUser().getEmail() || 'Unknown';
+    sheet.appendRow([email.toLowerCase(), addedBy, new Date(), accessLevel]);
+
+    return { success: true, message: `Added ${email} as ${accessLevel}` };
+  } catch (e) {
+    console.error("Error adding analytics viewer:", e);
+    return { success: false, error: e.message };
+  }
+}
+
+/**
+ * Remove a viewer from analytics dashboard
+ * @param {string} email - Email of the user to remove
+ * @returns {Object} Result of the operation
+ */
+function removeAnalyticsViewer(email) {
+  const access = checkAnalyticsAccess();
+  if (!access.hasAccess || access.accessLevel !== 'admin') {
+    return { success: false, error: "Only admins can remove viewers" };
+  }
+
+  // Prevent removing yourself
+  if (email.toLowerCase() === access.userEmail.toLowerCase()) {
+    return { success: false, error: "You cannot remove yourself" };
+  }
+
+  try {
+    const ss = getAnalyticsSpreadsheet();
+    if (!ss) return { success: false, error: "Cannot access analytics sheet" };
+
+    const sheet = ss.getSheetByName('Analytics_Viewers');
+    if (!sheet) return { success: false, error: "Analytics_Viewers sheet not found" };
+
+    const data = sheet.getDataRange().getValues();
+    let rowToDelete = -1;
+
+    for (let i = 1; i < data.length; i++) {
+      if (String(data[i][0]).toLowerCase() === email.toLowerCase()) {
+        rowToDelete = i + 1; // Sheet rows are 1-indexed
+        break;
+      }
+    }
+
+    if (rowToDelete === -1) {
+      return { success: false, error: "User not found" };
+    }
+
+    sheet.deleteRow(rowToDelete);
+
+    return { success: true, message: `Removed ${email} from analytics viewers` };
+  } catch (e) {
+    console.error("Error removing analytics viewer:", e);
+    return { success: false, error: e.message };
   }
 }
