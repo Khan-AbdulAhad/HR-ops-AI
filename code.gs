@@ -383,7 +383,7 @@ function saveLogSheetUrl(url) {
 
 function ensureSheetsExist(ss) {
   // Include new sheets: Manual_Sent_Logs, Data_Fetch_Logs, Follow_Up_Queue, Daily_Reports, Unresponsive_Devs, Email_Mismatch_Reports
-  const sheets = ['Email_Logs', 'Email_Templates', 'Negotiation_Config', 'Negotiation_Tasks', 'Negotiation_State', 'Negotiation_FAQs', 'Negotiation_Completed', 'Rate_Tiers', 'Manual_Sent_Logs', 'Data_Fetch_Logs', 'Follow_Up_Queue', 'Daily_Reports', 'Unresponsive_Devs', 'Email_Mismatch_Reports'];
+  const sheets = ['Email_Logs', 'Email_Templates', 'Negotiation_Config', 'Negotiation_Tasks', 'Negotiation_State', 'Negotiation_FAQs', 'Negotiation_Completed', 'Rate_Tiers', 'Manual_Sent_Logs', 'Data_Fetch_Logs', 'Follow_Up_Queue', 'Daily_Reports', 'Unresponsive_Devs', 'Email_Mismatch_Reports', 'User_Activity_Log', 'Analytics_Viewers'];
   sheets.forEach(name => {
     if (!ss.getSheetByName(name)) ss.insertSheet(name);
   });
@@ -449,6 +449,21 @@ function ensureSheetsExist(ss) {
   // Email_Mismatch_Reports sheet - for tracking when candidates reply from different email addresses
   const mismatchSheet = ss.getSheetByName('Email_Mismatch_Reports');
   if (mismatchSheet.getLastRow() === 0) mismatchSheet.appendRow(['Timestamp', 'Job ID', 'Expected Email', 'Actual Reply Email', 'Name', 'Dev ID', 'Thread ID', 'Context', 'Action Taken', 'Requires Review']);
+
+  // User_Activity_Log sheet - for tracking user sessions and app usage
+  const activitySheet = ss.getSheetByName('User_Activity_Log');
+  if (activitySheet.getLastRow() === 0) activitySheet.appendRow(['Timestamp', 'User Email', 'Action', 'Details', 'IP/Session']);
+
+  // Analytics_Viewers sheet - for managing who can view analytics dashboard
+  const viewersSheet = ss.getSheetByName('Analytics_Viewers');
+  if (viewersSheet.getLastRow() === 0) {
+    viewersSheet.appendRow(['Email', 'Added By', 'Added Date', 'Access Level']);
+    // Add the app owner as default admin
+    const ownerEmail = Session.getActiveUser().getEmail();
+    if (ownerEmail) {
+      viewersSheet.appendRow([ownerEmail, 'System', new Date(), 'admin']);
+    }
+  }
 }
 
 /**
@@ -5594,5 +5609,447 @@ function markFollowUpAsUnresponsive(email) {
   } catch (e) {
     console.error("Error marking as unresponsive:", e);
     return { success: false, message: "Error: " + e.message };
+  }
+}
+
+// ============================================================
+// USER ANALYTICS & TRACKING SYSTEM
+// ============================================================
+
+/**
+ * Log user activity for analytics tracking
+ * @param {string} action - The action performed (e.g., 'login', 'send_email', 'fetch_data')
+ * @param {string} details - Additional details about the action
+ */
+function logUserActivity(action, details) {
+  const url = getStoredSheetUrl();
+  if (!url) return;
+
+  try {
+    const ss = SpreadsheetApp.openByUrl(url);
+    let sheet = ss.getSheetByName('User_Activity_Log');
+
+    if (!sheet) {
+      sheet = ss.insertSheet('User_Activity_Log');
+      sheet.appendRow(['Timestamp', 'User Email', 'Action', 'Details', 'IP/Session']);
+    }
+
+    const userEmail = Session.getActiveUser().getEmail() || 'Unknown';
+    const sessionId = Session.getTemporaryActiveUserKey() || 'N/A';
+
+    sheet.appendRow([
+      new Date(),
+      userEmail,
+      action,
+      details || '',
+      sessionId
+    ]);
+  } catch (e) {
+    console.error("Failed to log user activity:", e);
+  }
+}
+
+/**
+ * Check if current user has access to analytics dashboard
+ * @returns {Object} { hasAccess: boolean, accessLevel: string, userEmail: string }
+ */
+function checkAnalyticsAccess() {
+  const url = getStoredSheetUrl();
+  if (!url) return { hasAccess: false, accessLevel: 'none', userEmail: '' };
+
+  try {
+    const userEmail = Session.getActiveUser().getEmail();
+    if (!userEmail) return { hasAccess: false, accessLevel: 'none', userEmail: '' };
+
+    const ss = SpreadsheetApp.openByUrl(url);
+    const sheet = ss.getSheetByName('Analytics_Viewers');
+
+    if (!sheet) {
+      // If sheet doesn't exist, only app owner has access
+      return { hasAccess: true, accessLevel: 'admin', userEmail: userEmail };
+    }
+
+    const data = sheet.getDataRange().getValues();
+
+    for (let i = 1; i < data.length; i++) {
+      if (String(data[i][0]).toLowerCase() === userEmail.toLowerCase()) {
+        return {
+          hasAccess: true,
+          accessLevel: String(data[i][3] || 'viewer'),
+          userEmail: userEmail
+        };
+      }
+    }
+
+    // If user not in list, check if they're the first user (auto-admin)
+    if (data.length <= 1) {
+      return { hasAccess: true, accessLevel: 'admin', userEmail: userEmail };
+    }
+
+    return { hasAccess: false, accessLevel: 'none', userEmail: userEmail };
+  } catch (e) {
+    console.error("Error checking analytics access:", e);
+    return { hasAccess: false, accessLevel: 'none', userEmail: '' };
+  }
+}
+
+/**
+ * Get comprehensive user analytics data
+ * @returns {Object} Analytics data including user stats, email counts, activity summary
+ */
+function getUserAnalytics() {
+  const url = getStoredSheetUrl();
+  if (!url) return { error: "No sheet URL configured" };
+
+  // Check access first
+  const access = checkAnalyticsAccess();
+  if (!access.hasAccess) {
+    return { error: "Access denied. You don't have permission to view analytics." };
+  }
+
+  try {
+    const ss = SpreadsheetApp.openByUrl(url);
+    const analytics = {
+      totalUsers: 0,
+      totalEmailsSent: 0,
+      userStats: [],
+      recentActivity: [],
+      emailsByDate: {},
+      accessLevel: access.accessLevel,
+      currentUser: access.userEmail
+    };
+
+    // Get email logs to count emails per user
+    const emailLogsSheet = ss.getSheetByName('Email_Logs');
+    const userEmailCounts = new Map();
+
+    if (emailLogsSheet && emailLogsSheet.getLastRow() > 1) {
+      const emailData = emailLogsSheet.getDataRange().getValues();
+      // Email_Logs schema: Timestamp, Job ID, Recipient Email, Recipient Name, Thread ID, Email Type
+      // We need to track who SENT the email - but Email_Logs doesn't have sender
+      // So we'll use Data_Fetch_Logs which has user tracking
+      analytics.totalEmailsSent = emailData.length - 1; // Exclude header
+
+      // Count emails by date for chart
+      for (let i = 1; i < emailData.length; i++) {
+        const date = new Date(emailData[i][0]);
+        const dateKey = date.toISOString().split('T')[0];
+        analytics.emailsByDate[dateKey] = (analytics.emailsByDate[dateKey] || 0) + 1;
+      }
+    }
+
+    // Get user activity from Data_Fetch_Logs (has user attribution)
+    const dataFetchSheet = ss.getSheetByName('Data_Fetch_Logs');
+    if (dataFetchSheet && dataFetchSheet.getLastRow() > 1) {
+      const fetchData = dataFetchSheet.getDataRange().getValues();
+      // Schema: Timestamp, Source, Context, Data Size (Bytes), Duration (ms), Details, User
+
+      for (let i = 1; i < fetchData.length; i++) {
+        const userEmail = String(fetchData[i][6] || 'Unknown');
+        if (userEmail && userEmail !== 'System/Automated' && userEmail !== 'Unknown') {
+          if (!userEmailCounts.has(userEmail)) {
+            userEmailCounts.set(userEmail, {
+              email: userEmail,
+              actions: 0,
+              lastActive: null,
+              dataFetched: 0
+            });
+          }
+          const stats = userEmailCounts.get(userEmail);
+          stats.actions++;
+          stats.dataFetched += (fetchData[i][3] || 0);
+          const timestamp = new Date(fetchData[i][0]);
+          if (!stats.lastActive || timestamp > stats.lastActive) {
+            stats.lastActive = timestamp;
+          }
+        }
+      }
+    }
+
+    // Get user activity from User_Activity_Log
+    const activitySheet = ss.getSheetByName('User_Activity_Log');
+    if (activitySheet && activitySheet.getLastRow() > 1) {
+      const activityData = activitySheet.getDataRange().getValues();
+      // Schema: Timestamp, User Email, Action, Details, IP/Session
+
+      for (let i = 1; i < activityData.length; i++) {
+        const userEmail = String(activityData[i][1] || 'Unknown');
+        if (userEmail && userEmail !== 'Unknown') {
+          if (!userEmailCounts.has(userEmail)) {
+            userEmailCounts.set(userEmail, {
+              email: userEmail,
+              actions: 0,
+              lastActive: null,
+              dataFetched: 0
+            });
+          }
+          const stats = userEmailCounts.get(userEmail);
+          stats.actions++;
+          const timestamp = new Date(activityData[i][0]);
+          if (!stats.lastActive || timestamp > stats.lastActive) {
+            stats.lastActive = timestamp;
+          }
+        }
+      }
+
+      // Get recent activity (last 50 entries)
+      const recentRows = activityData.slice(-51).reverse(); // Exclude header, get last 50
+      for (let i = 0; i < Math.min(50, recentRows.length); i++) {
+        if (recentRows[i][0]) { // Has timestamp
+          analytics.recentActivity.push({
+            timestamp: new Date(recentRows[i][0]).toISOString(),
+            user: recentRows[i][1],
+            action: recentRows[i][2],
+            details: recentRows[i][3]
+          });
+        }
+      }
+    }
+
+    // Convert user stats map to array and sort by last active
+    analytics.userStats = Array.from(userEmailCounts.values())
+      .sort((a, b) => (b.lastActive || 0) - (a.lastActive || 0))
+      .map(u => ({
+        email: u.email,
+        actions: u.actions,
+        dataFetched: u.dataFetched,
+        lastActive: u.lastActive ? u.lastActive.toISOString() : null
+      }));
+
+    analytics.totalUsers = analytics.userStats.length;
+
+    // Get emails sent per user from manual tracking in logs
+    // Since Email_Logs doesn't track sender, we'll estimate from activity
+
+    return analytics;
+
+  } catch (e) {
+    console.error("Error getting user analytics:", e);
+    return { error: "Failed to load analytics: " + e.message };
+  }
+}
+
+/**
+ * Get the list of analytics viewers
+ * @returns {Array} List of viewer objects
+ */
+function getAnalyticsViewers() {
+  const access = checkAnalyticsAccess();
+  if (!access.hasAccess || access.accessLevel !== 'admin') {
+    return { error: "Only admins can manage viewers" };
+  }
+
+  const url = getStoredSheetUrl();
+  if (!url) return [];
+
+  try {
+    const ss = SpreadsheetApp.openByUrl(url);
+    const sheet = ss.getSheetByName('Analytics_Viewers');
+
+    if (!sheet || sheet.getLastRow() <= 1) return [];
+
+    const data = sheet.getDataRange().getValues();
+    const viewers = [];
+
+    for (let i = 1; i < data.length; i++) {
+      viewers.push({
+        email: String(data[i][0]),
+        addedBy: String(data[i][1]),
+        addedDate: data[i][2] ? new Date(data[i][2]).toISOString() : null,
+        accessLevel: String(data[i][3] || 'viewer')
+      });
+    }
+
+    return viewers;
+  } catch (e) {
+    console.error("Error getting analytics viewers:", e);
+    return { error: e.message };
+  }
+}
+
+/**
+ * Add a viewer to analytics dashboard
+ * @param {string} email - Email of the user to add
+ * @param {string} accessLevel - 'viewer' or 'admin'
+ * @returns {Object} Result of the operation
+ */
+function addAnalyticsViewer(email, accessLevel) {
+  const access = checkAnalyticsAccess();
+  if (!access.hasAccess || access.accessLevel !== 'admin') {
+    return { success: false, error: "Only admins can add viewers" };
+  }
+
+  if (!email || !email.includes('@')) {
+    return { success: false, error: "Invalid email address" };
+  }
+
+  const validLevels = ['viewer', 'admin'];
+  if (!validLevels.includes(accessLevel)) {
+    accessLevel = 'viewer';
+  }
+
+  const url = getStoredSheetUrl();
+  if (!url) return { success: false, error: "No sheet URL configured" };
+
+  try {
+    const ss = SpreadsheetApp.openByUrl(url);
+    let sheet = ss.getSheetByName('Analytics_Viewers');
+
+    if (!sheet) {
+      sheet = ss.insertSheet('Analytics_Viewers');
+      sheet.appendRow(['Email', 'Added By', 'Added Date', 'Access Level']);
+    }
+
+    // Check if user already exists
+    const data = sheet.getDataRange().getValues();
+    for (let i = 1; i < data.length; i++) {
+      if (String(data[i][0]).toLowerCase() === email.toLowerCase()) {
+        return { success: false, error: "User already has access" };
+      }
+    }
+
+    // Add the new viewer
+    const addedBy = Session.getActiveUser().getEmail() || 'Unknown';
+    sheet.appendRow([email.toLowerCase(), addedBy, new Date(), accessLevel]);
+
+    // Log this action
+    logUserActivity('add_analytics_viewer', `Added ${email} with ${accessLevel} access`);
+
+    return { success: true, message: `Added ${email} as ${accessLevel}` };
+  } catch (e) {
+    console.error("Error adding analytics viewer:", e);
+    return { success: false, error: e.message };
+  }
+}
+
+/**
+ * Remove a viewer from analytics dashboard
+ * @param {string} email - Email of the user to remove
+ * @returns {Object} Result of the operation
+ */
+function removeAnalyticsViewer(email) {
+  const access = checkAnalyticsAccess();
+  if (!access.hasAccess || access.accessLevel !== 'admin') {
+    return { success: false, error: "Only admins can remove viewers" };
+  }
+
+  // Prevent removing yourself
+  if (email.toLowerCase() === access.userEmail.toLowerCase()) {
+    return { success: false, error: "You cannot remove yourself" };
+  }
+
+  const url = getStoredSheetUrl();
+  if (!url) return { success: false, error: "No sheet URL configured" };
+
+  try {
+    const ss = SpreadsheetApp.openByUrl(url);
+    const sheet = ss.getSheetByName('Analytics_Viewers');
+
+    if (!sheet) return { success: false, error: "Analytics_Viewers sheet not found" };
+
+    const data = sheet.getDataRange().getValues();
+    let rowToDelete = -1;
+
+    for (let i = 1; i < data.length; i++) {
+      if (String(data[i][0]).toLowerCase() === email.toLowerCase()) {
+        rowToDelete = i + 1; // Sheet rows are 1-indexed
+        break;
+      }
+    }
+
+    if (rowToDelete === -1) {
+      return { success: false, error: "User not found" };
+    }
+
+    sheet.deleteRow(rowToDelete);
+
+    // Log this action
+    logUserActivity('remove_analytics_viewer', `Removed ${email}`);
+
+    return { success: true, message: `Removed ${email} from analytics viewers` };
+  } catch (e) {
+    console.error("Error removing analytics viewer:", e);
+    return { success: false, error: e.message };
+  }
+}
+
+/**
+ * Get detailed email statistics per user
+ * This aggregates data from multiple sources to provide comprehensive stats
+ * @returns {Object} Detailed email statistics
+ */
+function getDetailedEmailStats() {
+  const access = checkAnalyticsAccess();
+  if (!access.hasAccess) {
+    return { error: "Access denied" };
+  }
+
+  const url = getStoredSheetUrl();
+  if (!url) return { error: "No sheet URL configured" };
+
+  try {
+    const ss = SpreadsheetApp.openByUrl(url);
+    const stats = {
+      totalEmails: 0,
+      totalFollowUps: 0,
+      totalNegotiations: 0,
+      emailsByType: {},
+      emailsByJob: {},
+      dailyStats: []
+    };
+
+    // Count from Email_Logs
+    const emailLogsSheet = ss.getSheetByName('Email_Logs');
+    if (emailLogsSheet && emailLogsSheet.getLastRow() > 1) {
+      const data = emailLogsSheet.getDataRange().getValues();
+      stats.totalEmails = data.length - 1;
+
+      for (let i = 1; i < data.length; i++) {
+        const emailType = String(data[i][5] || 'Initial');
+        const jobId = String(data[i][1] || 'Unknown');
+
+        stats.emailsByType[emailType] = (stats.emailsByType[emailType] || 0) + 1;
+        stats.emailsByJob[jobId] = (stats.emailsByJob[jobId] || 0) + 1;
+      }
+    }
+
+    // Count follow-ups
+    const followUpSheet = ss.getSheetByName('Follow_Up_Queue');
+    if (followUpSheet && followUpSheet.getLastRow() > 1) {
+      const data = followUpSheet.getDataRange().getValues();
+      for (let i = 1; i < data.length; i++) {
+        if (data[i][6]) stats.totalFollowUps++; // Follow Up 1 Sent
+        if (data[i][7]) stats.totalFollowUps++; // Follow Up 2 Sent
+      }
+    }
+
+    // Count negotiations
+    const negStateSheet = ss.getSheetByName('Negotiation_State');
+    if (negStateSheet && negStateSheet.getLastRow() > 1) {
+      stats.totalNegotiations = negStateSheet.getLastRow() - 1;
+    }
+
+    // Get daily report data
+    const dailyReportsSheet = ss.getSheetByName('Daily_Reports');
+    if (dailyReportsSheet && dailyReportsSheet.getLastRow() > 1) {
+      const data = dailyReportsSheet.getDataRange().getValues();
+      for (let i = Math.max(1, data.length - 30); i < data.length; i++) { // Last 30 days
+        stats.dailyStats.push({
+          date: data[i][0] ? new Date(data[i][0]).toISOString().split('T')[0] : null,
+          jobId: data[i][1],
+          aiReplies: data[i][2] || 0,
+          humanNegotiations: data[i][3] || 0,
+          dataGathering: data[i][4] || 0,
+          followUp1: data[i][5] || 0,
+          followUp2: data[i][6] || 0,
+          totalOutreach: data[i][7] || 0
+        });
+      }
+    }
+
+    return stats;
+  } catch (e) {
+    console.error("Error getting detailed email stats:", e);
+    return { error: e.message };
   }
 }

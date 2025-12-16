@@ -337,6 +337,7 @@
                 <div class="nav-tab px-6 py-4 font-semibold text-sm flex items-center gap-2" onclick="switchTab('negotiation', this)"><i class="fa-solid fa-hand-holding-dollar"></i> Negotiation AI</div>
                 <div class="nav-tab px-6 py-4 font-semibold text-sm flex items-center gap-2" onclick="switchTab('tasks', this)"><i class="fa-solid fa-clipboard-check"></i> Task List</div>
                 <div class="nav-tab px-6 py-4 font-semibold text-sm flex items-center gap-2" onclick="switchTab('followups', this)"><i class="fa-solid fa-clock-rotate-left"></i> Follow-Ups</div>
+                <div class="nav-tab px-6 py-4 font-semibold text-sm flex items-center gap-2" onclick="switchTab('analytics', this)"><i class="fa-solid fa-chart-line"></i> Analytics</div>
             </div>
 
             <div class="p-6 md:p-8">
@@ -948,6 +949,181 @@ This is a freelance, fully remote position."></textarea>
 
                 </div>
 
+                <!-- TAB 5: ANALYTICS -->
+                <div id="tab-analytics" class="tab-content hidden-tab">
+
+                    <!-- Analytics Header -->
+                    <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6">
+                        <div>
+                            <h2 class="text-xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
+                                <i class="fa-solid fa-chart-line text-indigo-500"></i> Usage Analytics
+                            </h2>
+                            <p class="text-sm text-gray-500">Track app usage, user activity, and email metrics</p>
+                        </div>
+                        <div class="flex gap-2 flex-wrap">
+                            <button onclick="loadAnalytics()" class="bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-bold py-2 px-4 rounded-lg shadow-sm transition flex items-center gap-2">
+                                <i class="fa-solid fa-rotate"></i> Refresh
+                            </button>
+                            <button id="manageViewersBtn" onclick="openViewersModal()" class="bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-200 text-sm font-bold py-2 px-4 rounded-lg transition flex items-center gap-2">
+                                <i class="fa-solid fa-user-shield"></i> Manage Access
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Access Denied Message (hidden by default) -->
+                    <div id="analyticsAccessDenied" class="hidden text-center py-16 bg-red-50 dark:bg-red-900/20 rounded-xl border border-red-200 dark:border-red-800">
+                        <i class="fa-solid fa-lock text-5xl text-red-400 mb-4"></i>
+                        <h3 class="text-xl font-bold text-red-700 dark:text-red-300 mb-2">Access Denied</h3>
+                        <p class="text-red-600 dark:text-red-400">You don't have permission to view analytics. Contact an admin for access.</p>
+                    </div>
+
+                    <!-- Analytics Content (shown when access granted) -->
+                    <div id="analyticsContent">
+                        <!-- Stats Cards -->
+                        <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+                            <div class="bg-gradient-to-br from-indigo-500 to-indigo-600 rounded-xl p-4 text-white shadow-lg">
+                                <div class="flex items-center justify-between mb-2">
+                                    <i class="fa-solid fa-users text-2xl opacity-80"></i>
+                                    <span class="text-xs font-medium bg-white/20 px-2 py-1 rounded-full">Total</span>
+                                </div>
+                                <div class="text-3xl font-bold" id="statTotalUsers">-</div>
+                                <div class="text-xs font-medium opacity-80">Active Users</div>
+                            </div>
+                            <div class="bg-gradient-to-br from-emerald-500 to-emerald-600 rounded-xl p-4 text-white shadow-lg">
+                                <div class="flex items-center justify-between mb-2">
+                                    <i class="fa-solid fa-envelope text-2xl opacity-80"></i>
+                                    <span class="text-xs font-medium bg-white/20 px-2 py-1 rounded-full">Sent</span>
+                                </div>
+                                <div class="text-3xl font-bold" id="statTotalEmails">-</div>
+                                <div class="text-xs font-medium opacity-80">Total Emails</div>
+                            </div>
+                            <div class="bg-gradient-to-br from-amber-500 to-amber-600 rounded-xl p-4 text-white shadow-lg">
+                                <div class="flex items-center justify-between mb-2">
+                                    <i class="fa-solid fa-reply-all text-2xl opacity-80"></i>
+                                    <span class="text-xs font-medium bg-white/20 px-2 py-1 rounded-full">Auto</span>
+                                </div>
+                                <div class="text-3xl font-bold" id="statTotalFollowUps">-</div>
+                                <div class="text-xs font-medium opacity-80">Follow-Ups</div>
+                            </div>
+                            <div class="bg-gradient-to-br from-purple-500 to-purple-600 rounded-xl p-4 text-white shadow-lg">
+                                <div class="flex items-center justify-between mb-2">
+                                    <i class="fa-solid fa-handshake text-2xl opacity-80"></i>
+                                    <span class="text-xs font-medium bg-white/20 px-2 py-1 rounded-full">Active</span>
+                                </div>
+                                <div class="text-3xl font-bold" id="statTotalNegotiations">-</div>
+                                <div class="text-xs font-medium opacity-80">Negotiations</div>
+                            </div>
+                        </div>
+
+                        <!-- User Stats Table -->
+                        <div class="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm mb-6">
+                            <div class="p-4 border-b border-gray-200 dark:border-gray-700">
+                                <h3 class="font-bold text-gray-900 dark:text-white flex items-center gap-2">
+                                    <i class="fa-solid fa-user-chart text-indigo-500"></i> User Activity
+                                </h3>
+                                <p class="text-xs text-gray-500 mt-1">Users who have accessed the app and their activity</p>
+                            </div>
+                            <div class="overflow-x-auto">
+                                <table class="w-full text-left">
+                                    <thead class="bg-gray-50 dark:bg-gray-900 text-xs uppercase font-bold text-gray-500">
+                                        <tr>
+                                            <th class="px-4 py-3">User Email</th>
+                                            <th class="px-4 py-3">Actions</th>
+                                            <th class="px-4 py-3">Data Fetched</th>
+                                            <th class="px-4 py-3">Last Active</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="userStatsTableBody" class="divide-y divide-gray-200 dark:divide-gray-700">
+                                        <tr><td colspan="4" class="p-8 text-center text-gray-400"><i class="fa-solid fa-spinner fa-spin mr-2"></i>Loading...</td></tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        <!-- Email Stats by Type -->
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+                            <div class="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm">
+                                <div class="p-4 border-b border-gray-200 dark:border-gray-700">
+                                    <h3 class="font-bold text-gray-900 dark:text-white flex items-center gap-2">
+                                        <i class="fa-solid fa-envelope-open-text text-emerald-500"></i> Emails by Type
+                                    </h3>
+                                </div>
+                                <div id="emailsByTypeChart" class="p-4">
+                                    <div class="space-y-3" id="emailTypesList">
+                                        <div class="text-center text-gray-400 py-4"><i class="fa-solid fa-spinner fa-spin mr-2"></i>Loading...</div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm">
+                                <div class="p-4 border-b border-gray-200 dark:border-gray-700">
+                                    <h3 class="font-bold text-gray-900 dark:text-white flex items-center gap-2">
+                                        <i class="fa-solid fa-briefcase text-amber-500"></i> Emails by Job
+                                    </h3>
+                                </div>
+                                <div id="emailsByJobChart" class="p-4 max-h-64 overflow-y-auto">
+                                    <div class="space-y-2" id="emailJobsList">
+                                        <div class="text-center text-gray-400 py-4"><i class="fa-solid fa-spinner fa-spin mr-2"></i>Loading...</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Recent Activity Log -->
+                        <div class="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm">
+                            <div class="p-4 border-b border-gray-200 dark:border-gray-700">
+                                <h3 class="font-bold text-gray-900 dark:text-white flex items-center gap-2">
+                                    <i class="fa-solid fa-clock-rotate-left text-purple-500"></i> Recent Activity
+                                </h3>
+                                <p class="text-xs text-gray-500 mt-1">Latest user actions in the system</p>
+                            </div>
+                            <div class="max-h-72 overflow-y-auto">
+                                <div id="recentActivityList" class="divide-y divide-gray-100 dark:divide-gray-700">
+                                    <div class="p-4 text-center text-gray-400"><i class="fa-solid fa-spinner fa-spin mr-2"></i>Loading...</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+    </div>
+
+    <!-- Analytics Viewers Modal -->
+    <div id="viewersModal" class="fixed inset-0 z-50 hidden">
+        <div class="absolute inset-0 bg-black/50 backdrop-blur-sm" onclick="closeViewersModal()"></div>
+        <div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-lg max-h-[80vh] overflow-hidden">
+            <div class="p-6 border-b border-gray-200 dark:border-gray-700">
+                <div class="flex items-center justify-between">
+                    <h3 class="text-lg font-bold text-gray-900 dark:text-white flex items-center gap-2">
+                        <i class="fa-solid fa-user-shield text-indigo-500"></i> Manage Analytics Access
+                    </h3>
+                    <button onclick="closeViewersModal()" class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">
+                        <i class="fa-solid fa-times text-xl"></i>
+                    </button>
+                </div>
+                <p class="text-sm text-gray-500 mt-1">Control who can view the analytics dashboard</p>
+            </div>
+
+            <!-- Add New Viewer Form -->
+            <div class="p-4 bg-gray-50 dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700">
+                <div class="flex gap-2">
+                    <input type="email" id="newViewerEmail" placeholder="Enter email address" class="flex-1 px-4 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                    <select id="newViewerLevel" class="px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                        <option value="viewer">Viewer</option>
+                        <option value="admin">Admin</option>
+                    </select>
+                    <button onclick="addViewer()" class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-bold transition">
+                        <i class="fa-solid fa-plus"></i> Add
+                    </button>
+                </div>
+            </div>
+
+            <!-- Viewers List -->
+            <div class="max-h-80 overflow-y-auto">
+                <div id="viewersList" class="divide-y divide-gray-100 dark:divide-gray-700">
+                    <div class="p-4 text-center text-gray-400"><i class="fa-solid fa-spinner fa-spin mr-2"></i>Loading...</div>
+                </div>
             </div>
         </div>
     </div>
@@ -1328,6 +1504,7 @@ We have an exciting opportunity..."></textarea>
             if(tabName === 'tasks') loadTasks();
             if(tabName === 'negotiation') refreshJobDropdown();
             if(tabName === 'followups') loadFollowUpStats();
+            if(tabName === 'analytics') loadAnalytics();
         }
 
         // ===== FILTER CHIP FUNCTIONS =====
@@ -3057,6 +3234,352 @@ We have an exciting opportunity..."></textarea>
                     row.style.opacity = '1';
                 })
                 .markFollowUpAsUnresponsive(email);
+        }
+
+        // ===== ANALYTICS FUNCTIONS =====
+        let analyticsData = null;
+        let analyticsAccessLevel = 'none';
+
+        function loadAnalytics() {
+            // Show loading state
+            document.getElementById('userStatsTableBody').innerHTML = '<tr><td colspan="4" class="p-8 text-center text-gray-400"><i class="fa-solid fa-spinner fa-spin mr-2"></i>Loading...</td></tr>';
+            document.getElementById('emailTypesList').innerHTML = '<div class="text-center text-gray-400 py-4"><i class="fa-solid fa-spinner fa-spin mr-2"></i>Loading...</div>';
+            document.getElementById('emailJobsList').innerHTML = '<div class="text-center text-gray-400 py-4"><i class="fa-solid fa-spinner fa-spin mr-2"></i>Loading...</div>';
+            document.getElementById('recentActivityList').innerHTML = '<div class="p-4 text-center text-gray-400"><i class="fa-solid fa-spinner fa-spin mr-2"></i>Loading...</div>';
+
+            // Load main analytics data
+            google.script.run
+                .withSuccessHandler(function(data) {
+                    if(data.error) {
+                        showAnalyticsAccessDenied();
+                        return;
+                    }
+                    analyticsData = data;
+                    analyticsAccessLevel = data.accessLevel || 'viewer';
+                    renderAnalytics(data);
+                })
+                .withFailureHandler(function(err) {
+                    showToast('Failed to load analytics: ' + err.message, 'error');
+                })
+                .getUserAnalytics();
+
+            // Load detailed email stats
+            google.script.run
+                .withSuccessHandler(function(stats) {
+                    if(!stats.error) {
+                        renderEmailStats(stats);
+                    }
+                })
+                .withFailureHandler(function(err) {
+                    console.error('Failed to load email stats:', err);
+                })
+                .getDetailedEmailStats();
+        }
+
+        function showAnalyticsAccessDenied() {
+            document.getElementById('analyticsAccessDenied').classList.remove('hidden');
+            document.getElementById('analyticsContent').classList.add('hidden');
+            document.getElementById('manageViewersBtn').classList.add('hidden');
+        }
+
+        function renderAnalytics(data) {
+            document.getElementById('analyticsAccessDenied').classList.add('hidden');
+            document.getElementById('analyticsContent').classList.remove('hidden');
+
+            // Show/hide manage access button based on access level
+            if(data.accessLevel === 'admin') {
+                document.getElementById('manageViewersBtn').classList.remove('hidden');
+            } else {
+                document.getElementById('manageViewersBtn').classList.add('hidden');
+            }
+
+            // Update stats cards
+            document.getElementById('statTotalUsers').textContent = data.totalUsers || 0;
+            document.getElementById('statTotalEmails').textContent = data.totalEmailsSent || 0;
+
+            // Render user stats table
+            renderUserStatsTable(data.userStats || []);
+
+            // Render recent activity
+            renderRecentActivity(data.recentActivity || []);
+        }
+
+        function renderUserStatsTable(userStats) {
+            const tbody = document.getElementById('userStatsTableBody');
+
+            if(!userStats || userStats.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="4" class="p-8 text-center text-gray-400"><i class="fa-solid fa-inbox mr-2"></i>No user activity recorded yet</td></tr>';
+                return;
+            }
+
+            tbody.innerHTML = '';
+            userStats.forEach(function(user) {
+                const row = document.createElement('tr');
+                row.className = 'hover:bg-gray-50 dark:hover:bg-gray-700/50 transition';
+
+                // Format data size
+                let dataSize = user.dataFetched || 0;
+                let dataSizeStr = dataSize < 1024 ? dataSize + ' B' :
+                                  dataSize < 1048576 ? (dataSize / 1024).toFixed(1) + ' KB' :
+                                  (dataSize / 1048576).toFixed(2) + ' MB';
+
+                // Format last active time
+                let lastActive = 'Never';
+                if(user.lastActive) {
+                    const date = new Date(user.lastActive);
+                    const now = new Date();
+                    const diffMs = now - date;
+                    const diffMins = Math.floor(diffMs / (1000 * 60));
+                    const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+                    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+
+                    if(diffMins < 60) {
+                        lastActive = diffMins + ' min' + (diffMins !== 1 ? 's' : '') + ' ago';
+                    } else if(diffHours < 24) {
+                        lastActive = diffHours + ' hour' + (diffHours !== 1 ? 's' : '') + ' ago';
+                    } else if(diffDays < 7) {
+                        lastActive = diffDays + ' day' + (diffDays !== 1 ? 's' : '') + ' ago';
+                    } else {
+                        lastActive = date.toLocaleDateString();
+                    }
+                }
+
+                row.innerHTML =
+                    '<td class="px-4 py-3">' +
+                        '<div class="flex items-center gap-3">' +
+                            '<div class="w-8 h-8 rounded-full bg-indigo-100 dark:bg-indigo-900/30 flex items-center justify-center">' +
+                                '<i class="fa-solid fa-user text-indigo-500 text-xs"></i>' +
+                            '</div>' +
+                            '<span class="font-medium text-gray-900 dark:text-white text-sm">' + user.email + '</span>' +
+                        '</div>' +
+                    '</td>' +
+                    '<td class="px-4 py-3">' +
+                        '<span class="font-bold text-gray-900 dark:text-white">' + (user.actions || 0) + '</span>' +
+                        '<span class="text-xs text-gray-500 ml-1">actions</span>' +
+                    '</td>' +
+                    '<td class="px-4 py-3 text-sm text-gray-600 dark:text-gray-400">' + dataSizeStr + '</td>' +
+                    '<td class="px-4 py-3 text-sm text-gray-500">' + lastActive + '</td>';
+
+                tbody.appendChild(row);
+            });
+        }
+
+        function renderEmailStats(stats) {
+            // Update follow-ups and negotiations stats
+            document.getElementById('statTotalFollowUps').textContent = stats.totalFollowUps || 0;
+            document.getElementById('statTotalNegotiations').textContent = stats.totalNegotiations || 0;
+
+            // Render emails by type
+            const typesList = document.getElementById('emailTypesList');
+            const emailTypes = stats.emailsByType || {};
+            const totalEmails = stats.totalEmails || 1;
+
+            if(Object.keys(emailTypes).length === 0) {
+                typesList.innerHTML = '<div class="text-center text-gray-400 py-4"><i class="fa-solid fa-inbox mr-2"></i>No emails sent yet</div>';
+            } else {
+                typesList.innerHTML = '';
+                const colors = ['bg-indigo-500', 'bg-emerald-500', 'bg-amber-500', 'bg-purple-500', 'bg-rose-500'];
+                let colorIndex = 0;
+
+                Object.entries(emailTypes).sort((a, b) => b[1] - a[1]).forEach(function([type, count]) {
+                    const percentage = ((count / totalEmails) * 100).toFixed(1);
+                    const div = document.createElement('div');
+                    div.innerHTML =
+                        '<div class="flex items-center justify-between mb-1">' +
+                            '<span class="text-sm font-medium text-gray-700 dark:text-gray-300">' + type + '</span>' +
+                            '<span class="text-sm font-bold text-gray-900 dark:text-white">' + count + '</span>' +
+                        '</div>' +
+                        '<div class="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">' +
+                            '<div class="' + colors[colorIndex % colors.length] + ' h-2 rounded-full transition-all duration-500" style="width: ' + percentage + '%"></div>' +
+                        '</div>';
+                    typesList.appendChild(div);
+                    colorIndex++;
+                });
+            }
+
+            // Render emails by job
+            const jobsList = document.getElementById('emailJobsList');
+            const emailsByJob = stats.emailsByJob || {};
+
+            if(Object.keys(emailsByJob).length === 0) {
+                jobsList.innerHTML = '<div class="text-center text-gray-400 py-4"><i class="fa-solid fa-inbox mr-2"></i>No emails sent yet</div>';
+            } else {
+                jobsList.innerHTML = '';
+                Object.entries(emailsByJob).sort((a, b) => b[1] - a[1]).slice(0, 10).forEach(function([jobId, count]) {
+                    const div = document.createElement('div');
+                    div.className = 'flex items-center justify-between p-2 bg-gray-50 dark:bg-gray-900 rounded-lg';
+                    div.innerHTML =
+                        '<span class="font-mono text-sm text-gray-600 dark:text-gray-400">Job ' + jobId + '</span>' +
+                        '<span class="font-bold text-gray-900 dark:text-white text-sm">' + count + ' emails</span>';
+                    jobsList.appendChild(div);
+                });
+            }
+        }
+
+        function renderRecentActivity(activities) {
+            const container = document.getElementById('recentActivityList');
+
+            if(!activities || activities.length === 0) {
+                container.innerHTML = '<div class="p-4 text-center text-gray-400"><i class="fa-solid fa-inbox mr-2"></i>No recent activity</div>';
+                return;
+            }
+
+            container.innerHTML = '';
+            activities.slice(0, 20).forEach(function(activity) {
+                const div = document.createElement('div');
+                div.className = 'px-4 py-3 flex items-start gap-3 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition';
+
+                // Format timestamp
+                let timeStr = 'Unknown';
+                if(activity.timestamp) {
+                    const date = new Date(activity.timestamp);
+                    timeStr = date.toLocaleString();
+                }
+
+                // Get icon based on action type
+                let icon = 'fa-circle-dot';
+                let iconColor = 'text-gray-400';
+                if(activity.action && activity.action.includes('email')) {
+                    icon = 'fa-envelope';
+                    iconColor = 'text-emerald-500';
+                } else if(activity.action && activity.action.includes('viewer')) {
+                    icon = 'fa-user-shield';
+                    iconColor = 'text-indigo-500';
+                } else if(activity.action && activity.action.includes('fetch')) {
+                    icon = 'fa-database';
+                    iconColor = 'text-amber-500';
+                }
+
+                div.innerHTML =
+                    '<div class="w-8 h-8 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center flex-shrink-0">' +
+                        '<i class="fa-solid ' + icon + ' ' + iconColor + ' text-xs"></i>' +
+                    '</div>' +
+                    '<div class="flex-1 min-w-0">' +
+                        '<div class="flex items-center gap-2">' +
+                            '<span class="font-medium text-gray-900 dark:text-white text-sm truncate">' + (activity.user || 'Unknown') + '</span>' +
+                            '<span class="text-xs text-gray-400">' + timeStr + '</span>' +
+                        '</div>' +
+                        '<p class="text-sm text-gray-600 dark:text-gray-400 mt-0.5">' + (activity.action || 'Unknown action') + '</p>' +
+                        (activity.details ? '<p class="text-xs text-gray-400 mt-1 truncate">' + activity.details + '</p>' : '') +
+                    '</div>';
+
+                container.appendChild(div);
+            });
+        }
+
+        // ===== VIEWERS MANAGEMENT =====
+        function openViewersModal() {
+            document.getElementById('viewersModal').classList.remove('hidden');
+            loadViewers();
+        }
+
+        function closeViewersModal() {
+            document.getElementById('viewersModal').classList.add('hidden');
+        }
+
+        function loadViewers() {
+            document.getElementById('viewersList').innerHTML = '<div class="p-4 text-center text-gray-400"><i class="fa-solid fa-spinner fa-spin mr-2"></i>Loading...</div>';
+
+            google.script.run
+                .withSuccessHandler(function(viewers) {
+                    if(viewers.error) {
+                        document.getElementById('viewersList').innerHTML = '<div class="p-4 text-center text-red-500">' + viewers.error + '</div>';
+                        return;
+                    }
+                    renderViewersList(viewers);
+                })
+                .withFailureHandler(function(err) {
+                    document.getElementById('viewersList').innerHTML = '<div class="p-4 text-center text-red-500">Failed to load: ' + err.message + '</div>';
+                })
+                .getAnalyticsViewers();
+        }
+
+        function renderViewersList(viewers) {
+            const container = document.getElementById('viewersList');
+
+            if(!viewers || viewers.length === 0) {
+                container.innerHTML = '<div class="p-4 text-center text-gray-400"><i class="fa-solid fa-inbox mr-2"></i>No viewers added yet</div>';
+                return;
+            }
+
+            container.innerHTML = '';
+            viewers.forEach(function(viewer) {
+                const div = document.createElement('div');
+                div.className = 'p-4 flex items-center justify-between hover:bg-gray-50 dark:hover:bg-gray-700/50';
+
+                const isAdmin = viewer.accessLevel === 'admin';
+                const badgeClass = isAdmin ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300' : 'bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300';
+
+                // Format added date
+                let addedDate = 'Unknown';
+                if(viewer.addedDate) {
+                    addedDate = new Date(viewer.addedDate).toLocaleDateString();
+                }
+
+                div.innerHTML =
+                    '<div class="flex items-center gap-3">' +
+                        '<div class="w-10 h-10 rounded-full bg-indigo-100 dark:bg-indigo-900/30 flex items-center justify-center">' +
+                            '<i class="fa-solid fa-user text-indigo-500"></i>' +
+                        '</div>' +
+                        '<div>' +
+                            '<div class="flex items-center gap-2">' +
+                                '<span class="font-medium text-gray-900 dark:text-white">' + viewer.email + '</span>' +
+                                '<span class="text-xs font-bold px-2 py-0.5 rounded-full ' + badgeClass + '">' + (viewer.accessLevel || 'viewer') + '</span>' +
+                            '</div>' +
+                            '<p class="text-xs text-gray-500">Added ' + addedDate + ' by ' + (viewer.addedBy || 'System') + '</p>' +
+                        '</div>' +
+                    '</div>' +
+                    '<button onclick="removeViewer(\'' + viewer.email + '\')" class="text-red-500 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-900/20 p-2 rounded-lg transition" title="Remove access">' +
+                        '<i class="fa-solid fa-trash"></i>' +
+                    '</button>';
+
+                container.appendChild(div);
+            });
+        }
+
+        function addViewer() {
+            const email = document.getElementById('newViewerEmail').value.trim();
+            const level = document.getElementById('newViewerLevel').value;
+
+            if(!email || !email.includes('@')) {
+                showToast('Please enter a valid email address', 'error');
+                return;
+            }
+
+            google.script.run
+                .withSuccessHandler(function(result) {
+                    if(result.success) {
+                        showToast(result.message, 'success');
+                        document.getElementById('newViewerEmail').value = '';
+                        loadViewers();
+                    } else {
+                        showToast(result.error || 'Failed to add viewer', 'error');
+                    }
+                })
+                .withFailureHandler(function(err) {
+                    showToast('Error: ' + err.message, 'error');
+                })
+                .addAnalyticsViewer(email, level);
+        }
+
+        function removeViewer(email) {
+            if(!confirm('Remove ' + email + ' from analytics viewers?')) {
+                return;
+            }
+
+            google.script.run
+                .withSuccessHandler(function(result) {
+                    if(result.success) {
+                        showToast(result.message, 'success');
+                        loadViewers();
+                    } else {
+                        showToast(result.error || 'Failed to remove viewer', 'error');
+                    }
+                })
+                .withFailureHandler(function(err) {
+                    showToast('Error: ' + err.message, 'error');
+                })
+                .removeAnalyticsViewer(email);
         }
 
         // ===== INIT =====
