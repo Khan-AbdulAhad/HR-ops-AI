@@ -175,6 +175,135 @@
             z-index: 50;
         }
         .tooltip:hover::after { opacity: 1; visibility: visible; }
+
+        /* ========== SENT ROW STYLING ========== */
+        tr.sent-row td { background-color: #fef2f2 !important; }
+        .dark tr.sent-row td { background-color: #450a0a !important; }
+        tr.manual-sent-row td { background-color: #fef3c7 !important; }
+        .dark tr.manual-sent-row td { background-color: #451a03 !important; }
+
+        /* ========== FILTER CHIPS ========== */
+        .filter-chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.5rem 1rem;
+            border-radius: 0.625rem;
+            font-size: 0.8125rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            border: 2px solid transparent;
+            user-select: none;
+        }
+        .filter-chip .filter-check {
+            width: 0;
+            opacity: 0;
+            transition: all 0.2s ease;
+            overflow: hidden;
+            margin-left: -0.25rem;
+        }
+        .filter-chip.active .filter-check {
+            width: 1rem;
+            opacity: 1;
+            margin-left: 0;
+        }
+        .filter-chip.all { background: #f3f4f6; color: #374151; border-color: #d1d5db; }
+        .filter-chip.all.active { background: #374151; color: white; border-color: #374151; }
+        .filter-chip.all:hover:not(.active) { background: #e5e7eb; border-color: #9ca3af; }
+        .filter-chip.new { background: #dcfce7; color: #166534; border-color: #86efac; }
+        .filter-chip.new.active { background: #16a34a; color: white; border-color: #16a34a; box-shadow: 0 0 0 3px rgba(22, 163, 74, 0.2); }
+        .filter-chip.new:hover:not(.active) { background: #bbf7d0; border-color: #4ade80; }
+        .filter-chip.followup { background: #fee2e2; color: #991b1b; border-color: #fca5a5; }
+        .filter-chip.followup.active { background: #dc2626; color: white; border-color: #dc2626; box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.2); }
+        .filter-chip.followup:hover:not(.active) { background: #fecaca; border-color: #f87171; }
+        .filter-chip.manual { background: #fef3c7; color: #92400e; border-color: #fcd34d; }
+        .filter-chip.manual.active { background: #d97706; color: white; border-color: #d97706; box-shadow: 0 0 0 3px rgba(217, 119, 6, 0.2); }
+        .filter-chip.manual:hover:not(.active) { background: #fde68a; border-color: #fbbf24; }
+        .filter-chip.sub { background: #fed7aa; color: #c2410c; border-color: #fb923c; }
+        .filter-chip.sub.active { background: #ea580c; color: white; border-color: #ea580c; box-shadow: 0 0 0 3px rgba(234, 88, 12, 0.2); }
+        .filter-chip.sub:hover:not(.active) { background: #fdba74; border-color: #f97316; }
+        .filter-chip.agency { background: #f3e8ff; color: #7c3aed; border-color: #c4b5fd; }
+        .filter-chip.agency.active { background: #7c3aed; color: white; border-color: #7c3aed; box-shadow: 0 0 0 3px rgba(124, 58, 237, 0.2); }
+        .filter-chip.agency:hover:not(.active) { background: #e9d5ff; border-color: #a78bfa; }
+        .filter-chip.direct { background: #e0e7ff; color: #4338ca; border-color: #a5b4fc; }
+        .filter-chip.direct.active { background: #4f46e5; color: white; border-color: #4f46e5; box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.2); }
+        .filter-chip.direct:hover:not(.active) { background: #c7d2fe; border-color: #818cf8; }
+
+        /* Dark mode filter chips */
+        .dark .filter-chip.all { background: #374151; color: #e5e7eb; border-color: #4b5563; }
+        .dark .filter-chip.all.active { background: #6b7280; border-color: #6b7280; }
+        .dark .filter-chip.new { background: rgba(22, 163, 74, 0.2); color: #86efac; border-color: rgba(134, 239, 172, 0.3); }
+        .dark .filter-chip.followup { background: rgba(220, 38, 38, 0.2); color: #fca5a5; border-color: rgba(252, 165, 165, 0.3); }
+        .dark .filter-chip.manual { background: rgba(217, 119, 6, 0.2); color: #fcd34d; border-color: rgba(252, 211, 77, 0.3); }
+        .dark .filter-chip.sub { background: rgba(234, 88, 12, 0.2); color: #fdba74; border-color: rgba(253, 186, 116, 0.3); }
+        .dark .filter-chip.agency { background: rgba(124, 58, 237, 0.2); color: #c4b5fd; border-color: rgba(196, 181, 253, 0.3); }
+        .dark .filter-chip.direct { background: rgba(79, 70, 229, 0.2); color: #a5b4fc; border-color: rgba(165, 180, 252, 0.3); }
+
+        .filter-group-label { font-size: 0.65rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: #9ca3af; margin-right: 0.5rem; }
+        .dark .filter-group-label { color: #6b7280; }
+
+        .active-filters-indicator {
+            display: inline-flex; align-items: center; gap: 0.375rem; font-size: 0.75rem; font-weight: 600;
+            color: #2563eb; background: #eff6ff; padding: 0.25rem 0.625rem; border-radius: 9999px; border: 1px solid #bfdbfe;
+        }
+        .dark .active-filters-indicator { background: rgba(59, 130, 246, 0.15); color: #60a5fa; border-color: #3b82f6; }
+
+        .clear-filters-btn {
+            font-size: 0.75rem; font-weight: 600; color: #6b7280; padding: 0.375rem 0.75rem;
+            border-radius: 0.5rem; cursor: pointer; border: 1px solid #e5e7eb; background: white; transition: all 0.2s;
+        }
+        .clear-filters-btn:hover { background: #fee2e2; color: #dc2626; border-color: #fecaca; }
+        .dark .clear-filters-btn { background: #374151; border-color: #4b5563; color: #9ca3af; }
+        .dark .clear-filters-btn:hover { background: rgba(220, 38, 38, 0.2); color: #fca5a5; border-color: #dc2626; }
+
+        /* ========== GHOST TOOLBAR ========== */
+        .ghost-toolbar {
+            display: flex; align-items: center; gap: 0.25rem; padding: 0.5rem;
+            background: rgba(255,255,255,0.5); backdrop-filter: blur(8px);
+            border-radius: 0.75rem; border: 1px solid rgba(0,0,0,0.05);
+        }
+        .dark .ghost-toolbar { background: rgba(30,41,59,0.5); border-color: rgba(255,255,255,0.05); }
+        .ghost-btn {
+            display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.5rem 0.75rem;
+            font-size: 0.8125rem; font-weight: 600; color: #6b7280; border-radius: 0.5rem;
+            transition: all 0.2s ease; cursor: pointer; border: 1px solid transparent; background: transparent; white-space: nowrap;
+        }
+        .ghost-btn:hover { background: white; color: #374151; border-color: #e5e7eb; box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
+        .dark .ghost-btn { color: #9ca3af; }
+        .dark .ghost-btn:hover { background: #374151; color: #f3f4f6; border-color: #4b5563; }
+        .ghost-btn.primary { color: #2563eb; }
+        .ghost-btn.primary:hover { background: #eff6ff; color: #1d4ed8; border-color: #bfdbfe; }
+        .dark .ghost-btn.primary { color: #60a5fa; }
+        .dark .ghost-btn.primary:hover { background: rgba(59, 130, 246, 0.15); color: #93c5fd; border-color: #3b82f6; }
+        .ghost-btn.success { color: #16a34a; }
+        .ghost-btn.success:hover { background: #f0fdf4; color: #15803d; border-color: #bbf7d0; }
+        .ghost-btn.warning { color: #d97706; }
+        .ghost-btn.warning:hover { background: #fffbeb; color: #b45309; border-color: #fcd34d; }
+        .dark .ghost-btn.warning { color: #fbbf24; }
+        .dark .ghost-btn.warning:hover { background: rgba(251, 191, 36, 0.15); color: #fcd34d; border-color: #f59e0b; }
+        .toolbar-divider { width: 1px; height: 1.5rem; background: #e5e7eb; margin: 0 0.25rem; }
+        .dark .toolbar-divider { background: #4b5563; }
+
+        /* ========== FLOATING BULK ACTION BAR ========== */
+        .bulk-action-bar {
+            position: fixed; bottom: 2rem; left: 50%; transform: translateX(-50%) translateY(200%);
+            background: linear-gradient(135deg, #1f2937 0%, #111827 100%);
+            color: white; padding: 1rem 2rem; border-radius: 1rem;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+            display: flex; align-items: center; gap: 1.5rem;
+            transition: transform 0.3s ease; z-index: 40; border: 1px solid #374151;
+        }
+        .bulk-action-bar.visible { transform: translateX(-50%) translateY(0); }
+        .bulk-action-bar .divider { width: 1px; height: 2rem; background: #4b5563; }
+        .bulk-action-bar button {
+            display: flex; align-items: center; gap: 0.5rem; padding: 0.5rem 0.75rem;
+            font-weight: 600; font-size: 0.875rem; border-radius: 0.5rem; transition: all 0.2s;
+            background: transparent; color: white; border: none; cursor: pointer;
+        }
+        .bulk-action-bar button:hover { background: rgba(255,255,255,0.1); }
+        .bulk-action-bar button.primary { color: #60a5fa; }
+        .bulk-action-bar button.warning { color: #fbbf24; }
     </style>
 </head>
 <body class="p-4 md:p-8 min-h-screen text-gray-800 dark:text-gray-100">
@@ -234,19 +363,165 @@
                             <button onclick="openManualInput()" class="bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-200 font-bold py-3 px-4 rounded-xl shadow transition" title="Manual Test Mode"><i class="fa-solid fa-vial"></i></button>
                         </div>
                     </div>
-                    <div id="tableContainer" class="hidden">
-                        <div class="flex justify-between items-center mb-4 bg-blue-50 dark:bg-blue-900/20 p-3 rounded-lg border border-blue-100 dark:border-blue-800">
-                            <div class="text-sm font-semibold text-blue-800 dark:text-blue-300"><span id="selectedCount">0</span> candidates selected</div>
-                            <div class="flex gap-2">
-                                <button onclick="markSelectedAsManualSent()" class="text-sm bg-amber-500 text-white px-4 py-1.5 rounded-lg font-medium hover:bg-amber-600 shadow-sm" title="Mark selected as sent outside this system"><i class="fa-solid fa-hand-point-right mr-1"></i> Mark Sent</button>
-                                <button onclick="openEmailPanel()" class="text-sm bg-blue-600 text-white px-4 py-1.5 rounded-lg font-medium hover:bg-blue-700 shadow-sm"><i class="fa-solid fa-envelope mr-1"></i> Compose Email</button>
+                    <!-- Status Filter Section (Hidden until data loaded) -->
+                    <div id="statusFilterContainer" class="hidden mb-6">
+                        <div class="flex items-center gap-2 mb-3 text-xs font-bold uppercase text-gray-500">
+                            <i class="fa-solid fa-filter text-blue-600"></i>
+                            <span>Filter by Pipeline Status</span>
+                        </div>
+                        <div id="statusButtons" class="flex flex-wrap gap-2.5"></div>
+                    </div>
+
+                    <!-- Table Controls (Hidden until data loaded) -->
+                    <div id="tableControls" class="hidden mb-5 space-y-4">
+                        <!-- Search + Filter Row -->
+                        <div class="flex flex-col lg:flex-row gap-4 items-start lg:items-center justify-between">
+                            <div class="flex items-center gap-2 w-full lg:w-auto">
+                                <div class="relative flex-grow lg:flex-grow-0 lg:w-80">
+                                    <input type="text" id="tableSearch" oninput="searchTable()" placeholder="Search developers..." class="w-full p-3 pl-10 border-2 border-gray-200 dark:border-gray-600 rounded-xl bg-white dark:bg-gray-800 outline-none focus:ring-2 focus:ring-blue-500 transition font-medium text-sm">
+                                    <i class="fa-solid fa-magnifying-glass absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400 text-sm"></i>
+                                </div>
+                                <button onclick="togglePasteFilter()" class="flex-shrink-0 bg-white dark:bg-gray-700 border-2 border-gray-200 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-200 p-3 rounded-xl transition" title="Filter by Specific Emails/IDs">
+                                    <i class="fa-solid fa-clipboard-list"></i> Paste & Filter
+                                </button>
+                            </div>
+
+                            <div class="flex flex-wrap gap-2 items-center">
+                                <span class="filter-group-label">Status:</span>
+                                <div class="filter-chip all active" data-filter="all" data-group="status" onclick="toggleFilterChip(this)">
+                                    <i class="fa-solid fa-check filter-check"></i>
+                                    <i class="fa-solid fa-layer-group"></i>
+                                    <span>All</span>
+                                    <span id="allCount" class="text-xs opacity-75">0</span>
+                                </div>
+                                <div class="filter-chip new" data-filter="new" data-group="status" onclick="toggleFilterChip(this)">
+                                    <i class="fa-solid fa-check filter-check"></i>
+                                    <i class="fa-solid fa-sparkles"></i>
+                                    <span>New</span>
+                                    <span id="newCount" class="text-xs opacity-75">0</span>
+                                </div>
+                                <div class="filter-chip followup" data-filter="followup" data-group="status" onclick="toggleFilterChip(this)">
+                                    <i class="fa-solid fa-check filter-check"></i>
+                                    <i class="fa-solid fa-reply"></i>
+                                    <span>Sent</span>
+                                    <span id="followupCount" class="text-xs opacity-75">0</span>
+                                </div>
+                                <div class="filter-chip manual" data-filter="manual" data-group="status" onclick="toggleFilterChip(this)">
+                                    <i class="fa-solid fa-check filter-check"></i>
+                                    <i class="fa-solid fa-hand"></i>
+                                    <span>M.Sent</span>
+                                    <span id="manualCount" class="text-xs opacity-75">0</span>
+                                </div>
+
+                                <div class="toolbar-divider"></div>
+
+                                <span class="filter-group-label">Type:</span>
+                                <div class="filter-chip sub" data-filter="sub" data-group="type" onclick="toggleFilterChip(this)">
+                                    <i class="fa-solid fa-check filter-check"></i>
+                                    <i class="fa-solid fa-user-tie"></i>
+                                    <span>Sub-Contractor</span>
+                                    <span id="subCount" class="text-xs opacity-75">0</span>
+                                </div>
+                                <div class="filter-chip agency" data-filter="agency" data-group="type" onclick="toggleFilterChip(this)">
+                                    <i class="fa-solid fa-check filter-check"></i>
+                                    <i class="fa-solid fa-building"></i>
+                                    <span>Agency</span>
+                                    <span id="agencyCount" class="text-xs opacity-75">0</span>
+                                </div>
+                                <div class="filter-chip direct" data-filter="direct" data-group="type" onclick="toggleFilterChip(this)">
+                                    <i class="fa-solid fa-check filter-check"></i>
+                                    <i class="fa-solid fa-user"></i>
+                                    <span>Direct</span>
+                                    <span id="directCount" class="text-xs opacity-75">0</span>
+                                </div>
+
+                                <div class="toolbar-divider"></div>
+
+                                <div id="activeFiltersInfo" class="hidden items-center gap-2">
+                                    <span class="active-filters-indicator">
+                                        <i class="fa-solid fa-filter"></i>
+                                        <span id="activeFilterCount">0</span> filters
+                                    </span>
+                                    <button class="clear-filters-btn" onclick="clearAllFilters()">
+                                        <i class="fa-solid fa-xmark mr-1"></i>Clear
+                                    </button>
+                                </div>
                             </div>
                         </div>
-                        <div class="overflow-x-auto rounded-lg border border-gray-200 dark:border-gray-700">
-                            <table id="devTable" class="w-full text-left text-sm">
-                                <thead class="bg-gray-50 dark:bg-gray-800 uppercase text-xs font-bold text-gray-500">
-                                    <tr><th class="px-4 py-3 text-center"><input type="checkbox" onclick="toggleAllRows(this)"></th><th class="px-4 py-3">ID</th><th class="px-4 py-3">Name</th><th class="px-4 py-3">Email</th><th class="px-4 py-3">Type</th><th class="px-4 py-3">Stage</th><th class="px-4 py-3">History</th></tr>
-                                </thead>
+
+                        <!-- Paste Filter Area (Hidden by default) -->
+                        <div id="pasteFilterArea" class="hidden bg-gray-50 dark:bg-gray-800 p-4 rounded-xl border border-gray-200 dark:border-gray-600 shadow-inner">
+                            <div class="flex flex-col gap-3">
+                                <label class="text-sm font-bold text-gray-700 dark:text-gray-300">Paste Comma Separated Emails or Developer IDs:</label>
+                                <textarea id="pasteFilterInput" class="w-full h-24 p-3 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm font-mono focus:ring-2 focus:ring-blue-500 outline-none" placeholder="john@example.com, jane@example.com&#10;OR&#10;12345, 67890"></textarea>
+                                <div class="flex gap-3">
+                                    <button onclick="applyPasteFilter()" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-bold shadow transition">
+                                        <i class="fa-solid fa-filter mr-1"></i> Filter List
+                                    </button>
+                                    <button onclick="clearPasteFilter()" class="bg-white dark:bg-gray-700 hover:bg-gray-100 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-200 border border-gray-300 dark:border-gray-500 px-4 py-2 rounded-lg text-sm font-medium transition">
+                                        Clear List
+                                    </button>
+                                    <button onclick="togglePasteFilter()" class="ml-auto text-gray-500 hover:text-gray-700 dark:text-gray-400 text-sm">Close</button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Ghost Toolbar -->
+                        <div class="flex flex-wrap items-center justify-between gap-3">
+                            <div class="ghost-toolbar">
+                                <button onclick="selectAllResults()" class="ghost-btn primary">
+                                    <i class="fa-solid fa-check-double"></i>
+                                    <span>Select All</span>
+                                    <span id="selectAllCount" class="text-xs opacity-60">(0)</span>
+                                </button>
+                                <button onclick="selectCurrentPage()" class="ghost-btn">
+                                    <i class="fa-solid fa-check"></i>
+                                    <span>Page Only</span>
+                                </button>
+                                <button onclick="deselectAll()" class="ghost-btn">
+                                    <i class="fa-solid fa-xmark"></i>
+                                    <span>Clear</span>
+                                </button>
+
+                                <div class="toolbar-divider"></div>
+
+                                <button onclick="markSelectedAsManualSent()" class="ghost-btn warning">
+                                    <i class="fa-solid fa-hand"></i>
+                                    <span>Mark Sent</span>
+                                </button>
+
+                                <div class="toolbar-divider"></div>
+
+                                <button onclick="copyToClipboard()" class="ghost-btn">
+                                    <i class="fa-regular fa-copy"></i>
+                                    <span>Copy</span>
+                                </button>
+                                <button onclick="downloadCSV()" class="ghost-btn success">
+                                    <i class="fa-solid fa-download"></i>
+                                    <span>Export CSV</span>
+                                </button>
+                            </div>
+
+                            <div id="selectionIndicator" class="hidden items-center gap-2 text-sm font-semibold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/30 px-3 py-1.5 rounded-lg">
+                                <i class="fa-solid fa-circle-check"></i>
+                                <span><span id="quickSelectedCount">0</span> selected</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div id="tableContainer" class="hidden overflow-hidden rounded-xl border-2 border-gray-200 dark:border-gray-700 shadow-sm">
+                        <table id="devTable" class="w-full text-left text-sm">
+                            <thead class="bg-gray-50 dark:bg-gray-800 uppercase text-xs font-bold text-gray-500">
+                                <tr>
+                                    <th class="px-4 py-3 w-12 text-center"><input type="checkbox" id="masterCheckbox" onclick="toggleMasterCheckbox()" class="w-4 h-4 cursor-pointer" title="Select all on current page"></th>
+                                    <th class="px-4 py-3">Developer ID</th>
+                                    <th class="px-4 py-3">Candidate Name</th>
+                                    <th class="px-4 py-3">Email Address</th>
+                                    <th class="px-4 py-3">Pipeline Status</th>
+                                    <th class="px-4 py-3">Type</th>
+                                    <th class="px-4 py-3">Outreach History</th>
+                                </tr>
+                            </thead>
                                 <tbody class="divide-y divide-gray-200 dark:divide-gray-700 bg-white dark:bg-gray-900"></tbody>
                             </table>
                         </div>
@@ -677,6 +952,24 @@ This is a freelance, fully remote position."></textarea>
         </div>
     </div>
 
+    <!-- Floating Bulk Action Bar -->
+    <div id="bulkActionBar" class="bulk-action-bar">
+        <div class="flex items-center gap-2">
+            <i class="fa-solid fa-check-circle text-green-400"></i>
+            <span class="font-bold text-lg"><span id="bulkSelectedCount">0</span> selected</span>
+        </div>
+        <div class="divider"></div>
+        <button onclick="openEmailPanel()" class="primary">
+            <i class="fa-solid fa-paper-plane"></i>
+            <span>Draft Email Campaign</span>
+        </button>
+        <div class="divider"></div>
+        <button onclick="markSelectedAsManualSent()" class="warning">
+            <i class="fa-solid fa-hand"></i>
+            <span>Mark as Sent</span>
+        </button>
+    </div>
+
     <!-- Email Slide Panel (IMPROVED) -->
     <div id="emailPanelOverlay" class="slide-panel-overlay" onclick="closeEmailPanel()"></div>
     <div id="emailPanel" class="slide-panel">
@@ -947,12 +1240,19 @@ We have an exciting opportunity..."></textarea>
 
     <script>
         let tableData = [];
+        let fullTableData = [];
         let selectedDevs = new Set();
         let allTasks = [];
         let selectedTasks = new Set();
         let cachedJobIds = [];
         let cachedTemplates = [];
         let currentUserEmail = '';
+
+        // Multi-select filter state
+        let activeFilters = {
+            status: new Set(['all']),
+            type: new Set()
+        };
 
         // ===== INIT: Load user email on page load =====
         document.addEventListener('DOMContentLoaded', function() {
@@ -1028,6 +1328,358 @@ We have an exciting opportunity..."></textarea>
             if(tabName === 'tasks') loadTasks();
             if(tabName === 'negotiation') refreshJobDropdown();
             if(tabName === 'followups') loadFollowUpStats();
+        }
+
+        // ===== FILTER CHIP FUNCTIONS =====
+        function toggleFilterChip(element) {
+            const filter = element.dataset.filter;
+            const group = element.dataset.group;
+
+            if (filter === 'all') {
+                activeFilters.status.clear();
+                activeFilters.status.add('all');
+                document.querySelectorAll('.filter-chip[data-group="status"]').forEach(chip => {
+                    chip.classList.remove('active');
+                });
+                element.classList.add('active');
+            } else if (group === 'status') {
+                activeFilters.status.delete('all');
+                document.querySelector('.filter-chip[data-filter="all"]').classList.remove('active');
+
+                if (element.classList.contains('active')) {
+                    element.classList.remove('active');
+                    activeFilters.status.delete(filter);
+                    if (activeFilters.status.size === 0) {
+                        activeFilters.status.add('all');
+                        document.querySelector('.filter-chip[data-filter="all"]').classList.add('active');
+                    }
+                } else {
+                    element.classList.add('active');
+                    activeFilters.status.add(filter);
+                }
+            } else if (group === 'type') {
+                if (element.classList.contains('active')) {
+                    element.classList.remove('active');
+                    activeFilters.type.delete(filter);
+                } else {
+                    element.classList.add('active');
+                    activeFilters.type.add(filter);
+                }
+            }
+
+            applyFilters();
+            updateActiveFiltersIndicator();
+        }
+
+        function applyFilters() {
+            let filtered = [...fullTableData];
+
+            // Apply status filters (OR logic)
+            if (!activeFilters.status.has('all') && activeFilters.status.size > 0) {
+                filtered = filtered.filter(d => {
+                    if (activeFilters.status.has('new') && !d.is_sent && !d.is_manual_sent) return true;
+                    if (activeFilters.status.has('followup') && d.is_sent && !d.is_manual_sent) return true;
+                    if (activeFilters.status.has('manual') && d.is_manual_sent) return true;
+                    return false;
+                });
+            }
+
+            // Apply type filters (OR logic, AND with status)
+            if (activeFilters.type.size > 0) {
+                filtered = filtered.filter(d => {
+                    const candidateType = d.candidate_status || 'Independent';
+                    if (activeFilters.type.has('sub') && candidateType === 'Agency Sub-Contractor') return true;
+                    if (activeFilters.type.has('agency') && candidateType === 'Agency Contractor') return true;
+                    if (activeFilters.type.has('direct') && (candidateType === 'Independent' || !d.candidate_status)) return true;
+                    return false;
+                });
+            }
+
+            tableData = filtered;
+            populateTable(tableData);
+            document.getElementById('selectAllCount').textContent = `(${tableData.length})`;
+        }
+
+        function updateActiveFiltersIndicator() {
+            const totalActive = (activeFilters.status.has('all') ? 0 : activeFilters.status.size) + activeFilters.type.size;
+            const indicator = document.getElementById('activeFiltersInfo');
+            const countEl = document.getElementById('activeFilterCount');
+
+            if (totalActive > 0) {
+                indicator.classList.remove('hidden');
+                indicator.classList.add('flex');
+                countEl.textContent = totalActive;
+            } else {
+                indicator.classList.add('hidden');
+                indicator.classList.remove('flex');
+            }
+        }
+
+        function clearAllFilters() {
+            activeFilters.status.clear();
+            activeFilters.status.add('all');
+            activeFilters.type.clear();
+
+            document.querySelectorAll('.filter-chip').forEach(chip => {
+                chip.classList.remove('active');
+            });
+            document.querySelector('.filter-chip[data-filter="all"]').classList.add('active');
+
+            document.getElementById('tableSearch').value = '';
+            applyFilters();
+            updateActiveFiltersIndicator();
+        }
+
+        // ===== PASTE FILTER FUNCTIONS =====
+        function togglePasteFilter() {
+            const area = document.getElementById('pasteFilterArea');
+            if (area.classList.contains('hidden')) {
+                area.classList.remove('hidden');
+                document.getElementById('pasteFilterInput').focus();
+            } else {
+                area.classList.add('hidden');
+            }
+        }
+
+        function applyPasteFilter() {
+            const rawInput = document.getElementById('pasteFilterInput').value;
+            if (!rawInput || rawInput.trim() === '') {
+                showToast("Please paste some Emails or IDs first.", "warning");
+                return;
+            }
+
+            const filterList = rawInput.split(/[\n,]+/).map(item => item.trim().toLowerCase()).filter(item => item !== '');
+            if (filterList.length === 0) return;
+
+            const filtered = fullTableData.filter(d => {
+                const idMatch = filterList.includes(d.developer_id.toString().toLowerCase());
+                const emailMatch = filterList.includes(d.email.toLowerCase());
+                return idMatch || emailMatch;
+            });
+
+            tableData = filtered;
+            populateTable(filtered);
+            updateCounts(filtered);
+            document.getElementById('selectAllCount').textContent = `(${tableData.length})`;
+            showToast(`Found ${filtered.length} matches out of ${fullTableData.length} records.`, "success");
+            togglePasteFilter();
+        }
+
+        function clearPasteFilter() {
+            document.getElementById('pasteFilterInput').value = '';
+            tableData = [...fullTableData];
+            populateTable(tableData);
+            updateCounts(fullTableData);
+            document.getElementById('selectAllCount').textContent = `(${tableData.length})`;
+            applyFilters();
+        }
+
+        // ===== SEARCH FUNCTION =====
+        function searchTable() {
+            const searchValue = document.getElementById('tableSearch').value.toLowerCase();
+            if (!searchValue) {
+                applyFilters();
+                return;
+            }
+            const filtered = tableData.filter(d => {
+                return d.developer_id.toString().includes(searchValue) ||
+                       d.full_name.toLowerCase().includes(searchValue) ||
+                       d.email.toLowerCase().includes(searchValue) ||
+                       (d.status && d.status.toLowerCase().includes(searchValue));
+            });
+            populateTable(filtered);
+        }
+
+        // ===== SELECTION FUNCTIONS =====
+        function selectAllResults() {
+            tableData.forEach(d => selectedDevs.add(d.developer_id));
+            document.querySelectorAll('.row-checkbox').forEach(cb => cb.checked = true);
+            updateSelectionUI();
+        }
+
+        function selectCurrentPage() {
+            document.querySelectorAll('.row-checkbox:not(:checked)').forEach(cb => {
+                cb.checked = true;
+                selectedDevs.add(cb.value);
+            });
+            updateSelectionUI();
+        }
+
+        function deselectAll() {
+            selectedDevs.clear();
+            document.querySelectorAll('.row-checkbox').forEach(cb => cb.checked = false);
+            document.getElementById('masterCheckbox').checked = false;
+            updateSelectionUI();
+        }
+
+        function toggleMasterCheckbox() {
+            const master = document.getElementById('masterCheckbox');
+            document.querySelectorAll('.row-checkbox').forEach(cb => {
+                cb.checked = master.checked;
+                if (master.checked) {
+                    selectedDevs.add(cb.value);
+                } else {
+                    selectedDevs.delete(cb.value);
+                }
+            });
+            updateSelectionUI();
+        }
+
+        function toggleRowCheckbox(devId) {
+            if (selectedDevs.has(devId)) {
+                selectedDevs.delete(devId);
+            } else {
+                selectedDevs.add(devId);
+            }
+            updateSelectionUI();
+        }
+
+        function updateSelectionUI() {
+            const count = selectedDevs.size;
+            document.getElementById('selectedCount').textContent = count;
+            document.getElementById('quickSelectedCount').textContent = count;
+            document.getElementById('bulkSelectedCount').textContent = count;
+
+            // Show/hide selection indicator
+            const indicator = document.getElementById('selectionIndicator');
+            if (count > 0) {
+                indicator.classList.remove('hidden');
+                indicator.classList.add('flex');
+            } else {
+                indicator.classList.add('hidden');
+                indicator.classList.remove('flex');
+            }
+
+            // Show/hide bulk action bar
+            const bulkBar = document.getElementById('bulkActionBar');
+            if (count > 0) {
+                bulkBar.classList.add('visible');
+            } else {
+                bulkBar.classList.remove('visible');
+            }
+        }
+
+        // ===== UTILITY FUNCTIONS =====
+        function copyToClipboard() {
+            if (selectedDevs.size === 0) {
+                showToast("Please select at least one candidate", "warning");
+                return;
+            }
+            const emails = tableData.filter(d => selectedDevs.has(d.developer_id)).map(d => d.email).join(', ');
+            navigator.clipboard.writeText(emails).then(() => {
+                showToast(`Copied ${selectedDevs.size} emails to clipboard`, "success");
+            }).catch(err => {
+                showToast("Failed to copy to clipboard", "error");
+            });
+        }
+
+        function downloadCSV() {
+            if (tableData.length === 0) {
+                showToast("No data to export", "warning");
+                return;
+            }
+
+            const dataToExport = selectedDevs.size > 0
+                ? tableData.filter(d => selectedDevs.has(d.developer_id))
+                : tableData;
+
+            let csv = "Developer ID,Candidate Name,Email,Pipeline Status,Type,Agency Name,Outreach History\n";
+            dataToExport.forEach(d => {
+                let typeDisplay = 'Direct';
+                if (d.candidate_status === 'Agency Sub-Contractor') typeDisplay = 'Sub-Contractor';
+                else if (d.candidate_status === 'Agency Contractor') typeDisplay = 'Agency';
+
+                let historyDisplay = 'New';
+                if (d.is_sent) historyDisplay = `Sent (${d.sent_count || 1})`;
+                else if (d.is_manual_sent) historyDisplay = `M.Sent (${d.manual_sent_count || 1})`;
+
+                csv += `"${d.developer_id}","${d.full_name}","${d.email}","${d.status}","${typeDisplay}","${d.agency_name || ''}","${historyDisplay}"\n`;
+            });
+
+            const blob = new Blob([csv], { type: 'text/csv' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `developers_export_${new Date().toISOString().split('T')[0]}.csv`;
+            a.click();
+            URL.revokeObjectURL(url);
+            showToast(`Exported ${dataToExport.length} records`, "success");
+        }
+
+        function updateCounts(data) {
+            const allCount = data.length;
+            const newCount = data.filter(d => !d.is_sent && !d.is_manual_sent).length;
+            const followupCount = data.filter(d => d.is_sent && !d.is_manual_sent).length;
+            const manualCount = data.filter(d => d.is_manual_sent).length;
+            const subCount = data.filter(d => d.candidate_status === 'Agency Sub-Contractor').length;
+            const agencyCount = data.filter(d => d.candidate_status === 'Agency Contractor').length;
+            const directCount = data.filter(d => d.candidate_status === 'Independent' || !d.candidate_status).length;
+
+            document.getElementById('allCount').textContent = allCount;
+            document.getElementById('newCount').textContent = newCount;
+            document.getElementById('followupCount').textContent = followupCount;
+            document.getElementById('manualCount').textContent = manualCount;
+            document.getElementById('subCount').textContent = subCount;
+            document.getElementById('agencyCount').textContent = agencyCount;
+            document.getElementById('directCount').textContent = directCount;
+            document.getElementById('selectAllCount').textContent = `(${tableData.length})`;
+        }
+
+        function populateTable(data) {
+            const tbody = document.querySelector('#devTable tbody');
+            tbody.innerHTML = '';
+
+            data.forEach(d => {
+                let rowClass = '';
+                let sentBadge = '';
+
+                if (d.is_manual_sent) {
+                    rowClass = 'manual-sent-row';
+                    sentBadge = `<span class="px-2 py-1 bg-amber-100 text-amber-800 text-xs rounded border border-amber-200" title="${d.manual_sent_note || 'Manually marked'}">
+                        <i class="fa-solid fa-hand mr-1"></i>M.Sent${d.manual_sent_count > 1 ? ` (${d.manual_sent_count})` : ''}
+                    </span>`;
+                } else if (d.is_sent) {
+                    rowClass = 'sent-row';
+                    sentBadge = `<span class="px-2 py-1 bg-red-100 text-red-800 text-xs rounded border border-red-200">Sent (${d.sent_count || 1})</span>`;
+                } else {
+                    sentBadge = `<span class="px-2 py-1 bg-green-100 text-green-800 text-xs rounded border border-green-200">New</span>`;
+                }
+
+                let typeBadge = '';
+                const candidateStatus = d.candidate_status || 'Independent';
+                if (candidateStatus === 'Agency Sub-Contractor') {
+                    typeBadge = `<span class="px-2 py-1 bg-orange-50 text-orange-700 text-xs rounded border border-orange-200" title="${d.agency_name || 'Sub-Contractor'}">
+                        <i class="fa-solid fa-user-tie mr-1"></i>Sub-Con
+                    </span>`;
+                } else if (candidateStatus === 'Agency Contractor') {
+                    typeBadge = `<span class="px-2 py-1 bg-purple-50 text-purple-700 text-xs rounded border border-purple-200" title="${d.agency_name || 'Agency'}">
+                        <i class="fa-solid fa-building mr-1"></i>Agency
+                    </span>`;
+                } else {
+                    typeBadge = `<span class="px-2 py-1 bg-blue-50 text-blue-700 text-xs rounded border border-blue-200">
+                        <i class="fa-solid fa-user mr-1"></i>Direct
+                    </span>`;
+                }
+
+                const isChecked = selectedDevs.has(d.developer_id) ? 'checked' : '';
+
+                const tr = document.createElement('tr');
+                tr.className = `hover:bg-gray-50 dark:hover:bg-gray-700/50 ${rowClass}`;
+                tr.innerHTML = `
+                    <td class="px-4 py-3 text-center">
+                        <input type="checkbox" class="row-checkbox w-4 h-4 cursor-pointer" value="${d.developer_id}" ${isChecked} onchange="toggleRowCheckbox('${d.developer_id}')">
+                    </td>
+                    <td class="px-4 py-3 font-mono text-xs">${d.developer_id}</td>
+                    <td class="px-4 py-3 font-bold">${d.full_name}</td>
+                    <td class="px-4 py-3 text-gray-500">${d.email}</td>
+                    <td class="px-4 py-3"><span class="px-2 py-1 bg-gray-100 dark:bg-gray-700 rounded text-xs font-bold">${d.status}</span></td>
+                    <td class="px-4 py-3">${typeBadge}</td>
+                    <td class="px-4 py-3">${sentBadge}</td>
+                `;
+                tbody.appendChild(tr);
+            });
+
+            updateSelectionUI();
         }
 
         // ===== EMAIL TEMPLATES =====
@@ -1320,63 +1972,45 @@ We have an exciting opportunity..."></textarea>
         }
         
         function renderTable(data) {
-            const tbody = document.querySelector('#devTable tbody');
-            tbody.innerHTML = '';
-            data.forEach(d => {
-                const tr = document.createElement('tr');
-                tr.className = 'hover:bg-gray-50 dark:hover:bg-gray-700/50';
+            // Store data in both tableData and fullTableData
+            tableData = data;
+            fullTableData = data;
 
-                // Type display: Independent, Agency Contractor, Agency Sub-Contractor
-                let typeDisplay = '';
-                const candidateStatus = d.candidate_status || 'Independent';
-                if (candidateStatus === 'Independent') {
-                    typeDisplay = '<span class="px-2 py-1 bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-300 rounded text-xs font-medium">Independent</span>';
-                } else if (candidateStatus === 'Agency Contractor') {
-                    typeDisplay = `<span class="px-2 py-1 bg-purple-50 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 rounded text-xs font-medium" title="${d.agency_name || 'Agency'}">Agency</span>`;
-                } else if (candidateStatus === 'Agency Sub-Contractor') {
-                    typeDisplay = `<span class="px-2 py-1 bg-orange-50 dark:bg-orange-900/30 text-orange-700 dark:text-orange-300 rounded text-xs font-medium" title="${d.agency_name || 'Sub-Contractor'}">Sub-Con</span>`;
-                } else {
-                    typeDisplay = `<span class="px-2 py-1 bg-gray-100 dark:bg-gray-700 rounded text-xs font-medium">${candidateStatus}</span>`;
-                }
+            // Show the table controls and container
+            document.getElementById('statusFilterContainer').classList.remove('hidden');
+            document.getElementById('tableControls').classList.remove('hidden');
+            document.getElementById('tableContainer').classList.remove('hidden');
 
-                // History display: show sent status and manual sent status
-                let historyDisplay = '';
-                if (d.is_sent) {
-                    historyDisplay = '<span class="text-green-600"><i class="fa-solid fa-check mr-1"></i>Sent</span>';
-                } else if (d.is_manual_sent) {
-                    historyDisplay = `<span class="text-amber-600" title="${d.manual_sent_note || 'Marked as manually sent'}"><i class="fa-solid fa-hand-point-right mr-1"></i>Manual</span>`;
-                } else {
-                    historyDisplay = '<span class="text-gray-400">New</span>';
-                }
-
-                tr.innerHTML = `
-                    <td class="px-4 py-3 text-center"><input type="checkbox" onchange="toggleDev('${d.developer_id}')" class="dev-check"></td>
-                    <td class="px-4 py-3 font-mono text-xs">${d.developer_id}</td>
-                    <td class="px-4 py-3 font-bold">${d.full_name}</td>
-                    <td class="px-4 py-3 text-gray-500">${d.email}</td>
-                    <td class="px-4 py-3">${typeDisplay}</td>
-                    <td class="px-4 py-3"><span class="px-2 py-1 bg-gray-100 dark:bg-gray-700 rounded text-xs font-bold">${d.status}</span></td>
-                    <td class="px-4 py-3 text-xs">${historyDisplay}</td>
-                `;
-                tbody.appendChild(tr);
+            // Reset filters
+            activeFilters.status.clear();
+            activeFilters.status.add('all');
+            activeFilters.type.clear();
+            document.querySelectorAll('.filter-chip').forEach(chip => {
+                chip.classList.remove('active');
             });
-            document.getElementById('selectedCount').innerText = '0';
+            document.querySelector('.filter-chip[data-filter="all"]').classList.add('active');
+            updateActiveFiltersIndicator();
+
+            // Clear selections
             selectedDevs.clear();
+            document.getElementById('masterCheckbox').checked = false;
+            document.getElementById('tableSearch').value = '';
+            document.getElementById('pasteFilterInput').value = '';
+
+            // Update counts and populate table
+            updateCounts(data);
+            populateTable(data);
         }
-        
-        function toggleDev(id) { 
-            selectedDevs.has(id) ? selectedDevs.delete(id) : selectedDevs.add(id); 
-            document.getElementById('selectedCount').innerText = selectedDevs.size; 
+
+        // Legacy function for backwards compatibility
+        function toggleDev(id) {
+            toggleRowCheckbox(id);
         }
-        
-        function toggleAllRows(master) { 
-            const checks = document.querySelectorAll('.dev-check'); 
-            checks.forEach((c, i) => { 
-                c.checked = master.checked; 
-                const dev = tableData[i]; 
-                master.checked ? selectedDevs.add(dev.developer_id) : selectedDevs.delete(dev.developer_id); 
-            }); 
-            document.getElementById('selectedCount').innerText = selectedDevs.size; 
+
+        // Legacy function for backwards compatibility
+        function toggleAllRows(master) {
+            document.getElementById('masterCheckbox').checked = master.checked;
+            toggleMasterCheckbox();
         }
         
         // ===== EMAIL PANEL (IMPROVED) =====
