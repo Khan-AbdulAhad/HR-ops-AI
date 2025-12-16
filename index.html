@@ -1028,28 +1028,30 @@ This is a freelance, fully remote position."></textarea>
                                     <thead class="bg-gray-50 dark:bg-gray-900 text-xs uppercase font-bold text-gray-500">
                                         <tr>
                                             <th class="px-4 py-3">User Email</th>
-                                            <th class="px-4 py-3">Actions</th>
-                                            <th class="px-4 py-3">Data Fetched</th>
+                                            <th class="px-4 py-3">Emails Sent</th>
+                                            <th class="px-4 py-3">Data Fetches</th>
+                                            <th class="px-4 py-3">Negotiations</th>
+                                            <th class="px-4 py-3">Follow-Ups</th>
                                             <th class="px-4 py-3">Last Active</th>
                                         </tr>
                                     </thead>
                                     <tbody id="userStatsTableBody" class="divide-y divide-gray-200 dark:divide-gray-700">
-                                        <tr><td colspan="4" class="p-8 text-center text-gray-400"><i class="fa-solid fa-spinner fa-spin mr-2"></i>Loading...</td></tr>
+                                        <tr><td colspan="6" class="p-8 text-center text-gray-400"><i class="fa-solid fa-spinner fa-spin mr-2"></i>Loading...</td></tr>
                                     </tbody>
                                 </table>
                             </div>
                         </div>
 
-                        <!-- Email Stats by Type -->
+                        <!-- Email Stats by User and Job -->
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
                             <div class="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm">
                                 <div class="p-4 border-b border-gray-200 dark:border-gray-700">
                                     <h3 class="font-bold text-gray-900 dark:text-white flex items-center gap-2">
-                                        <i class="fa-solid fa-envelope-open-text text-emerald-500"></i> Emails by Type
+                                        <i class="fa-solid fa-user-check text-emerald-500"></i> Emails by User
                                     </h3>
                                 </div>
-                                <div id="emailsByTypeChart" class="p-4">
-                                    <div class="space-y-3" id="emailTypesList">
+                                <div id="emailsByUserChart" class="p-4 max-h-64 overflow-y-auto">
+                                    <div class="space-y-2" id="emailUsersList">
                                         <div class="text-center text-gray-400 py-4"><i class="fa-solid fa-spinner fa-spin mr-2"></i>Loading...</div>
                                     </div>
                                 </div>
@@ -3242,8 +3244,8 @@ We have an exciting opportunity..."></textarea>
 
         function loadAnalytics() {
             // Show loading state
-            document.getElementById('userStatsTableBody').innerHTML = '<tr><td colspan="4" class="p-8 text-center text-gray-400"><i class="fa-solid fa-spinner fa-spin mr-2"></i>Loading...</td></tr>';
-            document.getElementById('emailTypesList').innerHTML = '<div class="text-center text-gray-400 py-4"><i class="fa-solid fa-spinner fa-spin mr-2"></i>Loading...</div>';
+            document.getElementById('userStatsTableBody').innerHTML = '<tr><td colspan="6" class="p-8 text-center text-gray-400"><i class="fa-solid fa-spinner fa-spin mr-2"></i>Loading...</td></tr>';
+            document.getElementById('emailUsersList').innerHTML = '<div class="text-center text-gray-400 py-4"><i class="fa-solid fa-spinner fa-spin mr-2"></i>Loading...</div>';
             document.getElementById('emailJobsList').innerHTML = '<div class="text-center text-gray-400 py-4"><i class="fa-solid fa-spinner fa-spin mr-2"></i>Loading...</div>';
             document.getElementById('recentActivityList').innerHTML = '<div class="p-4 text-center text-gray-400"><i class="fa-solid fa-spinner fa-spin mr-2"></i>Loading...</div>';
 
@@ -3308,7 +3310,7 @@ We have an exciting opportunity..."></textarea>
             const tbody = document.getElementById('userStatsTableBody');
 
             if(!userStats || userStats.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="4" class="p-8 text-center text-gray-400"><i class="fa-solid fa-inbox mr-2"></i>No user activity recorded yet</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="6" class="p-8 text-center text-gray-400"><i class="fa-solid fa-inbox mr-2"></i>No user activity recorded yet</td></tr>';
                 return;
             }
 
@@ -3316,12 +3318,6 @@ We have an exciting opportunity..."></textarea>
             userStats.forEach(function(user) {
                 const row = document.createElement('tr');
                 row.className = 'hover:bg-gray-50 dark:hover:bg-gray-700/50 transition';
-
-                // Format data size
-                let dataSize = user.dataFetched || 0;
-                let dataSizeStr = dataSize < 1024 ? dataSize + ' B' :
-                                  dataSize < 1048576 ? (dataSize / 1024).toFixed(1) + ' KB' :
-                                  (dataSize / 1048576).toFixed(2) + ' MB';
 
                 // Format last active time
                 let lastActive = 'Never';
@@ -3353,11 +3349,18 @@ We have an exciting opportunity..."></textarea>
                             '<span class="font-medium text-gray-900 dark:text-white text-sm">' + user.email + '</span>' +
                         '</div>' +
                     '</td>' +
-                    '<td class="px-4 py-3">' +
-                        '<span class="font-bold text-gray-900 dark:text-white">' + (user.actions || 0) + '</span>' +
-                        '<span class="text-xs text-gray-500 ml-1">actions</span>' +
+                    '<td class="px-4 py-3 text-center">' +
+                        '<span class="font-bold text-emerald-600">' + (user.emailsSent || 0) + '</span>' +
                     '</td>' +
-                    '<td class="px-4 py-3 text-sm text-gray-600 dark:text-gray-400">' + dataSizeStr + '</td>' +
+                    '<td class="px-4 py-3 text-center">' +
+                        '<span class="font-bold text-blue-600">' + (user.dataFetches || 0) + '</span>' +
+                    '</td>' +
+                    '<td class="px-4 py-3 text-center">' +
+                        '<span class="font-bold text-purple-600">' + (user.negotiations || 0) + '</span>' +
+                    '</td>' +
+                    '<td class="px-4 py-3 text-center">' +
+                        '<span class="font-bold text-amber-600">' + (user.followUps || 0) + '</span>' +
+                    '</td>' +
                     '<td class="px-4 py-3 text-sm text-gray-500">' + lastActive + '</td>';
 
                 tbody.appendChild(row);
@@ -3369,30 +3372,31 @@ We have an exciting opportunity..."></textarea>
             document.getElementById('statTotalFollowUps').textContent = stats.totalFollowUps || 0;
             document.getElementById('statTotalNegotiations').textContent = stats.totalNegotiations || 0;
 
-            // Render emails by type
-            const typesList = document.getElementById('emailTypesList');
-            const emailTypes = stats.emailsByType || {};
+            // Render emails by user
+            const usersList = document.getElementById('emailUsersList');
+            const emailsByUser = stats.emailsByUser || {};
             const totalEmails = stats.totalEmails || 1;
 
-            if(Object.keys(emailTypes).length === 0) {
-                typesList.innerHTML = '<div class="text-center text-gray-400 py-4"><i class="fa-solid fa-inbox mr-2"></i>No emails sent yet</div>';
+            if(Object.keys(emailsByUser).length === 0) {
+                usersList.innerHTML = '<div class="text-center text-gray-400 py-4"><i class="fa-solid fa-inbox mr-2"></i>No emails sent yet</div>';
             } else {
-                typesList.innerHTML = '';
+                usersList.innerHTML = '';
                 const colors = ['bg-indigo-500', 'bg-emerald-500', 'bg-amber-500', 'bg-purple-500', 'bg-rose-500'];
                 let colorIndex = 0;
 
-                Object.entries(emailTypes).sort((a, b) => b[1] - a[1]).forEach(function([type, count]) {
+                Object.entries(emailsByUser).sort((a, b) => b[1] - a[1]).forEach(function([email, count]) {
                     const percentage = ((count / totalEmails) * 100).toFixed(1);
                     const div = document.createElement('div');
+                    div.className = 'mb-3';
                     div.innerHTML =
                         '<div class="flex items-center justify-between mb-1">' +
-                            '<span class="text-sm font-medium text-gray-700 dark:text-gray-300">' + type + '</span>' +
+                            '<span class="text-sm font-medium text-gray-700 dark:text-gray-300 truncate max-w-[200px]" title="' + email + '">' + email + '</span>' +
                             '<span class="text-sm font-bold text-gray-900 dark:text-white">' + count + '</span>' +
                         '</div>' +
                         '<div class="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">' +
                             '<div class="' + colors[colorIndex % colors.length] + ' h-2 rounded-full transition-all duration-500" style="width: ' + percentage + '%"></div>' +
                         '</div>';
-                    typesList.appendChild(div);
+                    usersList.appendChild(div);
                     colorIndex++;
                 });
             }
