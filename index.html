@@ -759,34 +759,73 @@
 
                     <!-- User Table -->
                     <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden mb-8">
-                        <div class="px-6 py-4 border-b border-slate-100 font-bold text-slate-700">User Activity</div>
+                        <div class="px-6 py-4 border-b border-slate-100">
+                            <div class="flex items-center gap-3">
+                                <div class="bg-indigo-100 p-2 rounded-lg">
+                                    <i class="fa-solid fa-users text-indigo-600"></i>
+                                </div>
+                                <div>
+                                    <h4 class="font-bold text-slate-800">User Activity</h4>
+                                    <p class="text-xs text-slate-500">Users who have accessed the app and their activity</p>
+                                </div>
+                            </div>
+                        </div>
                         <table class="w-full text-left text-sm">
                             <thead class="bg-slate-50 text-xs font-bold text-slate-500 uppercase">
                                 <tr>
-                                    <th class="px-6 py-3">User</th>
-                                    <th class="px-6 py-3 text-center">Emails</th>
-                                    <th class="px-6 py-3 text-center">Fetches</th>
+                                    <th class="px-6 py-3">User Email</th>
+                                    <th class="px-6 py-3 text-center">Emails Sent</th>
+                                    <th class="px-6 py-3 text-center">Data Fetches</th>
                                     <th class="px-6 py-3 text-center">Negotiations</th>
                                     <th class="px-6 py-3 text-center">Follow-Ups</th>
                                     <th class="px-6 py-3">Last Active</th>
                                 </tr>
                             </thead>
-                            <tbody id="userStatsTableBody" class="divide-y divide-slate-100"></tbody>
+                            <tbody id="userStatsTableBody" class="divide-y divide-slate-100">
+                                <tr id="userStatsEmptyState">
+                                    <td colspan="6" class="px-6 py-8 text-center text-slate-400">
+                                        <i class="fa-regular fa-folder-open text-2xl mb-2 block"></i>
+                                        No user activity recorded yet
+                                    </td>
+                                </tr>
+                            </tbody>
                         </table>
                     </div>
 
                     <!-- Split Charts -->
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
                         <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
-                            <h4 class="font-bold text-slate-700 mb-4">Emails by User</h4>
-                            <div id="emailsByUserChart" class="space-y-3" id="emailUsersList">
-                                <!-- JS fills this -->
+                            <div class="flex items-center gap-3 mb-4">
+                                <div class="bg-emerald-100 p-2 rounded-lg">
+                                    <i class="fa-solid fa-user-check text-emerald-600"></i>
+                                </div>
+                                <div>
+                                    <h4 class="font-bold text-slate-800">Emails by User</h4>
+                                    <p class="text-xs text-slate-500">Email distribution across team members</p>
+                                </div>
+                            </div>
+                            <div id="emailUsersList" class="space-y-3">
+                                <div id="emailUsersEmpty" class="text-center py-6 text-slate-400">
+                                    <i class="fa-regular fa-envelope text-2xl mb-2 block"></i>
+                                    <span class="text-sm">No emails sent yet</span>
+                                </div>
                             </div>
                         </div>
                         <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
-                            <h4 class="font-bold text-slate-700 mb-4">Emails by Job</h4>
-                            <div id="emailsByJobChart" class="space-y-2" id="emailJobsList">
-                                <!-- JS fills this -->
+                            <div class="flex items-center gap-3 mb-4">
+                                <div class="bg-amber-100 p-2 rounded-lg">
+                                    <i class="fa-solid fa-briefcase text-amber-600"></i>
+                                </div>
+                                <div>
+                                    <h4 class="font-bold text-slate-800">Emails by Job</h4>
+                                    <p class="text-xs text-slate-500">Email activity grouped by job ID</p>
+                                </div>
+                            </div>
+                            <div id="emailJobsList" class="space-y-2">
+                                <div id="emailJobsEmpty" class="text-center py-6 text-slate-400">
+                                    <i class="fa-regular fa-envelope text-2xl mb-2 block"></i>
+                                    <span class="text-sm">No emails sent yet</span>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -1662,7 +1701,7 @@
                             <td class="px-6 py-4 text-xs text-slate-500 truncate max-w-xs cursor-pointer hover:text-blue-600" onclick="showNotes(\`${encodeURIComponent(t.aiNotes)}\`)">${t.aiNotes && t.aiNotes.length > 0 ? t.aiNotes.substring(0,40)+'...' : '-'}</td>
                             <td class="px-6 py-4 text-xs text-slate-400">${t.lastReply || 'N/A'}</td>
                             <td class="px-6 py-4 text-right">
-                                <button onclick="markAsDone('${t.email}', '${t.jobId}', '${t.tags}', this)" class="text-green-600 hover:bg-green-50 p-2 rounded"><i class="fa-solid fa-check"></i></button>
+                                <button onclick="markAsDone('${t.email}', '${t.jobId}', '${t.tags}', this)" class="bg-green-100 hover:bg-green-200 text-green-700 border border-green-300 px-3 py-1.5 rounded-lg text-sm font-medium transition flex items-center gap-1"><i class="fa-solid fa-check"></i> Complete</button>
                             </td>
                         `;
                         tbody.appendChild(tr);
@@ -1772,7 +1811,7 @@
                             <td class="px-6 py-4 text-xs">${item.followUpStatus}</td>
                             <td class="px-6 py-4 text-xs text-slate-400">${item.lastReachedOut || '-'}</td>
                             <td class="px-6 py-4 text-right">
-                                <button onclick="markAsUnresponsive('${item.email}', this)" class="text-red-500 hover:bg-red-50 p-1 px-2 rounded text-xs">Unresponsive</button>
+                                <button onclick="markAsUnresponsive('${item.email}', this)" class="bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 px-3 py-1.5 rounded-lg text-xs font-medium transition"><i class="fa-solid fa-user-xmark mr-1"></i>Unresponsive</button>
                             </td>
                         `;
                         tbody.appendChild(tr);
@@ -2298,13 +2337,13 @@
         function loadAnalytics() {
             google.script.run.withSuccessHandler(data => {
                 if(data.error) { showAnalyticsAccessDenied(); return; }
-                
+
                 document.getElementById('statTotalUsers').textContent = data.totalUsers || 0;
                 document.getElementById('statTotalEmails').textContent = data.totalEmailsSent || 0;
-                
+
                 const tbody = document.getElementById('userStatsTableBody');
                 tbody.innerHTML = '';
-                if(data.userStats) {
+                if(data.userStats && data.userStats.length > 0) {
                     data.userStats.forEach(u => {
                         const tr = document.createElement('tr');
                         tr.className = "hover:bg-slate-50 border-b border-slate-50";
@@ -2318,6 +2357,11 @@
                         `;
                         tbody.appendChild(tr);
                     });
+                } else {
+                    tbody.innerHTML = `<tr><td colspan="6" class="px-6 py-8 text-center text-slate-400">
+                        <i class="fa-regular fa-folder-open text-2xl mb-2 block"></i>
+                        No user activity recorded yet
+                    </td></tr>`;
                 }
             }).getUserAnalytics();
 
@@ -2328,19 +2372,31 @@
                 
                 // Render charts (simplified lists)
                 const uList = document.getElementById('emailUsersList');
-                uList.innerHTML = '';
-                if(stats.emailsByUser) {
-                    Object.entries(stats.emailsByUser).sort((a,b)=>b[1]-a[1]).forEach(([k,v]) => {
-                        uList.innerHTML += `<div class="flex justify-between text-sm mb-2"><span>${k}</span><span class="font-bold">${v}</span></div>`;
+                const userEntries = stats.emailsByUser ? Object.entries(stats.emailsByUser).sort((a,b)=>b[1]-a[1]) : [];
+                if(userEntries.length > 0) {
+                    uList.innerHTML = '';
+                    userEntries.forEach(([k,v]) => {
+                        uList.innerHTML += `<div class="flex justify-between text-sm mb-2 p-2 bg-slate-50 rounded"><span class="text-slate-700">${k}</span><span class="font-bold text-emerald-600">${v}</span></div>`;
                     });
+                } else {
+                    uList.innerHTML = `<div class="text-center py-6 text-slate-400">
+                        <i class="fa-regular fa-envelope text-2xl mb-2 block"></i>
+                        <span class="text-sm">No emails sent yet</span>
+                    </div>`;
                 }
-                
+
                 const jList = document.getElementById('emailJobsList');
-                jList.innerHTML = '';
-                if(stats.emailsByJob) {
-                    Object.entries(stats.emailsByJob).sort((a,b)=>b[1]-a[1]).forEach(([k,v]) => {
-                        jList.innerHTML += `<div class="flex justify-between text-sm mb-2"><span>Job ${k}</span><span class="font-bold">${v}</span></div>`;
+                const jobEntries = stats.emailsByJob ? Object.entries(stats.emailsByJob).sort((a,b)=>b[1]-a[1]) : [];
+                if(jobEntries.length > 0) {
+                    jList.innerHTML = '';
+                    jobEntries.forEach(([k,v]) => {
+                        jList.innerHTML += `<div class="flex justify-between text-sm mb-2 p-2 bg-slate-50 rounded"><span class="text-slate-700">Job ${k}</span><span class="font-bold text-amber-600">${v}</span></div>`;
                     });
+                } else {
+                    jList.innerHTML = `<div class="text-center py-6 text-slate-400">
+                        <i class="fa-regular fa-envelope text-2xl mb-2 block"></i>
+                        <span class="text-sm">No emails sent yet</span>
+                    </div>`;
                 }
             }).getDetailedEmailStats();
         }
