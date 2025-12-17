@@ -2804,12 +2804,21 @@ IMPORTANT INTERPRETATION RULES:
 - ANY mention of a specific dollar amount by the candidate = Their proposed/expected rate
 - Questions about rate ("can I get...?", "is $X possible?") should be treated as rate proposals
 
-DECISION RULES:
-- If candidate mentions/asks for a rate AT OR BELOW $${targetRate}/hr → ACTION: AUTO_ACCEPT (accept their rate!)
-- If candidate explicitly ACCEPTS an offer we made → ACTION: AUTO_ACCEPT
-- If candidate mentions/asks for a rate ABOVE $${targetRate}/hr → ACTION: COUNTER (we will counter with target rate)
-- If candidate is very firm on a rate ABOVE $${targetRate}/hr after multiple attempts → ACTION: ESCALATE
-- If no clear rate mentioned → ACTION: COUNTER
+ACCEPTANCE DETECTION RULES - CRITICAL:
+- "sure", "ok", "okay", "yes", "I agree", "works for me", "that works", "sounds good" = ACCEPTING our offer
+- "$X works for me" or "sure $X" = ACCEPTING at rate $X (set is_accepting_offer: true)
+- "I accept $X" or "I can do $X" = ACCEPTING at rate $X
+- "fine with me", "I'm good with that", "let's proceed", "let's do it" = ACCEPTING our offer
+- ANY positive affirmation about a rate we proposed = is_accepting_offer: true
+- When candidate says "sure $X works" where $X matches or is close to what we offered = AUTO_ACCEPT
+
+DECISION RULES (in priority order):
+1. If candidate explicitly ACCEPTS our offer (using acceptance phrases like "sure", "works for me", "I agree", "okay", "yes") → ACTION: AUTO_ACCEPT, is_accepting_offer: true
+2. If candidate mentions/agrees to a rate AT OR BELOW $${targetRate}/hr → ACTION: AUTO_ACCEPT (accept their rate!)
+3. If candidate mentions/asks for a rate ABOVE $${targetRate}/hr → ACTION: COUNTER (we will counter with target rate)
+4. If candidate is very firm on a rate ABOVE $${targetRate}/hr after multiple attempts → ACTION: ESCALATE
+5. If no clear rate mentioned but message is positive → ACTION: COUNTER
+- PRIORITY: Acceptance detection takes precedence! If they say "sure $X works" - that's an acceptance, NOT a counter!
 
 CRITICAL:
 - If they ask "can I get $41?" and our target is $50, that means $41 <= $50, so AUTO_ACCEPT at $41
@@ -3964,14 +3973,19 @@ function processFollowUpQueue() {
       return { processed: 0, followUp1Sent: 0, followUp2Sent: 0, unresponsiveMarked: 0, log: log };
     }
 
-    // Get negotiation state data to check if candidates are already in active negotiations
+    // Get negotiation state data to check if candidates are already in ACTIVE negotiations
+    // IMPORTANT: Only include entries where candidate has ACTUALLY responded (not just "Initial Outreach")
     const stateSheet = ss.getSheetByName('Negotiation_State');
     const stateData = stateSheet ? stateSheet.getDataRange().getValues() : [];
     const activeNegotiations = new Set();
     for(let j = 1; j < stateData.length; j++) {
       const stateEmail = String(stateData[j][0]).toLowerCase().trim();
       const stateJobId = String(stateData[j][1]);
-      if(stateEmail && stateJobId) {
+      const stateStatus = String(stateData[j][4] || '').toLowerCase(); // Status is column 5 (index 4)
+      // Only consider as "active negotiation" if status indicates actual response/negotiation
+      // Exclude "Initial Outreach" entries - those are just initial emails sent, no response yet
+      const isActualNegotiation = stateStatus && !stateStatus.includes('initial outreach') && !stateStatus.includes('initial sent');
+      if(stateEmail && stateJobId && isActualNegotiation) {
         activeNegotiations.add(`${stateEmail}|${stateJobId}`);
       }
     }
@@ -6055,3 +6069,272 @@ function removeAnalyticsViewer(email) {
     return { success: false, error: e.message };
   }
 }
+
+
+// ============================================================
+// NOTIFICATION AND GLOBAL SEARCH SYSTEM
+// ============================================================
+
+/**
+ * Get notifications for the current user
+ * Returns recent activity, escalations, and important alerts
+ * @returns {Array} List of notifications
+ */
+function getNotifications() {
+  try {
+    const url = getStoredSheetUrl();
+    if (!url) return [];
+    
+    const ss = SpreadsheetApp.openByUrl(url);
+    const notifications = [];
+    const now = new Date();
+    const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+    
+    // Check for pending escalations (Human-Negotiation status)
+    const stateSheet = ss.getSheetByName('Negotiation_State');
+    if (stateSheet && stateSheet.getLastRow() > 1) {
+      const stateData = stateSheet.getDataRange().getValues();
+      let escalationCount = 0;
+      for (let i = 1; i < stateData.length; i++) {
+        const status = String(stateData[i][4] || '').toLowerCase();
+        if (status.includes('human') || status.includes('escalat')) {
+          escalationCount++;
+        }
+      }
+      if (escalationCount > 0) {
+        notifications.push({
+          type: 'warning',
+          icon: 'fa-user-tie',
+          title: 'Pending Escalations',
+          message: escalationCount + ' candidate(s) require human negotiation',
+          time: 'Action needed',
+          read: false,
+          action: { tab: 'negotiation' }
+        });
+      }
+    }
+    
+    // Check for unresponsive devs in last 24 hours
+    const unresponsiveSheet = ss.getSheetByName('Unresponsive_Devs');
+    if (unresponsiveSheet && unresponsiveSheet.getLastRow() > 1) {
+      const unrespData = unresponsiveSheet.getDataRange().getValues();
+      let recentUnresponsive = 0;
+      for (let i = 1; i < unrespData.length; i++) {
+        const markedDate = unrespData[i][8];
+        if (markedDate && new Date(markedDate) > oneDayAgo) {
+          recentUnresponsive++;
+        }
+      }
+      if (recentUnresponsive > 0) {
+        notifications.push({
+          type: 'info',
+          icon: 'fa-user-xmark',
+          title: 'Unresponsive Developers',
+          message: recentUnresponsive + ' developer(s) marked unresponsive in last 24h',
+          time: 'Today',
+          read: false
+        });
+      }
+    }
+    
+    // Check for recent completions
+    const completedSheet = ss.getSheetByName('Negotiation_Completed');
+    if (completedSheet && completedSheet.getLastRow() > 1) {
+      const compData = completedSheet.getDataRange().getValues();
+      let recentCompleted = 0;
+      for (let i = 1; i < compData.length; i++) {
+        const compDate = compData[i][0];
+        if (compDate && new Date(compDate) > oneDayAgo) {
+          recentCompleted++;
+        }
+      }
+      if (recentCompleted > 0) {
+        notifications.push({
+          type: 'success',
+          icon: 'fa-check-circle',
+          title: 'Completed Negotiations',
+          message: recentCompleted + ' negotiation(s) completed in last 24h',
+          time: 'Today',
+          read: false
+        });
+      }
+    }
+    
+    // Check follow-up queue for pending items
+    const followUpSheet = ss.getSheetByName('Follow_Up_Queue');
+    if (followUpSheet && followUpSheet.getLastRow() > 1) {
+      const fuData = followUpSheet.getDataRange().getValues();
+      let pendingFollowUps = 0;
+      for (let i = 1; i < fuData.length; i++) {
+        const status = String(fuData[i][8] || '');
+        if (status !== 'Responded' && status !== 'Unresponsive') {
+          pendingFollowUps++;
+        }
+      }
+      if (pendingFollowUps > 0) {
+        notifications.push({
+          type: 'info',
+          icon: 'fa-clock',
+          title: 'Pending Follow-ups',
+          message: pendingFollowUps + ' developer(s) awaiting response',
+          time: 'In queue',
+          read: false,
+          action: { tab: 'followup' }
+        });
+      }
+    }
+    
+    // Check trigger status
+    try {
+      const triggerStatus = getTriggerStatus();
+      if (triggerStatus.missingCount > 0) {
+        notifications.push({
+          type: 'error',
+          icon: 'fa-exclamation-triangle',
+          title: 'Missing Triggers',
+          message: triggerStatus.missingCount + ' automation trigger(s) not configured',
+          time: 'Setup required',
+          read: false,
+          action: { tab: 'settings' }
+        });
+      }
+    } catch (e) {
+      // Ignore trigger check errors
+    }
+    
+    return notifications;
+  } catch (e) {
+    console.error('Error getting notifications:', e);
+    return [];
+  }
+}
+
+/**
+ * Global search across all data
+ * Searches developers, negotiations, and follow-ups
+ * @param {string} query - Search query
+ * @returns {Array} Search results
+ */
+function globalSearch(query) {
+  try {
+    if (!query || query.length < 2) return [];
+    
+    const url = getStoredSheetUrl();
+    if (!url) return [];
+    
+    const ss = SpreadsheetApp.openByUrl(url);
+    const results = [];
+    const queryLower = query.toLowerCase();
+    const maxResults = 20;
+    
+    // Search Negotiation_State
+    const stateSheet = ss.getSheetByName('Negotiation_State');
+    if (stateSheet && stateSheet.getLastRow() > 1) {
+      const stateData = stateSheet.getDataRange().getValues();
+      for (let i = 1; i < stateData.length && results.length < maxResults; i++) {
+        const email = String(stateData[i][0] || '').toLowerCase();
+        const name = String(stateData[i][7] || '').toLowerCase();
+        const jobId = String(stateData[i][1] || '');
+        const devId = String(stateData[i][6] || '').toLowerCase();
+        const status = String(stateData[i][4] || '');
+        
+        if (email.includes(queryLower) || name.includes(queryLower) || 
+            jobId.includes(queryLower) || devId.includes(queryLower)) {
+          results.push({
+            type: 'negotiation',
+            id: email,
+            name: stateData[i][7] || email,
+            email: stateData[i][0],
+            jobId: jobId,
+            status: status
+          });
+        }
+      }
+    }
+    
+    // Search Negotiation_Completed
+    const compSheet = ss.getSheetByName('Negotiation_Completed');
+    if (compSheet && compSheet.getLastRow() > 1) {
+      const compData = compSheet.getDataRange().getValues();
+      for (let i = 1; i < compData.length && results.length < maxResults; i++) {
+        const email = String(compData[i][2] || '').toLowerCase();
+        const name = String(compData[i][3] || '').toLowerCase();
+        const jobId = String(compData[i][1] || '');
+        const status = String(compData[i][4] || '');
+        
+        if (email.includes(queryLower) || name.includes(queryLower) || jobId.includes(queryLower)) {
+          results.push({
+            type: 'developer',
+            id: email,
+            name: compData[i][3] || email,
+            email: compData[i][2],
+            jobId: jobId,
+            status: status
+          });
+        }
+      }
+    }
+    
+    // Search Follow_Up_Queue
+    const fuSheet = ss.getSheetByName('Follow_Up_Queue');
+    if (fuSheet && fuSheet.getLastRow() > 1) {
+      const fuData = fuSheet.getDataRange().getValues();
+      for (let i = 1; i < fuData.length && results.length < maxResults; i++) {
+        const email = String(fuData[i][0] || '').toLowerCase();
+        const name = String(fuData[i][3] || '').toLowerCase();
+        const jobId = String(fuData[i][1] || '');
+        const devId = String(fuData[i][4] || '').toLowerCase();
+        const status = String(fuData[i][8] || 'Pending');
+        
+        if (email.includes(queryLower) || name.includes(queryLower) || 
+            jobId.includes(queryLower) || devId.includes(queryLower)) {
+          results.push({
+            type: 'followup',
+            id: email,
+            name: fuData[i][3] || email,
+            email: fuData[i][0],
+            jobId: jobId,
+            status: status
+          });
+        }
+      }
+    }
+    
+    // Search Negotiation_Tasks
+    const tasksSheet = ss.getSheetByName('Negotiation_Tasks');
+    if (tasksSheet && tasksSheet.getLastRow() > 1) {
+      const tasksData = tasksSheet.getDataRange().getValues();
+      for (let i = 1; i < tasksData.length && results.length < maxResults; i++) {
+        const email = String(tasksData[i][3] || '').toLowerCase();
+        const name = String(tasksData[i][2] || '').toLowerCase();
+        const jobId = String(tasksData[i][1] || '');
+        
+        if (email.includes(queryLower) || name.includes(queryLower) || jobId.includes(queryLower)) {
+          results.push({
+            type: 'developer',
+            id: email,
+            name: tasksData[i][2] || email,
+            email: tasksData[i][3],
+            jobId: jobId,
+            status: 'Accepted'
+          });
+        }
+      }
+    }
+    
+    // Remove duplicates by email+jobId
+    const seen = new Set();
+    const uniqueResults = results.filter(r => {
+      const key = r.email + '|' + r.jobId;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+    
+    return uniqueResults.slice(0, maxResults);
+  } catch (e) {
+    console.error('Error in global search:', e);
+    return [];
+  }
+}
+
