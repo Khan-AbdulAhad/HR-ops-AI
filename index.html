@@ -294,7 +294,15 @@
                                     <div class="smart-chip" onclick="toggleChip(this)" data-value="Passed VetSmith">Passed VetSmith</div>
                                     <div class="smart-chip" onclick="toggleChip(this)" data-value="Pending Review">Pending Review</div>
                                     <div class="smart-chip" onclick="toggleChip(this)" data-value="Completed Testing">Completed Testing</div>
+                                    <div class="smart-chip" onclick="toggleChip(this)" data-value="Developer Backout">Developer Backout</div>
+                                    <div class="smart-chip" onclick="toggleChip(this)" data-value="On Hold - Onboarding">On Hold - Onboarding</div>
+                                    <div class="smart-chip" onclick="toggleChip(this)" data-value="Pending Onboarding">Pending Onboarding</div>
                                     <div class="smart-chip" onclick="toggleChip(this)" data-value="Ready for Selection">Ready for Selection</div>
+                                    <div class="smart-chip" onclick="toggleChip(this)" data-value="Selected for Trial">Selected for Trial</div>
+                                </div>
+                                <div class="flex gap-2 mt-2">
+                                    <button onclick="selectAllChips()" class="text-xs text-blue-600 hover:underline">Select All</button>
+                                    <button onclick="clearAllChips()" class="text-xs text-slate-500 hover:underline">Clear</button>
                                 </div>
                             </div>
                             <div class="lg:col-span-2 flex items-end gap-2">
@@ -335,12 +343,17 @@
                     </div>
                     
                     <!-- Paste Filter Area -->
-                    <div id="pasteFilterArea" class="hidden mb-4 bg-slate-50 p-4 rounded-xl border border-slate-200">
-                        <textarea id="pasteFilterInput" class="w-full h-24 p-3 rounded-lg border border-slate-300 mb-2" placeholder="Paste emails or IDs..."></textarea>
-                        <div class="flex gap-2">
-                            <button onclick="applyPasteFilter()" class="bg-blue-600 text-white px-3 py-1 rounded text-sm">Filter</button>
-                            <button onclick="clearPasteFilter()" class="bg-white border border-slate-300 px-3 py-1 rounded text-sm">Clear</button>
-                            <button onclick="togglePasteFilter()" class="ml-auto text-sm text-slate-500">Close</button>
+                    <div id="pasteFilterArea" class="hidden mb-4 bg-slate-50 dark:bg-slate-800 p-4 rounded-xl border-2 border-blue-200 dark:border-blue-800">
+                        <label class="block text-sm font-semibold text-slate-700 dark:text-slate-300 mb-2">Paste Comma Separated Emails or Developer IDs:</label>
+                        <textarea id="pasteFilterInput" class="w-full h-24 p-3 rounded-lg border-2 border-blue-300 dark:border-blue-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200 font-mono text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none mb-3" placeholder="john@example.com, jane@example.com&#10;OR&#10;12345, 67890"></textarea>
+                        <div class="flex gap-2 items-center">
+                            <button onclick="applyPasteFilter()" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-bold shadow flex items-center gap-2 transition">
+                                <i class="fa-solid fa-filter"></i> Filter List
+                            </button>
+                            <button onclick="clearPasteFilter()" class="bg-white dark:bg-slate-700 hover:bg-slate-100 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-500 px-4 py-2 rounded-lg text-sm font-medium transition">
+                                Clear List
+                            </button>
+                            <button onclick="togglePasteFilter()" class="ml-auto text-sm text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 transition">Close</button>
                         </div>
                     </div>
 
@@ -352,8 +365,8 @@
                                     <input type="text" id="tableSearch" oninput="searchTable()" placeholder="Search name, email, or ID..." class="input-field pl-10">
                                     <i class="fa-solid fa-magnifying-glass absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 text-sm"></i>
                                 </div>
-                                <button onclick="togglePasteFilter()" class="bg-slate-100 hover:bg-slate-200 p-2.5 rounded-lg text-slate-600 border border-slate-200" title="Paste Filter">
-                                    <i class="fa-solid fa-clipboard-list"></i>
+                                <button onclick="togglePasteFilter()" class="bg-white dark:bg-slate-700 hover:bg-slate-100 dark:hover:bg-slate-600 px-3 py-2.5 rounded-lg text-slate-600 dark:text-slate-200 border border-slate-200 dark:border-slate-600 text-sm font-medium flex items-center gap-2 transition" title="Filter by pasting emails or IDs">
+                                    <i class="fa-solid fa-clipboard-list"></i> Paste & Filter
                                 </button>
                             </div>
                             
@@ -574,7 +587,7 @@
                     
                     <!-- Bulk Actions -->
                     <div id="bulkActionsBar" class="hidden mb-4 bg-blue-50 p-3 rounded-lg border border-blue-200 flex justify-between items-center">
-                        <span class="text-sm font-bold text-blue-800"><span id="bulkSelectedCount">0</span> selected</span>
+                        <span class="text-sm font-bold text-blue-800"><span id="taskSelectedCount">0</span> selected</span>
                         <div class="flex gap-2">
                             <button onclick="bulkCompleteSelected()" class="bg-green-600 text-white px-3 py-1 rounded text-sm">Complete Selected</button>
                             <button onclick="clearTaskSelection()" class="bg-white border text-slate-600 px-3 py-1 rounded text-sm">Clear</button>
@@ -1102,6 +1115,12 @@
 
         // --- Toggles ---
         function toggleChip(el) { el.classList.toggle('active'); }
+        function selectAllChips() {
+            document.querySelectorAll('.smart-chip[data-value]').forEach(chip => chip.classList.add('active'));
+        }
+        function clearAllChips() {
+            document.querySelectorAll('.smart-chip[data-value]').forEach(chip => chip.classList.remove('active'));
+        }
         function openManualInput() { document.getElementById('manualInputModal').classList.remove('hidden'); }
         function openConfigModal() { 
             document.getElementById('configModal').classList.remove('hidden'); 
@@ -1604,9 +1623,28 @@
         }
         function updateBulkUI() {
             const bar = document.getElementById('bulkActionBar');
-            document.getElementById('bulkSelectedCount').textContent = selectedDevs.size;
-            if(selectedDevs.size > 0) bar.classList.remove('hidden');
-            else bar.classList.add('hidden');
+            const count = selectedDevs.size;
+
+            // Update both the floating bar count and the selection indicator
+            document.getElementById('bulkSelectedCount').textContent = count;
+            document.getElementById('quickSelectedCount').textContent = count;
+
+            // Show/hide floating action bar
+            if(count > 0) {
+                bar.classList.remove('hidden');
+            } else {
+                bar.classList.add('hidden');
+            }
+
+            // Show/hide selection indicator
+            const indicator = document.getElementById('selectionIndicator');
+            if(count > 0) {
+                indicator.classList.remove('hidden');
+                indicator.classList.add('flex');
+            } else {
+                indicator.classList.add('hidden');
+                indicator.classList.remove('flex');
+            }
         }
         function deselectAll() {
             selectedDevs.clear();
@@ -1773,7 +1811,7 @@
 
         function updateBulkActionsBar() {
             const bar = document.getElementById('bulkActionsBar');
-            const count = document.getElementById('bulkSelectedCount');
+            const count = document.getElementById('taskSelectedCount');
             if(selectedTasks.size > 0) {
                 bar.classList.remove('hidden');
                 bar.classList.add('flex'); // Ensure flex is added
