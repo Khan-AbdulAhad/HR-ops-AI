@@ -705,15 +705,36 @@
 
                 <!-- TAB 5: ANALYTICS -->
                 <div id="tab-analytics" class="tab-content hidden-tab">
-                    <div class="flex justify-between items-center mb-6">
-                        <h3 class="text-xl font-bold text-slate-800 dark:text-white">Usage Analytics</h3>
-                        <div class="flex gap-2">
-                            <button onclick="loadAnalytics()" class="bg-white border border-slate-300 px-3 py-2 rounded-lg text-sm hover:bg-slate-50">
-                                <i class="fa-solid fa-rotate mr-1"></i> Refresh
+                    <div class="flex flex-col gap-4 mb-6">
+                        <div class="flex justify-between items-center">
+                            <h3 class="text-xl font-bold text-slate-800 dark:text-white">Usage Analytics</h3>
+                            <div class="flex gap-2">
+                                <button onclick="loadAnalytics()" class="bg-white border border-slate-300 px-3 py-2 rounded-lg text-sm hover:bg-slate-50">
+                                    <i class="fa-solid fa-rotate mr-1"></i> Refresh
+                                </button>
+                                <button id="manageViewersBtn" onclick="openViewersModal()" class="bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-indigo-700">
+                                    <i class="fa-solid fa-users-gear mr-1"></i> Access
+                                </button>
+                            </div>
+                        </div>
+                        <!-- User Filter Search Bar -->
+                        <div class="flex items-center gap-3 bg-white p-3 rounded-lg border border-slate-200 shadow-sm">
+                            <div class="flex-1 relative">
+                                <i class="fa-solid fa-search absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"></i>
+                                <input type="email" id="analyticsUserFilter"
+                                    placeholder="Filter by user email (leave empty for all users)"
+                                    class="w-full pl-10 pr-10 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                                    onkeyup="handleAnalyticsFilterKeyup(event)">
+                                <button id="clearAnalyticsFilter" onclick="clearAnalyticsFilter()" class="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 hidden">
+                                    <i class="fa-solid fa-times"></i>
+                                </button>
+                            </div>
+                            <button onclick="applyAnalyticsFilter()" class="bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-indigo-700">
+                                <i class="fa-solid fa-filter mr-1"></i> Filter
                             </button>
-                            <button id="manageViewersBtn" onclick="openViewersModal()" class="bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-indigo-700">
-                                <i class="fa-solid fa-users-gear mr-1"></i> Access
-                            </button>
+                            <span id="analyticsFilterStatus" class="text-xs text-slate-500 hidden">
+                                Showing data for: <span id="analyticsFilterEmail" class="font-bold text-indigo-600"></span>
+                            </span>
                         </div>
                     </div>
 
@@ -893,6 +914,20 @@
             <div class="flex gap-2">
                 <select id="templateSelect" onchange="loadSelectedTemplate()" class="input-field flex-1"><option value="">Load Template...</option></select>
                 <button onclick="saveCurrentAsTemplate()" class="bg-slate-100 px-3 rounded-lg text-slate-600 hover:bg-slate-200"><i class="fa-solid fa-save"></i></button>
+            </div>
+
+            <!-- Job Type Selector -->
+            <div class="bg-slate-50 p-3 rounded-lg border border-slate-200">
+                <label class="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-2">Job Type</label>
+                <select id="jobTypeSelect" class="input-field text-sm" onchange="handleJobTypeChange()">
+                    <option value="negotiation">Rate Negotiation - Follow-up enabled</option>
+                    <option value="data_gathering">Data Gathering - Follow-up enabled</option>
+                    <option value="informing">Informing Only - No follow-up</option>
+                </select>
+                <p id="jobTypeHint" class="text-xs text-slate-500 mt-1">
+                    <i class="fa-solid fa-info-circle mr-1"></i>
+                    Candidates will receive automated follow-ups if they don't respond.
+                </p>
             </div>
 
             <input id="emailSubject" class="input-field font-semibold" placeholder="Subject">
@@ -2059,6 +2094,19 @@
                 .createAllMissingTriggers();
         }
 
+        function handleJobTypeChange() {
+            const jobType = document.getElementById('jobTypeSelect').value;
+            const hint = document.getElementById('jobTypeHint');
+
+            if(jobType === 'informing') {
+                hint.innerHTML = '<i class="fa-solid fa-info-circle mr-1 text-amber-500"></i><span class="text-amber-600">No follow-ups will be sent. Use for announcements or one-way info.</span>';
+            } else if(jobType === 'data_gathering') {
+                hint.innerHTML = '<i class="fa-solid fa-info-circle mr-1 text-blue-500"></i><span class="text-blue-600">Follow-ups enabled. Responses will be tracked for data collection.</span>';
+            } else {
+                hint.innerHTML = '<i class="fa-solid fa-info-circle mr-1"></i>Candidates will receive automated follow-ups if they don\'t respond.';
+            }
+        }
+
         function sendEmails() {
             const subject = document.getElementById('emailSubject').value;
             const body = document.getElementById('emailBody').value;
@@ -2069,7 +2117,8 @@
                 region: d.region || ''
             }));
             const jobId = document.getElementById('jobId').value;
-            
+            const jobType = document.getElementById('jobTypeSelect').value;
+
             if(!recipients.length) { showToast("No recipients", "warning"); return; }
             if(!jobId) { showToast("Missing Job ID", "warning"); return; }
             if(!subject || !body) { showToast("Missing content", "warning"); return; }
@@ -2113,7 +2162,7 @@
                     progressContainer.classList.add('hidden');
                     showToast("Error: " + err.message, "error");
                 })
-                .sendBulkEmails(recipients, "", subject, body, jobId, {});
+                .sendBulkEmails(recipients, "", subject, body, jobId, { jobType: jobType });
         }
 
         function saveNegotiationSettings() {
@@ -2386,7 +2435,40 @@
         }
 
         // --- Analytics ---
+        let currentAnalyticsFilter = ''; // Track current filter
+
+        function handleAnalyticsFilterKeyup(event) {
+            const input = document.getElementById('analyticsUserFilter');
+            const clearBtn = document.getElementById('clearAnalyticsFilter');
+            clearBtn.classList.toggle('hidden', !input.value);
+            if(event.key === 'Enter') applyAnalyticsFilter();
+        }
+
+        function clearAnalyticsFilter() {
+            document.getElementById('analyticsUserFilter').value = '';
+            document.getElementById('clearAnalyticsFilter').classList.add('hidden');
+            document.getElementById('analyticsFilterStatus').classList.add('hidden');
+            currentAnalyticsFilter = '';
+            loadAnalytics();
+        }
+
+        function applyAnalyticsFilter() {
+            const email = document.getElementById('analyticsUserFilter').value.trim().toLowerCase();
+            currentAnalyticsFilter = email;
+
+            if(email) {
+                document.getElementById('analyticsFilterStatus').classList.remove('hidden');
+                document.getElementById('analyticsFilterEmail').textContent = email;
+            } else {
+                document.getElementById('analyticsFilterStatus').classList.add('hidden');
+            }
+
+            loadAnalytics();
+        }
+
         function loadAnalytics() {
+            const filterEmail = currentAnalyticsFilter || '';
+
             google.script.run.withSuccessHandler(data => {
                 if(data.error) { showAnalyticsAccessDenied(); return; }
 
@@ -2412,18 +2494,18 @@
                 } else {
                     tbody.innerHTML = `<tr><td colspan="6" class="px-6 py-8 text-center text-slate-400">
                         <i class="fa-regular fa-folder-open text-2xl mb-2 block"></i>
-                        No user activity recorded yet
+                        ${filterEmail ? 'No activity found for this user' : 'No user activity recorded yet'}
                     </td></tr>`;
                 }
                 // Update cache
                 dataCache.analytics = { data: data, lastLoaded: Date.now() };
-            }).getUserAnalytics();
+            }).getUserAnalytics(filterEmail);
 
             google.script.run.withSuccessHandler(stats => {
                 if(stats.error) return;
                 document.getElementById('statTotalFollowUps').textContent = stats.totalFollowUps || 0;
                 document.getElementById('statTotalNegotiations').textContent = stats.totalNegotiations || 0;
-                
+
                 // Render charts (simplified lists)
                 const uList = document.getElementById('emailUsersList');
                 const userEntries = stats.emailsByUser ? Object.entries(stats.emailsByUser).sort((a,b)=>b[1]-a[1]) : [];
@@ -2435,7 +2517,7 @@
                 } else {
                     uList.innerHTML = `<div class="text-center py-6 text-slate-400">
                         <i class="fa-regular fa-envelope text-2xl mb-2 block"></i>
-                        <span class="text-sm">No emails sent yet</span>
+                        <span class="text-sm">${filterEmail ? 'No emails found for this user' : 'No emails sent yet'}</span>
                     </div>`;
                 }
 
@@ -2449,10 +2531,10 @@
                 } else {
                     jList.innerHTML = `<div class="text-center py-6 text-slate-400">
                         <i class="fa-regular fa-envelope text-2xl mb-2 block"></i>
-                        <span class="text-sm">No emails sent yet</span>
+                        <span class="text-sm">${filterEmail ? 'No emails found for this user' : 'No emails sent yet'}</span>
                     </div>`;
                 }
-            }).getDetailedEmailStats();
+            }).getDetailedEmailStats(filterEmail);
         }
 
         function showAnalyticsAccessDenied() {
