@@ -1393,6 +1393,42 @@ function getJobQuestions(jobId) {
 }
 
 /**
+ * Save the job type for a specific job
+ * Job types: 'negotiation' (rate negotiation, follow-up enabled),
+ *            'data_gathering' (collect info, follow-up enabled),
+ *            'informing' (one-way info, no follow-up)
+ * @param {string} jobId - The job ID
+ * @param {string} jobType - The job type
+ */
+function saveJobType(jobId, jobType) {
+  const key = `JOB_${jobId}_TYPE`;
+  const validTypes = ['negotiation', 'data_gathering', 'informing'];
+  const type = validTypes.includes(jobType) ? jobType : 'negotiation';
+  PropertiesService.getScriptProperties().setProperty(key, type);
+}
+
+/**
+ * Get the job type for a specific job
+ * @param {string} jobId - The job ID
+ * @returns {string} The job type (defaults to 'negotiation' if not set)
+ */
+function getJobType(jobId) {
+  const key = `JOB_${jobId}_TYPE`;
+  return PropertiesService.getScriptProperties().getProperty(key) || 'negotiation';
+}
+
+/**
+ * Check if a job requires follow-ups
+ * @param {string} jobId - The job ID
+ * @returns {boolean} True if follow-ups are needed
+ */
+function jobRequiresFollowUp(jobId) {
+  const jobType = getJobType(jobId);
+  // Informing jobs don't need follow-ups
+  return jobType !== 'informing';
+}
+
+/**
  * Extract answers from candidate's response based on the questions asked
  */
 function extractAnswersFromResponse(candidateMessage, questions, candidateName) {
@@ -2243,6 +2279,12 @@ function sendBulkEmails(recipients, senderName, subject, htmlBody, jobId, opts) 
   const logSheet = ss.getSheetByName("Email_Logs");
   const stateSheet = ss.getSheetByName("Negotiation_State");
 
+  // Get job type from options (defaults to 'negotiation' for backward compatibility)
+  const jobType = opts?.jobType || 'negotiation';
+
+  // Save job type for this job
+  saveJobType(jobId, jobType);
+
   if(!logSheet || !stateSheet) {
     return {success: false, sent: 0, errors: ["Required sheets not found. Please re-save your config."]};
   }
@@ -2318,10 +2360,13 @@ function sendBulkEmails(recipients, senderName, subject, htmlBody, jobId, opts) 
       }
 
       // Add to follow-up queue for automated 12hr and 28hr follow-ups
-      try {
-        addToFollowUpQueue(r.email, jobId, threadId, r.name, r.devId || 'N/A');
-      } catch(followUpError) {
-        console.error("Failed to add to follow-up queue:", followUpError);
+      // Skip follow-up queue for 'informing' job type (announcements, one-way info)
+      if (jobType !== 'informing') {
+        try {
+          addToFollowUpQueue(r.email, jobId, threadId, r.name, r.devId || 'N/A');
+        } catch(followUpError) {
+          console.error("Failed to add to follow-up queue:", followUpError);
+        }
       }
 
       count++;
@@ -4032,6 +4077,12 @@ function processFollowUpQueue() {
 
       // Skip already processed items
       if(status === 'Responded' || status === 'Unresponsive') {
+        continue;
+      }
+
+      // Skip jobs that don't require follow-ups (e.g., informing-only jobs)
+      if(!jobRequiresFollowUp(jobId)) {
+        log.push({ type: 'info', message: `${email} - Job ${jobId} is informing-only, skipping follow-up` });
         continue;
       }
 
@@ -5756,13 +5807,17 @@ function checkAnalyticsAccess() {
 
 /**
  * Get comprehensive analytics data from the CENTRAL sheet
+ * @param {string} filterEmail - Optional email to filter results for a specific user
  * @returns {Object} Analytics data
  */
-function getUserAnalytics() {
+function getUserAnalytics(filterEmail) {
   const access = checkAnalyticsAccess();
   if (!access.hasAccess) {
     return { error: "Access denied. You don't have permission to view analytics." };
   }
+
+  // Normalize filter email
+  const emailFilter = filterEmail ? String(filterEmail).toLowerCase().trim() : '';
 
   try {
     const ss = getAnalyticsSpreadsheet();
@@ -5779,7 +5834,8 @@ function getUserAnalytics() {
       actionsByType: {},
       actionsByJob: {},
       accessLevel: access.accessLevel,
-      currentUser: access.userEmail
+      currentUser: access.userEmail,
+      filterApplied: emailFilter || null
     };
 
     const sheet = ss.getSheetByName('Activity_Log');
@@ -5797,6 +5853,11 @@ function getUserAnalytics() {
       const action = String(data[i][2] || '');
       const jobId = String(data[i][3] || '');
       const count = parseInt(data[i][4]) || 1;
+
+      // Apply email filter if specified
+      if (emailFilter && userEmail.toLowerCase() !== emailFilter) {
+        continue; // Skip this row if it doesn't match the filter
+      }
 
       // Track by user
       if (userEmail && userEmail !== 'Unknown') {
@@ -5884,13 +5945,17 @@ function getUserAnalytics() {
 
 /**
  * Get detailed statistics (called separately for performance)
+ * @param {string} filterEmail - Optional email to filter results for a specific user
  * @returns {Object} Detailed stats
  */
-function getDetailedEmailStats() {
+function getDetailedEmailStats(filterEmail) {
   const access = checkAnalyticsAccess();
   if (!access.hasAccess) {
     return { error: "Access denied" };
   }
+
+  // Normalize filter email
+  const emailFilter = filterEmail ? String(filterEmail).toLowerCase().trim() : '';
 
   try {
     const ss = getAnalyticsSpreadsheet();
@@ -5902,7 +5967,8 @@ function getDetailedEmailStats() {
       totalNegotiations: 0,
       totalDataFetches: 0,
       emailsByJob: {},
-      emailsByUser: {}
+      emailsByUser: {},
+      filterApplied: emailFilter || null
     };
 
     const sheet = ss.getSheetByName('Activity_Log');
@@ -5917,6 +5983,11 @@ function getDetailedEmailStats() {
       const action = String(data[i][2] || '');
       const jobId = String(data[i][3] || 'Unknown');
       const count = parseInt(data[i][4]) || 1;
+
+      // Apply email filter if specified
+      if (emailFilter && userEmail.toLowerCase() !== emailFilter) {
+        continue; // Skip this row if it doesn't match the filter
+      }
 
       if (action === 'email_sent') {
         stats.totalEmails += count;
