@@ -737,10 +737,16 @@
                                 <input type="email" id="analyticsUserFilter"
                                     placeholder="Filter by user email (leave empty for all users)"
                                     class="w-full pl-10 pr-10 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                                    onkeyup="handleAnalyticsFilterKeyup(event)">
+                                    onkeyup="handleAnalyticsFilterKeyup(event)"
+                                    oninput="handleAnalyticsEmailInput(event)"
+                                    onfocus="handleAnalyticsEmailFocus()"
+                                    autocomplete="off">
                                 <button id="clearAnalyticsFilter" onclick="clearAnalyticsFilter()" class="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 hidden">
                                     <i class="fa-solid fa-times"></i>
                                 </button>
+                                <!-- Autocomplete dropdown -->
+                                <div id="analyticsEmailDropdown" class="absolute left-0 right-0 top-full mt-1 bg-white border border-slate-200 rounded-lg shadow-lg z-50 max-h-60 overflow-y-auto hidden">
+                                </div>
                             </div>
                             <button onclick="applyAnalyticsFilter()" class="bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-indigo-700">
                                 <i class="fa-solid fa-filter mr-1"></i> Filter
@@ -2479,8 +2485,113 @@
             const input = document.getElementById('analyticsUserFilter');
             const clearBtn = document.getElementById('clearAnalyticsFilter');
             clearBtn.classList.toggle('hidden', !input.value);
-            if(event.key === 'Enter') applyAnalyticsFilter();
+            if(event.key === 'Enter') {
+                hideAnalyticsEmailDropdown();
+                applyAnalyticsFilter();
+            }
+            if(event.key === 'Escape') {
+                hideAnalyticsEmailDropdown();
+            }
         }
+
+        // Debounce timer for email search
+        let analyticsEmailSearchTimer = null;
+
+        function handleAnalyticsEmailInput(event) {
+            const query = event.target.value.trim();
+
+            // Clear previous timer
+            if (analyticsEmailSearchTimer) {
+                clearTimeout(analyticsEmailSearchTimer);
+            }
+
+            // Hide dropdown if query is empty
+            if (!query) {
+                hideAnalyticsEmailDropdown();
+                return;
+            }
+
+            // Debounce: wait 300ms after user stops typing
+            analyticsEmailSearchTimer = setTimeout(() => {
+                searchAnalyticsEmails(query);
+            }, 300);
+        }
+
+        function handleAnalyticsEmailFocus() {
+            const query = document.getElementById('analyticsUserFilter').value.trim();
+            if (query) {
+                searchAnalyticsEmails(query);
+            }
+        }
+
+        function searchAnalyticsEmails(query) {
+            google.script.run
+                .withSuccessHandler(emails => {
+                    renderAnalyticsEmailDropdown(emails, query);
+                })
+                .withFailureHandler(() => {
+                    hideAnalyticsEmailDropdown();
+                })
+                .searchAnalyticsUsers(query);
+        }
+
+        function renderAnalyticsEmailDropdown(emails, query) {
+            const dropdown = document.getElementById('analyticsEmailDropdown');
+
+            if (!emails || emails.length === 0) {
+                dropdown.innerHTML = `
+                    <div class="px-4 py-3 text-sm text-slate-500 text-center">
+                        <i class="fa-solid fa-search mr-2"></i>No users found matching "${query}"
+                    </div>
+                `;
+                dropdown.classList.remove('hidden');
+                return;
+            }
+
+            dropdown.innerHTML = emails.map(email => `
+                <div class="px-4 py-2 hover:bg-indigo-50 cursor-pointer flex items-center gap-2 text-sm border-b border-slate-100 last:border-b-0"
+                     onclick="selectAnalyticsEmail('${email}')">
+                    <i class="fa-solid fa-user text-indigo-400"></i>
+                    <span class="text-slate-700">${highlightMatch(email, query)}</span>
+                </div>
+            `).join('');
+
+            dropdown.classList.remove('hidden');
+        }
+
+        function highlightMatch(text, query) {
+            const lowerText = text.toLowerCase();
+            const lowerQuery = query.toLowerCase();
+            const index = lowerText.indexOf(lowerQuery);
+
+            if (index === -1) return text;
+
+            const before = text.substring(0, index);
+            const match = text.substring(index, index + query.length);
+            const after = text.substring(index + query.length);
+
+            return `${before}<span class="bg-yellow-200 font-semibold">${match}</span>${after}`;
+        }
+
+        function selectAnalyticsEmail(email) {
+            document.getElementById('analyticsUserFilter').value = email;
+            document.getElementById('clearAnalyticsFilter').classList.remove('hidden');
+            hideAnalyticsEmailDropdown();
+            applyAnalyticsFilter();
+        }
+
+        function hideAnalyticsEmailDropdown() {
+            document.getElementById('analyticsEmailDropdown').classList.add('hidden');
+        }
+
+        // Hide dropdown when clicking outside
+        document.addEventListener('click', function(event) {
+            const input = document.getElementById('analyticsUserFilter');
+            const dropdown = document.getElementById('analyticsEmailDropdown');
+            if (input && dropdown && !input.contains(event.target) && !dropdown.contains(event.target)) {
+                hideAnalyticsEmailDropdown();
+            }
+        });
 
         function clearAnalyticsFilter() {
             document.getElementById('analyticsUserFilter').value = '';

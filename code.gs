@@ -5777,8 +5777,18 @@ function checkAnalyticsAccess() {
     const userEmail = Session.getActiveUser().getEmail();
     if (!userEmail) return { hasAccess: false, accessLevel: 'none', userEmail: '' };
 
+    // Default admins who always have access
+    const defaultAdmins = [
+      'abdul.ahad@turing.com'
+    ];
+    const isDefaultAdmin = defaultAdmins.some(admin => admin.toLowerCase() === userEmail.toLowerCase());
+
     const ss = getAnalyticsSpreadsheet();
-    if (!ss) return { hasAccess: false, accessLevel: 'none', userEmail: userEmail };
+    if (!ss) {
+      // If no spreadsheet but user is default admin, grant access
+      if (isDefaultAdmin) return { hasAccess: true, accessLevel: 'admin', userEmail: userEmail };
+      return { hasAccess: false, accessLevel: 'none', userEmail: userEmail };
+    }
 
     const sheet = ss.getSheetByName('Analytics_Viewers');
     if (!sheet) {
@@ -5798,10 +5808,54 @@ function checkAnalyticsAccess() {
       }
     }
 
+    // If user is a default admin but not in the sheet, add them and grant access
+    if (isDefaultAdmin) {
+      sheet.appendRow([userEmail, 'System', new Date(), 'admin']);
+      return { hasAccess: true, accessLevel: 'admin', userEmail: userEmail };
+    }
+
     return { hasAccess: false, accessLevel: 'none', userEmail: userEmail };
   } catch (e) {
     console.error("Error checking analytics access:", e);
     return { hasAccess: false, accessLevel: 'none', userEmail: '' };
+  }
+}
+
+/**
+ * Search for user emails in analytics data for autocomplete
+ * @param {string} searchQuery - Partial email to search for
+ * @returns {Array} List of matching user emails
+ */
+function searchAnalyticsUsers(searchQuery) {
+  const access = checkAnalyticsAccess();
+  if (!access.hasAccess) {
+    return [];
+  }
+
+  try {
+    const ss = getAnalyticsSpreadsheet();
+    if (!ss) return [];
+
+    const sheet = ss.getSheetByName('Activity_Log');
+    if (!sheet || sheet.getLastRow() <= 1) return [];
+
+    const data = sheet.getDataRange().getValues();
+    const query = String(searchQuery || '').toLowerCase().trim();
+    const uniqueEmails = new Set();
+
+    // Collect unique emails that match the search query
+    for (let i = 1; i < data.length; i++) {
+      const userEmail = String(data[i][1] || '').trim();
+      if (userEmail && userEmail !== 'Unknown' && userEmail.toLowerCase().includes(query)) {
+        uniqueEmails.add(userEmail.toLowerCase());
+      }
+    }
+
+    // Sort and return as array (limit to 10 results)
+    return Array.from(uniqueEmails).sort().slice(0, 10);
+  } catch (e) {
+    console.error("Error searching analytics users:", e);
+    return [];
   }
 }
 
