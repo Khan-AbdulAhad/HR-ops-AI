@@ -397,7 +397,27 @@
                                             <th class="px-6 py-4">Developer ID</th>
                                             <th class="px-6 py-4">Name</th>
                                             <th class="px-6 py-4">Email</th>
-                                            <th class="px-6 py-4">Country</th>
+                                            <th class="px-6 py-4 relative">
+                                                <span class="inline-flex items-center gap-1">
+                                                    Country
+                                                    <button onclick="toggleCountryFilter(event)" class="country-filter-btn ml-1 p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-600 transition" title="Filter by country">
+                                                        <i class="fa-solid fa-filter text-xs text-slate-400" id="countryFilterIcon"></i>
+                                                    </button>
+                                                </span>
+                                                <!-- Country Filter Dropdown -->
+                                                <div id="countryFilterDropdown" class="hidden absolute top-full left-0 mt-1 w-64 bg-white dark:bg-slate-800 rounded-lg shadow-xl border border-slate-200 dark:border-slate-600 z-50">
+                                                    <div class="p-3 border-b border-slate-200 dark:border-slate-600">
+                                                        <input type="text" id="countrySearchInput" oninput="filterCountryList()" placeholder="Search countries..." class="w-full px-3 py-2 text-sm border border-slate-300 dark:border-slate-600 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-slate-700 dark:text-white">
+                                                    </div>
+                                                    <div id="countryListContainer" class="max-h-48 overflow-y-auto p-2">
+                                                        <!-- Country checkboxes will be populated here -->
+                                                    </div>
+                                                    <div class="p-3 border-t border-slate-200 dark:border-slate-600 flex justify-between gap-2">
+                                                        <button onclick="clearCountryFilter()" class="px-3 py-1.5 text-xs text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-md transition">Clear</button>
+                                                        <button onclick="applyCountryFilter()" class="px-3 py-1.5 text-xs bg-blue-600 text-white rounded-md hover:bg-blue-700 transition">Apply</button>
+                                                    </div>
+                                                </div>
+                                            </th>
                                             <th class="px-6 py-4">Phone</th>
                                             <th class="px-6 py-4">Status</th>
                                             <th class="px-6 py-4">Type</th>
@@ -1079,7 +1099,8 @@
         // Multi-select filter state
         let activeFilters = {
             status: new Set(['all']),
-            type: new Set()
+            type: new Set(),
+            country: new Set()
         };
 
         // ===== INIT: Load user email on page load =====
@@ -1469,13 +1490,21 @@
                 });
             }
 
+            // Apply country filters (OR logic, AND with other filters)
+            if (activeFilters.country.size > 0) {
+                filtered = filtered.filter(d => {
+                    const country = d.developer_country || '';
+                    return activeFilters.country.has(country);
+                });
+            }
+
             tableData = filtered;
             renderTable(tableData);
             document.getElementById('selectAllCount').textContent = `(${tableData.length})`;
         }
 
         function updateActiveFiltersIndicator() {
-            const totalActive = (activeFilters.status.has('all') ? 0 : activeFilters.status.size) + activeFilters.type.size;
+            const totalActive = (activeFilters.status.has('all') ? 0 : activeFilters.status.size) + activeFilters.type.size + activeFilters.country.size;
             const indicator = document.getElementById('activeFiltersInfo');
             const countEl = document.getElementById('activeFilterCount');
 
@@ -1493,6 +1522,7 @@
             activeFilters.status.clear();
             activeFilters.status.add('all');
             activeFilters.type.clear();
+            activeFilters.country.clear();
 
             document.querySelectorAll('.filter-chip').forEach(chip => {
                 chip.classList.remove('active');
@@ -1500,8 +1530,118 @@
             document.querySelector('.filter-chip[data-filter="all"]').classList.add('active');
 
             document.getElementById('tableSearch').value = '';
+            updateCountryFilterIcon();
             applyFilters();
             updateActiveFiltersIndicator();
+        }
+
+        // ===== COUNTRY FILTER FUNCTIONS =====
+        let tempSelectedCountries = new Set();
+
+        function toggleCountryFilter(event) {
+            event.stopPropagation();
+            const dropdown = document.getElementById('countryFilterDropdown');
+            const isHidden = dropdown.classList.contains('hidden');
+
+            if (isHidden) {
+                // Populate country list from current data
+                populateCountryList();
+                // Copy current filters to temp selection
+                tempSelectedCountries = new Set(activeFilters.country);
+                dropdown.classList.remove('hidden');
+                document.getElementById('countrySearchInput').focus();
+
+                // Add click outside listener
+                setTimeout(() => {
+                    document.addEventListener('click', closeCountryFilterOnClickOutside);
+                }, 0);
+            } else {
+                dropdown.classList.add('hidden');
+                document.removeEventListener('click', closeCountryFilterOnClickOutside);
+            }
+        }
+
+        function closeCountryFilterOnClickOutside(event) {
+            const dropdown = document.getElementById('countryFilterDropdown');
+            const filterBtn = event.target.closest('.country-filter-btn');
+
+            if (!dropdown.contains(event.target) && !filterBtn) {
+                dropdown.classList.add('hidden');
+                document.removeEventListener('click', closeCountryFilterOnClickOutside);
+            }
+        }
+
+        function populateCountryList() {
+            const container = document.getElementById('countryListContainer');
+            const searchInput = document.getElementById('countrySearchInput');
+            searchInput.value = '';
+
+            // Get unique countries from fullTableData
+            const countries = [...new Set(fullTableData.map(d => d.developer_country || '').filter(c => c !== ''))].sort();
+
+            if (countries.length === 0) {
+                container.innerHTML = '<div class="text-xs text-slate-400 p-2 text-center">No countries available</div>';
+                return;
+            }
+
+            container.innerHTML = countries.map(country => {
+                const isChecked = tempSelectedCountries.has(country) ? 'checked' : '';
+                const escapedCountry = country.replace(/'/g, "\\'");
+                return `
+                    <label class="country-option flex items-center gap-2 px-2 py-1.5 hover:bg-slate-100 dark:hover:bg-slate-700 rounded cursor-pointer text-sm text-slate-700 dark:text-slate-300" data-country="${country}">
+                        <input type="checkbox" class="country-checkbox rounded border-slate-300 text-blue-600 focus:ring-blue-500" value="${escapedCountry}" ${isChecked} onchange="toggleCountrySelection('${escapedCountry}')">
+                        <span class="country-name">${country}</span>
+                    </label>
+                `;
+            }).join('');
+        }
+
+        function filterCountryList() {
+            const searchValue = document.getElementById('countrySearchInput').value.toLowerCase();
+            const options = document.querySelectorAll('.country-option');
+
+            options.forEach(option => {
+                const countryName = option.querySelector('.country-name').textContent.toLowerCase();
+                if (countryName.includes(searchValue)) {
+                    option.style.display = 'flex';
+                } else {
+                    option.style.display = 'none';
+                }
+            });
+        }
+
+        function toggleCountrySelection(country) {
+            if (tempSelectedCountries.has(country)) {
+                tempSelectedCountries.delete(country);
+            } else {
+                tempSelectedCountries.add(country);
+            }
+        }
+
+        function applyCountryFilter() {
+            activeFilters.country = new Set(tempSelectedCountries);
+            document.getElementById('countryFilterDropdown').classList.add('hidden');
+            document.removeEventListener('click', closeCountryFilterOnClickOutside);
+
+            updateCountryFilterIcon();
+            applyFilters();
+            updateActiveFiltersIndicator();
+        }
+
+        function clearCountryFilter() {
+            tempSelectedCountries.clear();
+            document.querySelectorAll('.country-checkbox').forEach(cb => cb.checked = false);
+        }
+
+        function updateCountryFilterIcon() {
+            const icon = document.getElementById('countryFilterIcon');
+            if (activeFilters.country.size > 0) {
+                icon.classList.remove('text-slate-400');
+                icon.classList.add('text-blue-600');
+            } else {
+                icon.classList.remove('text-blue-600');
+                icon.classList.add('text-slate-400');
+            }
         }
 
         // ===== PASTE FILTER FUNCTIONS =====
