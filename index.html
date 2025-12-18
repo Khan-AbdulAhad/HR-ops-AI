@@ -1215,6 +1215,25 @@
             if(tabName === 'analytics' && !isCacheValid('analytics')) loadAnalytics();
         }
 
+        // --- Date Formatting Helper ---
+        function formatDateTime(isoString) {
+            if (!isoString || isoString === '-') return '-';
+            try {
+                const date = new Date(isoString);
+                if (isNaN(date.getTime())) return '-';
+                const options = {
+                    year: 'numeric',
+                    month: 'short',
+                    day: 'numeric',
+                    hour: '2-digit',
+                    minute: '2-digit'
+                };
+                return date.toLocaleDateString('en-US', options);
+            } catch(e) {
+                return '-';
+            }
+        }
+
         // --- Toast ---
         function showToast(message, type = 'info', duration = 4000) {
             const container = document.getElementById('toastContainer');
@@ -2155,7 +2174,7 @@
                             <td class="px-6 py-4 font-bold">${item.name}</td>
                             <td class="px-6 py-4 text-slate-500">${item.email}</td>
                             <td class="px-6 py-4">${statusBadge}</td>
-                            <td class="px-6 py-4 text-xs text-slate-400">${item.lastReachedOut || '-'}</td>
+                            <td class="px-6 py-4 text-sm text-slate-600">${formatDateTime(item.lastReachedOut)}</td>
                             <td class="px-6 py-4">
                                 <div class="flex justify-end">
                                     <button onclick="markAsUnresponsive('${item.email}', this)" class="bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 px-3 py-1.5 rounded-lg text-xs font-medium transition inline-flex items-center gap-1"><i class="fa-solid fa-user-xmark"></i> Unresponsive</button>
@@ -2996,6 +3015,9 @@
 
             google.script.run.withSuccessHandler(data => {
                 if(data.error) { showAnalyticsAccessDenied(); return; }
+
+                // Hide access denied message on successful load
+                document.getElementById('analyticsAccessDenied').classList.add('hidden');
 
                 document.getElementById('statTotalUsers').textContent = data.totalUsers || 0;
                 document.getElementById('statTotalEmails').textContent = data.totalEmailsSent || 0;
