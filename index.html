@@ -397,6 +397,8 @@
                                             <th class="px-6 py-4">Developer ID</th>
                                             <th class="px-6 py-4">Name</th>
                                             <th class="px-6 py-4">Email</th>
+                                            <th class="px-6 py-4">Country</th>
+                                            <th class="px-6 py-4">Phone</th>
                                             <th class="px-6 py-4">Status</th>
                                             <th class="px-6 py-4">Type</th>
                                             <th class="px-6 py-4">History</th>
@@ -1634,11 +1636,18 @@
 
                 const isChecked = selectedDevs.has(d.developer_id) ? 'checked' : '';
                 
+                // Format phone number with country code
+                const phoneDisplay = d.phone_number ?
+                    (d.phone_country_code ? `+${d.phone_country_code} ${d.phone_number}` : d.phone_number) :
+                    '-';
+
                 tr.innerHTML = `
                     <td class="px-6 py-4 text-center"><input type="checkbox" class="row-checkbox rounded" value="${d.developer_id}" ${isChecked} onchange="toggleRowCheckbox('${d.developer_id}')"></td>
                     <td class="px-6 py-4 font-mono text-xs text-slate-500">${d.developer_id}</td>
                     <td class="px-6 py-4 font-bold text-slate-800">${d.full_name}</td>
                     <td class="px-6 py-4 text-slate-500">${d.email}</td>
+                    <td class="px-6 py-4 text-xs text-slate-600">${d.developer_country || '-'}</td>
+                    <td class="px-6 py-4 text-xs text-slate-500 font-mono">${phoneDisplay}</td>
                     <td class="px-6 py-4">${statusBadge}</td>
                     <td class="px-6 py-4 text-xs text-slate-400">${d.candidate_status || 'Direct'}</td>
                     <td class="px-6 py-4 text-xs">

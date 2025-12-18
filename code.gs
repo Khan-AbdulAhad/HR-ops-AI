@@ -2155,12 +2155,18 @@ function getDevelopers(jobId, selectedStages) {
           WHEN ai.agency_sub_con = 'Contractor' THEN 'Agency Contractor'
           ELSE 'Independent'
         END AS candidate_status,
-        COALESCE(ai.agency_name, '') AS agency_name
+        COALESCE(ai.agency_name, '') AS agency_name,
+        COALESCE(c.name, '') AS developer_country,
+        COALESCE(sl.phone_country_code, '') AS phone_country_code,
+        COALESCE(sl.phone_number, '') AS phone_number
       FROM user_list_v4 d
       LEFT JOIN agency_info ai ON d.id = ai.dev_id
+      LEFT JOIN developer_detail dd ON dd.user_id = d.id
+      LEFT JOIN tpm_countries c ON c.id = dd.country_id
+      LEFT JOIN submit_list_v4 sl ON sl.uid = d.id
       WHERE d.id IN (SELECT developer_id FROM unique_ids)
     )
-    SELECT ud.developer_id, d.full_name, d.email, ud.stage_label AS status, d.candidate_status, d.agency_name
+    SELECT ud.developer_id, d.full_name, d.email, ud.stage_label AS status, d.candidate_status, d.agency_name, d.developer_country, d.phone_country_code, d.phone_number
     FROM unique_devs ud
     JOIN dev_details d ON ud.developer_id = d.id
   `;
@@ -2205,6 +2211,9 @@ function getDevelopers(jobId, selectedStages) {
       const status = row.f[3] && row.f[3].v ? row.f[3].v : '';
       const candidateStatus = row.f[4] && row.f[4].v ? row.f[4].v : 'Independent';
       const agencyName = row.f[5] && row.f[5].v ? row.f[5].v : '';
+      const developerCountry = row.f[6] && row.f[6].v ? row.f[6].v : '';
+      const phoneCountryCode = row.f[7] && row.f[7].v ? row.f[7].v : '';
+      const phoneNumber = row.f[8] && row.f[8].v ? row.f[8].v : '';
 
       // Defensive uniqueness: if we already have the dev, merge conservatively
       if (!devMap.has(devId)) {
@@ -2223,7 +2232,10 @@ function getDevelopers(jobId, selectedStages) {
           manual_sent_count: manualLog ? manualLog.count : 0,
           manual_sent_note: manualLog ? manualLog.note : null,
           candidate_status: candidateStatus,
-          agency_name: agencyName
+          agency_name: agencyName,
+          developer_country: developerCountry,
+          phone_country_code: phoneCountryCode,
+          phone_number: phoneNumber
         });
       } else {
         // Shouldn't usually happen now, but merge counts safely
