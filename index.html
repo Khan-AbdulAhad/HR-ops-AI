@@ -136,11 +136,44 @@
         .dark tr.manual-sent-row td { background-color: #451a03 !important; }
 
         /* Filter Chips */
-        .filter-chip { display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.375rem 0.75rem; border-radius: 0.5rem; font-size: 0.75rem; font-weight: 600; cursor: pointer; border: 1px solid transparent; transition: all 0.2s; }
-        .filter-chip.all { background: #f1f5f9; color: #64748b; }
-        .filter-chip.all.active { background: #334155; color: white; }
-        .filter-chip.new { background: #dcfce7; color: #166534; }
-        .filter-chip.new.active { background: #16a34a; color: white; }
+        .filter-chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.5rem 1rem;
+            border-radius: 9999px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            cursor: pointer;
+            border: 2px solid transparent;
+            transition: all 0.2s ease;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+        }
+        .filter-chip:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -1px rgba(0,0,0,0.06);
+        }
+        .filter-chip.all { background: #f1f5f9; color: #64748b; border-color: #e2e8f0; }
+        .filter-chip.all:hover { background: #e2e8f0; border-color: #cbd5e1; }
+        .filter-chip.all.active { background: #334155; color: white; border-color: #1e293b; box-shadow: 0 4px 6px -1px rgba(51,65,85,0.3); }
+        .filter-chip.new { background: #dcfce7; color: #166534; border-color: #bbf7d0; }
+        .filter-chip.new:hover { background: #bbf7d0; border-color: #86efac; }
+        .filter-chip.new.active { background: #16a34a; color: white; border-color: #15803d; box-shadow: 0 4px 6px -1px rgba(22,163,74,0.3); }
+        .filter-chip.followup { background: #fee2e2; color: #991b1b; border-color: #fecaca; }
+        .filter-chip.followup:hover { background: #fecaca; border-color: #fca5a5; }
+        .filter-chip.followup.active { background: #dc2626; color: white; border-color: #b91c1c; box-shadow: 0 4px 6px -1px rgba(220,38,38,0.3); }
+        .filter-chip.manual { background: #fef3c7; color: #92400e; border-color: #fde68a; }
+        .filter-chip.manual:hover { background: #fde68a; border-color: #fcd34d; }
+        .filter-chip.manual.active { background: #d97706; color: white; border-color: #b45309; box-shadow: 0 4px 6px -1px rgba(217,119,6,0.3); }
+        .filter-chip.sub { background: #fed7aa; color: #c2410c; border-color: #fdba74; }
+        .filter-chip.sub:hover { background: #fdba74; border-color: #fb923c; }
+        .filter-chip.sub.active { background: #ea580c; color: white; border-color: #c2410c; box-shadow: 0 4px 6px -1px rgba(234,88,12,0.3); }
+        .filter-chip.agency { background: #f3e8ff; color: #7c3aed; border-color: #e9d5ff; }
+        .filter-chip.agency:hover { background: #e9d5ff; border-color: #d8b4fe; }
+        .filter-chip.agency.active { background: #7c3aed; color: white; border-color: #6d28d9; box-shadow: 0 4px 6px -1px rgba(124,58,237,0.3); }
+        .filter-chip.direct { background: #e0e7ff; color: #4338ca; border-color: #c7d2fe; }
+        .filter-chip.direct:hover { background: #c7d2fe; border-color: #a5b4fc; }
+        .filter-chip.direct.active { background: #4f46e5; color: white; border-color: #4338ca; box-shadow: 0 4px 6px -1px rgba(79,70,229,0.3); }
         
         /* Log Entries */
         .log-entry { padding: 0.5rem; margin-bottom: 0.25rem; border-radius: 0.25rem; font-size: 0.75rem; }
@@ -327,12 +360,12 @@
                             <!-- Re-adding static filter chips structure for robustness in case JS logic is looking for specific classes -->
                             <div class="filter-chip all active" data-filter="all" data-group="status" onclick="toggleFilterChip(this)"><i class="fa-solid fa-layer-group mr-1"></i>All <span id="allCount" class="ml-1 opacity-75">0</span></div>
                             <div class="filter-chip new" data-filter="new" data-group="status" onclick="toggleFilterChip(this)"><i class="fa-solid fa-sparkles mr-1"></i>New <span id="newCount" class="ml-1 opacity-75">0</span></div>
-                            <div class="filter-chip followup" style="background:#fee2e2; color:#991b1b;" data-filter="followup" data-group="status" onclick="toggleFilterChip(this)"><i class="fa-solid fa-reply mr-1"></i>Sent <span id="followupCount" class="ml-1 opacity-75">0</span></div>
-                            <div class="filter-chip manual" style="background:#fef3c7; color:#92400e;" data-filter="manual" data-group="status" onclick="toggleFilterChip(this)"><i class="fa-solid fa-hand mr-1"></i>M.Sent <span id="manualCount" class="ml-1 opacity-75">0</span></div>
-                            <div class="w-px h-6 bg-slate-300 mx-1"></div>
-                            <div class="filter-chip sub" style="background:#fed7aa; color:#c2410c;" data-filter="sub" data-group="type" onclick="toggleFilterChip(this)">Sub-Con <span id="subCount" class="ml-1 opacity-75">0</span></div>
-                            <div class="filter-chip agency" style="background:#f3e8ff; color:#7c3aed;" data-filter="agency" data-group="type" onclick="toggleFilterChip(this)">Agency <span id="agencyCount" class="ml-1 opacity-75">0</span></div>
-                            <div class="filter-chip direct" style="background:#e0e7ff; color:#4338ca;" data-filter="direct" data-group="type" onclick="toggleFilterChip(this)">Direct <span id="directCount" class="ml-1 opacity-75">0</span></div>
+                            <div class="filter-chip followup" data-filter="followup" data-group="status" onclick="toggleFilterChip(this)"><i class="fa-solid fa-reply mr-1"></i>Sent <span id="followupCount" class="ml-1 opacity-75">0</span></div>
+                            <div class="filter-chip manual" data-filter="manual" data-group="status" onclick="toggleFilterChip(this)"><i class="fa-solid fa-hand mr-1"></i>M.Sent <span id="manualCount" class="ml-1 opacity-75">0</span></div>
+                            <div class="w-px h-8 bg-slate-300 mx-2"></div>
+                            <div class="filter-chip sub" data-filter="sub" data-group="type" onclick="toggleFilterChip(this)">Sub-Con <span id="subCount" class="ml-1 opacity-75">0</span></div>
+                            <div class="filter-chip agency" data-filter="agency" data-group="type" onclick="toggleFilterChip(this)">Agency <span id="agencyCount" class="ml-1 opacity-75">0</span></div>
+                            <div class="filter-chip direct" data-filter="direct" data-group="type" onclick="toggleFilterChip(this)">Direct <span id="directCount" class="ml-1 opacity-75">0</span></div>
                             
                             <!-- Active Filters Info -->
                             <div id="activeFiltersInfo" class="hidden items-center gap-2 ml-auto">
@@ -1760,13 +1793,35 @@
         function renderTable(data) {
             const tbody = document.querySelector('#devTable tbody');
             tbody.innerHTML = '';
-            
+
             data.forEach(d => {
                 const tr = document.createElement('tr');
-                tr.className = "hover:bg-slate-50 border-b border-slate-50 transition";
-                
-                let statusBadge = `<span class="px-2 py-1 rounded text-xs font-bold bg-slate-100 text-slate-600">${d.status}</span>`;
-                
+                tr.className = "hover:bg-slate-50 dark:hover:bg-slate-700 border-b border-slate-100 dark:border-slate-700 transition";
+
+                // Status badge with consistent styling
+                let statusBadge = `<span class="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-semibold bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300">${d.status}</span>`;
+
+                // Type badge with colors based on candidate type
+                let typeBadge = '';
+                const candidateType = d.candidate_status || 'Independent';
+                if (candidateType === 'Agency Sub-Contractor') {
+                    typeBadge = `<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-bold bg-orange-100 text-orange-700 border border-orange-200"><i class="fa-solid fa-people-arrows text-[10px]"></i> SUB-CON</span>`;
+                } else if (candidateType === 'Agency Contractor') {
+                    typeBadge = `<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-bold bg-purple-100 text-purple-700 border border-purple-200"><i class="fa-solid fa-building text-[10px]"></i> AGENCY</span>`;
+                } else {
+                    typeBadge = `<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-bold bg-green-100 text-green-700 border border-green-200"><i class="fa-solid fa-user text-[10px]"></i> DIRECT</span>`;
+                }
+
+                // History badge with colors
+                let historyBadge = '';
+                if (d.is_sent && !d.is_manual_sent) {
+                    historyBadge = `<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-bold bg-red-100 text-red-700 border border-red-200"><i class="fa-solid fa-paper-plane text-[10px]"></i> Sent</span>`;
+                } else if (d.is_manual_sent) {
+                    historyBadge = `<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-bold bg-amber-100 text-amber-700 border border-amber-200"><i class="fa-solid fa-hand text-[10px]"></i> M.Sent</span>`;
+                } else {
+                    historyBadge = `<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-bold bg-emerald-100 text-emerald-700 border border-emerald-200"><i class="fa-solid fa-sparkles text-[10px]"></i> New</span>`;
+                }
+
                 // Row class for sent status
                 if (d.is_manual_sent) {
                     tr.classList.add('manual-sent-row');
@@ -1775,7 +1830,7 @@
                 }
 
                 const isChecked = selectedDevs.has(d.developer_id) ? 'checked' : '';
-                
+
                 // Format phone number with country code
                 const phoneDisplay = d.phone_number ?
                     (d.phone_country_code ? `+${d.phone_country_code} ${d.phone_number}` : d.phone_number) :
@@ -1784,15 +1839,13 @@
                 tr.innerHTML = `
                     <td class="px-6 py-4 text-center"><input type="checkbox" class="row-checkbox rounded" value="${d.developer_id}" ${isChecked} onchange="toggleRowCheckbox('${d.developer_id}')"></td>
                     <td class="px-6 py-4 font-mono text-xs text-slate-500">${d.developer_id}</td>
-                    <td class="px-6 py-4 font-bold text-slate-800">${d.full_name}</td>
-                    <td class="px-6 py-4 text-slate-500">${d.email}</td>
-                    <td class="px-6 py-4 text-xs text-slate-600">${d.developer_country || '-'}</td>
-                    <td class="px-6 py-4 text-xs text-slate-500 font-mono">${phoneDisplay}</td>
+                    <td class="px-6 py-4 font-bold text-slate-800 dark:text-slate-200">${d.full_name}</td>
+                    <td class="px-6 py-4 text-slate-500 dark:text-slate-400">${d.email}</td>
+                    <td class="px-6 py-4 text-xs text-slate-600 dark:text-slate-400">${d.developer_country || '-'}</td>
+                    <td class="px-6 py-4 text-xs text-slate-500 dark:text-slate-400 font-mono">${phoneDisplay}</td>
                     <td class="px-6 py-4">${statusBadge}</td>
-                    <td class="px-6 py-4 text-xs text-slate-400">${d.candidate_status || 'Direct'}</td>
-                    <td class="px-6 py-4 text-xs">
-                        ${d.is_sent ? '<span class="text-green-600 font-bold">Sent</span>' : d.is_manual_sent ? '<span class="text-amber-600 font-bold">M.Sent</span>' : 'New'}
-                    </td>
+                    <td class="px-6 py-4">${typeBadge}</td>
+                    <td class="px-6 py-4">${historyBadge}</td>
                 `;
                 tbody.appendChild(tr);
             });
