@@ -5885,18 +5885,66 @@ function searchAnalyticsUsers(searchQuery) {
 }
 
 /**
+ * Search for job IDs in analytics data for autocomplete
+ * @param {string} searchQuery - Partial job ID to search for
+ * @returns {Array} List of matching job IDs
+ */
+function searchAnalyticsJobIds(searchQuery) {
+  const access = checkAnalyticsAccess();
+  if (!access.hasAccess) {
+    return [];
+  }
+
+  try {
+    const ss = getAnalyticsSpreadsheet();
+    if (!ss) return [];
+
+    const sheet = ss.getSheetByName('Activity_Log');
+    if (!sheet || sheet.getLastRow() <= 1) return [];
+
+    const data = sheet.getDataRange().getValues();
+    const query = String(searchQuery || '').toLowerCase().trim();
+    const uniqueJobIds = new Set();
+
+    // Collect unique job IDs that match the search query
+    for (let i = 1; i < data.length; i++) {
+      const jobId = String(data[i][3] || '').trim();
+      if (jobId && jobId.toLowerCase().includes(query)) {
+        uniqueJobIds.add(jobId);
+      }
+    }
+
+    // Sort and return as array (limit to 10 results)
+    return Array.from(uniqueJobIds).sort((a, b) => {
+      // Sort numerically if possible, otherwise alphabetically
+      const numA = parseInt(a);
+      const numB = parseInt(b);
+      if (!isNaN(numA) && !isNaN(numB)) {
+        return numA - numB;
+      }
+      return a.localeCompare(b);
+    }).slice(0, 10);
+  } catch (e) {
+    console.error("Error searching analytics job IDs:", e);
+    return [];
+  }
+}
+
+/**
  * Get comprehensive analytics data from the CENTRAL sheet
  * @param {string} filterEmail - Optional email to filter results for a specific user
+ * @param {string} filterJobId - Optional job ID to filter results for a specific job
  * @returns {Object} Analytics data
  */
-function getUserAnalytics(filterEmail) {
+function getUserAnalytics(filterEmail, filterJobId) {
   const access = checkAnalyticsAccess();
   if (!access.hasAccess) {
     return { error: "Access denied. You don't have permission to view analytics." };
   }
 
-  // Normalize filter email
+  // Normalize filters
   const emailFilter = filterEmail ? String(filterEmail).toLowerCase().trim() : '';
+  const jobIdFilter = filterJobId ? String(filterJobId).trim() : '';
 
   try {
     const ss = getAnalyticsSpreadsheet();
@@ -5914,7 +5962,8 @@ function getUserAnalytics(filterEmail) {
       actionsByJob: {},
       accessLevel: access.accessLevel,
       currentUser: access.userEmail,
-      filterApplied: emailFilter || null
+      filterApplied: emailFilter || null,
+      jobFilterApplied: jobIdFilter || null
     };
 
     const sheet = ss.getSheetByName('Activity_Log');
@@ -5935,7 +5984,12 @@ function getUserAnalytics(filterEmail) {
 
       // Apply email filter if specified
       if (emailFilter && userEmail.toLowerCase() !== emailFilter) {
-        continue; // Skip this row if it doesn't match the filter
+        continue; // Skip this row if it doesn't match the email filter
+      }
+
+      // Apply job ID filter if specified
+      if (jobIdFilter && jobId !== jobIdFilter) {
+        continue; // Skip this row if it doesn't match the job ID filter
       }
 
       // Track by user
@@ -6025,16 +6079,18 @@ function getUserAnalytics(filterEmail) {
 /**
  * Get detailed statistics (called separately for performance)
  * @param {string} filterEmail - Optional email to filter results for a specific user
+ * @param {string} filterJobId - Optional job ID to filter results for a specific job
  * @returns {Object} Detailed stats
  */
-function getDetailedEmailStats(filterEmail) {
+function getDetailedEmailStats(filterEmail, filterJobId) {
   const access = checkAnalyticsAccess();
   if (!access.hasAccess) {
     return { error: "Access denied" };
   }
 
-  // Normalize filter email
+  // Normalize filters
   const emailFilter = filterEmail ? String(filterEmail).toLowerCase().trim() : '';
+  const jobIdFilter = filterJobId ? String(filterJobId).trim() : '';
 
   try {
     const ss = getAnalyticsSpreadsheet();
@@ -6047,7 +6103,8 @@ function getDetailedEmailStats(filterEmail) {
       totalDataFetches: 0,
       emailsByJob: {},
       emailsByUser: {},
-      filterApplied: emailFilter || null
+      filterApplied: emailFilter || null,
+      jobFilterApplied: jobIdFilter || null
     };
 
     const sheet = ss.getSheetByName('Activity_Log');
@@ -6065,7 +6122,12 @@ function getDetailedEmailStats(filterEmail) {
 
       // Apply email filter if specified
       if (emailFilter && userEmail.toLowerCase() !== emailFilter) {
-        continue; // Skip this row if it doesn't match the filter
+        continue; // Skip this row if it doesn't match the email filter
+      }
+
+      // Apply job ID filter if specified
+      if (jobIdFilter && jobId !== jobIdFilter) {
+        continue; // Skip this row if it doesn't match the job ID filter
       }
 
       if (action === 'email_sent') {
