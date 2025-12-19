@@ -4379,6 +4379,13 @@ function moveToUnresponsive(ss, email, jobId, name, devId, threadId, initialSend
       daysSinceInitial
     ]);
 
+    // Update the job-specific details sheet with Unresponsive status
+    try {
+      updateJobCandidateStatus(ss, jobId, email, 'Unresponsive', null);
+    } catch(detailsErr) {
+      console.error("Failed to update job details sheet for unresponsive:", detailsErr);
+    }
+
     return { success: true };
   } catch(e) {
     console.error("Error moving to unresponsive:", e);
