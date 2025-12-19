@@ -743,6 +743,30 @@
             color: #e5e7eb;
         }
         .rich-text-editor:focus { border-color: #3b82f6; }
+        
+        /* FIXED: CSS reset for bullet points and numbers in editor */
+        .rich-text-editor ul { 
+            list-style-type: disc !important; 
+            padding-left: 1.5rem !important; 
+            margin: 0.5rem 0 !important; 
+        }
+        .rich-text-editor ol { 
+            list-style-type: decimal !important; 
+            padding-left: 1.5rem !important; 
+            margin: 0.5rem 0 !important; 
+        }
+        .rich-text-editor li {
+            display: list-item !important;
+        }
+        .rich-text-editor p { 
+            margin-bottom: 0.5rem !important; 
+        }
+        .rich-text-editor blockquote {
+            border-left: 4px solid #e5e7eb;
+            padding-left: 1rem;
+            font-style: italic;
+            color: #4b5563;
+        }
 
         /* Progress Bar */
         .progress-bar {
@@ -961,7 +985,7 @@
                             <input type="text" id="tableSearch" oninput="searchTable()" placeholder="Search developers..." class="w-full p-3 pl-10 border-2 border-gray-200 dark:border-gray-600 rounded-xl bg-white dark:bg-gray-800 outline-none focus:ring-2 focus:ring-blue-500 transition font-medium text-sm">
                             <i class="fa-solid fa-magnifying-glass absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400 text-sm"></i>
                         </div>
-                        <button onclick="togglePasteFilter()" class="flex-shrink-0 bg-white dark:bg-gray-700 border-2 border-gray-200 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-200 p-3 rounded-xl transition tooltip-btn" title="Filter by Specific Emails/IDs">
+                        <button id="pasteFilterBtn" onclick="togglePasteFilter()" class="flex-shrink-0 bg-white dark:bg-gray-700 border-2 border-gray-200 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-200 p-3 rounded-xl transition tooltip-btn" title="Filter by Specific Emails/IDs">
                             <i class="fa-solid fa-clipboard-list"></i> Paste & Filter
                         </button>
                     </div>
@@ -1010,7 +1034,7 @@
                         </div>
                         <div class="filter-chip direct" data-filter="direct" data-group="type" onclick="toggleFilterChip(this)">
                             <i class="fa-solid fa-check filter-check"></i>
-                            <i class="fa-solid fa-user"></i>
+                            <i class="fa-solid fa-user-tie"></i>
                             <span>Direct</span>
                             <span id="nonSubCount" class="text-xs opacity-75">0</span>
                         </div>
@@ -1190,6 +1214,10 @@
                         <div class="toolbar-group">
                             <button type="button" class="toolbar-btn" onclick="formatText('h2')">H2</button>
                             <button type="button" class="toolbar-btn" onclick="formatText('insertUnorderedList')"><i class="fa-solid fa-list-ul"></i></button>
+                            <!-- NEW: Format Painter -->
+                            <button type="button" id="formatPainterBtn" class="toolbar-btn" onclick="handleFormatPainter()" title="Format Painter (Click to copy formatting)">
+                                <i class="fa-solid fa-paintbrush"></i>
+                            </button>
                         </div>
                         <div class="toolbar-group">
                             <button type="button" class="toolbar-btn" onclick="formatText('removeFormat')"><i class="fa-solid fa-eraser"></i></button>
@@ -1260,6 +1288,7 @@
     <script>
         let tableData = [];
         let fullTableData = [];
+        let currentSourceData = []; // NEW: This acts as the current "Master" list (either full fetch or pasted subset)
         let selectedDevs = new Set();
         let table;
         let jobTemplates = [];
@@ -1381,7 +1410,7 @@
             updateActiveFiltersIndicator();
         }
         
-        // ========== PASTE FILTER FUNCTIONS (NEW) ==========
+        // ========== PASTE FILTER FUNCTIONS (UPDATED) ==========
         function togglePasteFilter() {
             const area = document.getElementById('pasteFilterArea');
             if (area.classList.contains('hidden')) {
@@ -1389,6 +1418,19 @@
                 document.getElementById('pasteFilterInput').focus();
             } else {
                 area.classList.add('hidden');
+            }
+        }
+
+        function updatePasteFilterButtonState(isActive) {
+            const btn = document.getElementById('pasteFilterBtn');
+            if (isActive) {
+                // Active Look (Blueish)
+                btn.classList.remove('bg-white', 'dark:bg-gray-700', 'text-gray-700', 'dark:text-gray-200', 'border-gray-200', 'dark:border-gray-600');
+                btn.classList.add('bg-blue-100', 'dark:bg-blue-900', 'text-blue-700', 'dark:text-blue-300', 'border-blue-500');
+            } else {
+                // Normal Look
+                btn.classList.add('bg-white', 'dark:bg-gray-700', 'text-gray-700', 'dark:text-gray-200', 'border-gray-200', 'dark:border-gray-600');
+                btn.classList.remove('bg-blue-100', 'dark:bg-blue-900', 'text-blue-700', 'dark:text-blue-300', 'border-blue-500');
             }
         }
 
@@ -1411,14 +1453,20 @@
                 return idMatch || emailMatch;
             });
 
-            // Update UI with filtered data
-            tableData = filtered;
-            populateTable(filtered);
+            // CRITICAL CHANGE: Update currentSourceData to be this subset
+            currentSourceData = filtered;
             
-            // Re-apply existing visual chips filters on top of this list if needed
-            // For now, we assume the list overrides general filters, but we update counts
-            document.getElementById('selectAllCount').textContent = `(${tableData.length})`;
-            alert(`Found ${filtered.length} matches out of ${fullTableData.length} records.`);
+            // CRITICAL CHANGE: Update the chip counts based on this new subset
+            updateCounts(currentSourceData);
+            
+            // Reset filters to 'All' so user sees the pasted data immediately
+            clearAllFilters(false); // false = don't reset source data
+            
+            // NEW: Update button state to show filter is active
+            updatePasteFilterButtonState(true);
+            
+            document.getElementById('selectAllCount').textContent = `(${currentSourceData.length})`;
+            alert(`Found ${filtered.length} matches. Filters now apply to this subset.`);
             
             // Close the area
             togglePasteFilter();
@@ -1427,23 +1475,23 @@
         function clearPasteFilter() {
             document.getElementById('pasteFilterInput').value = '';
             // Reset to full data
-            tableData = [...fullTableData];
-            populateTable(tableData);
-            document.getElementById('selectAllCount').textContent = `(${tableData.length})`;
-            // Re-apply active filters
-            applyFilters();
+            currentSourceData = [...fullTableData];
+            
+            // Update chip counts back to full data
+            updateCounts(currentSourceData);
+            
+            // Re-apply existing filters or clear them
+            clearAllFilters(false);
+            
+            // NEW: Reset button state
+            updatePasteFilterButtonState(false);
         }
 
-        // ========== FILTER LOGIC ==========
+        // ========== FILTER LOGIC (UPDATED) ==========
         function applyFilters() {
-            // Start with the full dataset (or the specific list filtered dataset if we want to combine them, currently resetting to fullTableData for simplicity unless complex stacking is needed)
-            // Ideally, we should filter on tableData if tableData was modified by Paste Filter, 
-            // BUT usually filters apply to the 'source'. Let's assume Filters apply to full data for consistency.
-            let filtered = [...fullTableData];
-            
-            // If user has pasted content, check if we should respect that subset. 
-            // For this implementation, the "status/type" filters apply to the FULL set. 
-            // If you want "Paste Filter" to be the master set, we would filter `filtered` against the pasted list here.
+            // CRITICAL CHANGE: Filter from currentSourceData instead of fullTableData
+            // This ensures filters work on top of the pasted list
+            let filtered = [...currentSourceData];
             
             // Apply status filters (OR logic within group)
             if (!activeFilters.status.has('all') && activeFilters.status.size > 0) {
@@ -1486,7 +1534,7 @@
             }
         }
         
-        function clearAllFilters() {
+        function clearAllFilters(resetSource = true) {
             // Reset status to "All"
             activeFilters.status.clear();
             activeFilters.status.add('all');
@@ -1504,6 +1552,13 @@
             document.getElementById('tableSearch').value = '';
             if(table) table.search('').draw();
             
+            // If explicitly asked to reset source (default behavior), go back to full data
+            // This is useful if the "Clear" button is clicked vs just resetting chips
+            if(resetSource && document.getElementById('pasteFilterInput').value === '') {
+                 currentSourceData = [...fullTableData];
+                 updateCounts(currentSourceData);
+            }
+            
             applyFilters();
             updateActiveFiltersIndicator();
         }
@@ -1519,6 +1574,8 @@
             completeProgress();
             tableData = data;
             fullTableData = data;
+            currentSourceData = data; // Initialize source data
+            
             document.getElementById('tableContainer').classList.remove('hidden');
             document.getElementById('tableControls').classList.remove('hidden');
             document.getElementById('statusFilterContainer').classList.remove('hidden');
@@ -1532,8 +1589,7 @@
             document.getElementById('tableSearch').value = '';
             if(table) table.search('').draw();
             
-            // Reset filters logic but don't cause double render if unnecessary
-            // Manually reset filter state without calling populateTable yet
+            // Reset filters logic
             activeFilters.status.clear();
             activeFilters.status.add('all');
             activeFilters.type.clear();
@@ -1544,15 +1600,17 @@
             updateBulkBar();
             populateTable(data);
 
-            // === CHANGE 2: Clear Draft Email Campaign Box ===
-            // This ensures previous data doesn't persist when fetching new IDs
+            // Clear Draft Email Campaign Box AND Paste Filter State
             document.getElementById('emailSubject').value = '';
             document.getElementById('emailBody').innerHTML = '';
             document.getElementById('htmlBody').value = '';
             document.getElementById('templateLoader').value = '';
             document.getElementById('saveTemplateCheck').checked = false;
             document.getElementById('newTemplateName').classList.add('hidden');
-            // We do NOT clear senderName as users typically want that to persist
+            
+            // Reset Paste Filter State on data refresh
+            document.getElementById('pasteFilterInput').value = '';
+            updatePasteFilterButtonState(false);
         }
 
         function updateCounts(data) {
@@ -1572,7 +1630,7 @@
             document.getElementById('subCount').textContent = subCount;
             document.getElementById('agencyCount').textContent = agencyCount;
             document.getElementById('nonSubCount').textContent = nonSubCount;
-            document.getElementById('selectAllCount').textContent = `(${tableData.length})`;
+            document.getElementById('selectAllCount').textContent = `(${data.length})`;
         }
 
         function populateTable(data) {
@@ -1961,6 +2019,11 @@
                     let msg = `Completed! Successfully sent ${successCount} out of ${total} emails.`;
                     if(errors.length > 0) msg += `\nErrors occurred: ${errors.length}`;
                     alert(msg);
+                    
+                    // NEW: Clear paste filter input and reset state after sending
+                    document.getElementById('pasteFilterInput').value = '';
+                    updatePasteFilterButtonState(false);
+                    
                     fetchData(); // Refresh table to show updated status
                 }, 500);
 
@@ -1998,6 +2061,39 @@
             }
             handleEditorInput();
             editor.focus();
+        }
+
+        // NEW: Format Painter Logic
+        let paintFormat = null;
+        function handleFormatPainter() {
+            const btn = document.getElementById('formatPainterBtn');
+            const editor = document.getElementById('emailBody');
+            
+            if (!paintFormat) {
+                // COPY MODE: User clicks button to 'pick up' the style
+                paintFormat = {
+                    bold: document.queryCommandState('bold'),
+                    italic: document.queryCommandState('italic'),
+                    underline: document.queryCommandState('underline')
+                };
+                
+                // Visual cue
+                btn.classList.add('bg-blue-100', 'text-blue-600', 'border-blue-400');
+                btn.title = "Apply Format (Click to paste formatting)";
+            } else {
+                // PASTE/APPLY MODE: User clicks button to apply style to selection
+                editor.focus();
+                
+                // Apply boolean states if they differ from current
+                if (paintFormat.bold !== document.queryCommandState('bold')) document.execCommand('bold');
+                if (paintFormat.italic !== document.queryCommandState('italic')) document.execCommand('italic');
+                if (paintFormat.underline !== document.queryCommandState('underline')) document.execCommand('underline');
+                
+                // Reset
+                paintFormat = null;
+                btn.classList.remove('bg-blue-100', 'text-blue-600', 'border-blue-400');
+                btn.title = "Format Painter (Click to copy formatting)";
+            }
         }
 
         function startSmartProgress() {
@@ -2045,7 +2141,12 @@
 
             // 3. Filter Data
             const filtered = status === 'All' ? fullTableData : fullTableData.filter(d => d.status === status);
+            
+            // NOTE: This resets any pasted filter context because clicking a high-level status button implies a full reset
+            currentSourceData = filtered; 
             tableData = filtered;
+            
+            updateCounts(filtered);
 
             // 4. Update Table
             populateTable(filtered);
