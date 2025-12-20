@@ -3146,20 +3146,43 @@ function processJobNegotiations(jobId, rules, ss, faqContent) {
 
     // Now handle special cases AFTER data extraction
     if (state && state.status === 'Human-Negotiation') {
+      // Update AI Notes with comprehensive summary for human recruiter
+      try {
+        const comprehensiveSummary = generateComprehensiveAISummary(
+          conversationHistory,
+          cleanCandidateEmail,
+          jobId,
+          attempts,
+          'Human-Negotiation'
+        );
+        if(stateRowIndex > -1) {
+          stateSheet.getRange(stateRowIndex, 9).setValue(comprehensiveSummary);
+          stateSheet.getRange(stateRowIndex, 6).setValue(new Date()); // Update last reply time
+        }
+      } catch(e) {
+        console.error("Failed to update AI summary for human escalation:", e);
+      }
+
       jobStats.skipped++;
-      jobStats.log.push({type: 'info', message: `Skipped AI negotiation for ${cleanCandidateEmail}: Already escalated to human (data was extracted)`});
+      jobStats.log.push({type: 'info', message: `Skipped AI negotiation for ${cleanCandidateEmail}: Already escalated to human (data was extracted, AI notes updated)`});
       return;
     }
 
     // Check attempt limit (2 AI attempts max)
     if (attempts >= 2) {
-      // Generate AI summary notes before escalating
-      const aiSummaryNotes = generateAISummaryNotes(conversationHistory, candidateEmail, '', attempts, "Max AI attempts reached - candidate did not agree to offered rate");
+      // Generate COMPREHENSIVE AI summary before escalating
+      const comprehensiveSummary = generateComprehensiveAISummary(
+        conversationHistory,
+        candidateEmail,
+        jobId,
+        attempts,
+        'Human-Negotiation'
+      );
 
-      escalateToHuman(thread, "Max AI attempts reached", candidateName, `We've had ${attempts} negotiation rounds. ${aiSummaryNotes}`);
+      escalateToHuman(thread, "Max AI attempts reached", candidateName, `We've had ${attempts} negotiation rounds. ${comprehensiveSummary}`);
       if(stateRowIndex > -1) {
         stateSheet.getRange(stateRowIndex, 5).setValue("Human-Negotiation");
-        stateSheet.getRange(stateRowIndex, 9).setValue(aiSummaryNotes);
+        stateSheet.getRange(stateRowIndex, 9).setValue(comprehensiveSummary);
       }
 
       // Remove Awaiting-Response label since we've responded and escalated
@@ -3374,15 +3397,21 @@ Write ONLY the email, nothing else.
       const escalationReason = rateAnalysis.reason || 'Candidate firm on rate above target';
       jobStats.log.push({type: 'warning', message: `${candidateEmail} - AI recommends ESCALATE: ${escalationReason}`});
 
-      // Generate summary for human handoff
-      const aiSummaryNotes = generateAISummaryNotes(conversationHistory, candidateEmail, '', attempts, escalationReason);
+      // Generate COMPREHENSIVE summary for human handoff
+      const comprehensiveSummary = generateComprehensiveAISummary(
+        conversationHistory,
+        candidateEmail,
+        jobId,
+        attempts,
+        'Human-Negotiation'
+      );
 
       // Escalate to human with detailed handoff
-      escalateToHuman(thread, escalationReason, candidateName, aiSummaryNotes);
+      escalateToHuman(thread, escalationReason, candidateName, comprehensiveSummary);
 
       if(stateRowIndex > -1) {
         stateSheet.getRange(stateRowIndex, 5).setValue("Human-Negotiation");
-        stateSheet.getRange(stateRowIndex, 9).setValue(aiSummaryNotes);
+        stateSheet.getRange(stateRowIndex, 9).setValue(comprehensiveSummary);
       }
 
       // Remove Awaiting-Response label since we've responded and escalated
@@ -3682,31 +3711,29 @@ Write ONLY the email, nothing else.
         sendReplyWithSenderName(thread, retryResponse, EMAIL_SENDER_NAME);
         
         const newAttemptCount = attempts + 1;
-        
-        // Generate contextual note about this negotiation attempt
-        const attemptNotePrompt = `
-Summarize this negotiation attempt in one short sentence (under 20 words):
-- Candidate said: "${candidateMessage.substring(0, 200)}"
-- We responded with a counter-offer
-- This is attempt ${newAttemptCount} of 2
 
-Write a brief note like: "Candidate asking $X, we countered with $Y" or "Dev wants higher rate, negotiating"
-Write ONLY the note, nothing else.
-`;
-        let noteText = `Attempt ${newAttemptCount}: AI negotiated`;
+        // Generate COMPREHENSIVE AI summary after every exchange
+        let comprehensiveSummary = `Attempt ${newAttemptCount}: AI negotiated`;
         try {
-          const aiNote = callAI(attemptNotePrompt);
-          noteText = `Attempt ${newAttemptCount}: ${aiNote.substring(0, 100)}`;
-        } catch(e) {}
-        
+          comprehensiveSummary = generateComprehensiveAISummary(
+            conversationHistory,
+            cleanCandidateEmail,
+            jobId,
+            newAttemptCount,
+            'AI Active'
+          );
+        } catch(e) {
+          console.error("Failed to generate comprehensive summary:", e);
+        }
+
         if(stateRowIndex > -1) {
           stateSheet.getRange(stateRowIndex, 3).setValue(newAttemptCount);
           stateSheet.getRange(stateRowIndex, 4).setValue("Counter Offer Sent");
           stateSheet.getRange(stateRowIndex, 5).setValue("Active");
           stateSheet.getRange(stateRowIndex, 6).setValue(new Date());
-          stateSheet.getRange(stateRowIndex, 9).setValue(noteText);
+          stateSheet.getRange(stateRowIndex, 9).setValue(comprehensiveSummary);
         } else {
-          stateSheet.appendRow([cleanCandidateEmail, jobId, newAttemptCount, "Counter Offer", "Active", new Date(), devId, candidateName, noteText, thread.getId()]);
+          stateSheet.appendRow([cleanCandidateEmail, jobId, newAttemptCount, "Counter Offer", "Active", new Date(), devId, candidateName, comprehensiveSummary, thread.getId()]);
         }
         
         // Remove Awaiting-Response label since we've now engaged with the candidate
@@ -3717,14 +3744,20 @@ Write ONLY the note, nothing else.
         return;
       }
 
-      // Allow escalation after 2 attempts - generate detailed summary
+      // Allow escalation after 2 attempts - generate COMPREHENSIVE summary
       const finalReason = escalationReason || "Candidate did not agree after 2 negotiation attempts";
-      const aiSummaryNotes = generateAISummaryNotes(conversationHistory, candidateEmail, '', attempts, finalReason);
+      const comprehensiveSummary = generateComprehensiveAISummary(
+        conversationHistory,
+        candidateEmail,
+        jobId,
+        attempts,
+        'Human-Negotiation'
+      );
 
-      escalateToHuman(thread, finalReason, candidateName, aiSummaryNotes);
+      escalateToHuman(thread, finalReason, candidateName, comprehensiveSummary);
       if(stateRowIndex > -1) {
         stateSheet.getRange(stateRowIndex, 5).setValue("Human-Negotiation");
-        stateSheet.getRange(stateRowIndex, 9).setValue(aiSummaryNotes);
+        stateSheet.getRange(stateRowIndex, 9).setValue(comprehensiveSummary);
       }
 
       // Update job-specific details sheet with escalation status
@@ -3841,60 +3874,31 @@ Write ONLY the email, nothing else.
       }
 
       sendReplyWithSenderName(thread, aiResponse, EMAIL_SENDER_NAME);
-      
+
       const newAttemptCount = attempts + 1;
-      
-      // Generate contextual note about what happened in this exchange
-      const candidateMessage = lastMsg.getPlainBody().substring(0, 400);
-      const notePrompt = `
-Analyze this negotiation exchange and write a specific, actionable note for the recruiter.
 
-CANDIDATE'S MESSAGE:
-"${candidateMessage}"
-
-OUR AI RESPONSE (summary):
-"${aiResponse.substring(0, 250)}"
-
-This is negotiation attempt ${newAttemptCount} of 2.
-Our offer in this round: approximately $${currentOfferRate}/hr
-
-TASK:
-Write a brief note (1-2 sentences, under 40 words) that captures:
-1. The specific rate the candidate requested (if mentioned)
-2. What we offered them
-3. Any key concerns or questions they raised
-
-EXAMPLES OF GOOD NOTES:
-- "Candidate requested $35/hr. We offered $15/hr. They asked about work hours and laptop provision."
-- "Dev wants $40/hr citing 5 years experience. Countered with $18/hr. Interested but firm on rate."
-- "Candidate asked about project details before discussing rate. We offered $15/hr with role info."
-
-EXAMPLES OF BAD NOTES (too vague):
-- "AI negotiated"
-- "Candidate responded"
-- "Rate discussion ongoing"
-
-Write ONLY the note, nothing else. Be specific about numbers.
-`;
-      
-      let noteText = `Attempt ${newAttemptCount}: Offered $${currentOfferRate}/hr`;
+      // Generate COMPREHENSIVE AI summary after every exchange
+      let comprehensiveSummary = `Attempt ${newAttemptCount}: Offered $${currentOfferRate}/hr`;
       try {
-        const aiNote = callAI(notePrompt);
-        if(aiNote && aiNote.length > 10 && !aiNote.includes("ACTION:")) {
-          noteText = `Attempt ${newAttemptCount}: ${aiNote.substring(0, 200)}`;
-        }
+        comprehensiveSummary = generateComprehensiveAISummary(
+          conversationHistory,
+          cleanCandidateEmail,
+          jobId,
+          newAttemptCount,
+          'AI Active'
+        );
       } catch(e) {
-        // Keep default note on error
+        console.error("Failed to generate comprehensive summary:", e);
       }
-      
+
       if(stateRowIndex > -1) {
         stateSheet.getRange(stateRowIndex, 3).setValue(newAttemptCount);
         stateSheet.getRange(stateRowIndex, 4).setValue("Counter Offer Sent");
         stateSheet.getRange(stateRowIndex, 5).setValue("Active");
         stateSheet.getRange(stateRowIndex, 6).setValue(new Date());
-        stateSheet.getRange(stateRowIndex, 9).setValue(noteText);
+        stateSheet.getRange(stateRowIndex, 9).setValue(comprehensiveSummary);
       } else {
-        stateSheet.appendRow([cleanCandidateEmail, jobId, newAttemptCount, "Counter Offer", "Active", new Date(), devId, candidateName, noteText, thread.getId()]);
+        stateSheet.appendRow([cleanCandidateEmail, jobId, newAttemptCount, "Counter Offer", "Active", new Date(), devId, candidateName, comprehensiveSummary, thread.getId()]);
       }
 
       // Remove Awaiting-Response label since we've now engaged with the candidate
@@ -3968,6 +3972,151 @@ Write ONLY the email, nothing else. Keep it concise (3-4 sentences).
       const fallbackMsg = `Hi ${candidateName ? candidateName.split(' ')[0] : 'there'},\n\nThank you for sharing your rate expectation. I have shared your message with a member of our Talent Operations team, and they will get back to you shortly with an update on the rates.\n\nWe appreciate your patience and interest in this opportunity.\n\nBest regards,\n${EMAIL_SIGNATURE}`;
       sendReplyWithSenderName(thread, fallbackMsg, EMAIL_SENDER_NAME);
     } catch(e2) {}
+  }
+}
+
+/**
+ * Get candidate data from Job Details sheet for AI summary
+ * @param {string} jobId - Job ID
+ * @param {string} candidateEmail - Candidate's email
+ * @returns {Object} Candidate data with questions, answers, and status
+ */
+function getJobCandidateData(jobId, candidateEmail) {
+  try {
+    const jobsSs = getCachedJobsSpreadsheet();
+    if (!jobsSs) return null;
+
+    const sheetName = `Job_${jobId}_Details`;
+    const sheet = jobsSs.getSheetByName(sheetName);
+    if (!sheet || sheet.getLastRow() < 2) return null;
+
+    const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+    const data = sheet.getDataRange().getValues();
+    const cleanEmail = String(candidateEmail).toLowerCase().trim();
+
+    // Fixed headers that are NOT data gathering questions
+    const fixedHeaders = ['Timestamp', 'Email', 'Name', 'Dev ID', 'Thread ID', 'Region', 'Negotiation Notes', 'Status', 'Agreed Rate'];
+
+    // Find candidate row
+    const emailColIdx = headers.indexOf('Email');
+    let candidateRow = null;
+    for (let i = 1; i < data.length; i++) {
+      if (String(data[i][emailColIdx]).toLowerCase().trim() === cleanEmail) {
+        candidateRow = data[i];
+        break;
+      }
+    }
+
+    if (!candidateRow) return null;
+
+    // Extract question/answer pairs
+    const dataGathering = {
+      answered: [],
+      pending: [],
+      status: candidateRow[headers.indexOf('Status')] || 'Unknown',
+      agreedRate: candidateRow[headers.indexOf('Agreed Rate')] || null
+    };
+
+    headers.forEach((header, idx) => {
+      if (header && !fixedHeaders.includes(header)) {
+        const value = candidateRow[idx];
+        if (value && value !== 'NOT_PROVIDED' && value !== 'PARSE_ERROR' && String(value).trim() !== '') {
+          dataGathering.answered.push({ question: header, answer: String(value) });
+        } else {
+          dataGathering.pending.push(header);
+        }
+      }
+    });
+
+    return dataGathering;
+  } catch (e) {
+    console.error("Error getting job candidate data:", e);
+    return null;
+  }
+}
+
+/**
+ * Generate comprehensive AI summary including email, data gathering, and negotiation status
+ * This is called after EVERY email exchange to keep the summary up-to-date
+ * @param {string} conversationHistory - Full conversation history
+ * @param {string} candidateEmail - Candidate's email
+ * @param {string} jobId - Job ID
+ * @param {number} attempts - Number of negotiation attempts
+ * @param {string} currentStatus - Current negotiation status
+ * @param {Object} dataGathering - Optional pre-fetched data gathering info
+ * @returns {string} Comprehensive AI summary
+ */
+function generateComprehensiveAISummary(conversationHistory, candidateEmail, jobId, attempts, currentStatus, dataGathering) {
+  // Fetch data gathering info if not provided
+  if (!dataGathering) {
+    dataGathering = getJobCandidateData(jobId, candidateEmail);
+  }
+
+  // Build data gathering summary
+  let dataGatheringSummary = '';
+  if (dataGathering) {
+    const answeredList = dataGathering.answered.map(a => `✓ ${a.question}: ${a.answer}`).join('\n');
+    const pendingList = dataGathering.pending.map(p => `○ ${p}: pending`).join('\n');
+
+    if (dataGathering.answered.length > 0 || dataGathering.pending.length > 0) {
+      dataGatheringSummary = `
+DATA GATHERED (${dataGathering.answered.length}/${dataGathering.answered.length + dataGathering.pending.length} complete):
+${answeredList}
+${pendingList ? '\nSTILL NEEDED:\n' + pendingList : ''}`;
+    }
+  }
+
+  const prompt = `
+You are creating a COMPREHENSIVE summary for a recruiter so they don't need to read the emails.
+
+CONVERSATION HISTORY:
+${conversationHistory}
+
+${dataGatheringSummary ? 'CANDIDATE DATA STATUS:\n' + dataGatheringSummary : ''}
+
+CONTEXT:
+- Candidate Email: ${candidateEmail}
+- Job ID: ${jobId}
+- AI Attempts: ${attempts}
+- Current Status: ${currentStatus || 'Active'}
+
+TASK:
+Create a brief but COMPLETE summary with these sections:
+
+📧 EMAIL SUMMARY (2-3 sentences max):
+- What did the candidate say in their last message?
+- Any specific requests, concerns, or questions they raised?
+- What's the overall tone (positive, hesitant, firm)?
+
+${dataGatheringSummary ? `
+📝 DATA STATUS:
+- List what info we have (with values)
+- List what's still missing
+` : ''}
+
+💰 NEGOTIATION (if applicable):
+- What rate are they asking for? (exact $ amount if mentioned)
+- What offers have we made?
+- Are they flexible or firm?
+
+Keep the TOTAL summary under 120 words. Be SPECIFIC with numbers and details.
+DO NOT use generic phrases like "discussed rate" - say the exact rate.
+Format with emojis as section headers for easy scanning.
+
+Write ONLY the summary, nothing else.
+`;
+
+  try {
+    const response = callAI(prompt);
+    return response.replace(/^["']|["']$/g, '').trim();
+  } catch (e) {
+    console.error("Failed to generate comprehensive summary:", e);
+    // Fallback to basic summary
+    let fallback = `Status: ${currentStatus || 'Active'}. Attempts: ${attempts}.`;
+    if (dataGathering) {
+      fallback += ` Data: ${dataGathering.answered.length}/${dataGathering.answered.length + dataGathering.pending.length} collected.`;
+    }
+    return fallback;
   }
 }
 
