@@ -969,7 +969,7 @@
                                         <th class="px-6 py-4">Job ID</th>
                                         <th class="px-6 py-4">Candidate</th>
                                         <th class="px-6 py-4">Status Tag</th>
-                                        <th class="px-6 py-4">AI Notes</th>
+                                        <th class="px-6 py-4">AI Summary</th>
                                         <th class="px-6 py-4">Last Activity</th>
                                         <th class="px-6 py-4 text-right">Actions</th>
                                     </tr>
@@ -1478,13 +1478,16 @@
         </div>
     </div>
 
-    <!-- AI Notes Modal -->
+    <!-- AI Notes Modal - Comprehensive Summary -->
     <div id="notesModal" class="fixed inset-0 z-50 hidden bg-black/50 backdrop-blur-sm flex items-center justify-center">
-        <div class="bg-white p-6 rounded-xl shadow-xl w-full max-w-lg">
-            <h3 class="font-bold mb-4 text-purple-700">AI Conversation Notes</h3>
-            <div id="notesModalContent" class="bg-slate-50 p-4 rounded-lg text-sm text-slate-700 mb-4 max-h-60 overflow-y-auto whitespace-pre-wrap"></div>
+        <div class="bg-white p-6 rounded-xl shadow-xl w-full max-w-2xl">
+            <h3 class="font-bold mb-4 text-purple-700 flex items-center gap-2">
+                <i class="fa-solid fa-robot"></i> AI Summary
+                <span class="text-xs font-normal text-slate-400">(Email + Data + Negotiation)</span>
+            </h3>
+            <div id="notesModalContent" class="bg-slate-50 p-4 rounded-lg text-sm text-slate-700 mb-4 max-h-96 overflow-y-auto whitespace-pre-wrap leading-relaxed"></div>
             <div class="flex justify-end">
-                <button onclick="document.getElementById('notesModal').classList.add('hidden')" class="px-4 py-2 bg-slate-100 rounded-lg">Close</button>
+                <button onclick="document.getElementById('notesModal').classList.add('hidden')" class="px-4 py-2 bg-slate-100 hover:bg-slate-200 rounded-lg transition">Close</button>
             </div>
         </div>
     </div>
@@ -2464,7 +2467,12 @@
                             <td class="px-6 py-4 font-mono text-xs">${t.jobId}</td>
                             <td class="px-6 py-4 font-bold text-slate-800">${t.name}</td>
                             <td class="px-6 py-4"><span class="px-2 py-1 rounded text-xs font-bold ${badgeClass}">${t.tags}</span></td>
-                            <td class="px-6 py-4 text-xs text-slate-500 truncate max-w-xs cursor-pointer hover:text-blue-600" onclick="showNotes(\`${encodeURIComponent(t.aiNotes)}\`)">${t.aiNotes && t.aiNotes.length > 0 ? t.aiNotes.substring(0,40)+'...' : '-'}</td>
+                            <td class="px-6 py-4 text-xs text-slate-500 max-w-sm cursor-pointer hover:text-blue-600" onclick="showNotes(\`${encodeURIComponent(t.aiNotes)}\`)">
+                                ${t.aiNotes && t.aiNotes.length > 0 ?
+                                    '<div class="truncate" title="Click to view full summary">' + t.aiNotes.split('\\n')[0].substring(0,60) + (t.aiNotes.length > 60 ? '...' : '') + '</div>' +
+                                    (t.aiNotes.includes('📝') || t.aiNotes.includes('💰') ? '<span class="text-purple-500 text-xs">📊 View full summary</span>' : '')
+                                    : '<span class="text-slate-300">-</span>'}
+                            </td>
                             <td class="px-6 py-4 text-xs text-slate-400">${t.lastReply || 'N/A'}</td>
                             <td class="px-6 py-4">
                                 <div class="flex justify-end">
