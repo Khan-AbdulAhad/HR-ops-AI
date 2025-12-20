@@ -1614,7 +1614,7 @@ function extractAnswersFromResponse(candidateMessage, questions, candidateName) 
   const questionsList = questions.map((q, i) => `${i+1}. "${q.header}": ${q.question}`).join('\n');
 
   const prompt = `
-You are an intelligent data extraction assistant with ADVANCED natural language understanding. Your task is to extract answers from a candidate's response, even when they reply tersely or in an unstructured way.
+You are an intelligent data extraction assistant with ADVANCED natural language understanding. Your task is to extract answers from a candidate's response - whether it's well-organized OR completely unstructured.
 
 CANDIDATE'S MESSAGE:
 "${candidateMessage}"
@@ -1624,29 +1624,76 @@ CANDIDATE NAME: ${candidateName}
 QUESTIONS TO EXTRACT ANSWERS FOR:
 ${questionsList}
 
-=== CRITICAL: HANDLING SHORT/TERSE RESPONSES ===
+=== HANDLING ALL RESPONSE TYPES ===
 
-Candidates often reply with just values, comma-separated lists, or jumbled answers. You MUST use CONTEXTUAL INFERENCE to match values to the correct questions.
+You must handle BOTH organized and unorganized responses:
 
-EXAMPLE 1 - Comma-separated values:
+**TYPE A - ORGANIZED/STRUCTURED RESPONSES:**
+
+EXAMPLE A1 - Labeled answers:
+"Age: 28
+City: Mumbai
+Expected Rate: $40/hr
+Available from: December 15th"
+→ Extract directly from labels
+
+EXAMPLE A2 - Paragraph with clear answers:
+"Hi, I'm 28 years old and based in Mumbai. I have 5 years of experience in React development. My expected rate is $40 per hour and I can start from December 15th."
+→ Extract from context in sentences
+
+EXAMPLE A3 - Numbered/bullet list:
+"1. Age - 28
+2. Location - Mumbai
+3. Rate - $40/hr
+4. Start date - Dec 15"
+→ Extract from list format
+
+EXAMPLE A4 - Q&A format:
+"What's your rate? $40/hr
+When can you start? Next Monday
+Where are you located? Bangalore"
+→ Extract answers after questions
+
+**TYPE B - UNORGANIZED/TERSE RESPONSES:**
+
+EXAMPLE B1 - Comma-separated values (no labels):
 Questions: Age, City, Language
-Candidate says: "23, Bangalore, Hindi"
-→ Infer: Age=23 (number likely age), City=Bangalore (city name), Language=Hindi (language name)
+Response: "23, Bangalore, Hindi"
+→ Infer: Age=23 (number in age range), City=Bangalore (city name), Language=Hindi (language name)
 
-EXAMPLE 2 - Jumbled order:
+EXAMPLE B2 - Jumbled order:
 Questions: Expected Rate, Start Date, Weekly Hours
-Candidate says: "40 hours, $35, next Monday"
+Response: "40 hours, $35, next Monday"
 → Infer: Weekly Hours=40 hours, Expected Rate=$35, Start Date=next Monday
 
-EXAMPLE 3 - Single values with context clues:
+EXAMPLE B3 - Just values with separators:
 Questions: Experience, Location, Rate
-Candidate says: "5 years, Mumbai, 40/hr"
+Response: "5 years, Mumbai, 40/hr"
 → Infer: Experience=5 years, Location=Mumbai, Rate=40/hr
 
-EXAMPLE 4 - Mixed format:
+EXAMPLE B4 - Mixed separators:
 Questions: Age, Education, Notice Period
-Candidate says: "28 - BTech - 2 weeks"
+Response: "28 - BTech - 2 weeks"
 → Infer: Age=28, Education=BTech, Notice Period=2 weeks
+
+EXAMPLE B5 - Single line no separators:
+Questions: Name, Age, City
+Response: "Rahul 25 Delhi"
+→ Infer: Name=Rahul (name), Age=25 (number), City=Delhi (city)
+
+EXAMPLE B6 - Partial answers mixed with text:
+"yeah sure, 35 dollars, can do 40 hrs, based in pune currently"
+→ Rate=$35, Hours=40 hrs, Location=Pune
+
+**TYPE C - MIXED/CONVERSATIONAL RESPONSES:**
+
+EXAMPLE C1 - Casual reply:
+"hey! so I'm asking for 45 an hour, currently in Hyderabad, and yeah I can start immediately"
+→ Rate=$45/hr, Location=Hyderabad, Start Date=immediately
+
+EXAMPLE C2 - With extra context:
+"Thanks for reaching out! I have about 6 years of exp in backend development. Looking for around $50/hr. I'm based out of Noida and can join in 2 weeks after serving notice."
+→ Experience=6 years, Rate=$50/hr, Location=Noida, Notice Period=2 weeks, Start Date=2 weeks
 
 === VALUE TYPE RECOGNITION RULES ===
 
