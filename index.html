@@ -188,6 +188,259 @@
         ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
         ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
         .dark ::-webkit-scrollbar-thumb { background: #475569; }
+
+        /* Email Draft Modal Styles */
+        .email-modal-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.5);
+            backdrop-filter: blur(4px);
+            z-index: 1000;
+            opacity: 0;
+            visibility: hidden;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .email-modal-overlay.open {
+            opacity: 1;
+            visibility: visible;
+        }
+        .email-modal {
+            background: white;
+            border-radius: 1rem;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+            width: 90%;
+            max-width: 900px;
+            max-height: 90vh;
+            display: flex;
+            flex-direction: column;
+            transform: scale(0.95) translateY(20px);
+            transition: transform 0.3s ease;
+        }
+        .email-modal-overlay.open .email-modal {
+            transform: scale(1) translateY(0);
+        }
+        .dark .email-modal {
+            background: #1e293b;
+        }
+
+        /* Rich Text Editor Styles */
+        .rich-text-editor {
+            min-height: 300px;
+            max-height: 400px;
+            padding: 1rem;
+            border: 1px solid #e2e8f0;
+            border-radius: 0.5rem;
+            overflow-y: auto;
+            background: white;
+            font-size: 0.875rem;
+            line-height: 1.6;
+        }
+        .dark .rich-text-editor {
+            background: #0f172a;
+            border-color: #334155;
+            color: #e2e8f0;
+        }
+        .rich-text-editor:focus {
+            outline: none;
+            border-color: #3b82f6;
+            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+        }
+        /* CSS Reset for rich text editor content */
+        .rich-text-editor ul,
+        .rich-text-editor ol {
+            margin-left: 1.5rem;
+            margin-bottom: 0.5rem;
+        }
+        .rich-text-editor ul {
+            list-style-type: disc;
+        }
+        .rich-text-editor ol {
+            list-style-type: decimal;
+        }
+        .rich-text-editor li {
+            margin-bottom: 0.25rem;
+        }
+        .rich-text-editor p {
+            margin-bottom: 0.5rem;
+        }
+        .rich-text-editor h2 {
+            font-size: 1.25rem;
+            font-weight: 600;
+            margin-bottom: 0.5rem;
+        }
+        .rich-text-editor blockquote {
+            border-left: 3px solid #3b82f6;
+            padding-left: 1rem;
+            margin: 0.5rem 0;
+            color: #64748b;
+        }
+
+        /* Formatting Toolbar Styles */
+        .format-toolbar {
+            display: flex;
+            gap: 0.25rem;
+            padding: 0.5rem;
+            border: 1px solid #e2e8f0;
+            border-bottom: none;
+            border-radius: 0.5rem 0.5rem 0 0;
+            background: #f8fafc;
+        }
+        .dark .format-toolbar {
+            background: #1e293b;
+            border-color: #334155;
+        }
+        .format-btn {
+            width: 36px;
+            height: 36px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border: 1px solid #e2e8f0;
+            border-radius: 0.375rem;
+            background: white;
+            color: #475569;
+            cursor: pointer;
+            transition: all 0.2s;
+            font-weight: 600;
+            font-size: 0.875rem;
+        }
+        .dark .format-btn {
+            background: #334155;
+            border-color: #475569;
+            color: #e2e8f0;
+        }
+        .format-btn:hover {
+            background: #f1f5f9;
+            border-color: #cbd5e1;
+        }
+        .dark .format-btn:hover {
+            background: #475569;
+        }
+        .format-btn.active {
+            background: #3b82f6;
+            color: white;
+            border-color: #3b82f6;
+        }
+        .format-divider {
+            width: 1px;
+            background: #e2e8f0;
+            margin: 0 0.25rem;
+        }
+        .dark .format-divider {
+            background: #475569;
+        }
+
+        /* Toggle Switch Styles */
+        .toggle-container {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        .toggle-switch {
+            position: relative;
+            width: 44px;
+            height: 24px;
+            background: #e2e8f0;
+            border-radius: 12px;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        .toggle-switch.active {
+            background: #3b82f6;
+        }
+        .toggle-switch::after {
+            content: '';
+            position: absolute;
+            top: 2px;
+            left: 2px;
+            width: 20px;
+            height: 20px;
+            background: white;
+            border-radius: 50%;
+            transition: all 0.3s;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+        }
+        .toggle-switch.active::after {
+            left: 22px;
+        }
+        .dark .toggle-switch {
+            background: #475569;
+        }
+        .toggle-label {
+            font-size: 0.875rem;
+            font-weight: 500;
+            color: #64748b;
+            min-width: 100px;
+        }
+        .toggle-label.active {
+            color: #3b82f6;
+        }
+        .dark .toggle-label {
+            color: #94a3b8;
+        }
+        .dark .toggle-label.active {
+            color: #60a5fa;
+        }
+
+        /* Job Type Toggles Container */
+        .job-toggles-container {
+            display: flex;
+            flex-direction: column;
+            gap: 0.75rem;
+            padding: 1rem;
+            background: #f8fafc;
+            border-radius: 0.5rem;
+            border: 1px solid #e2e8f0;
+        }
+        .dark .job-toggles-container {
+            background: #0f172a;
+            border-color: #334155;
+        }
+        .job-toggle-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        .job-toggle-info {
+            display: flex;
+            flex-direction: column;
+            gap: 0.125rem;
+        }
+        .job-toggle-title {
+            font-weight: 600;
+            font-size: 0.875rem;
+            color: #334155;
+        }
+        .dark .job-toggle-title {
+            color: #e2e8f0;
+        }
+        .job-toggle-desc {
+            font-size: 0.75rem;
+            color: #64748b;
+        }
+        .dark .job-toggle-desc {
+            color: #94a3b8;
+        }
+
+        /* Name Placeholder Badge */
+        .name-placeholder {
+            display: inline-flex;
+            align-items: center;
+            padding: 0.125rem 0.5rem;
+            background: #dbeafe;
+            color: #1d4ed8;
+            border-radius: 0.25rem;
+            font-family: monospace;
+            font-size: 0.75rem;
+            font-weight: 600;
+        }
+        .dark .name-placeholder {
+            background: rgba(59, 130, 246, 0.2);
+            color: #60a5fa;
+        }
     </style>
 </head>
 <body class="bg-slate-100 dark:bg-slate-900 text-slate-900 dark:text-slate-100 flex h-screen overflow-hidden">
@@ -1003,49 +1256,139 @@
         </div>
     </div>
 
-    <!-- Email Composer Slide Panel -->
-    <div id="emailPanelOverlay" class="slide-panel-overlay" onclick="closeEmailPanel()"></div>
-    <div id="emailPanel" class="slide-panel">
-        <div class="p-6 border-b border-slate-100 flex justify-between items-center">
-            <h2 class="font-bold text-lg">Compose Campaign</h2>
-            <button onclick="closeEmailPanel()" class="text-slate-400 hover:text-slate-600"><i class="fa-solid fa-times"></i></button>
-        </div>
-        <div class="p-6 flex-1 overflow-y-auto space-y-4">
-            <div class="bg-blue-50 p-3 rounded-lg border border-blue-100 text-sm text-blue-700">
-                Sending to <span id="emailRecipientCount" class="font-bold">0</span> candidates.
-                <div id="emailRecipientPreview" class="text-xs text-blue-500 mt-1 truncate"></div>
-            </div>
-            
-            <div class="flex gap-2">
-                <select id="templateSelect" onchange="loadSelectedTemplate()" class="input-field flex-1"><option value="">Load Template...</option></select>
-                <button onclick="saveCurrentAsTemplate()" class="bg-slate-100 px-3 rounded-lg text-slate-600 hover:bg-slate-200"><i class="fa-solid fa-save"></i></button>
+    <!-- Email Composer Modal (Centered) -->
+    <div id="emailModalOverlay" class="email-modal-overlay" onclick="handleModalOverlayClick(event)">
+        <div class="email-modal" onclick="event.stopPropagation()">
+            <!-- Modal Header -->
+            <div class="p-6 border-b border-slate-100 dark:border-slate-700 flex justify-between items-center">
+                <div>
+                    <h2 class="font-bold text-xl">Draft Email Campaign</h2>
+                    <p class="text-sm text-slate-500 dark:text-slate-400 mt-1">Compose and send bulk emails with formatting</p>
+                </div>
+                <button onclick="closeEmailPanel()" class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 text-xl">
+                    <i class="fa-solid fa-times"></i>
+                </button>
             </div>
 
-            <!-- Job Type Selector -->
-            <div class="bg-slate-50 p-3 rounded-lg border border-slate-200">
-                <label class="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-2">Job Type</label>
-                <select id="jobTypeSelect" class="input-field text-sm" onchange="handleJobTypeChange()">
-                    <option value="negotiation">Rate Negotiation - Follow-up enabled</option>
-                    <option value="data_gathering">Data Gathering - Follow-up enabled</option>
-                    <option value="informing">Informing Only - No follow-up</option>
-                </select>
-                <p id="jobTypeHint" class="text-xs text-slate-500 mt-1">
-                    <i class="fa-solid fa-info-circle mr-1"></i>
-                    Candidates will receive automated follow-ups if they don't respond.
-                </p>
+            <!-- Modal Body -->
+            <div class="p-6 flex-1 overflow-y-auto">
+                <!-- Top Row: Name, Subject, Recipients -->
+                <div class="grid grid-cols-2 gap-4 mb-4">
+                    <input id="senderName" class="input-field" placeholder="Your Name">
+                    <input id="emailSubject" class="input-field" placeholder="Subject line">
+                </div>
+
+                <!-- Recipients Info -->
+                <div class="bg-blue-50 dark:bg-blue-900/20 p-3 rounded-lg border border-blue-100 dark:border-blue-800 text-sm text-blue-700 dark:text-blue-300 mb-4">
+                    Sending to <span id="emailRecipientCount" class="font-bold">0</span> candidates.
+                    <div id="emailRecipientPreview" class="text-xs text-blue-500 dark:text-blue-400 mt-1 truncate"></div>
+                </div>
+
+                <!-- Template Selection Row -->
+                <div class="flex gap-2 mb-4">
+                    <select id="templateSelect" onchange="loadSelectedTemplate()" class="input-field flex-1">
+                        <option value="">-- Select Template --</option>
+                    </select>
+                    <button onclick="saveCurrentAsTemplate()" class="bg-slate-100 dark:bg-slate-700 px-4 rounded-lg text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600" title="Save as Template">
+                        <i class="fa-solid fa-save"></i>
+                    </button>
+                </div>
+
+                <!-- Job Type Toggles -->
+                <div class="job-toggles-container mb-4">
+                    <label class="block text-xs font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-3">Campaign Settings</label>
+
+                    <!-- Negotiation Toggle -->
+                    <div class="job-toggle-row">
+                        <div class="job-toggle-info">
+                            <span class="job-toggle-title">Negotiation</span>
+                            <span class="job-toggle-desc">AI will negotiate rates with candidates</span>
+                        </div>
+                        <div class="toggle-switch active" id="toggleNegotiation" onclick="toggleJobSetting('negotiation')"></div>
+                    </div>
+
+                    <!-- Follow-up Toggle -->
+                    <div class="job-toggle-row">
+                        <div class="job-toggle-info">
+                            <span class="job-toggle-title">Follow-up</span>
+                            <span class="job-toggle-desc">Send automated follow-ups if no response</span>
+                        </div>
+                        <div class="toggle-switch active" id="toggleFollowUp" onclick="toggleJobSetting('followUp')"></div>
+                    </div>
+
+                    <!-- Data Gathering Toggle -->
+                    <div class="job-toggle-row">
+                        <div class="job-toggle-info">
+                            <span class="job-toggle-title">Data Gathering</span>
+                            <span class="job-toggle-desc">Collect and track candidate responses</span>
+                        </div>
+                        <div class="toggle-switch" id="toggleDataGathering" onclick="toggleJobSetting('dataGathering')"></div>
+                    </div>
+
+                    <!-- Status Hint -->
+                    <p id="jobTypeHint" class="text-xs text-slate-500 dark:text-slate-400 mt-2 pt-2 border-t border-slate-200 dark:border-slate-600">
+                        <i class="fa-solid fa-info-circle mr-1 text-blue-500"></i>
+                        <span id="jobTypeHintText">Negotiation + Follow-up enabled. AI will negotiate and send reminders.</span>
+                    </p>
+                </div>
+
+                <!-- Email Body Section -->
+                <div class="mb-4">
+                    <div class="flex items-center justify-between mb-2">
+                        <label class="block text-xs font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider">Email Body</label>
+                        <span class="text-xs text-slate-500 dark:text-slate-400">
+                            Use <span class="name-placeholder">{{name}}</span> as a placeholder for the candidate's name
+                        </span>
+                    </div>
+
+                    <!-- Formatting Toolbar -->
+                    <div class="format-toolbar">
+                        <button class="format-btn" onclick="formatText('bold')" title="Bold (Ctrl+B)"><b>B</b></button>
+                        <button class="format-btn" onclick="formatText('italic')" title="Italic (Ctrl+I)"><i>I</i></button>
+                        <button class="format-btn" onclick="formatText('underline')" title="Underline (Ctrl+U)"><u>U</u></button>
+                        <div class="format-divider"></div>
+                        <button class="format-btn" onclick="formatText('formatBlock', 'H2')" title="Heading">H2</button>
+                        <button class="format-btn" onclick="formatText('insertUnorderedList')" title="Bullet List"><i class="fa-solid fa-list-ul"></i></button>
+                        <button class="format-btn" onclick="formatText('insertOrderedList')" title="Numbered List"><i class="fa-solid fa-list-ol"></i></button>
+                        <div class="format-divider"></div>
+                        <button class="format-btn" id="formatPainterBtn" onclick="handleFormatPainter()" title="Format Painter - Copy and apply formatting">
+                            <i class="fa-solid fa-paintbrush"></i>
+                        </button>
+                        <button class="format-btn" onclick="formatText('removeFormat')" title="Clear Formatting"><i class="fa-solid fa-eraser"></i></button>
+                    </div>
+
+                    <!-- Rich Text Editor -->
+                    <div id="emailBody" class="rich-text-editor" contenteditable="true" oninput="handleEditorInput()" style="border-top-left-radius: 0; border-top-right-radius: 0;"></div>
+                    <input type="hidden" id="htmlBody" value="">
+                </div>
+
+                <!-- Save as Template Checkbox -->
+                <div class="flex items-center gap-2 p-3 bg-slate-50 dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-600">
+                    <input type="checkbox" id="saveAsTemplateCheck" class="rounded border-slate-300 dark:border-slate-600">
+                    <label for="saveAsTemplateCheck" class="text-sm text-slate-600 dark:text-slate-400">Save this email as a new template</label>
+                </div>
             </div>
 
-            <input id="emailSubject" class="input-field font-semibold" placeholder="Subject">
-            <textarea id="emailBody" class="input-field h-64 font-mono" placeholder="Hi {{name}}, ..."></textarea>
-        </div>
-        <div class="p-6 border-t border-slate-100 bg-slate-50">
-            <div id="sendProgressContainer" class="hidden mb-2">
-                <div class="text-xs text-slate-500 flex justify-between mb-1"><span id="sendProgressText">Sending...</span><span id="sendProgressCount">0/0</span></div>
-                <div class="w-full bg-slate-200 rounded-full h-1"><div id="sendProgressBar" class="bg-blue-600 h-1 rounded-full w-0 transition-all"></div></div>
+            <!-- Modal Footer -->
+            <div class="p-6 border-t border-slate-100 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 flex justify-between items-center">
+                <div id="sendProgressContainer" class="hidden flex-1 mr-4">
+                    <div class="text-xs text-slate-500 flex justify-between mb-1">
+                        <span id="sendProgressText">Sending...</span>
+                        <span id="sendProgressCount">0/0</span>
+                    </div>
+                    <div class="w-full bg-slate-200 dark:bg-slate-600 rounded-full h-1.5">
+                        <div id="sendProgressBar" class="bg-blue-600 h-1.5 rounded-full w-0 transition-all"></div>
+                    </div>
+                </div>
+                <div class="flex gap-3">
+                    <button onclick="closeEmailPanel()" class="px-6 py-2.5 bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 rounded-lg text-slate-600 dark:text-slate-300 font-medium">
+                        Cancel
+                    </button>
+                    <button id="sendEmailBtn" onclick="sendEmails()" class="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg shadow-lg flex items-center gap-2">
+                        <i class="fa-solid fa-paper-plane"></i> Send Campaign
+                    </button>
+                </div>
             </div>
-            <button id="sendEmailBtn" onclick="sendEmails()" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl shadow-lg flex justify-center items-center gap-2">
-                <i class="fa-solid fa-paper-plane"></i> Send Campaign
-            </button>
         </div>
     </div>
 
@@ -2230,10 +2573,21 @@
         }
 
         // --- Email Panel Logic ---
+        // Job settings state
+        let jobSettings = {
+            negotiation: true,
+            followUp: true,
+            dataGathering: false
+        };
+
+        // Format Painter state
+        let formatPainterActive = false;
+        let capturedFormat = null;
+
         function openEmailPanel() {
             if(selectedDevs.size === 0) { showToast("Select candidates first", "warning"); return; }
             document.getElementById('emailRecipientCount').textContent = selectedDevs.size;
-            
+
             // Preview logic
             const recipients = tableData.filter(d => selectedDevs.has(d.developer_id));
             const preview = recipients.slice(0, 5).map(r => r.email).join(', ');
@@ -2242,12 +2596,149 @@
             // Refresh templates logic
             refreshTemplates();
 
-            document.getElementById('emailPanelOverlay').classList.add('open');
-            document.getElementById('emailPanel').classList.add('open');
+            // Reset job settings to defaults
+            jobSettings = { negotiation: true, followUp: true, dataGathering: false };
+            updateJobTogglesUI();
+            updateJobTypeHint();
+
+            // Clear format painter state
+            formatPainterActive = false;
+            capturedFormat = null;
+            const fpBtn = document.getElementById('formatPainterBtn');
+            if(fpBtn) fpBtn.classList.remove('active');
+
+            document.getElementById('emailModalOverlay').classList.add('open');
         }
+
         function closeEmailPanel() {
-            document.getElementById('emailPanelOverlay').classList.remove('open');
-            document.getElementById('emailPanel').classList.remove('open');
+            document.getElementById('emailModalOverlay').classList.remove('open');
+        }
+
+        function handleModalOverlayClick(event) {
+            if(event.target.id === 'emailModalOverlay') {
+                closeEmailPanel();
+            }
+        }
+
+        // Toggle job settings
+        function toggleJobSetting(setting) {
+            jobSettings[setting] = !jobSettings[setting];
+            updateJobTogglesUI();
+            updateJobTypeHint();
+        }
+
+        function updateJobTogglesUI() {
+            const toggleNeg = document.getElementById('toggleNegotiation');
+            const toggleFollow = document.getElementById('toggleFollowUp');
+            const toggleData = document.getElementById('toggleDataGathering');
+
+            if(toggleNeg) toggleNeg.classList.toggle('active', jobSettings.negotiation);
+            if(toggleFollow) toggleFollow.classList.toggle('active', jobSettings.followUp);
+            if(toggleData) toggleData.classList.toggle('active', jobSettings.dataGathering);
+        }
+
+        function updateJobTypeHint() {
+            const hintText = document.getElementById('jobTypeHintText');
+            if(!hintText) return;
+
+            const parts = [];
+            if(jobSettings.negotiation) parts.push('Negotiation');
+            if(jobSettings.followUp) parts.push('Follow-up');
+            if(jobSettings.dataGathering) parts.push('Data Gathering');
+
+            if(parts.length === 0) {
+                hintText.textContent = 'No features enabled. This will be a simple announcement email.';
+            } else {
+                const features = parts.join(' + ');
+                let description = '';
+                if(jobSettings.negotiation && jobSettings.followUp) {
+                    description = 'AI will negotiate and send automated reminders.';
+                } else if(jobSettings.negotiation) {
+                    description = 'AI will negotiate rates, no automatic follow-ups.';
+                } else if(jobSettings.followUp && jobSettings.dataGathering) {
+                    description = 'Responses will be collected with follow-up reminders.';
+                } else if(jobSettings.dataGathering) {
+                    description = 'Responses will be collected and tracked.';
+                } else if(jobSettings.followUp) {
+                    description = 'Automated follow-ups will be sent if no response.';
+                } else {
+                    description = 'Selected features are enabled.';
+                }
+                hintText.textContent = `${features} enabled. ${description}`;
+            }
+        }
+
+        // Rich text editor formatting functions
+        function formatText(cmd, value = null) {
+            document.getElementById('emailBody').focus();
+            if(cmd === 'formatBlock') {
+                document.execCommand(cmd, false, value);
+            } else {
+                document.execCommand(cmd, false, value);
+            }
+            handleEditorInput();
+        }
+
+        // Format Painter
+        function handleFormatPainter() {
+            const btn = document.getElementById('formatPainterBtn');
+
+            if(!formatPainterActive) {
+                // Copy mode - capture current formatting
+                const selection = window.getSelection();
+                if(selection.rangeCount > 0) {
+                    capturedFormat = {
+                        bold: document.queryCommandState('bold'),
+                        italic: document.queryCommandState('italic'),
+                        underline: document.queryCommandState('underline')
+                    };
+                    formatPainterActive = true;
+                    btn.classList.add('active');
+                    showToast('Format copied! Select text to apply.', 'info');
+                } else {
+                    showToast('Select text first to copy its format.', 'warning');
+                }
+            } else {
+                // Apply mode
+                if(capturedFormat) {
+                    // First remove all formatting
+                    document.execCommand('removeFormat', false, null);
+
+                    // Then apply captured formatting
+                    if(capturedFormat.bold) document.execCommand('bold', false, null);
+                    if(capturedFormat.italic) document.execCommand('italic', false, null);
+                    if(capturedFormat.underline) document.execCommand('underline', false, null);
+
+                    showToast('Format applied!', 'success');
+                }
+
+                // Reset format painter
+                formatPainterActive = false;
+                capturedFormat = null;
+                btn.classList.remove('active');
+            }
+        }
+
+        function handleEditorInput() {
+            const editor = document.getElementById('emailBody');
+            const hiddenField = document.getElementById('htmlBody');
+            if(editor && hiddenField) {
+                hiddenField.value = editor.innerHTML;
+            }
+        }
+
+        // Get job type string for backend compatibility
+        function getJobTypeFromSettings() {
+            // Map toggle settings to job type for backend
+            if(jobSettings.negotiation && jobSettings.followUp) {
+                return 'negotiation';
+            } else if(jobSettings.dataGathering && jobSettings.followUp) {
+                return 'data_gathering';
+            } else if(!jobSettings.followUp) {
+                return 'informing';
+            } else {
+                return 'negotiation'; // default
+            }
         }
 
         // --- Negotiation Config ---
@@ -2390,22 +2881,21 @@
                 .createAllMissingTriggers();
         }
 
+        // Legacy function kept for compatibility - now uses toggle system
         function handleJobTypeChange() {
-            const jobType = document.getElementById('jobTypeSelect').value;
-            const hint = document.getElementById('jobTypeHint');
-
-            if(jobType === 'informing') {
-                hint.innerHTML = '<i class="fa-solid fa-info-circle mr-1 text-amber-500"></i><span class="text-amber-600">No follow-ups will be sent. Use for announcements or one-way info.</span>';
-            } else if(jobType === 'data_gathering') {
-                hint.innerHTML = '<i class="fa-solid fa-info-circle mr-1 text-blue-500"></i><span class="text-blue-600">Follow-ups enabled. Responses will be tracked for data collection.</span>';
-            } else {
-                hint.innerHTML = '<i class="fa-solid fa-info-circle mr-1"></i>Candidates will receive automated follow-ups if they don\'t respond.';
-            }
+            // This function is deprecated - use toggle system instead
+            updateJobTypeHint();
         }
 
         function sendEmails() {
             const subject = document.getElementById('emailSubject').value;
-            const body = document.getElementById('emailBody').value;
+            const senderName = document.getElementById('senderName')?.value || '';
+
+            // Get body from rich text editor (HTML content)
+            const emailBodyEl = document.getElementById('emailBody');
+            const body = emailBodyEl.innerHTML || emailBodyEl.innerText || '';
+            const plainTextBody = emailBodyEl.innerText || '';
+
             const recipients = tableData.filter(d => selectedDevs.has(d.developer_id)).map(d => ({
                 name: d.full_name,
                 email: d.email,
@@ -2413,19 +2903,30 @@
                 region: d.region || ''
             }));
             const jobId = document.getElementById('jobId').value;
-            const jobType = document.getElementById('jobTypeSelect').value;
+
+            // Get job type from toggle settings
+            const jobType = getJobTypeFromSettings();
 
             if(!recipients.length) { showToast("No recipients", "warning"); return; }
             if(!jobId) { showToast("Missing Job ID", "warning"); return; }
-            if(!subject || !body) { showToast("Missing content", "warning"); return; }
-            
+            if(!subject || !plainTextBody.trim()) { showToast("Missing subject or content", "warning"); return; }
+
+            // Check if user wants to save as template
+            const saveAsTemplate = document.getElementById('saveAsTemplateCheck')?.checked;
+            if(saveAsTemplate) {
+                const templateName = prompt("Enter template name:");
+                if(templateName) {
+                    google.script.run.saveEmailTemplate(templateName, subject, body, jobId);
+                }
+            }
+
             const btn = document.getElementById('sendEmailBtn');
             const progressContainer = document.getElementById('sendProgressContainer');
-            
+
             btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Sending...';
             btn.disabled = true;
             progressContainer.classList.remove('hidden');
-            
+
             // Fake progress animation
             let progress = 0;
             const interval = setInterval(() => {
@@ -2433,7 +2934,14 @@
                 if(progress > 90) progress = 90;
                 document.getElementById('sendProgressBar').style.width = progress + '%';
             }, 300);
-            
+
+            // Build options with all job settings
+            const opts = {
+                jobType: jobType,
+                jobSettings: jobSettings, // Pass full settings object
+                senderName: senderName
+            };
+
             google.script.run
                 .withSuccessHandler(result => {
                     clearInterval(interval);
@@ -2442,11 +2950,17 @@
                         btn.innerHTML = '<i class="fa-solid fa-paper-plane"></i> Send Campaign';
                         btn.disabled = false;
                         progressContainer.classList.add('hidden');
-                        
+                        document.getElementById('sendProgressBar').style.width = '0%';
+
                         if(result.sent > 0) {
                             showToast(`Sent ${result.sent} emails!`, "success");
                             closeEmailPanel();
                             fetchData();
+                            // Clear form
+                            document.getElementById('emailSubject').value = '';
+                            document.getElementById('emailBody').innerHTML = '';
+                            if(document.getElementById('senderName')) document.getElementById('senderName').value = '';
+                            if(document.getElementById('saveAsTemplateCheck')) document.getElementById('saveAsTemplateCheck').checked = false;
                         } else {
                             showToast("No emails sent (duplicates?)", "warning");
                         }
@@ -2454,11 +2968,13 @@
                 })
                 .withFailureHandler(err => {
                     clearInterval(interval);
+                    btn.innerHTML = '<i class="fa-solid fa-paper-plane"></i> Send Campaign';
                     btn.disabled = false;
                     progressContainer.classList.add('hidden');
+                    document.getElementById('sendProgressBar').style.width = '0%';
                     showToast("Error: " + err.message, "error");
                 })
-                .sendBulkEmails(recipients, "", subject, body, jobId, { jobType: jobType });
+                .sendBulkEmails(recipients, senderName, subject, body, jobId, opts);
         }
 
         function saveNegotiationSettings() {
@@ -2634,16 +3150,21 @@
             if(idx === '') return;
             const t = cachedTemplates[idx];
             document.getElementById('emailSubject').value = t.subject;
-            document.getElementById('emailBody').value = t.body;
+            // Use innerHTML for rich text editor (contenteditable div)
+            const emailBody = document.getElementById('emailBody');
+            emailBody.innerHTML = t.body;
+            handleEditorInput(); // Update hidden field
         }
 
         function saveCurrentAsTemplate() {
             const name = prompt("Template Name:");
             if(!name) return;
             const subject = document.getElementById('emailSubject').value;
-            const body = document.getElementById('emailBody').value;
+            // Get HTML content from rich text editor
+            const emailBody = document.getElementById('emailBody');
+            const body = emailBody.innerHTML || emailBody.innerText || '';
             const jobId = document.getElementById('jobId').value || '';
-            
+
             google.script.run.withSuccessHandler(() => {
                 showToast("Template Saved", "success");
                 refreshTemplates();

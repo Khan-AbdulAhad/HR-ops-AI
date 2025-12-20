@@ -1408,6 +1408,56 @@ function saveJobType(jobId, jobType) {
 }
 
 /**
+ * Save the full job settings for a specific job
+ * Settings include: negotiation, followUp, dataGathering flags
+ * @param {string} jobId - The job ID
+ * @param {object} settings - The job settings object
+ */
+function saveJobSettings(jobId, settings) {
+  const key = `JOB_${jobId}_SETTINGS`;
+  const defaultSettings = {
+    negotiation: true,
+    followUp: true,
+    dataGathering: false
+  };
+  const finalSettings = { ...defaultSettings, ...settings };
+  PropertiesService.getScriptProperties().setProperty(key, JSON.stringify(finalSettings));
+
+  // Also save legacy job type for backward compatibility
+  let legacyType = 'negotiation';
+  if (finalSettings.dataGathering && finalSettings.followUp) {
+    legacyType = 'data_gathering';
+  } else if (!finalSettings.followUp) {
+    legacyType = 'informing';
+  }
+  saveJobType(jobId, legacyType);
+}
+
+/**
+ * Get the full job settings for a specific job
+ * @param {string} jobId - The job ID
+ * @returns {object} The job settings object
+ */
+function getJobSettings(jobId) {
+  const key = `JOB_${jobId}_SETTINGS`;
+  const stored = PropertiesService.getScriptProperties().getProperty(key);
+  if (stored) {
+    try {
+      return JSON.parse(stored);
+    } catch (e) {
+      // Fall back to defaults
+    }
+  }
+  // Return defaults based on legacy job type
+  const legacyType = getJobType(jobId);
+  return {
+    negotiation: legacyType === 'negotiation',
+    followUp: legacyType !== 'informing',
+    dataGathering: legacyType === 'data_gathering'
+  };
+}
+
+/**
  * Get the job type for a specific job
  * @param {string} jobId - The job ID
  * @returns {string} The job type (defaults to 'negotiation' if not set)
@@ -1423,9 +1473,34 @@ function getJobType(jobId) {
  * @returns {boolean} True if follow-ups are needed
  */
 function jobRequiresFollowUp(jobId) {
+  // First try to get from new settings
+  const settings = getJobSettings(jobId);
+  if (settings && typeof settings.followUp === 'boolean') {
+    return settings.followUp;
+  }
+  // Fall back to legacy job type check
   const jobType = getJobType(jobId);
-  // Informing jobs don't need follow-ups
   return jobType !== 'informing';
+}
+
+/**
+ * Check if a job has negotiation enabled
+ * @param {string} jobId - The job ID
+ * @returns {boolean} True if negotiation is enabled
+ */
+function jobHasNegotiation(jobId) {
+  const settings = getJobSettings(jobId);
+  return settings.negotiation === true;
+}
+
+/**
+ * Check if a job has data gathering enabled
+ * @param {string} jobId - The job ID
+ * @returns {boolean} True if data gathering is enabled
+ */
+function jobHasDataGathering(jobId) {
+  const settings = getJobSettings(jobId);
+  return settings.dataGathering === true;
 }
 
 /**
@@ -2294,8 +2369,13 @@ function sendBulkEmails(recipients, senderName, subject, htmlBody, jobId, opts) 
   // Get job type from options (defaults to 'negotiation' for backward compatibility)
   const jobType = opts?.jobType || 'negotiation';
 
-  // Save job type for this job
-  saveJobType(jobId, jobType);
+  // Save job settings if provided (new toggle-based system)
+  if (opts?.jobSettings) {
+    saveJobSettings(jobId, opts.jobSettings);
+  } else {
+    // Fallback: save legacy job type for this job
+    saveJobType(jobId, jobType);
+  }
 
   if(!logSheet || !stateSheet) {
     return {success: false, sent: 0, errors: ["Required sheets not found. Please re-save your config."]};
@@ -2372,8 +2452,12 @@ function sendBulkEmails(recipients, senderName, subject, htmlBody, jobId, opts) 
       }
 
       // Add to follow-up queue for automated 12hr and 28hr follow-ups
-      // Skip follow-up queue for 'informing' job type (announcements, one-way info)
-      if (jobType !== 'informing') {
+      // Check if follow-ups are enabled using new settings or legacy job type
+      const shouldFollowUp = opts?.jobSettings
+        ? opts.jobSettings.followUp === true
+        : jobType !== 'informing';
+
+      if (shouldFollowUp) {
         try {
           addToFollowUpQueue(r.email, jobId, threadId, r.name, r.devId || 'N/A');
         } catch(followUpError) {
@@ -2541,10 +2625,16 @@ function runAutoNegotiator() {
   // STEP 3: Process negotiations for each job
   for(let i=1; i<configs.length; i++) {
     const jobId = configs[i][0];
-    if(!jobId) continue; 
-    
+    if(!jobId) continue;
+
+    // Check if negotiation is enabled for this job (new toggle system)
+    if(!jobHasNegotiation(jobId)) {
+      log.push({type: 'info', message: `Job ${jobId}: Negotiation disabled, skipping AI processing`});
+      continue;
+    }
+
     log.push({type: 'info', message: `Processing Job ${jobId}...`});
-    
+
     // UPDATED: Removed walkaway from rules
     const rules = {
       target: configs[i][1],
