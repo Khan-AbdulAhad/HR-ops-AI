@@ -6325,24 +6325,47 @@ function checkAnalyticsAccess() {
     const userEmail = Session.getActiveUser().getEmail();
     if (!userEmail) return { hasAccess: false, accessLevel: 'none', userEmail: '' };
 
-    // Default admins who always have access
+    // Default admins who always have full admin access
     const defaultAdmins = [
       'abdul.ahad@turing.com'
     ];
     const isDefaultAdmin = defaultAdmins.some(admin => admin.toLowerCase() === userEmail.toLowerCase());
 
+    // Default admins always get admin access regardless of spreadsheet state
+    if (isDefaultAdmin) {
+      // Try to ensure they're in the viewers sheet for consistency
+      try {
+        const ss = getAnalyticsSpreadsheet();
+        if (ss) {
+          let sheet = ss.getSheetByName('Analytics_Viewers');
+          if (!sheet) {
+            initAnalyticsSheet();
+          } else {
+            // Check if admin is in the sheet, if not add them
+            const data = sheet.getDataRange().getValues();
+            const exists = data.some((row, i) => i > 0 && String(row[0]).toLowerCase() === userEmail.toLowerCase());
+            if (!exists) {
+              sheet.appendRow([userEmail, 'System', new Date(), 'admin']);
+            }
+          }
+        }
+      } catch (sheetError) {
+        console.log("Could not update viewers sheet for admin:", sheetError);
+      }
+      return { hasAccess: true, accessLevel: 'admin', userEmail: userEmail };
+    }
+
+    // For non-default-admins, check the spreadsheet
     const ss = getAnalyticsSpreadsheet();
     if (!ss) {
-      // If no spreadsheet but user is default admin, grant access
-      if (isDefaultAdmin) return { hasAccess: true, accessLevel: 'admin', userEmail: userEmail };
       return { hasAccess: false, accessLevel: 'none', userEmail: userEmail };
     }
 
     const sheet = ss.getSheetByName('Analytics_Viewers');
     if (!sheet) {
-      // If no viewers sheet, initialize and give access
+      // If no viewers sheet, initialize it but don't grant access to non-admins
       initAnalyticsSheet();
-      return { hasAccess: true, accessLevel: 'admin', userEmail: userEmail };
+      return { hasAccess: false, accessLevel: 'none', userEmail: userEmail };
     }
 
     const data = sheet.getDataRange().getValues();
@@ -6354,12 +6377,6 @@ function checkAnalyticsAccess() {
           userEmail: userEmail
         };
       }
-    }
-
-    // If user is a default admin but not in the sheet, add them and grant access
-    if (isDefaultAdmin) {
-      sheet.appendRow([userEmail, 'System', new Date(), 'admin']);
-      return { hasAccess: true, accessLevel: 'admin', userEmail: userEmail };
     }
 
     return { hasAccess: false, accessLevel: 'none', userEmail: userEmail };
@@ -6377,6 +6394,18 @@ function checkAnalyticsAccess() {
 function searchAnalyticsUsers(searchQuery) {
   const access = checkAnalyticsAccess();
   if (!access.hasAccess) {
+    return [];
+  }
+
+  // NON-ADMIN RESTRICTION: Non-admin users can only search for their own email
+  const isAdmin = access.accessLevel === 'admin';
+  if (!isAdmin) {
+    // Only return user's own email if it matches the search query
+    const query = String(searchQuery || '').toLowerCase().trim();
+    const userEmail = access.userEmail.toLowerCase();
+    if (!query || userEmail.includes(query)) {
+      return [userEmail];
+    }
     return [];
   }
 
@@ -6418,6 +6447,9 @@ function searchAnalyticsJobIds(searchQuery) {
     return [];
   }
 
+  // NON-ADMIN RESTRICTION: Non-admin users can only search job IDs from their own activity
+  const isAdmin = access.accessLevel === 'admin';
+
   try {
     const ss = getAnalyticsSpreadsheet();
     if (!ss) return [];
@@ -6431,7 +6463,14 @@ function searchAnalyticsJobIds(searchQuery) {
 
     // Collect unique job IDs that match the search query
     for (let i = 1; i < data.length; i++) {
+      const rowUserEmail = String(data[i][1] || '').toLowerCase();
       const jobId = String(data[i][3] || '').trim();
+
+      // Non-admins can only see job IDs from their own activity
+      if (!isAdmin && rowUserEmail !== access.userEmail.toLowerCase()) {
+        continue;
+      }
+
       if (jobId && jobId.toLowerCase().includes(query)) {
         uniqueJobIds.add(jobId);
       }
@@ -6461,15 +6500,53 @@ function searchAnalyticsJobIds(searchQuery) {
 function getAnalyticsSearchCache() {
   const access = checkAnalyticsAccess();
   if (!access.hasAccess) {
-    return { emails: [], jobIds: [] };
+    return { emails: [], jobIds: [], isAdmin: false };
+  }
+
+  // NON-ADMIN RESTRICTION: Non-admin users can only see their own email and job IDs
+  const isAdmin = access.accessLevel === 'admin';
+  if (!isAdmin) {
+    // Return only the user's own email and their job IDs
+    try {
+      const ss = getAnalyticsSpreadsheet();
+      if (!ss) return { emails: [access.userEmail.toLowerCase()], jobIds: [], isAdmin: false };
+
+      const sheet = ss.getSheetByName('Activity_Log');
+      if (!sheet || sheet.getLastRow() <= 1) return { emails: [access.userEmail.toLowerCase()], jobIds: [], isAdmin: false };
+
+      const data = sheet.getDataRange().getValues();
+      const uniqueJobIds = new Set();
+
+      // Only collect job IDs for the current user
+      for (let i = 1; i < data.length; i++) {
+        const rowUserEmail = String(data[i][1] || '').toLowerCase();
+        const jobId = String(data[i][3] || '').trim();
+
+        if (rowUserEmail === access.userEmail.toLowerCase() && jobId) {
+          uniqueJobIds.add(jobId);
+        }
+      }
+
+      const sortedJobIds = Array.from(uniqueJobIds).sort((a, b) => {
+        const numA = parseInt(a);
+        const numB = parseInt(b);
+        if (!isNaN(numA) && !isNaN(numB)) return numA - numB;
+        return a.localeCompare(b);
+      });
+
+      return { emails: [access.userEmail.toLowerCase()], jobIds: sortedJobIds, isAdmin: false };
+    } catch (e) {
+      console.error("Error getting non-admin search cache:", e);
+      return { emails: [access.userEmail.toLowerCase()], jobIds: [], isAdmin: false };
+    }
   }
 
   try {
     const ss = getAnalyticsSpreadsheet();
-    if (!ss) return { emails: [], jobIds: [] };
+    if (!ss) return { emails: [], jobIds: [], isAdmin: true };
 
     const sheet = ss.getSheetByName('Activity_Log');
-    if (!sheet || sheet.getLastRow() <= 1) return { emails: [], jobIds: [] };
+    if (!sheet || sheet.getLastRow() <= 1) return { emails: [], jobIds: [], isAdmin: true };
 
     const data = sheet.getDataRange().getValues();
     const uniqueEmails = new Set();
@@ -6501,10 +6578,10 @@ function getAnalyticsSearchCache() {
       return a.localeCompare(b);
     });
 
-    return { emails: sortedEmails, jobIds: sortedJobIds };
+    return { emails: sortedEmails, jobIds: sortedJobIds, isAdmin: true };
   } catch (e) {
     console.error("Error getting analytics search cache:", e);
-    return { emails: [], jobIds: [] };
+    return { emails: [], jobIds: [], isAdmin: true };
   }
 }
 
@@ -6521,8 +6598,15 @@ function getUserAnalytics(filterEmail, filterJobId) {
   }
 
   // Normalize filters
-  const emailFilter = filterEmail ? String(filterEmail).toLowerCase().trim() : '';
+  let emailFilter = filterEmail ? String(filterEmail).toLowerCase().trim() : '';
   const jobIdFilter = filterJobId ? String(filterJobId).trim() : '';
+
+  // NON-ADMIN RESTRICTION: Non-admin users can only see their own analytics
+  // Force email filter to their own email regardless of what was passed
+  const isAdmin = access.accessLevel === 'admin';
+  if (!isAdmin) {
+    emailFilter = access.userEmail.toLowerCase();
+  }
 
   try {
     const ss = getAnalyticsSpreadsheet();
@@ -6539,6 +6623,7 @@ function getUserAnalytics(filterEmail, filterJobId) {
       actionsByType: {},
       actionsByJob: {},
       accessLevel: access.accessLevel,
+      isAdmin: isAdmin,
       currentUser: access.userEmail,
       filterApplied: emailFilter || null,
       jobFilterApplied: jobIdFilter || null
@@ -6667,8 +6752,14 @@ function getDetailedEmailStats(filterEmail, filterJobId) {
   }
 
   // Normalize filters
-  const emailFilter = filterEmail ? String(filterEmail).toLowerCase().trim() : '';
+  let emailFilter = filterEmail ? String(filterEmail).toLowerCase().trim() : '';
   const jobIdFilter = filterJobId ? String(filterJobId).trim() : '';
+
+  // NON-ADMIN RESTRICTION: Non-admin users can only see their own stats
+  const isAdmin = access.accessLevel === 'admin';
+  if (!isAdmin) {
+    emailFilter = access.userEmail.toLowerCase();
+  }
 
   try {
     const ss = getAnalyticsSpreadsheet();

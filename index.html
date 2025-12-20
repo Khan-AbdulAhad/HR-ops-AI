@@ -1097,8 +1097,13 @@
                         </div>
                         <!-- Filters Row -->
                         <div class="flex flex-wrap items-center gap-3 bg-white p-3 rounded-lg border border-slate-200 shadow-sm">
-                            <!-- User Email Filter -->
-                            <div class="flex-1 min-w-[200px] relative">
+                            <!-- Non-admin badge (hidden by default, shown for non-admin users) -->
+                            <div id="analyticsViewOnlyBadge" class="hidden flex items-center gap-2 bg-blue-50 text-blue-700 px-3 py-2 rounded-lg text-sm">
+                                <i class="fa-solid fa-user-circle"></i>
+                                <span>Viewing your personal analytics</span>
+                            </div>
+                            <!-- User Email Filter (admin only) -->
+                            <div id="analyticsUserFilterContainer" class="flex-1 min-w-[200px] relative">
                                 <i class="fa-solid fa-user absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"></i>
                                 <input type="email" id="analyticsUserFilter"
                                     placeholder="Filter by user email"
@@ -3376,6 +3381,9 @@
             loading: false
         };
 
+        // Track if user is admin for UI visibility
+        let isAnalyticsAdmin = false;
+
         // Load search cache for instant filtering
         function loadAnalyticsSearchCache() {
             if (analyticsSearchCache.loaded || analyticsSearchCache.loading) return;
@@ -3387,11 +3395,33 @@
                     analyticsSearchCache.jobIds = cache.jobIds || [];
                     analyticsSearchCache.loaded = true;
                     analyticsSearchCache.loading = false;
+                    // Store admin status and update UI
+                    isAnalyticsAdmin = cache.isAdmin || false;
+                    updateAnalyticsAdminUI();
                 })
                 .withFailureHandler(() => {
                     analyticsSearchCache.loading = false;
                 })
                 .getAnalyticsSearchCache();
+        }
+
+        // Update UI based on admin status
+        function updateAnalyticsAdminUI() {
+            const manageViewersBtn = document.getElementById('manageViewersBtn');
+            const userFilterContainer = document.getElementById('analyticsUserFilterContainer');
+            const viewOnlyBadge = document.getElementById('analyticsViewOnlyBadge');
+
+            if (isAnalyticsAdmin) {
+                // Admin: show all controls
+                if (manageViewersBtn) manageViewersBtn.classList.remove('hidden');
+                if (userFilterContainer) userFilterContainer.classList.remove('hidden');
+                if (viewOnlyBadge) viewOnlyBadge.classList.add('hidden');
+            } else {
+                // Non-admin: hide admin controls, show "viewing your data" badge
+                if (manageViewersBtn) manageViewersBtn.classList.add('hidden');
+                if (userFilterContainer) userFilterContainer.classList.add('hidden');
+                if (viewOnlyBadge) viewOnlyBadge.classList.remove('hidden');
+            }
         }
 
         // Force refresh the search cache
@@ -3726,6 +3756,12 @@
 
                 // Hide access denied message on successful load
                 document.getElementById('analyticsAccessDenied').classList.add('hidden');
+
+                // Update admin status from returned data
+                if (data.isAdmin !== undefined) {
+                    isAnalyticsAdmin = data.isAdmin;
+                    updateAnalyticsAdminUI();
+                }
 
                 document.getElementById('statTotalUsers').textContent = data.totalUsers || 0;
                 document.getElementById('statTotalEmails').textContent = data.totalEmailsSent || 0;
