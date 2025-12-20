@@ -441,6 +441,60 @@
             background: rgba(59, 130, 246, 0.2);
             color: #60a5fa;
         }
+
+        /* Toggle Tooltip Styles */
+        .job-toggle-row {
+            position: relative;
+        }
+        .toggle-tooltip {
+            position: absolute;
+            bottom: calc(100% + 8px);
+            right: 0;
+            background: #1e293b;
+            color: #f1f5f9;
+            padding: 8px 12px;
+            border-radius: 6px;
+            font-size: 0.75rem;
+            font-weight: 500;
+            white-space: nowrap;
+            opacity: 0;
+            visibility: hidden;
+            transform: translateY(4px);
+            transition: opacity 0.2s, transform 0.2s, visibility 0.2s;
+            z-index: 100;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            max-width: 280px;
+            white-space: normal;
+            text-align: center;
+            line-height: 1.4;
+        }
+        .toggle-tooltip::after {
+            content: '';
+            position: absolute;
+            top: 100%;
+            right: 16px;
+            border: 6px solid transparent;
+            border-top-color: #1e293b;
+        }
+        .job-toggle-row:hover .toggle-tooltip {
+            opacity: 1;
+            visibility: visible;
+            transform: translateY(0);
+            transition-delay: 1.5s;
+        }
+        .dark .toggle-tooltip {
+            background: #334155;
+            border: 1px solid #475569;
+        }
+        .dark .toggle-tooltip::after {
+            border-top-color: #334155;
+        }
+        .toggle-tooltip .tooltip-on {
+            color: #4ade80;
+        }
+        .toggle-tooltip .tooltip-off {
+            color: #f87171;
+        }
     </style>
 </head>
 <body class="bg-slate-100 dark:bg-slate-900 text-slate-900 dark:text-slate-100 flex h-screen overflow-hidden">
@@ -1299,30 +1353,42 @@
                     <label class="block text-xs font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-3">Campaign Settings</label>
 
                     <!-- Negotiation Toggle -->
-                    <div class="job-toggle-row">
+                    <div class="job-toggle-row" id="negotiationRow">
                         <div class="job-toggle-info">
                             <span class="job-toggle-title">Negotiation</span>
                             <span class="job-toggle-desc">AI will negotiate rates with candidates</span>
                         </div>
                         <div class="toggle-switch active" id="toggleNegotiation" onclick="toggleJobSetting('negotiation')"></div>
+                        <div class="toggle-tooltip" id="tooltipNegotiation">
+                            <span class="tooltip-on">ON:</span> AI actively negotiates rates with candidates<br>
+                            <span class="tooltip-off">OFF:</span> No rate negotiation, just collect responses
+                        </div>
                     </div>
 
                     <!-- Follow-up Toggle -->
-                    <div class="job-toggle-row">
+                    <div class="job-toggle-row" id="followUpRow">
                         <div class="job-toggle-info">
                             <span class="job-toggle-title">Follow-up</span>
                             <span class="job-toggle-desc">Send automated follow-ups if no response</span>
                         </div>
                         <div class="toggle-switch active" id="toggleFollowUp" onclick="toggleJobSetting('followUp')"></div>
+                        <div class="toggle-tooltip" id="tooltipFollowUp">
+                            <span class="tooltip-on">ON:</span> Auto-sends reminders at 12hr & 28hr if no reply<br>
+                            <span class="tooltip-off">OFF:</span> No automatic follow-ups sent
+                        </div>
                     </div>
 
                     <!-- Data Gathering Toggle -->
-                    <div class="job-toggle-row">
+                    <div class="job-toggle-row" id="dataGatheringRow">
                         <div class="job-toggle-info">
                             <span class="job-toggle-title">Data Gathering</span>
                             <span class="job-toggle-desc">Collect and track candidate responses</span>
                         </div>
-                        <div class="toggle-switch" id="toggleDataGathering" onclick="toggleJobSetting('dataGathering')"></div>
+                        <div class="toggle-switch active" id="toggleDataGathering" onclick="toggleJobSetting('dataGathering')"></div>
+                        <div class="toggle-tooltip" id="tooltipDataGathering">
+                            <span class="tooltip-on">ON:</span> AI asks follow-ups for missing info<br>
+                            <span class="tooltip-off">OFF:</span> Data still saved, but no follow-up questions
+                        </div>
                     </div>
 
                     <!-- Status Hint -->
@@ -2577,7 +2643,7 @@
         let jobSettings = {
             negotiation: true,
             followUp: true,
-            dataGathering: false
+            dataGathering: true
         };
 
         // Format Painter state
@@ -2597,7 +2663,7 @@
             refreshTemplates();
 
             // Reset job settings to defaults
-            jobSettings = { negotiation: true, followUp: true, dataGathering: false };
+            jobSettings = { negotiation: true, followUp: true, dataGathering: true };
             updateJobTogglesUI();
             updateJobTypeHint();
 
