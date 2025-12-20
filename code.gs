@@ -1504,6 +1504,105 @@ function jobHasDataGathering(jobId) {
 }
 
 /**
+ * Generate a targeted follow-up email asking for specific missing information
+ * @param {string} candidateName - The candidate's name
+ * @param {Array} pendingQuestions - Array of {header, question} objects for missing info
+ * @param {string} conversationContext - Recent conversation history for context
+ * @param {string} jobDescription - Optional job description for context
+ * @returns {string} The generated follow-up email body
+ */
+function generateMissingInfoFollowUp(candidateName, pendingQuestions, conversationContext, jobDescription) {
+  if (!pendingQuestions || pendingQuestions.length === 0) {
+    return null;
+  }
+
+  const firstName = candidateName.split(' ')[0];
+  const missingInfoList = pendingQuestions.map((q, i) => `${i+1}. ${q.question}`).join('\n');
+
+  const prompt = `
+You are a friendly recruiter at Turing following up with a candidate to collect missing information.
+
+CANDIDATE NAME: ${firstName}
+
+MISSING INFORMATION NEEDED:
+${missingInfoList}
+
+${jobDescription ? `JOB CONTEXT: ${jobDescription}` : ''}
+
+RECENT CONVERSATION:
+${conversationContext || 'Initial outreach sent'}
+
+TASK: Write a SHORT, friendly follow-up email asking for the missing information.
+
+GUIDELINES:
+1. Be warm and conversational, not robotic or formal
+2. Thank them for their previous response if they responded
+3. Politely explain you need a few more details to proceed
+4. List the missing information naturally (don't make it feel like a form)
+5. Keep it brief - 4-6 sentences maximum
+6. Don't repeat information they already provided
+7. End with an encouraging note about moving forward
+
+IMPORTANT:
+- Do NOT include a subject line
+- Do NOT include any greeting like "Dear" or "Hello" - start directly with the message
+- Do NOT include a signature - just the message body
+- Write in a natural, human tone
+- If only 1-2 items are missing, work them into sentences rather than a list
+
+Return ONLY the email body text, nothing else.
+`;
+
+  try {
+    const emailBody = callAI(prompt);
+    return emailBody.trim();
+  } catch (e) {
+    console.error("Failed to generate missing info follow-up:", e);
+    return null;
+  }
+}
+
+/**
+ * Check if we should send a missing info follow-up for a candidate
+ * @param {string} jobId - The job ID
+ * @param {string} candidateEmail - The candidate's email
+ * @returns {boolean} True if follow-up should be sent
+ */
+function shouldSendMissingInfoFollowUp(jobId, candidateEmail) {
+  // Only send if data gathering is enabled for this job
+  if (!jobHasDataGathering(jobId)) {
+    return false;
+  }
+
+  // Check follow-up tracking to avoid spamming
+  const key = `MISSING_INFO_FOLLOWUP_${jobId}_${candidateEmail.toLowerCase().trim()}`;
+  const lastFollowUp = PropertiesService.getScriptProperties().getProperty(key);
+
+  if (lastFollowUp) {
+    const lastTime = new Date(lastFollowUp).getTime();
+    const now = Date.now();
+    const hoursSince = (now - lastTime) / (1000 * 60 * 60);
+
+    // Don't send more than one missing info follow-up per 24 hours
+    if (hoursSince < 24) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+/**
+ * Record that a missing info follow-up was sent
+ * @param {string} jobId - The job ID
+ * @param {string} candidateEmail - The candidate's email
+ */
+function recordMissingInfoFollowUp(jobId, candidateEmail) {
+  const key = `MISSING_INFO_FOLLOWUP_${jobId}_${candidateEmail.toLowerCase().trim()}`;
+  PropertiesService.getScriptProperties().setProperty(key, new Date().toISOString());
+}
+
+/**
  * Extract answers from candidate's response based on the questions asked
  */
 function extractAnswersFromResponse(candidateMessage, questions, candidateName) {
@@ -1756,11 +1855,47 @@ function saveJobCandidateDetails(ss, jobId, candidateEmail, candidateName, devId
     }
 
     sheet.getRange(existingRowIndex, 1, 1, rowData.length).setValues([rowData]);
-    return { success: true, message: "Updated existing candidate", isUpdate: true, dataComplete: mergedAnsweredCount === totalQuestions };
+
+    // Calculate pending questions after merge
+    const finalPendingQuestions = [];
+    effectiveQuestions.forEach(q => {
+      const colIdx = headers.indexOf(q.header);
+      if (colIdx !== -1 && (!rowData[colIdx] || rowData[colIdx] === 'NOT_PROVIDED' || rowData[colIdx] === 'PARSE_ERROR')) {
+        finalPendingQuestions.push({ header: q.header, question: q.question });
+      }
+    });
+
+    return {
+      success: true,
+      message: "Updated existing candidate",
+      isUpdate: true,
+      dataComplete: mergedAnsweredCount === totalQuestions,
+      pendingQuestions: finalPendingQuestions,
+      answeredCount: mergedAnsweredCount,
+      totalQuestions: totalQuestions
+    };
   } else {
     // Add new row
     sheet.appendRow(rowData);
-    return { success: true, message: "Added new candidate", isUpdate: false, dataComplete: answeredQuestions === totalQuestions };
+
+    // Build pending questions list for new candidates
+    const newPendingQuestions = [];
+    effectiveQuestions.forEach(q => {
+      const answer = answers[q.header];
+      if (!answer || answer === 'NOT_PROVIDED' || answer === 'PARSE_ERROR') {
+        newPendingQuestions.push({ header: q.header, question: q.question });
+      }
+    });
+
+    return {
+      success: true,
+      message: "Added new candidate",
+      isUpdate: false,
+      dataComplete: answeredQuestions === totalQuestions,
+      pendingQuestions: newPendingQuestions,
+      answeredCount: answeredQuestions,
+      totalQuestions: totalQuestions
+    };
   }
 }
 
@@ -2590,7 +2725,7 @@ function runAutoNegotiator() {
   const configs = configSheet.getDataRange().getValues();
   const faqContent = getFAQs();
   
-  let stats = { replied: 0, escalated: 0, accepted: 0, skipped: 0, processed: 0, synced: 0, cleaned: 0, detailsExtracted: 0 };
+  let stats = { replied: 0, escalated: 0, accepted: 0, skipped: 0, processed: 0, synced: 0, cleaned: 0, detailsExtracted: 0, missingInfoFollowUps: 0 };
   let log = [];
   
   // STEP 1: Sync completed items from Gmail first (saves processing cost!)
@@ -2652,9 +2787,11 @@ function runAutoNegotiator() {
     stats.skipped += jobResult.skipped;
     stats.processed += jobResult.processed;
     stats.detailsExtracted += jobResult.detailsExtracted || 0;
+    stats.missingInfoFollowUps += jobResult.missingInfoFollowUps || 0;
 
     jobResult.log.forEach(l => log.push(l));
-    log.push({type: 'success', message: `Job ${jobId} complete: ${jobResult.processed} threads processed, ${jobResult.detailsExtracted || 0} details extracted`});
+    const followUpNote = jobResult.missingInfoFollowUps > 0 ? `, ${jobResult.missingInfoFollowUps} info requests sent` : '';
+    log.push({type: 'success', message: `Job ${jobId} complete: ${jobResult.processed} threads processed, ${jobResult.detailsExtracted || 0} details extracted${followUpNote}`});
 
     // Log negotiations to central analytics
     if (jobResult.replied > 0) {
@@ -2686,7 +2823,7 @@ function processJobNegotiations(jobId, rules, ss, faqContent) {
   const stateSheet = ss.getSheetByName('Negotiation_State');
   const taskSheet = ss.getSheetByName('Negotiation_Tasks');
 
-  let jobStats = {replied:0, escalated:0, accepted:0, skipped:0, processed:0, detailsExtracted:0, log:[]};
+  let jobStats = {replied:0, escalated:0, accepted:0, skipped:0, processed:0, detailsExtracted:0, missingInfoFollowUps:0, log:[]};
   
   // Cache state data for efficiency
   // Build two maps: one by email+jobId, one by threadId+jobId (fallback for different email replies)
@@ -2860,7 +2997,35 @@ function processJobNegotiations(jobId, rules, ss, faqContent) {
       const saveResult = saveJobCandidateDetails(ss, jobId, candidateEmail, candidateName, devId, thread.getId(), answers, dataStatus);
       if(saveResult.success) {
         jobStats.detailsExtracted++;
-        jobStats.log.push({type: 'info', message: `${candidateEmail} - Details extracted: ${answers.is_negotiating ? 'Negotiating' : 'Provided'}`});
+        jobStats.log.push({type: 'info', message: `${candidateEmail} - Details extracted: ${answers.is_negotiating ? 'Negotiating' : 'Provided'} (${saveResult.answeredCount}/${saveResult.totalQuestions} answered)`});
+
+        // Check if we need to send a missing info follow-up (Data Gathering mode)
+        if (saveResult.pendingQuestions && saveResult.pendingQuestions.length > 0 && !saveResult.dataComplete) {
+          // Only send if data gathering is enabled and we haven't sent one recently
+          if (shouldSendMissingInfoFollowUp(jobId, candidateEmail)) {
+            try {
+              const missingInfoEmail = generateMissingInfoFollowUp(
+                candidateName,
+                saveResult.pendingQuestions,
+                conversationHistory,
+                rules.jobDescription || ''
+              );
+
+              if (missingInfoEmail) {
+                // Send the follow-up email in the same thread
+                thread.replyAll(missingInfoEmail);
+                recordMissingInfoFollowUp(jobId, candidateEmail);
+                jobStats.missingInfoFollowUps++;
+                jobStats.log.push({type: 'info', message: `${candidateEmail} - Sent missing info follow-up for ${saveResult.pendingQuestions.length} missing items`});
+
+                // Update follow-up labels
+                updateFollowUpLabels(thread.getId(), 'responded');
+              }
+            } catch (missingInfoError) {
+              console.error("Failed to send missing info follow-up:", missingInfoError);
+            }
+          }
+        }
       }
     } catch(detailsError) {
       // Don't block negotiation if details extraction fails
