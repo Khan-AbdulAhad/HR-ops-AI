@@ -1504,13 +1504,117 @@ function jobHasDataGathering(jobId) {
 }
 
 /**
+ * Generate a targeted follow-up email asking for specific missing information
+ * @param {string} candidateName - The candidate's name
+ * @param {Array} pendingQuestions - Array of {header, question} objects for missing info
+ * @param {string} conversationContext - Recent conversation history for context
+ * @param {string} jobDescription - Optional job description for context
+ * @returns {string} The generated follow-up email body
+ */
+function generateMissingInfoFollowUp(candidateName, pendingQuestions, conversationContext, jobDescription) {
+  if (!pendingQuestions || pendingQuestions.length === 0) {
+    return null;
+  }
+
+  const firstName = candidateName.split(' ')[0];
+  const missingInfoList = pendingQuestions.map((q, i) => `${i+1}. ${q.question}`).join('\n');
+
+  const prompt = `
+You are a friendly recruiter at Turing following up with a candidate to collect missing information.
+
+CANDIDATE NAME: ${firstName}
+
+MISSING INFORMATION NEEDED:
+${missingInfoList}
+
+${jobDescription ? `JOB CONTEXT: ${jobDescription}` : ''}
+
+RECENT CONVERSATION:
+${conversationContext || 'Initial outreach sent'}
+
+TASK: Write a SHORT, friendly follow-up email asking for the missing information.
+
+GUIDELINES:
+1. Be warm and conversational, not robotic or formal
+2. Thank them for their previous response if they responded
+3. Politely explain you need a few more details to proceed
+4. List the missing information naturally (don't make it feel like a form)
+5. Keep it brief - 4-6 sentences maximum
+6. Don't repeat information they already provided
+7. End with an encouraging note about moving forward
+
+IMPORTANT:
+- Do NOT include a subject line
+- Do NOT include any greeting like "Dear" or "Hello" - start directly with the message
+- Do NOT include a signature - just the message body
+- Write in a natural, human tone
+- If only 1-2 items are missing, work them into sentences rather than a list
+
+Return ONLY the email body text, nothing else.
+`;
+
+  try {
+    const emailBody = callAI(prompt);
+    return emailBody.trim();
+  } catch (e) {
+    console.error("Failed to generate missing info follow-up:", e);
+    return null;
+  }
+}
+
+/**
+ * Check if we should send a missing info follow-up for a candidate
+ * @param {string} jobId - The job ID
+ * @param {string} candidateEmail - The candidate's email
+ * @returns {boolean} True if follow-up should be sent
+ */
+function shouldSendMissingInfoFollowUp(jobId, candidateEmail) {
+  // Only send if data gathering is enabled for this job
+  if (!jobHasDataGathering(jobId)) {
+    return false;
+  }
+
+  // Check follow-up tracking to avoid spamming
+  const key = `MISSING_INFO_FOLLOWUP_${jobId}_${candidateEmail.toLowerCase().trim()}`;
+  const lastFollowUp = PropertiesService.getScriptProperties().getProperty(key);
+
+  if (lastFollowUp) {
+    const lastTime = new Date(lastFollowUp).getTime();
+    const now = Date.now();
+    const hoursSince = (now - lastTime) / (1000 * 60 * 60);
+
+    // Don't send more than one missing info follow-up per 24 hours
+    if (hoursSince < 24) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+/**
+ * Record that a missing info follow-up was sent
+ * @param {string} jobId - The job ID
+ * @param {string} candidateEmail - The candidate's email
+ */
+function recordMissingInfoFollowUp(jobId, candidateEmail) {
+  const key = `MISSING_INFO_FOLLOWUP_${jobId}_${candidateEmail.toLowerCase().trim()}`;
+  PropertiesService.getScriptProperties().setProperty(key, new Date().toISOString());
+}
+
+/**
  * Extract answers from candidate's response based on the questions asked
+ * Uses advanced NLP to handle:
+ * - Comma-separated lists (e.g., "23, Bangalore, Hindi")
+ * - Jumbled/out-of-order responses
+ * - Terse single-word answers
+ * - Contextual inference from value types
  */
 function extractAnswersFromResponse(candidateMessage, questions, candidateName) {
   const questionsList = questions.map((q, i) => `${i+1}. "${q.header}": ${q.question}`).join('\n');
 
   const prompt = `
-You are an intelligent data extraction assistant analyzing a candidate's email response to extract answers to specific questions.
+You are an intelligent data extraction assistant with ADVANCED natural language understanding. Your task is to extract answers from a candidate's response - whether it's well-organized OR completely unstructured.
 
 CANDIDATE'S MESSAGE:
 "${candidateMessage}"
@@ -1520,51 +1624,158 @@ CANDIDATE NAME: ${candidateName}
 QUESTIONS TO EXTRACT ANSWERS FOR:
 ${questionsList}
 
-TASK:
-For each question, extract the candidate's answer from their message using semantic understanding.
+=== HANDLING ALL RESPONSE TYPES ===
 
-EXTRACTION STRATEGY:
-1. Understand the INTENT of each question, not just the literal words
-2. Match candidate's response to questions based on MEANING, not exact keywords
-3. Candidates often answer questions indirectly or use different phrasing - recognize these as valid answers
-4. If the candidate provides information that answers a question, extract it even if they didn't directly address that question
+You must handle BOTH organized and unorganized responses:
 
-COMMON SEMANTIC EQUIVALENTS (apply similar logic to any question type):
-- Start Date / Availability: "available for/from [date]", "free on [date]", "can join [date]", "ready by [date]"
-- Location: "based in [place]", "living in [place]", "from [place]", "I'm in [place]", "currently in [place]"
-- Rate / Salary: "expecting [amount]", "looking for [amount]", "my rate is [amount]", "charge [amount]"
-- Education: "studied at [school]", "graduated from [school]", "have a [degree]", "completed [degree]"
-- Experience: "[X] years in [field]", "working as [role] for [time]", "been doing [skill] since [year]"
-- Age: "I am [X] years old", "[X] y/o", "born in [year]"
-- Time Overlap / Schedule: "can work [hours]", "available during [time]", "my working hours are [time]"
+**TYPE A - ORGANIZED/STRUCTURED RESPONSES:**
+
+EXAMPLE A1 - Labeled answers:
+"Age: 28
+City: Mumbai
+Expected Rate: $40/hr
+Available from: December 15th"
+→ Extract directly from labels
+
+EXAMPLE A2 - Paragraph with clear answers:
+"Hi, I'm 28 years old and based in Mumbai. I have 5 years of experience in React development. My expected rate is $40 per hour and I can start from December 15th."
+→ Extract from context in sentences
+
+EXAMPLE A3 - Numbered/bullet list:
+"1. Age - 28
+2. Location - Mumbai
+3. Rate - $40/hr
+4. Start date - Dec 15"
+→ Extract from list format
+
+EXAMPLE A4 - Q&A format:
+"What's your rate? $40/hr
+When can you start? Next Monday
+Where are you located? Bangalore"
+→ Extract answers after questions
+
+**TYPE B - UNORGANIZED/TERSE RESPONSES:**
+
+EXAMPLE B1 - Comma-separated values (no labels):
+Questions: Age, City, Language
+Response: "23, Bangalore, Hindi"
+→ Infer: Age=23 (number in age range), City=Bangalore (city name), Language=Hindi (language name)
+
+EXAMPLE B2 - Jumbled order:
+Questions: Expected Rate, Start Date, Weekly Hours
+Response: "40 hours, $35, next Monday"
+→ Infer: Weekly Hours=40 hours, Expected Rate=$35, Start Date=next Monday
+
+EXAMPLE B3 - Just values with separators:
+Questions: Experience, Location, Rate
+Response: "5 years, Mumbai, 40/hr"
+→ Infer: Experience=5 years, Location=Mumbai, Rate=40/hr
+
+EXAMPLE B4 - Mixed separators:
+Questions: Age, Education, Notice Period
+Response: "28 - BTech - 2 weeks"
+→ Infer: Age=28, Education=BTech, Notice Period=2 weeks
+
+EXAMPLE B5 - Single line no separators:
+Questions: Name, Age, City
+Response: "Rahul 25 Delhi"
+→ Infer: Name=Rahul (name), Age=25 (number), City=Delhi (city)
+
+EXAMPLE B6 - Partial answers mixed with text:
+"yeah sure, 35 dollars, can do 40 hrs, based in pune currently"
+→ Rate=$35, Hours=40 hrs, Location=Pune
+
+**TYPE C - MIXED/CONVERSATIONAL RESPONSES:**
+
+EXAMPLE C1 - Casual reply:
+"hey! so I'm asking for 45 an hour, currently in Hyderabad, and yeah I can start immediately"
+→ Rate=$45/hr, Location=Hyderabad, Start Date=immediately
+
+EXAMPLE C2 - With extra context:
+"Thanks for reaching out! I have about 6 years of exp in backend development. Looking for around $50/hr. I'm based out of Noida and can join in 2 weeks after serving notice."
+→ Experience=6 years, Rate=$50/hr, Location=Noida, Notice Period=2 weeks, Start Date=2 weeks
+
+=== VALUE TYPE RECOGNITION RULES ===
+
+Use these patterns to identify what type of data a value represents:
+
+NUMBERS:
+- Age: 18-65 range, often just a number like "23" or "28 years"
+- Experience: Usually followed by "years" or "yrs", e.g., "5 years", "3+ yrs"
+- Rate/Salary: Contains "$", "USD", "/hr", "/hour", "per hour", or is a salary-like number
+- Hours: Contains "hours", "hrs", or is in range 10-60
+- Notice Period: Contains "weeks", "days", "months", "immediately", "15 days", "2 weeks"
+
+LOCATIONS (Cities/Countries):
+- Recognize city names: Mumbai, Bangalore, Delhi, Chennai, Hyderabad, Pune, Kolkata, etc.
+- Recognize countries: India, US, USA, UK, Canada, Germany, etc.
+- May include "based in", "from", "living in"
+
+LANGUAGES:
+- Recognize: English, Hindi, Tamil, Telugu, Kannada, Malayalam, Spanish, French, German, etc.
+
+DATES:
+- Formats: "Dec 15", "15th December", "next week", "immediately", "in 2 weeks", "Jan 2024"
+
+EDUCATION:
+- Degrees: BTech, MTech, BSc, MSc, BCA, MCA, BE, ME, MBA, PhD
+- Universities/colleges if mentioned
+
+YES/NO:
+- "Yes", "No", "yeah", "nope", "sure", "definitely", "not really"
+
+=== EXTRACTION STRATEGY ===
+
+1. First, identify ALL distinct values in the candidate's message
+2. For each value, determine its TYPE (number, city, language, date, etc.)
+3. Match each value to the most appropriate question based on:
+   - The value's type
+   - The question's expected answer type
+   - Context from surrounding words
+4. If multiple values could match a question, use the most logical fit
+5. Values can be separated by: commas, dashes, slashes, newlines, or just spaces
+
+=== SEMANTIC EQUIVALENTS ===
+
+- Start Date / Availability: "available for/from [date]", "free on", "can join", "ready by", "immediately"
+- Location / City: "based in", "living in", "from", "I'm in", "currently in", city name alone
+- Rate / Salary: "$X", "X/hr", "X per hour", "expecting X", "looking for X"
+- Experience: "X years", "X+ years", "since [year]", "been doing X for"
+- Age: "X years old", "X y/o", just a number in 18-65 range when asking about age
+- Hours / Availability: "X hours", "full-time", "part-time", "40hrs/week"
+- Language: Language names, "speak X", "fluent in X", "native X"
+- Notice Period: "X weeks notice", "X days", "serving notice", "immediately available"
+
+=== OUTPUT FORMAT ===
 
 Return a JSON object where:
-- Keys are the exact header names from the questions
-- Values are the answers extracted from the message
+- Keys are the EXACT header names from the questions
+- Values are the extracted answers
 
-Use these special values when appropriate:
-- "NOT_PROVIDED" - if the candidate didn't mention this at all
-- "NEGOTIATING" - if they're vague or want to discuss later (e.g., "depends on the project", "let's discuss")
-- The actual answer if they provided one
+Special values:
+- "NOT_PROVIDED" - ONLY if truly no matching value exists
+- "NEGOTIATING" - if they want to discuss later
 
-Example response format:
 {
-  "Expected Rate": "$45/hr",
-  "Start Date": "12th December",
-  "Location": "Mumbai, India",
-  "Education": "NOT_PROVIDED",
-  "Weekly Hours": "NEGOTIATING",
-  "is_negotiating": true,
-  "negotiation_notes": "Candidate wants to negotiate rate, asking for $45 but willing to discuss"
+  "Age": "23",
+  "City": "Bangalore",
+  "Language": "Hindi",
+  "Expected Rate": "$35/hr",
+  "is_negotiating": false,
+  "negotiation_notes": "Candidate provided all requested information"
 }
 
-IMPORTANT:
-- Always include "is_negotiating" (true/false) and "negotiation_notes" fields
-- Extract the value the candidate actually mentions, even if different from what was asked
-  Example: Asked "Can you start December 5th?" → Candidate says "available for 12th dec" → Extract "12th dec"
-- If they give a range, include the full range (e.g., "$40-50/hr", "25-30 years old")
-- Capture any concerns, conditions, or counter-proposals in negotiation_notes
-- When in doubt about whether something answers a question, extract it rather than marking NOT_PROVIDED
+=== IMPORTANT RULES ===
+
+1. ALWAYS try to match values to questions - don't default to NOT_PROVIDED
+2. A single number near age context (18-65) is likely age
+3. A city name alone answers a location/city question
+4. A language name alone answers a language question
+5. A number with $ or /hr is likely a rate
+6. "years" after a number usually means experience
+7. ALWAYS include "is_negotiating" (true/false) and "negotiation_notes"
+8. Extract the ACTUAL value given, not what was asked for
+9. If in doubt, extract the value rather than marking NOT_PROVIDED
 
 Return ONLY the JSON object, no other text.
 `;
@@ -1756,11 +1967,47 @@ function saveJobCandidateDetails(ss, jobId, candidateEmail, candidateName, devId
     }
 
     sheet.getRange(existingRowIndex, 1, 1, rowData.length).setValues([rowData]);
-    return { success: true, message: "Updated existing candidate", isUpdate: true, dataComplete: mergedAnsweredCount === totalQuestions };
+
+    // Calculate pending questions after merge
+    const finalPendingQuestions = [];
+    effectiveQuestions.forEach(q => {
+      const colIdx = headers.indexOf(q.header);
+      if (colIdx !== -1 && (!rowData[colIdx] || rowData[colIdx] === 'NOT_PROVIDED' || rowData[colIdx] === 'PARSE_ERROR')) {
+        finalPendingQuestions.push({ header: q.header, question: q.question });
+      }
+    });
+
+    return {
+      success: true,
+      message: "Updated existing candidate",
+      isUpdate: true,
+      dataComplete: mergedAnsweredCount === totalQuestions,
+      pendingQuestions: finalPendingQuestions,
+      answeredCount: mergedAnsweredCount,
+      totalQuestions: totalQuestions
+    };
   } else {
     // Add new row
     sheet.appendRow(rowData);
-    return { success: true, message: "Added new candidate", isUpdate: false, dataComplete: answeredQuestions === totalQuestions };
+
+    // Build pending questions list for new candidates
+    const newPendingQuestions = [];
+    effectiveQuestions.forEach(q => {
+      const answer = answers[q.header];
+      if (!answer || answer === 'NOT_PROVIDED' || answer === 'PARSE_ERROR') {
+        newPendingQuestions.push({ header: q.header, question: q.question });
+      }
+    });
+
+    return {
+      success: true,
+      message: "Added new candidate",
+      isUpdate: false,
+      dataComplete: answeredQuestions === totalQuestions,
+      pendingQuestions: newPendingQuestions,
+      answeredCount: answeredQuestions,
+      totalQuestions: totalQuestions
+    };
   }
 }
 
@@ -2590,7 +2837,7 @@ function runAutoNegotiator() {
   const configs = configSheet.getDataRange().getValues();
   const faqContent = getFAQs();
   
-  let stats = { replied: 0, escalated: 0, accepted: 0, skipped: 0, processed: 0, synced: 0, cleaned: 0, detailsExtracted: 0 };
+  let stats = { replied: 0, escalated: 0, accepted: 0, skipped: 0, processed: 0, synced: 0, cleaned: 0, detailsExtracted: 0, missingInfoFollowUps: 0 };
   let log = [];
   
   // STEP 1: Sync completed items from Gmail first (saves processing cost!)
@@ -2652,9 +2899,11 @@ function runAutoNegotiator() {
     stats.skipped += jobResult.skipped;
     stats.processed += jobResult.processed;
     stats.detailsExtracted += jobResult.detailsExtracted || 0;
+    stats.missingInfoFollowUps += jobResult.missingInfoFollowUps || 0;
 
     jobResult.log.forEach(l => log.push(l));
-    log.push({type: 'success', message: `Job ${jobId} complete: ${jobResult.processed} threads processed, ${jobResult.detailsExtracted || 0} details extracted`});
+    const followUpNote = jobResult.missingInfoFollowUps > 0 ? `, ${jobResult.missingInfoFollowUps} info requests sent` : '';
+    log.push({type: 'success', message: `Job ${jobId} complete: ${jobResult.processed} threads processed, ${jobResult.detailsExtracted || 0} details extracted${followUpNote}`});
 
     // Log negotiations to central analytics
     if (jobResult.replied > 0) {
@@ -2686,7 +2935,7 @@ function processJobNegotiations(jobId, rules, ss, faqContent) {
   const stateSheet = ss.getSheetByName('Negotiation_State');
   const taskSheet = ss.getSheetByName('Negotiation_Tasks');
 
-  let jobStats = {replied:0, escalated:0, accepted:0, skipped:0, processed:0, detailsExtracted:0, log:[]};
+  let jobStats = {replied:0, escalated:0, accepted:0, skipped:0, processed:0, detailsExtracted:0, missingInfoFollowUps:0, log:[]};
   
   // Cache state data for efficiency
   // Build two maps: one by email+jobId, one by threadId+jobId (fallback for different email replies)
@@ -2860,7 +3109,35 @@ function processJobNegotiations(jobId, rules, ss, faqContent) {
       const saveResult = saveJobCandidateDetails(ss, jobId, candidateEmail, candidateName, devId, thread.getId(), answers, dataStatus);
       if(saveResult.success) {
         jobStats.detailsExtracted++;
-        jobStats.log.push({type: 'info', message: `${candidateEmail} - Details extracted: ${answers.is_negotiating ? 'Negotiating' : 'Provided'}`});
+        jobStats.log.push({type: 'info', message: `${candidateEmail} - Details extracted: ${answers.is_negotiating ? 'Negotiating' : 'Provided'} (${saveResult.answeredCount}/${saveResult.totalQuestions} answered)`});
+
+        // Check if we need to send a missing info follow-up (Data Gathering mode)
+        if (saveResult.pendingQuestions && saveResult.pendingQuestions.length > 0 && !saveResult.dataComplete) {
+          // Only send if data gathering is enabled and we haven't sent one recently
+          if (shouldSendMissingInfoFollowUp(jobId, candidateEmail)) {
+            try {
+              const missingInfoEmail = generateMissingInfoFollowUp(
+                candidateName,
+                saveResult.pendingQuestions,
+                conversationHistory,
+                rules.jobDescription || ''
+              );
+
+              if (missingInfoEmail) {
+                // Send the follow-up email in the same thread
+                thread.replyAll(missingInfoEmail);
+                recordMissingInfoFollowUp(jobId, candidateEmail);
+                jobStats.missingInfoFollowUps++;
+                jobStats.log.push({type: 'info', message: `${candidateEmail} - Sent missing info follow-up for ${saveResult.pendingQuestions.length} missing items`});
+
+                // Update follow-up labels
+                updateFollowUpLabels(thread.getId(), 'responded');
+              }
+            } catch (missingInfoError) {
+              console.error("Failed to send missing info follow-up:", missingInfoError);
+            }
+          }
+        }
       }
     } catch(detailsError) {
       // Don't block negotiation if details extraction fails
