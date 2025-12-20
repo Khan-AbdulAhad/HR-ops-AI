@@ -1268,13 +1268,6 @@
                         </div>
                     </div>
                     
-                    <!-- Access Denied State (Hidden) -->
-                    <div id="analyticsAccessDenied" class="hidden text-center py-20">
-                        <i class="fa-solid fa-lock text-4xl text-red-300 mb-3"></i>
-                        <h3 class="text-xl font-bold text-slate-700">Access Denied</h3>
-                        <p class="text-slate-500">You do not have permission to view analytics.</p>
-                    </div>
-                    
                     <!-- Hidden container for recent activity to prevent errors if script references it -->
                     <div id="recentActivityList" class="hidden"></div>
                 </div>
@@ -3752,10 +3745,7 @@
             }
 
             google.script.run.withSuccessHandler(data => {
-                if(data.error) { showAnalyticsAccessDenied(); return; }
-
-                // Hide access denied message on successful load
-                document.getElementById('analyticsAccessDenied').classList.add('hidden');
+                if(data.error) { console.error('Analytics error:', data.error); return; }
 
                 // Update admin status from returned data
                 if (data.isAdmin !== undefined) {
@@ -3829,7 +3819,8 @@
         }
 
         function showAnalyticsAccessDenied() {
-            document.getElementById('analyticsAccessDenied').classList.remove('hidden');
+            // Access denied no longer needed - all authorized users see their data
+            console.log('Analytics access check completed');
         }
 
         function toggleCollapse(contentId, header) {
