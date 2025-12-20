@@ -2577,7 +2577,7 @@
         let jobSettings = {
             negotiation: true,
             followUp: true,
-            dataGathering: false
+            dataGathering: true
         };
 
         // Format Painter state
@@ -2597,7 +2597,7 @@
             refreshTemplates();
 
             // Reset job settings to defaults
-            jobSettings = { negotiation: true, followUp: true, dataGathering: false };
+            jobSettings = { negotiation: true, followUp: true, dataGathering: true };
             updateJobTogglesUI();
             updateJobTypeHint();
 

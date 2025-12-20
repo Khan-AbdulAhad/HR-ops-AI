@@ -1418,7 +1418,7 @@ function saveJobSettings(jobId, settings) {
   const defaultSettings = {
     negotiation: true,
     followUp: true,
-    dataGathering: false
+    dataGathering: true
   };
   const finalSettings = { ...defaultSettings, ...settings };
   PropertiesService.getScriptProperties().setProperty(key, JSON.stringify(finalSettings));
