@@ -5264,475 +5264,6 @@ function getFollowUpQueueData(filters) {
   }
 }
 
-// ==========================================
-// DAILY REPORT SYSTEM
-// ==========================================
-
-/**
- * Generate daily report data for all Job IDs
- * Gathers stats from Email_Logs, Negotiation_Tasks, Follow_Up_Queue
- * @param {Date} reportDate - The date to generate report for (defaults to today)
- * @returns {Object} Report data with stats per Job ID
- */
-function generateDailyReport(reportDate) {
-  const url = getStoredSheetUrl();
-  if (!url) return { success: false, error: "No sheet URL configured" };
-
-  try {
-    const ss = SpreadsheetApp.openByUrl(url);
-    ensureSheetsExist(ss);
-
-    const targetDate = reportDate ? new Date(reportDate) : new Date();
-    targetDate.setHours(0, 0, 0, 0);
-    const nextDay = new Date(targetDate);
-    nextDay.setDate(nextDay.getDate() + 1);
-
-    const reportByJobId = {};
-
-    // Helper to check if timestamp is within target date
-    function isWithinDate(timestamp) {
-      if (!timestamp) return false;
-      const d = new Date(timestamp);
-      return d >= targetDate && d < nextDay;
-    }
-
-    // 1. Get Email_Logs for initial outreach (data gathering emails)
-    const emailLogsSheet = ss.getSheetByName('Email_Logs');
-    if (emailLogsSheet && emailLogsSheet.getLastRow() > 1) {
-      const emailData = emailLogsSheet.getDataRange().getValues();
-      // Headers: Timestamp, Job ID, Email, Name, Thread ID, Type (optional)
-      for (let i = 1; i < emailData.length; i++) {
-        const timestamp = emailData[i][0];
-        const jobId = String(emailData[i][1] || '').trim();
-        const emailType = String(emailData[i][5] || 'Data Gathering').trim();
-
-        if (jobId && isWithinDate(timestamp)) {
-          if (!reportByJobId[jobId]) {
-            reportByJobId[jobId] = {
-              aiRepliesSucceeded: 0,
-              humanNegotiationsSent: 0,
-              dataGatheringEmails: 0,
-              firstFollowUps: 0,
-              secondFollowUps: 0,
-              totalOutreach: 0
-            };
-          }
-
-          if (emailType.toLowerCase().includes('follow-up 1') || emailType.toLowerCase().includes('follow up 1')) {
-            reportByJobId[jobId].firstFollowUps++;
-          } else if (emailType.toLowerCase().includes('follow-up 2') || emailType.toLowerCase().includes('follow up 2')) {
-            reportByJobId[jobId].secondFollowUps++;
-          } else {
-            reportByJobId[jobId].dataGatheringEmails++;
-          }
-          reportByJobId[jobId].totalOutreach++;
-        }
-      }
-    }
-
-    // 2. Get Negotiation_Tasks for human negotiations and AI replies
-    const tasksSheet = ss.getSheetByName('Negotiation_Tasks');
-    if (tasksSheet && tasksSheet.getLastRow() > 1) {
-      const taskData = tasksSheet.getDataRange().getValues();
-      // Headers: Timestamp, Job ID, Name, Email, Agreed Rate, Status, Dev ID, Thread ID, Region
-      for (let i = 1; i < taskData.length; i++) {
-        const timestamp = taskData[i][0];
-        const jobId = String(taskData[i][1] || '').trim();
-        const status = String(taskData[i][5] || '').toLowerCase();
-
-        if (jobId && isWithinDate(timestamp)) {
-          if (!reportByJobId[jobId]) {
-            reportByJobId[jobId] = {
-              aiRepliesSucceeded: 0,
-              humanNegotiationsSent: 0,
-              dataGatheringEmails: 0,
-              firstFollowUps: 0,
-              secondFollowUps: 0,
-              totalOutreach: 0
-            };
-          }
-
-          // Check if it's human intervention or AI reply
-          if (status.includes('human') || status.includes('manual')) {
-            reportByJobId[jobId].humanNegotiationsSent++;
-          } else if (status.includes('active') || status.includes('accepted') || status.includes('succeeded') || status.includes('counter offer') || status.includes('counter-offer') || status.includes('pending')) {
-            reportByJobId[jobId].aiRepliesSucceeded++;
-          }
-        }
-      }
-    }
-
-    // 3. Get Negotiation_Completed for successful AI negotiations
-    const completedSheet = ss.getSheetByName('Negotiation_Completed');
-    if (completedSheet && completedSheet.getLastRow() > 1) {
-      const completedData = completedSheet.getDataRange().getValues();
-      // Headers: Timestamp, Job ID, Email, Name, Final Status, Notes, Dev ID, Region
-      for (let i = 1; i < completedData.length; i++) {
-        const timestamp = completedData[i][0];
-        const jobId = String(completedData[i][1] || '').trim();
-        const finalStatus = String(completedData[i][4] || '').toLowerCase();
-
-        if (jobId && isWithinDate(timestamp)) {
-          if (!reportByJobId[jobId]) {
-            reportByJobId[jobId] = {
-              aiRepliesSucceeded: 0,
-              humanNegotiationsSent: 0,
-              dataGatheringEmails: 0,
-              firstFollowUps: 0,
-              secondFollowUps: 0,
-              totalOutreach: 0
-            };
-          }
-
-          if (finalStatus.includes('accepted') || finalStatus.includes('success')) {
-            reportByJobId[jobId].aiRepliesSucceeded++;
-          }
-        }
-      }
-    }
-
-    // 4. Get Follow_Up_Queue for follow-up counts (check Last Updated date)
-    const followUpSheet = ss.getSheetByName('Follow_Up_Queue');
-    if (followUpSheet && followUpSheet.getLastRow() > 1) {
-      const followUpData = followUpSheet.getDataRange().getValues();
-      // Headers: Email, Job ID, Thread ID, Name, Dev ID, Initial Send Time, Follow Up 1 Sent, Follow Up 2 Sent, Status, Last Updated
-      for (let i = 1; i < followUpData.length; i++) {
-        const jobId = String(followUpData[i][1] || '').trim();
-        const lastUpdated = followUpData[i][9];
-        const f1Sent = followUpData[i][6];
-        const f2Sent = followUpData[i][7];
-
-        if (jobId && isWithinDate(lastUpdated)) {
-          if (!reportByJobId[jobId]) {
-            reportByJobId[jobId] = {
-              aiRepliesSucceeded: 0,
-              humanNegotiationsSent: 0,
-              dataGatheringEmails: 0,
-              firstFollowUps: 0,
-              secondFollowUps: 0,
-              totalOutreach: 0
-            };
-          }
-
-          // These may already be counted in Email_Logs, but let's add from queue for accuracy
-          if (f1Sent === true || f1Sent === 'TRUE') {
-            // Follow-up 1 was sent - already counted if logged
-          }
-          if (f2Sent === true || f2Sent === 'TRUE') {
-            // Follow-up 2 was sent - already counted if logged
-          }
-        }
-      }
-    }
-
-    // Calculate totals
-    let totalAiReplies = 0, totalHuman = 0, totalDataGathering = 0, totalF1 = 0, totalF2 = 0, totalOutreach = 0;
-    const jobIds = Object.keys(reportByJobId);
-
-    jobIds.forEach(jobId => {
-      const stats = reportByJobId[jobId];
-      totalAiReplies += stats.aiRepliesSucceeded;
-      totalHuman += stats.humanNegotiationsSent;
-      totalDataGathering += stats.dataGatheringEmails;
-      totalF1 += stats.firstFollowUps;
-      totalF2 += stats.secondFollowUps;
-      totalOutreach += stats.totalOutreach;
-    });
-
-    return {
-      success: true,
-      reportDate: targetDate.toISOString().split('T')[0],
-      jobStats: reportByJobId,
-      totals: {
-        aiRepliesSucceeded: totalAiReplies,
-        humanNegotiationsSent: totalHuman,
-        dataGatheringEmails: totalDataGathering,
-        firstFollowUps: totalF1,
-        secondFollowUps: totalF2,
-        totalOutreach: totalOutreach
-      },
-      jobCount: jobIds.length
-    };
-
-  } catch (e) {
-    console.error("Error generating daily report:", e);
-    return { success: false, error: e.message };
-  }
-}
-
-/**
- * Save daily report to Daily_Reports sheet
- * @param {Object} reportData - Report data from generateDailyReport
- * @param {string} sentTo - Email address report was sent to
- */
-function saveDailyReportToSheet(reportData, sentTo) {
-  const url = getStoredSheetUrl();
-  if (!url || !reportData || !reportData.success) return;
-
-  try {
-    const ss = SpreadsheetApp.openByUrl(url);
-    const sheet = ss.getSheetByName('Daily_Reports');
-    if (!sheet) return;
-
-    const now = new Date();
-    const jobIds = Object.keys(reportData.jobStats);
-
-    // Save a row for each Job ID
-    jobIds.forEach(jobId => {
-      const stats = reportData.jobStats[jobId];
-      sheet.appendRow([
-        reportData.reportDate,
-        jobId,
-        stats.aiRepliesSucceeded,
-        stats.humanNegotiationsSent,
-        stats.dataGatheringEmails,
-        stats.firstFollowUps,
-        stats.secondFollowUps,
-        stats.totalOutreach,
-        now,
-        sentTo || ''
-      ]);
-    });
-
-    // Also save totals row
-    sheet.appendRow([
-      reportData.reportDate,
-      'TOTAL',
-      reportData.totals.aiRepliesSucceeded,
-      reportData.totals.humanNegotiationsSent,
-      reportData.totals.dataGatheringEmails,
-      reportData.totals.firstFollowUps,
-      reportData.totals.secondFollowUps,
-      reportData.totals.totalOutreach,
-      now,
-      sentTo || ''
-    ]);
-
-  } catch (e) {
-    console.error("Error saving daily report to sheet:", e);
-  }
-}
-
-/**
- * Send daily report email with stats in HTML table format
- * @param {string} recipientEmail - Email to send report to (defaults to current user)
- * @param {Date} reportDate - Date to generate report for (defaults to today)
- * @returns {Object} Result of the operation
- */
-function sendDailyReportEmail(recipientEmail, reportDate) {
-  try {
-    const email = recipientEmail || Session.getActiveUser().getEmail();
-    if (!email) {
-      return { success: false, error: "No recipient email specified" };
-    }
-
-    const report = generateDailyReport(reportDate);
-    if (!report.success) {
-      return { success: false, error: report.error || "Failed to generate report" };
-    }
-
-    const jobIds = Object.keys(report.jobStats);
-    if (jobIds.length === 0) {
-      return { success: false, error: "No activity found for the specified date" };
-    }
-
-    // Build HTML email
-    const html = `
-    <!DOCTYPE html>
-    <html>
-    <head>
-      <style>
-        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
-        .container { max-width: 800px; margin: 0 auto; padding: 20px; }
-        h1 { color: #2563eb; border-bottom: 2px solid #2563eb; padding-bottom: 10px; }
-        h2 { color: #1e40af; margin-top: 30px; }
-        table { width: 100%; border-collapse: collapse; margin: 20px 0; }
-        th { background: #2563eb; color: white; padding: 12px 8px; text-align: left; font-weight: 600; }
-        td { padding: 10px 8px; border-bottom: 1px solid #e5e7eb; }
-        tr:nth-child(even) { background: #f9fafb; }
-        tr:hover { background: #f3f4f6; }
-        .total-row { background: #dbeafe !important; font-weight: bold; }
-        .total-row td { border-top: 2px solid #2563eb; }
-        .stat-card { display: inline-block; background: #f3f4f6; padding: 15px 20px; margin: 5px; border-radius: 8px; text-align: center; }
-        .stat-value { font-size: 24px; font-weight: bold; color: #2563eb; }
-        .stat-label { font-size: 12px; color: #6b7280; text-transform: uppercase; }
-        .footer { margin-top: 30px; padding-top: 20px; border-top: 1px solid #e5e7eb; color: #6b7280; font-size: 12px; }
-      </style>
-    </head>
-    <body>
-      <div class="container">
-        <h1>Daily Activity Report</h1>
-        <p><strong>Date:</strong> ${report.reportDate}</p>
-        <p><strong>Generated:</strong> ${new Date().toLocaleString()}</p>
-
-        <h2>Summary</h2>
-        <div style="margin: 20px 0;">
-          <div class="stat-card">
-            <div class="stat-value">${report.totals.totalOutreach}</div>
-            <div class="stat-label">Total Outreach</div>
-          </div>
-          <div class="stat-card">
-            <div class="stat-value">${report.totals.aiRepliesSucceeded}</div>
-            <div class="stat-label">AI Replies</div>
-          </div>
-          <div class="stat-card">
-            <div class="stat-value">${report.totals.humanNegotiationsSent}</div>
-            <div class="stat-label">Human Negotiations</div>
-          </div>
-          <div class="stat-card">
-            <div class="stat-value">${report.totals.dataGatheringEmails}</div>
-            <div class="stat-label">Data Gathering</div>
-          </div>
-          <div class="stat-card">
-            <div class="stat-value">${report.totals.firstFollowUps}</div>
-            <div class="stat-label">1st Follow-ups</div>
-          </div>
-          <div class="stat-card">
-            <div class="stat-value">${report.totals.secondFollowUps}</div>
-            <div class="stat-label">2nd Follow-ups</div>
-          </div>
-        </div>
-
-        <h2>Activity by Job ID</h2>
-        <table>
-          <thead>
-            <tr>
-              <th>Job ID</th>
-              <th>AI Replies</th>
-              <th>Human Negotiations</th>
-              <th>Data Gathering</th>
-              <th>1st Follow-ups</th>
-              <th>2nd Follow-ups</th>
-              <th>Total</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${jobIds.map(jobId => {
-              const s = report.jobStats[jobId];
-              return `<tr>
-                <td><strong>${jobId}</strong></td>
-                <td>${s.aiRepliesSucceeded}</td>
-                <td>${s.humanNegotiationsSent}</td>
-                <td>${s.dataGatheringEmails}</td>
-                <td>${s.firstFollowUps}</td>
-                <td>${s.secondFollowUps}</td>
-                <td><strong>${s.totalOutreach}</strong></td>
-              </tr>`;
-            }).join('')}
-            <tr class="total-row">
-              <td>TOTAL</td>
-              <td>${report.totals.aiRepliesSucceeded}</td>
-              <td>${report.totals.humanNegotiationsSent}</td>
-              <td>${report.totals.dataGatheringEmails}</td>
-              <td>${report.totals.firstFollowUps}</td>
-              <td>${report.totals.secondFollowUps}</td>
-              <td><strong>${report.totals.totalOutreach}</strong></td>
-            </tr>
-          </tbody>
-        </table>
-
-        <div class="footer">
-          <p>This report was automatically generated by Turing AI Recruiter V11.</p>
-          <p>Total Jobs with Activity: ${report.jobCount}</p>
-        </div>
-      </div>
-    </body>
-    </html>`;
-
-    // Send the email
-    GmailApp.sendEmail(email, `Daily Activity Report - ${report.reportDate}`, '', {
-      htmlBody: html,
-      name: 'Turing AI Recruiter'
-    });
-
-    // Save to sheet
-    saveDailyReportToSheet(report, email);
-
-    return {
-      success: true,
-      message: `Report sent to ${email}`,
-      stats: report.totals,
-      jobCount: report.jobCount
-    };
-
-  } catch (e) {
-    console.error("Error sending daily report email:", e);
-    return { success: false, error: e.message };
-  }
-}
-
-/**
- * Trigger function to run daily report automatically
- * Set up a time-based trigger to run this function daily
- * Sends YESTERDAY's report (so 8 AM trigger sends previous day's full activity)
- * NOTE: If there's no activity for the day, NO email is sent (by design)
- */
-function runDailyReportTrigger() {
-  const userEmail = Session.getActiveUser().getEmail();
-  if (userEmail) {
-    // Get yesterday's date for the report
-    const yesterday = new Date();
-    yesterday.setDate(yesterday.getDate() - 1);
-    const result = sendDailyReportEmail(userEmail, yesterday);
-
-    // Log the result for debugging
-    if (result.success) {
-      console.log(`Daily report sent to ${userEmail} for ${yesterday.toDateString()}`);
-    } else {
-      console.log(`Daily report NOT sent: ${result.error}`);
-    }
-  }
-}
-
-/**
- * Get historical daily reports from the Daily_Reports sheet
- * @param {number} limit - Number of days to retrieve (default 7)
- * @returns {Array} Array of report summaries
- */
-function getDailyReportHistory(limit) {
-  const url = getStoredSheetUrl();
-  if (!url) return [];
-
-  try {
-    const ss = SpreadsheetApp.openByUrl(url);
-    const sheet = ss.getSheetByName('Daily_Reports');
-    if (!sheet || sheet.getLastRow() <= 1) return [];
-
-    const data = sheet.getDataRange().getValues();
-    const reportsByDate = {};
-
-    // Group by date and aggregate TOTAL rows
-    for (let i = 1; i < data.length; i++) {
-      const date = data[i][0];
-      const jobId = String(data[i][1]);
-
-      if (jobId === 'TOTAL') {
-        const dateKey = typeof date === 'object' ? date.toISOString().split('T')[0] : String(date);
-        reportsByDate[dateKey] = {
-          date: dateKey,
-          aiReplies: data[i][2] || 0,
-          humanNegotiations: data[i][3] || 0,
-          dataGathering: data[i][4] || 0,
-          firstFollowUps: data[i][5] || 0,
-          secondFollowUps: data[i][6] || 0,
-          totalOutreach: data[i][7] || 0,
-          generatedAt: data[i][8],
-          sentTo: data[i][9]
-        };
-      }
-    }
-
-    // Sort by date descending and limit
-    const sortedDates = Object.keys(reportsByDate).sort().reverse();
-    const maxResults = limit || 7;
-
-    return sortedDates.slice(0, maxResults).map(date => reportsByDate[date]);
-
-  } catch (e) {
-    console.error("Error getting daily report history:", e);
-    return [];
-  }
-}
 
 // ==========================================
 // TRIGGER MANAGEMENT SYSTEM
@@ -5754,12 +5285,6 @@ const REQUIRED_TRIGGERS = [
     type: 'hourly',
     description: 'Processes follow-up emails (1st at 12hrs, 2nd at 28hrs)',
     everyHours: 1
-  },
-  {
-    functionName: 'runDailyReportTrigger',
-    type: 'daily',
-    description: 'Sends daily activity report email',
-    atHour: 8 // 8 AM
   }
 ];
 
@@ -6589,9 +6114,11 @@ function getAnalyticsSearchCache() {
  * Get comprehensive analytics data from the CENTRAL sheet
  * @param {string} filterEmail - Optional email to filter results for a specific user
  * @param {string} filterJobId - Optional job ID to filter results for a specific job
+ * @param {string} startDate - Optional start date (ISO string) for date range filter
+ * @param {string} endDate - Optional end date (ISO string) for date range filter
  * @returns {Object} Analytics data
  */
-function getUserAnalytics(filterEmail, filterJobId) {
+function getUserAnalytics(filterEmail, filterJobId, startDate, endDate) {
   const access = checkAnalyticsAccess();
   if (!access.hasAccess) {
     return { error: "Access denied. You don't have permission to view analytics." };
@@ -6600,6 +6127,18 @@ function getUserAnalytics(filterEmail, filterJobId) {
   // Normalize filters
   let emailFilter = filterEmail ? String(filterEmail).toLowerCase().trim() : '';
   const jobIdFilter = filterJobId ? String(filterJobId).trim() : '';
+
+  // Parse date filters
+  let startDateFilter = null;
+  let endDateFilter = null;
+  if (startDate) {
+    startDateFilter = new Date(startDate);
+    startDateFilter.setHours(0, 0, 0, 0);
+  }
+  if (endDate) {
+    endDateFilter = new Date(endDate);
+    endDateFilter.setHours(23, 59, 59, 999);
+  }
 
   // NON-ADMIN RESTRICTION: Non-admin users can only see their own analytics
   // Force email filter to their own email regardless of what was passed
@@ -6626,7 +6165,9 @@ function getUserAnalytics(filterEmail, filterJobId) {
       isAdmin: isAdmin,
       currentUser: access.userEmail,
       filterApplied: emailFilter || null,
-      jobFilterApplied: jobIdFilter || null
+      jobFilterApplied: jobIdFilter || null,
+      startDateApplied: startDate || null,
+      endDateApplied: endDate || null
     };
 
     const sheet = ss.getSheetByName('Activity_Log');
@@ -6653,6 +6194,17 @@ function getUserAnalytics(filterEmail, filterJobId) {
       // Apply job ID filter if specified
       if (jobIdFilter && jobId !== jobIdFilter) {
         continue; // Skip this row if it doesn't match the job ID filter
+      }
+
+      // Apply date range filter if specified
+      if (timestamp && (startDateFilter || endDateFilter)) {
+        const rowDate = new Date(timestamp);
+        if (startDateFilter && rowDate < startDateFilter) {
+          continue; // Skip rows before start date
+        }
+        if (endDateFilter && rowDate > endDateFilter) {
+          continue; // Skip rows after end date
+        }
       }
 
       // Track by user
@@ -6743,9 +6295,11 @@ function getUserAnalytics(filterEmail, filterJobId) {
  * Get detailed statistics (called separately for performance)
  * @param {string} filterEmail - Optional email to filter results for a specific user
  * @param {string} filterJobId - Optional job ID to filter results for a specific job
+ * @param {string} startDate - Optional start date (ISO string) for date range filter
+ * @param {string} endDate - Optional end date (ISO string) for date range filter
  * @returns {Object} Detailed stats
  */
-function getDetailedEmailStats(filterEmail, filterJobId) {
+function getDetailedEmailStats(filterEmail, filterJobId, startDate, endDate) {
   const access = checkAnalyticsAccess();
   if (!access.hasAccess) {
     return { error: "Access denied" };
@@ -6754,6 +6308,18 @@ function getDetailedEmailStats(filterEmail, filterJobId) {
   // Normalize filters
   let emailFilter = filterEmail ? String(filterEmail).toLowerCase().trim() : '';
   const jobIdFilter = filterJobId ? String(filterJobId).trim() : '';
+
+  // Parse date filters
+  let startDateFilter = null;
+  let endDateFilter = null;
+  if (startDate) {
+    startDateFilter = new Date(startDate);
+    startDateFilter.setHours(0, 0, 0, 0);
+  }
+  if (endDate) {
+    endDateFilter = new Date(endDate);
+    endDateFilter.setHours(23, 59, 59, 999);
+  }
 
   // NON-ADMIN RESTRICTION: Non-admin users can only see their own stats
   const isAdmin = access.accessLevel === 'admin';
@@ -6773,7 +6339,9 @@ function getDetailedEmailStats(filterEmail, filterJobId) {
       emailsByJob: {},
       emailsByUser: {},
       filterApplied: emailFilter || null,
-      jobFilterApplied: jobIdFilter || null
+      jobFilterApplied: jobIdFilter || null,
+      startDateApplied: startDate || null,
+      endDateApplied: endDate || null
     };
 
     const sheet = ss.getSheetByName('Activity_Log');
@@ -6784,6 +6352,7 @@ function getDetailedEmailStats(filterEmail, filterJobId) {
     const data = sheet.getDataRange().getValues();
 
     for (let i = 1; i < data.length; i++) {
+      const timestamp = data[i][0];
       const userEmail = String(data[i][1] || '');
       const action = String(data[i][2] || '');
       const jobId = String(data[i][3] || 'Unknown');
@@ -6797,6 +6366,17 @@ function getDetailedEmailStats(filterEmail, filterJobId) {
       // Apply job ID filter if specified
       if (jobIdFilter && jobId !== jobIdFilter) {
         continue; // Skip this row if it doesn't match the job ID filter
+      }
+
+      // Apply date range filter if specified
+      if (timestamp && (startDateFilter || endDateFilter)) {
+        const rowDate = new Date(timestamp);
+        if (startDateFilter && rowDate < startDateFilter) {
+          continue; // Skip rows before start date
+        }
+        if (endDateFilter && rowDate > endDateFilter) {
+          continue; // Skip rows after end date
+        }
       }
 
       if (action === 'email_sent') {
