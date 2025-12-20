@@ -6305,6 +6305,61 @@ function searchAnalyticsJobIds(searchQuery) {
 }
 
 /**
+ * Get all unique emails and job IDs for client-side caching
+ * This enables instant search without backend round-trips
+ * @returns {Object} Object containing arrays of all unique emails and job IDs
+ */
+function getAnalyticsSearchCache() {
+  const access = checkAnalyticsAccess();
+  if (!access.hasAccess) {
+    return { emails: [], jobIds: [] };
+  }
+
+  try {
+    const ss = getAnalyticsSpreadsheet();
+    if (!ss) return { emails: [], jobIds: [] };
+
+    const sheet = ss.getSheetByName('Activity_Log');
+    if (!sheet || sheet.getLastRow() <= 1) return { emails: [], jobIds: [] };
+
+    const data = sheet.getDataRange().getValues();
+    const uniqueEmails = new Set();
+    const uniqueJobIds = new Set();
+
+    // Collect all unique emails and job IDs in a single pass
+    for (let i = 1; i < data.length; i++) {
+      const userEmail = String(data[i][1] || '').trim();
+      const jobId = String(data[i][3] || '').trim();
+
+      if (userEmail && userEmail !== 'Unknown') {
+        uniqueEmails.add(userEmail.toLowerCase());
+      }
+      if (jobId) {
+        uniqueJobIds.add(jobId);
+      }
+    }
+
+    // Sort emails alphabetically
+    const sortedEmails = Array.from(uniqueEmails).sort();
+
+    // Sort job IDs numerically if possible
+    const sortedJobIds = Array.from(uniqueJobIds).sort((a, b) => {
+      const numA = parseInt(a);
+      const numB = parseInt(b);
+      if (!isNaN(numA) && !isNaN(numB)) {
+        return numA - numB;
+      }
+      return a.localeCompare(b);
+    });
+
+    return { emails: sortedEmails, jobIds: sortedJobIds };
+  } catch (e) {
+    console.error("Error getting analytics search cache:", e);
+    return { emails: [], jobIds: [] };
+  }
+}
+
+/**
  * Get comprehensive analytics data from the CENTRAL sheet
  * @param {string} filterEmail - Optional email to filter results for a specific user
  * @param {string} filterJobId - Optional job ID to filter results for a specific job

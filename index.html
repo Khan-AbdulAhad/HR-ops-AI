@@ -1621,7 +1621,11 @@
             if(tabName === 'tasks' && !isCacheValid('tasks')) loadTasks();
             if(tabName === 'negotiation' && !isCacheValid('triggers')) refreshJobDropdown();
             if(tabName === 'followups' && !isCacheValid('followups')) loadFollowUpStats();
-            if(tabName === 'analytics' && !isCacheValid('analytics')) loadAnalytics();
+            if(tabName === 'analytics') {
+                // Pre-load search cache for instant filtering
+                loadAnalyticsSearchCache();
+                if(!isCacheValid('analytics')) loadAnalytics();
+            }
         }
 
         // --- Date Formatting Helper ---
@@ -3321,6 +3325,57 @@
         let currentAnalyticsFilter = ''; // Track current email filter
         let currentAnalyticsJobFilter = ''; // Track current job ID filter
 
+        // Client-side cache for instant search (no backend round-trips)
+        let analyticsSearchCache = {
+            emails: [],
+            jobIds: [],
+            loaded: false,
+            loading: false
+        };
+
+        // Load search cache for instant filtering
+        function loadAnalyticsSearchCache() {
+            if (analyticsSearchCache.loaded || analyticsSearchCache.loading) return;
+            analyticsSearchCache.loading = true;
+
+            google.script.run
+                .withSuccessHandler(cache => {
+                    analyticsSearchCache.emails = cache.emails || [];
+                    analyticsSearchCache.jobIds = cache.jobIds || [];
+                    analyticsSearchCache.loaded = true;
+                    analyticsSearchCache.loading = false;
+                })
+                .withFailureHandler(() => {
+                    analyticsSearchCache.loading = false;
+                })
+                .getAnalyticsSearchCache();
+        }
+
+        // Force refresh the search cache
+        function refreshAnalyticsSearchCache() {
+            analyticsSearchCache.loaded = false;
+            analyticsSearchCache.loading = false;
+            loadAnalyticsSearchCache();
+        }
+
+        // Client-side email search (instant)
+        function filterCachedEmails(query) {
+            if (!query) return [];
+            const lowerQuery = query.toLowerCase();
+            return analyticsSearchCache.emails
+                .filter(email => email.includes(lowerQuery))
+                .slice(0, 10);
+        }
+
+        // Client-side job ID search (instant)
+        function filterCachedJobIds(query) {
+            if (!query) return [];
+            const lowerQuery = query.toLowerCase();
+            return analyticsSearchCache.jobIds
+                .filter(jobId => jobId.toLowerCase().includes(lowerQuery))
+                .slice(0, 10);
+        }
+
         // --- Email Filter Functions ---
         function handleAnalyticsFilterKeyup(event) {
             const input = document.getElementById('analyticsUserFilter');
@@ -3352,13 +3407,15 @@
                 return;
             }
 
-            // Debounce: wait 300ms after user stops typing
+            // Fast debounce (50ms) - just enough to batch rapid keystrokes
             analyticsEmailSearchTimer = setTimeout(() => {
                 searchAnalyticsEmails(query);
-            }, 300);
+            }, 50);
         }
 
         function handleAnalyticsEmailFocus() {
+            // Ensure cache is loaded
+            loadAnalyticsSearchCache();
             const query = document.getElementById('analyticsUserFilter').value.trim();
             if (query) {
                 searchAnalyticsEmails(query);
@@ -3366,14 +3423,21 @@
         }
 
         function searchAnalyticsEmails(query) {
-            google.script.run
-                .withSuccessHandler(emails => {
-                    renderAnalyticsEmailDropdown(emails, query);
-                })
-                .withFailureHandler(() => {
-                    hideAnalyticsEmailDropdown();
-                })
-                .searchAnalyticsUsers(query);
+            // Use client-side cache for instant results
+            if (analyticsSearchCache.loaded) {
+                const emails = filterCachedEmails(query);
+                renderAnalyticsEmailDropdown(emails, query);
+            } else {
+                // Fallback to backend if cache not loaded yet
+                google.script.run
+                    .withSuccessHandler(emails => {
+                        renderAnalyticsEmailDropdown(emails, query);
+                    })
+                    .withFailureHandler(() => {
+                        hideAnalyticsEmailDropdown();
+                    })
+                    .searchAnalyticsUsers(query);
+            }
         }
 
         function renderAnalyticsEmailDropdown(emails, query) {
@@ -3478,13 +3542,15 @@
                 return;
             }
 
-            // Debounce: wait 300ms after user stops typing
+            // Fast debounce (50ms) - just enough to batch rapid keystrokes
             analyticsJobSearchTimer = setTimeout(() => {
                 searchAnalyticsJobs(query);
-            }, 300);
+            }, 50);
         }
 
         function handleAnalyticsJobFocus() {
+            // Ensure cache is loaded
+            loadAnalyticsSearchCache();
             const query = document.getElementById('analyticsJobFilter').value.trim();
             if (query) {
                 searchAnalyticsJobs(query);
@@ -3492,14 +3558,21 @@
         }
 
         function searchAnalyticsJobs(query) {
-            google.script.run
-                .withSuccessHandler(jobs => {
-                    renderAnalyticsJobDropdown(jobs, query);
-                })
-                .withFailureHandler(() => {
-                    hideAnalyticsJobDropdown();
-                })
-                .searchAnalyticsJobIds(query);
+            // Use client-side cache for instant results
+            if (analyticsSearchCache.loaded) {
+                const jobs = filterCachedJobIds(query);
+                renderAnalyticsJobDropdown(jobs, query);
+            } else {
+                // Fallback to backend if cache not loaded yet
+                google.script.run
+                    .withSuccessHandler(jobs => {
+                        renderAnalyticsJobDropdown(jobs, query);
+                    })
+                    .withFailureHandler(() => {
+                        hideAnalyticsJobDropdown();
+                    })
+                    .searchAnalyticsJobIds(query);
+            }
         }
 
         function renderAnalyticsJobDropdown(jobs, query) {
@@ -3599,6 +3672,11 @@
             const filterEmail = currentAnalyticsFilter || '';
             const filterJobId = currentAnalyticsJobFilter || '';
             const hasFilters = filterEmail || filterJobId;
+
+            // Refresh search cache when loading all data (no filters)
+            if (!hasFilters) {
+                refreshAnalyticsSearchCache();
+            }
 
             google.script.run.withSuccessHandler(data => {
                 if(data.error) { showAnalyticsAccessDenied(); return; }
