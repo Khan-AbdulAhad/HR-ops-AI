@@ -1604,12 +1604,17 @@ function recordMissingInfoFollowUp(jobId, candidateEmail) {
 
 /**
  * Extract answers from candidate's response based on the questions asked
+ * Uses advanced NLP to handle:
+ * - Comma-separated lists (e.g., "23, Bangalore, Hindi")
+ * - Jumbled/out-of-order responses
+ * - Terse single-word answers
+ * - Contextual inference from value types
  */
 function extractAnswersFromResponse(candidateMessage, questions, candidateName) {
   const questionsList = questions.map((q, i) => `${i+1}. "${q.header}": ${q.question}`).join('\n');
 
   const prompt = `
-You are an intelligent data extraction assistant analyzing a candidate's email response to extract answers to specific questions.
+You are an intelligent data extraction assistant with ADVANCED natural language understanding. Your task is to extract answers from a candidate's response, even when they reply tersely or in an unstructured way.
 
 CANDIDATE'S MESSAGE:
 "${candidateMessage}"
@@ -1619,51 +1624,111 @@ CANDIDATE NAME: ${candidateName}
 QUESTIONS TO EXTRACT ANSWERS FOR:
 ${questionsList}
 
-TASK:
-For each question, extract the candidate's answer from their message using semantic understanding.
+=== CRITICAL: HANDLING SHORT/TERSE RESPONSES ===
 
-EXTRACTION STRATEGY:
-1. Understand the INTENT of each question, not just the literal words
-2. Match candidate's response to questions based on MEANING, not exact keywords
-3. Candidates often answer questions indirectly or use different phrasing - recognize these as valid answers
-4. If the candidate provides information that answers a question, extract it even if they didn't directly address that question
+Candidates often reply with just values, comma-separated lists, or jumbled answers. You MUST use CONTEXTUAL INFERENCE to match values to the correct questions.
 
-COMMON SEMANTIC EQUIVALENTS (apply similar logic to any question type):
-- Start Date / Availability: "available for/from [date]", "free on [date]", "can join [date]", "ready by [date]"
-- Location: "based in [place]", "living in [place]", "from [place]", "I'm in [place]", "currently in [place]"
-- Rate / Salary: "expecting [amount]", "looking for [amount]", "my rate is [amount]", "charge [amount]"
-- Education: "studied at [school]", "graduated from [school]", "have a [degree]", "completed [degree]"
-- Experience: "[X] years in [field]", "working as [role] for [time]", "been doing [skill] since [year]"
-- Age: "I am [X] years old", "[X] y/o", "born in [year]"
-- Time Overlap / Schedule: "can work [hours]", "available during [time]", "my working hours are [time]"
+EXAMPLE 1 - Comma-separated values:
+Questions: Age, City, Language
+Candidate says: "23, Bangalore, Hindi"
+→ Infer: Age=23 (number likely age), City=Bangalore (city name), Language=Hindi (language name)
+
+EXAMPLE 2 - Jumbled order:
+Questions: Expected Rate, Start Date, Weekly Hours
+Candidate says: "40 hours, $35, next Monday"
+→ Infer: Weekly Hours=40 hours, Expected Rate=$35, Start Date=next Monday
+
+EXAMPLE 3 - Single values with context clues:
+Questions: Experience, Location, Rate
+Candidate says: "5 years, Mumbai, 40/hr"
+→ Infer: Experience=5 years, Location=Mumbai, Rate=40/hr
+
+EXAMPLE 4 - Mixed format:
+Questions: Age, Education, Notice Period
+Candidate says: "28 - BTech - 2 weeks"
+→ Infer: Age=28, Education=BTech, Notice Period=2 weeks
+
+=== VALUE TYPE RECOGNITION RULES ===
+
+Use these patterns to identify what type of data a value represents:
+
+NUMBERS:
+- Age: 18-65 range, often just a number like "23" or "28 years"
+- Experience: Usually followed by "years" or "yrs", e.g., "5 years", "3+ yrs"
+- Rate/Salary: Contains "$", "USD", "/hr", "/hour", "per hour", or is a salary-like number
+- Hours: Contains "hours", "hrs", or is in range 10-60
+- Notice Period: Contains "weeks", "days", "months", "immediately", "15 days", "2 weeks"
+
+LOCATIONS (Cities/Countries):
+- Recognize city names: Mumbai, Bangalore, Delhi, Chennai, Hyderabad, Pune, Kolkata, etc.
+- Recognize countries: India, US, USA, UK, Canada, Germany, etc.
+- May include "based in", "from", "living in"
+
+LANGUAGES:
+- Recognize: English, Hindi, Tamil, Telugu, Kannada, Malayalam, Spanish, French, German, etc.
+
+DATES:
+- Formats: "Dec 15", "15th December", "next week", "immediately", "in 2 weeks", "Jan 2024"
+
+EDUCATION:
+- Degrees: BTech, MTech, BSc, MSc, BCA, MCA, BE, ME, MBA, PhD
+- Universities/colleges if mentioned
+
+YES/NO:
+- "Yes", "No", "yeah", "nope", "sure", "definitely", "not really"
+
+=== EXTRACTION STRATEGY ===
+
+1. First, identify ALL distinct values in the candidate's message
+2. For each value, determine its TYPE (number, city, language, date, etc.)
+3. Match each value to the most appropriate question based on:
+   - The value's type
+   - The question's expected answer type
+   - Context from surrounding words
+4. If multiple values could match a question, use the most logical fit
+5. Values can be separated by: commas, dashes, slashes, newlines, or just spaces
+
+=== SEMANTIC EQUIVALENTS ===
+
+- Start Date / Availability: "available for/from [date]", "free on", "can join", "ready by", "immediately"
+- Location / City: "based in", "living in", "from", "I'm in", "currently in", city name alone
+- Rate / Salary: "$X", "X/hr", "X per hour", "expecting X", "looking for X"
+- Experience: "X years", "X+ years", "since [year]", "been doing X for"
+- Age: "X years old", "X y/o", just a number in 18-65 range when asking about age
+- Hours / Availability: "X hours", "full-time", "part-time", "40hrs/week"
+- Language: Language names, "speak X", "fluent in X", "native X"
+- Notice Period: "X weeks notice", "X days", "serving notice", "immediately available"
+
+=== OUTPUT FORMAT ===
 
 Return a JSON object where:
-- Keys are the exact header names from the questions
-- Values are the answers extracted from the message
+- Keys are the EXACT header names from the questions
+- Values are the extracted answers
 
-Use these special values when appropriate:
-- "NOT_PROVIDED" - if the candidate didn't mention this at all
-- "NEGOTIATING" - if they're vague or want to discuss later (e.g., "depends on the project", "let's discuss")
-- The actual answer if they provided one
+Special values:
+- "NOT_PROVIDED" - ONLY if truly no matching value exists
+- "NEGOTIATING" - if they want to discuss later
 
-Example response format:
 {
-  "Expected Rate": "$45/hr",
-  "Start Date": "12th December",
-  "Location": "Mumbai, India",
-  "Education": "NOT_PROVIDED",
-  "Weekly Hours": "NEGOTIATING",
-  "is_negotiating": true,
-  "negotiation_notes": "Candidate wants to negotiate rate, asking for $45 but willing to discuss"
+  "Age": "23",
+  "City": "Bangalore",
+  "Language": "Hindi",
+  "Expected Rate": "$35/hr",
+  "is_negotiating": false,
+  "negotiation_notes": "Candidate provided all requested information"
 }
 
-IMPORTANT:
-- Always include "is_negotiating" (true/false) and "negotiation_notes" fields
-- Extract the value the candidate actually mentions, even if different from what was asked
-  Example: Asked "Can you start December 5th?" → Candidate says "available for 12th dec" → Extract "12th dec"
-- If they give a range, include the full range (e.g., "$40-50/hr", "25-30 years old")
-- Capture any concerns, conditions, or counter-proposals in negotiation_notes
-- When in doubt about whether something answers a question, extract it rather than marking NOT_PROVIDED
+=== IMPORTANT RULES ===
+
+1. ALWAYS try to match values to questions - don't default to NOT_PROVIDED
+2. A single number near age context (18-65) is likely age
+3. A city name alone answers a location/city question
+4. A language name alone answers a language question
+5. A number with $ or /hr is likely a rate
+6. "years" after a number usually means experience
+7. ALWAYS include "is_negotiating" (true/false) and "negotiation_notes"
+8. Extract the ACTUAL value given, not what was asked for
+9. If in doubt, extract the value rather than marking NOT_PROVIDED
 
 Return ONLY the JSON object, no other text.
 `;
