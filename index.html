@@ -1183,14 +1183,60 @@
                                 <i class="fa-solid fa-times mr-1"></i> Clear All
                             </button>
                         </div>
+                        <!-- Date Range Filter Row -->
+                        <div class="flex flex-wrap items-center gap-3 bg-white p-3 rounded-lg border border-slate-200 shadow-sm">
+                            <div class="flex items-center gap-2 text-sm text-slate-600">
+                                <i class="fa-solid fa-calendar-days text-slate-400"></i>
+                                <span class="font-medium">Date Range:</span>
+                            </div>
+                            <!-- Quick Presets -->
+                            <div class="flex gap-1">
+                                <button onclick="setAnalyticsDatePreset('today')" class="analytics-date-preset px-3 py-1.5 rounded-lg text-xs font-medium border border-slate-200 hover:bg-slate-100 transition-colors" data-preset="today">
+                                    Today
+                                </button>
+                                <button onclick="setAnalyticsDatePreset('7days')" class="analytics-date-preset px-3 py-1.5 rounded-lg text-xs font-medium border border-slate-200 hover:bg-slate-100 transition-colors" data-preset="7days">
+                                    Last 7 Days
+                                </button>
+                                <button onclick="setAnalyticsDatePreset('30days')" class="analytics-date-preset px-3 py-1.5 rounded-lg text-xs font-medium border border-slate-200 hover:bg-slate-100 transition-colors" data-preset="30days">
+                                    Last 30 Days
+                                </button>
+                                <button onclick="setAnalyticsDatePreset('all')" class="analytics-date-preset px-3 py-1.5 rounded-lg text-xs font-medium border border-slate-200 hover:bg-slate-100 transition-colors bg-teal-50 border-teal-300 text-teal-700" data-preset="all">
+                                    All Time
+                                </button>
+                            </div>
+                            <div class="h-6 w-px bg-slate-200"></div>
+                            <!-- Custom Date Range -->
+                            <div class="flex items-center gap-2">
+                                <div class="relative">
+                                    <input type="date" id="analyticsStartDate"
+                                        class="px-3 py-1.5 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-teal-500 focus:border-teal-500"
+                                        onchange="handleAnalyticsDateChange()">
+                                </div>
+                                <span class="text-slate-400 text-sm">to</span>
+                                <div class="relative">
+                                    <input type="date" id="analyticsEndDate"
+                                        class="px-3 py-1.5 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-teal-500 focus:border-teal-500"
+                                        onchange="handleAnalyticsDateChange()">
+                                </div>
+                                <button onclick="applyAnalyticsDateRange()" class="bg-teal-600 text-white px-3 py-1.5 rounded-lg text-xs font-medium hover:bg-teal-700 transition-colors">
+                                    Apply
+                                </button>
+                                <button onclick="clearAnalyticsDateRange()" class="text-slate-400 hover:text-slate-600 px-2 py-1.5 text-xs">
+                                    <i class="fa-solid fa-times"></i>
+                                </button>
+                            </div>
+                        </div>
                         <!-- Filter Status -->
-                        <div id="analyticsFilterStatus" class="hidden flex items-center gap-2 text-xs text-slate-500 bg-slate-50 px-3 py-2 rounded-lg">
+                        <div id="analyticsFilterStatus" class="hidden flex flex-wrap items-center gap-2 text-xs text-slate-500 bg-slate-50 px-3 py-2 rounded-lg">
                             <span>Filtering:</span>
                             <span id="analyticsFilterEmailBadge" class="hidden bg-indigo-100 text-indigo-700 px-2 py-1 rounded-full font-medium">
                                 <i class="fa-solid fa-user mr-1"></i><span id="analyticsFilterEmailText"></span>
                             </span>
                             <span id="analyticsFilterJobBadge" class="hidden bg-amber-100 text-amber-700 px-2 py-1 rounded-full font-medium">
                                 <i class="fa-solid fa-briefcase mr-1"></i>Job <span id="analyticsFilterJobText"></span>
+                            </span>
+                            <span id="analyticsFilterDateBadge" class="hidden bg-teal-100 text-teal-700 px-2 py-1 rounded-full font-medium">
+                                <i class="fa-solid fa-calendar-days mr-1"></i><span id="analyticsFilterDateText"></span>
                             </span>
                         </div>
                     </div>
@@ -3405,6 +3451,9 @@
         // --- Analytics ---
         let currentAnalyticsFilter = ''; // Track current email filter
         let currentAnalyticsJobFilter = ''; // Track current job ID filter
+        let currentAnalyticsStartDate = ''; // Track current start date filter
+        let currentAnalyticsEndDate = ''; // Track current end date filter
+        let currentAnalyticsDatePreset = 'all'; // Track which preset is active
 
         // Client-side cache for instant search (no backend round-trips)
         let analyticsSearchCache = {
@@ -3731,6 +3780,113 @@
             document.getElementById('clearAnalyticsJobFilter').classList.add('hidden');
             currentAnalyticsFilter = '';
             currentAnalyticsJobFilter = '';
+            // Also clear date range
+            clearAnalyticsDateRange();
+        }
+
+        // --- Date Range Functions ---
+        function setAnalyticsDatePreset(preset) {
+            const today = new Date();
+            let startDate = '';
+            let endDate = '';
+
+            switch(preset) {
+                case 'today':
+                    startDate = formatDateForInput(today);
+                    endDate = formatDateForInput(today);
+                    break;
+                case '7days':
+                    const sevenDaysAgo = new Date(today);
+                    sevenDaysAgo.setDate(today.getDate() - 6);
+                    startDate = formatDateForInput(sevenDaysAgo);
+                    endDate = formatDateForInput(today);
+                    break;
+                case '30days':
+                    const thirtyDaysAgo = new Date(today);
+                    thirtyDaysAgo.setDate(today.getDate() - 29);
+                    startDate = formatDateForInput(thirtyDaysAgo);
+                    endDate = formatDateForInput(today);
+                    break;
+                case 'all':
+                default:
+                    startDate = '';
+                    endDate = '';
+                    break;
+            }
+
+            // Update the date inputs
+            document.getElementById('analyticsStartDate').value = startDate;
+            document.getElementById('analyticsEndDate').value = endDate;
+
+            // Update state
+            currentAnalyticsStartDate = startDate;
+            currentAnalyticsEndDate = endDate;
+            currentAnalyticsDatePreset = preset;
+
+            // Update preset button styles
+            updateDatePresetStyles(preset);
+
+            // Update filter status and reload
+            updateAnalyticsFilterStatus();
+            loadAnalytics();
+        }
+
+        function formatDateForInput(date) {
+            const year = date.getFullYear();
+            const month = String(date.getMonth() + 1).padStart(2, '0');
+            const day = String(date.getDate()).padStart(2, '0');
+            return `${year}-${month}-${day}`;
+        }
+
+        function formatDateForDisplay(dateStr) {
+            if (!dateStr) return '';
+            const date = new Date(dateStr + 'T00:00:00');
+            return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+        }
+
+        function updateDatePresetStyles(activePreset) {
+            const presetButtons = document.querySelectorAll('.analytics-date-preset');
+            presetButtons.forEach(btn => {
+                const preset = btn.getAttribute('data-preset');
+                if (preset === activePreset) {
+                    btn.classList.add('bg-teal-50', 'border-teal-300', 'text-teal-700');
+                    btn.classList.remove('border-slate-200');
+                } else {
+                    btn.classList.remove('bg-teal-50', 'border-teal-300', 'text-teal-700');
+                    btn.classList.add('border-slate-200');
+                }
+            });
+        }
+
+        function handleAnalyticsDateChange() {
+            // When user manually changes dates, clear the preset selection
+            currentAnalyticsDatePreset = 'custom';
+            updateDatePresetStyles('custom');
+        }
+
+        function applyAnalyticsDateRange() {
+            const startDate = document.getElementById('analyticsStartDate').value;
+            const endDate = document.getElementById('analyticsEndDate').value;
+
+            currentAnalyticsStartDate = startDate;
+            currentAnalyticsEndDate = endDate;
+
+            if (startDate || endDate) {
+                currentAnalyticsDatePreset = 'custom';
+                updateDatePresetStyles('custom');
+            }
+
+            updateAnalyticsFilterStatus();
+            loadAnalytics();
+        }
+
+        function clearAnalyticsDateRange() {
+            document.getElementById('analyticsStartDate').value = '';
+            document.getElementById('analyticsEndDate').value = '';
+            currentAnalyticsStartDate = '';
+            currentAnalyticsEndDate = '';
+            currentAnalyticsDatePreset = 'all';
+            updateDatePresetStyles('all');
             updateAnalyticsFilterStatus();
             loadAnalytics();
         }
@@ -3739,11 +3895,13 @@
             const statusDiv = document.getElementById('analyticsFilterStatus');
             const emailBadge = document.getElementById('analyticsFilterEmailBadge');
             const jobBadge = document.getElementById('analyticsFilterJobBadge');
+            const dateBadge = document.getElementById('analyticsFilterDateBadge');
 
             const hasEmailFilter = currentAnalyticsFilter !== '';
             const hasJobFilter = currentAnalyticsJobFilter !== '';
+            const hasDateFilter = currentAnalyticsStartDate !== '' || currentAnalyticsEndDate !== '';
 
-            if (hasEmailFilter || hasJobFilter) {
+            if (hasEmailFilter || hasJobFilter || hasDateFilter) {
                 statusDiv.classList.remove('hidden');
 
                 if (hasEmailFilter) {
@@ -3758,6 +3916,25 @@
                     document.getElementById('analyticsFilterJobText').textContent = currentAnalyticsJobFilter;
                 } else {
                     jobBadge.classList.add('hidden');
+                }
+
+                if (hasDateFilter) {
+                    dateBadge.classList.remove('hidden');
+                    let dateText = '';
+                    if (currentAnalyticsStartDate && currentAnalyticsEndDate) {
+                        if (currentAnalyticsStartDate === currentAnalyticsEndDate) {
+                            dateText = formatDateForDisplay(currentAnalyticsStartDate);
+                        } else {
+                            dateText = `${formatDateForDisplay(currentAnalyticsStartDate)} - ${formatDateForDisplay(currentAnalyticsEndDate)}`;
+                        }
+                    } else if (currentAnalyticsStartDate) {
+                        dateText = `From ${formatDateForDisplay(currentAnalyticsStartDate)}`;
+                    } else if (currentAnalyticsEndDate) {
+                        dateText = `Until ${formatDateForDisplay(currentAnalyticsEndDate)}`;
+                    }
+                    document.getElementById('analyticsFilterDateText').textContent = dateText;
+                } else {
+                    dateBadge.classList.add('hidden');
                 }
             } else {
                 statusDiv.classList.add('hidden');
@@ -3777,7 +3954,9 @@
         function loadAnalytics() {
             const filterEmail = currentAnalyticsFilter || '';
             const filterJobId = currentAnalyticsJobFilter || '';
-            const hasFilters = filterEmail || filterJobId;
+            const startDate = currentAnalyticsStartDate || '';
+            const endDate = currentAnalyticsEndDate || '';
+            const hasFilters = filterEmail || filterJobId || startDate || endDate;
 
             // Refresh search cache when loading all data (no filters)
             if (!hasFilters) {
@@ -3820,7 +3999,7 @@
                 }
                 // Update cache
                 dataCache.analytics = { data: data, lastLoaded: Date.now() };
-            }).getUserAnalytics(filterEmail, filterJobId);
+            }).getUserAnalytics(filterEmail, filterJobId, startDate, endDate);
 
             google.script.run.withSuccessHandler(stats => {
                 if(stats.error) return;
@@ -3855,7 +4034,7 @@
                         <span class="text-sm">${hasFilters ? 'No emails found for the selected filters' : 'No emails sent yet'}</span>
                     </div>`;
                 }
-            }).getDetailedEmailStats(filterEmail, filterJobId);
+            }).getDetailedEmailStats(filterEmail, filterJobId, startDate, endDate);
         }
 
         function showAnalyticsAccessDenied() {
