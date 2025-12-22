@@ -658,39 +658,45 @@
                         <p class="text-sm text-slate-500">Fetch candidates by job ID and stage.</p>
                     </div>
 
-                    <div class="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 p-6 mb-8">
-                        <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
-                            <div class="lg:col-span-3">
-                                <label class="block text-xs font-bold uppercase mb-2 text-slate-500">Job ID</label>
-                                <div class="relative">
-                                    <i class="fa-solid fa-hashtag absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-xs"></i>
-                                    <input type="number" id="jobId" class="input-field pl-8 font-mono text-blue-600 font-bold" placeholder="51000">
+                    <div class="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 p-4 sm:p-6 mb-8">
+                        <div class="flex flex-col gap-4 sm:gap-6">
+                            <!-- Row 1: Job ID and Pipeline Stages -->
+                            <div class="flex flex-col xl:flex-row gap-4 sm:gap-6">
+                                <!-- Job ID -->
+                                <div class="w-full xl:w-auto xl:min-w-[180px] xl:flex-shrink-0">
+                                    <label class="block text-xs font-bold uppercase mb-2 text-slate-500">Job ID</label>
+                                    <div class="relative">
+                                        <i class="fa-solid fa-hashtag absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-xs"></i>
+                                        <input type="number" id="jobId" class="input-field pl-8 font-mono text-blue-600 font-bold w-full" placeholder="51000">
+                                    </div>
+                                </div>
+                                <!-- Pipeline Stages -->
+                                <div class="flex-1 min-w-0">
+                                    <label class="block text-xs font-bold uppercase mb-2 text-slate-500">Pipeline Stages</label>
+                                    <div class="flex flex-wrap gap-2">
+                                        <div class="smart-chip" onclick="toggleChip(this)" data-value="Interested">Interested</div>
+                                        <div class="smart-chip" onclick="toggleChip(this)" data-value="Passed VetSmith">Passed VetSmith</div>
+                                        <div class="smart-chip" onclick="toggleChip(this)" data-value="Pending Review">Pending Review</div>
+                                        <div class="smart-chip" onclick="toggleChip(this)" data-value="Completed Testing">Completed Testing</div>
+                                        <div class="smart-chip" onclick="toggleChip(this)" data-value="Developer Backout">Developer Backout</div>
+                                        <div class="smart-chip" onclick="toggleChip(this)" data-value="On Hold - Onboarding">On Hold - Onboarding</div>
+                                        <div class="smart-chip" onclick="toggleChip(this)" data-value="Pending Onboarding">Pending Onboarding</div>
+                                        <div class="smart-chip" onclick="toggleChip(this)" data-value="Ready for Selection">Ready for Selection</div>
+                                        <div class="smart-chip" onclick="toggleChip(this)" data-value="Selected for Trial">Selected for Trial</div>
+                                    </div>
+                                    <div class="flex gap-2 mt-2">
+                                        <button onclick="selectAllChips()" class="text-xs text-blue-600 hover:underline">Select All</button>
+                                        <button onclick="clearAllChips()" class="text-xs text-slate-500 hover:underline">Clear</button>
+                                    </div>
                                 </div>
                             </div>
-                            <div class="lg:col-span-7">
-                                <label class="block text-xs font-bold uppercase mb-2 text-slate-500">Pipeline Stages</label>
-                                <div class="flex flex-wrap gap-2">
-                                    <div class="smart-chip" onclick="toggleChip(this)" data-value="Interested">Interested</div>
-                                    <div class="smart-chip" onclick="toggleChip(this)" data-value="Passed VetSmith">Passed VetSmith</div>
-                                    <div class="smart-chip" onclick="toggleChip(this)" data-value="Pending Review">Pending Review</div>
-                                    <div class="smart-chip" onclick="toggleChip(this)" data-value="Completed Testing">Completed Testing</div>
-                                    <div class="smart-chip" onclick="toggleChip(this)" data-value="Developer Backout">Developer Backout</div>
-                                    <div class="smart-chip" onclick="toggleChip(this)" data-value="On Hold - Onboarding">On Hold - Onboarding</div>
-                                    <div class="smart-chip" onclick="toggleChip(this)" data-value="Pending Onboarding">Pending Onboarding</div>
-                                    <div class="smart-chip" onclick="toggleChip(this)" data-value="Ready for Selection">Ready for Selection</div>
-                                    <div class="smart-chip" onclick="toggleChip(this)" data-value="Selected for Trial">Selected for Trial</div>
-                                </div>
-                                <div class="flex gap-2 mt-2">
-                                    <button onclick="selectAllChips()" class="text-xs text-blue-600 hover:underline">Select All</button>
-                                    <button onclick="clearAllChips()" class="text-xs text-slate-500 hover:underline">Clear</button>
-                                </div>
-                            </div>
-                            <div class="lg:col-span-2 flex items-end gap-2">
-                                <button id="fetchBtn" onclick="fetchData()" class="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-medium py-2.5 rounded-lg shadow-md hover:shadow-lg transition flex items-center justify-center gap-2 text-sm">
+                            <!-- Row 2: Action Buttons -->
+                            <div class="flex flex-wrap items-center gap-3 pt-2 border-t border-slate-100 dark:border-slate-700">
+                                <button id="fetchBtn" onclick="fetchData()" class="bg-blue-600 hover:bg-blue-700 text-white font-medium py-2.5 px-5 rounded-lg shadow-md hover:shadow-lg transition flex items-center justify-center gap-2 text-sm whitespace-nowrap">
                                     <i class="fa-solid fa-search"></i> <span>Fetch Data</span>
                                 </button>
-                                <button onclick="openManualInput()" class="bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-600 dark:text-slate-200 py-2.5 px-3 rounded-lg transition" title="Manual Test Mode">
-                                    <i class="fa-solid fa-vial"></i>
+                                <button onclick="openManualInput()" class="bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-600 dark:text-slate-200 py-2.5 px-3 rounded-lg transition whitespace-nowrap" title="Manual Test Mode">
+                                    <i class="fa-solid fa-vial"></i> <span class="sm:inline hidden">Test Mode</span>
                                 </button>
                             </div>
                         </div>
