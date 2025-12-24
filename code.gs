@@ -6799,3 +6799,142 @@ function globalSearch(query) {
   }
 }
 
+// ===== AI TESTING FEATURE - DELETE FOR PRODUCTION (START) =====
+/**
+ * Test AI email response generation without sending actual emails.
+ * This function is for testing/development purposes only.
+ * Admin-only access.
+ * @param {Object} testData - The test scenario data
+ * @returns {Object} - { aiResponse: string } or { error: string }
+ */
+function testAiEmailResponse(testData) {
+  try {
+    // Check admin access
+    const access = checkAnalyticsAccess();
+    if (!access.hasAccess || access.accessLevel !== 'admin') {
+      return { error: 'Admin access required for AI testing' };
+    }
+
+    const { type, devName, devEmail, jobDesc, candidateReply, targetRate, attempt, followUpNumber, pendingQuestions } = testData;
+    const firstName = devName.split(' ')[0];
+
+    let prompt = '';
+
+    if (type === 'negotiation') {
+      // Build negotiation test prompt
+      const attemptNum = parseInt(attempt) || 1;
+      const rate = parseFloat(targetRate) || 45;
+      const offerRate = attemptNum === 1 ? Math.round(rate * 0.7) : rate;
+
+      prompt = `
+You are a professional recruiter at Turing negotiating with a developer candidate.
+
+CONTEXT:
+- Candidate Name: ${devName}
+- Job Description: ${jobDesc}
+- Our Target Rate: $${rate}/hr
+- Current Offer: $${offerRate}/hr (${attemptNum === 1 ? '70% of target - first attempt' : '100% of target - final offer'})
+- Negotiation Attempt: ${attemptNum} of 2
+
+CANDIDATE'S REPLY:
+"${candidateReply}"
+
+TASK: Write a professional email response to continue the negotiation.
+
+GUIDELINES:
+1. Be warm but professional
+2. If they're asking for more than our target rate, explain our position politely
+3. If they accept or are close to our offer, confirm next steps
+4. Keep it concise (4-6 sentences)
+5. Don't reveal our internal rate structure or that this is an automated system
+
+If you determine we should accept their rate or escalate to human review, start your response with:
+- "ACTION: ACCEPT" if we should accept their terms
+- "ACTION: ESCALATE" if human review is needed
+
+Otherwise, write the email response directly.
+`;
+    } else if (type === 'followup') {
+      // Build follow-up test prompt
+      const followUpNum = parseInt(followUpNumber) || 1;
+
+      prompt = `
+You are a friendly recruiter at Turing following up with a candidate who hasn't responded.
+
+CONTEXT:
+- Candidate Name: ${firstName}
+- Job Description: ${jobDesc}
+- Follow-up Number: ${followUpNum} (${followUpNum === 1 ? 'first reminder after 12 hours' : 'second reminder after 28 hours'})
+
+PREVIOUS CONTEXT (what they may have said):
+"${candidateReply || 'No previous response'}"
+
+TASK: Write a gentle, non-pushy follow-up email.
+
+GUIDELINES:
+1. Be friendly and understanding of their busy schedule
+2. Briefly remind them of the opportunity
+3. Make it easy for them to respond
+4. Keep it short (3-5 sentences)
+5. ${followUpNum === 2 ? 'This is the final follow-up, so gently mention limited time' : 'Be patient and give them space'}
+6. Do NOT include a subject line, greeting, or signature
+
+Return ONLY the email body text.
+`;
+    } else if (type === 'datagathering') {
+      // Build data gathering test prompt
+      const questions = (pendingQuestions || '').split(',').map((q, i) => `${i + 1}. ${q.trim()}`).join('\n');
+
+      prompt = `
+You are a friendly recruiter at Turing following up with a candidate to collect missing information.
+
+CANDIDATE NAME: ${firstName}
+
+MISSING INFORMATION NEEDED:
+${questions}
+
+JOB CONTEXT: ${jobDesc}
+
+RECENT CONVERSATION:
+"${candidateReply || 'Initial outreach sent'}"
+
+TASK: Write a SHORT, friendly follow-up email asking for the missing information.
+
+GUIDELINES:
+1. Be warm and conversational, not robotic or formal
+2. Thank them for their previous response if they responded
+3. Politely explain you need a few more details to proceed
+4. List the missing information naturally (don't make it feel like a form)
+5. Keep it brief - 4-6 sentences maximum
+6. Don't repeat information they already provided
+7. End with an encouraging note about moving forward
+
+IMPORTANT:
+- Do NOT include a subject line
+- Do NOT include any greeting like "Dear" or "Hello" - start directly with the message
+- Do NOT include a signature - just the message body
+- Write in a natural, human tone
+- If only 1-2 items are missing, work them into sentences rather than a list
+
+Return ONLY the email body text, nothing else.
+`;
+    } else {
+      return { error: 'Unknown test type: ' + type };
+    }
+
+    // Call the AI
+    const aiResponse = callAI(prompt);
+
+    if (!aiResponse || aiResponse.includes('API Key missing')) {
+      return { error: 'AI API key not configured' };
+    }
+
+    return { aiResponse: aiResponse.trim() };
+
+  } catch (e) {
+    console.error('Error in testAiEmailResponse:', e);
+    return { error: 'Failed to generate AI response: ' + e.message };
+  }
+}
+// ===== AI TESTING FEATURE - DELETE FOR PRODUCTION (END) =====
+
