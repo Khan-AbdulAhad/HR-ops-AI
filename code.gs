@@ -96,7 +96,7 @@ ${EMAIL_SIGNATURE}
 
 /**
  * Builds the negotiation reply prompt - SAME structure as production processJobNegotiations()
- * @param {Object} params - { candidateName, jobDescription, targetRate, attempt, candidateMessage, style, faqContent, conversationContext }
+ * @param {Object} params - { candidateName, jobDescription, targetRate, maxRate, attempt, candidateMessage, style, faqContent, conversationContext, region }
  * @returns {string} The prompt for AI
  */
 function buildNegotiationReplyPrompt(params) {
@@ -104,19 +104,25 @@ function buildNegotiationReplyPrompt(params) {
     candidateName,
     jobDescription,
     targetRate,
+    maxRate,
     attempt,
     candidateMessage,
     style = 'professional',
     faqContent = '',
     conversationContext = '',
-    specialRules = ''
+    specialRules = '',
+    region = ''
   } = params;
 
   const attempts = parseInt(attempt) - 1; // Convert to 0-indexed like production
   const rate = parseFloat(targetRate) || 25;
+  const max = parseFloat(maxRate) || rate; // Max rate for reference (used in production for escalation decisions)
   const firstOfferRate = Math.round(rate * 0.8); // 80% of target for first offer (matches production)
   const secondOfferRate = rate; // 100% of target for second offer
   const isFirstResponse = attempts === 0;
+
+  // Region context for the prompt (if provided)
+  const regionContext = region ? `\n- Candidate Region: ${region} (rates adjusted for this region)` : '';
 
   const conversationHistory = conversationContext || `
 Previous context: Initial outreach sent.
@@ -136,7 +142,7 @@ Perks of Freelancing With Turing:
 - Flexible freelance arrangement
 
 === JOB DESCRIPTION ===
-${jobDescription || 'No specific job description provided.'}
+${jobDescription || 'No specific job description provided.'}${regionContext}
 
 === YOUR RATE OFFER ===
 ${attempts === 0 ? `
@@ -6995,22 +7001,39 @@ function testAiEmailResponse(testData) {
       return { error: 'Admin access required for AI testing' };
     }
 
-    const { type, devName, devEmail, jobDesc, candidateReply, targetRate, attempt, followUpNumber, pendingQuestions } = testData;
+    const {
+      type, devName, devEmail, devCountry, jobId, jobDesc, candidateReply,
+      targetRate, maxRate, attempt, followUpNumber, pendingQuestions, rateTier
+    } = testData;
 
     let aiResponse = '';
 
     if (type === 'negotiation') {
+      // Determine rates - use rate tier if provided, otherwise use manual inputs
+      let effectiveTargetRate = targetRate || '45';
+      let effectiveMaxRate = maxRate || effectiveTargetRate;
+      let regionName = devCountry || '';
+
+      // If a rate tier was selected, use its values (this matches production behavior)
+      if (rateTier) {
+        effectiveTargetRate = rateTier.targetRate || effectiveTargetRate;
+        effectiveMaxRate = rateTier.maxRate || effectiveMaxRate;
+        regionName = rateTier.region || regionName;
+      }
+
       // Use the SAME prompt builder used in production (buildNegotiationReplyPrompt)
       const prompt = buildNegotiationReplyPrompt({
         candidateName: devName,
         jobDescription: jobDesc,
-        targetRate: targetRate || '45',
+        targetRate: effectiveTargetRate,
+        maxRate: effectiveMaxRate,
         attempt: attempt || '1',
         candidateMessage: candidateReply,
         style: 'professional',
         faqContent: '', // In testing, no FAQs - simulates fresh negotiation
         conversationContext: `Latest candidate message: "${candidateReply}"`,
-        specialRules: ''
+        specialRules: '',
+        region: regionName
       });
 
       aiResponse = callAI(prompt);

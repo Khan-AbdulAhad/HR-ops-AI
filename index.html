@@ -1416,6 +1416,25 @@
                                 </div>
                             </div>
 
+                            <!-- Country / Region Details -->
+                            <div class="grid grid-cols-2 gap-4 mb-4">
+                                <div>
+                                    <label class="block text-xs font-bold uppercase text-slate-500 mb-1">Developer Country</label>
+                                    <input type="text" id="aiTestDevCountry" class="input-field" placeholder="India, US, Brazil, etc.">
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-bold uppercase text-slate-500 mb-1">
+                                        Job ID <span class="text-slate-400 font-normal">(for rate tiers)</span>
+                                    </label>
+                                    <div class="flex gap-2">
+                                        <input type="text" id="aiTestJobId" class="input-field flex-1" placeholder="51000">
+                                        <button onclick="loadAiTestRateTiers()" class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded-lg text-sm" title="Load rate tiers for this job">
+                                            <i class="fa-solid fa-download"></i>
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+
                             <!-- Job Description -->
                             <div class="mb-4">
                                 <label class="block text-xs font-bold uppercase text-slate-500 mb-1">Job Description / Context</label>
@@ -1425,18 +1444,38 @@
                             <!-- Negotiation-specific fields -->
                             <div id="negotiationFields" class="mb-4 p-4 bg-slate-50 dark:bg-slate-900 rounded-lg border border-slate-200 dark:border-slate-700">
                                 <h5 class="text-sm font-bold text-slate-700 dark:text-slate-300 mb-3">Negotiation Settings</h5>
+
+                                <!-- Rate Tiers Selection -->
+                                <div class="mb-4">
+                                    <label class="block text-xs font-bold uppercase text-slate-500 mb-1">
+                                        Regional Rate Tier
+                                        <span class="text-slate-400 font-normal">(load from Job ID above)</span>
+                                    </label>
+                                    <select id="aiTestRateTier" class="input-field" onchange="applySelectedRateTier()">
+                                        <option value="">-- Manual Entry (no tier selected) --</option>
+                                    </select>
+                                    <div id="aiTestRateTierInfo" class="hidden mt-2 p-2 bg-blue-50 dark:bg-blue-900/30 rounded text-xs text-blue-700 dark:text-blue-300">
+                                        <i class="fa-solid fa-info-circle mr-1"></i>
+                                        <span id="aiTestRateTierInfoText"></span>
+                                    </div>
+                                </div>
+
                                 <div class="grid grid-cols-2 gap-4">
                                     <div>
                                         <label class="block text-xs font-bold uppercase text-slate-500 mb-1">Target Rate ($/hr)</label>
                                         <input type="number" id="aiTestTargetRate" class="input-field" placeholder="45">
                                     </div>
                                     <div>
-                                        <label class="block text-xs font-bold uppercase text-slate-500 mb-1">Attempt #</label>
-                                        <select id="aiTestAttempt" class="input-field">
-                                            <option value="1">1st Attempt (70% of rate)</option>
-                                            <option value="2">2nd Attempt (100% of rate)</option>
-                                        </select>
+                                        <label class="block text-xs font-bold uppercase text-slate-500 mb-1">Max Rate ($/hr)</label>
+                                        <input type="number" id="aiTestMaxRate" class="input-field" placeholder="55">
                                     </div>
+                                </div>
+                                <div class="mt-3">
+                                    <label class="block text-xs font-bold uppercase text-slate-500 mb-1">Attempt #</label>
+                                    <select id="aiTestAttempt" class="input-field">
+                                        <option value="1">1st Attempt (80% of target rate)</option>
+                                        <option value="2">2nd Attempt (100% of target rate)</option>
+                                    </select>
                                 </div>
                             </div>
 
@@ -4276,6 +4315,7 @@
         // AI Testing state
         let aiTestCurrentType = 'negotiation';
         let aiTestHistory = [];
+        let aiTestLoadedRateTiers = []; // Cached rate tiers for current job
 
         // Select test type and show/hide relevant fields
         function selectAiTestType(type) {
@@ -4293,17 +4333,98 @@
             document.getElementById('dataGatheringFields').classList.toggle('hidden', type !== 'datagathering');
         }
 
+        // Load rate tiers for a job
+        function loadAiTestRateTiers() {
+            const jobId = document.getElementById('aiTestJobId').value.trim();
+            if (!jobId) {
+                showToast('Please enter a Job ID first', 'warning');
+                return;
+            }
+
+            showToast('Loading rate tiers...', 'info');
+
+            google.script.run
+                .withSuccessHandler(tiers => {
+                    aiTestLoadedRateTiers = tiers || [];
+                    const select = document.getElementById('aiTestRateTier');
+
+                    // Clear existing options except first
+                    select.innerHTML = '<option value="">-- Manual Entry (no tier selected) --</option>';
+
+                    if (tiers && tiers.length > 0) {
+                        tiers.forEach((tier, idx) => {
+                            const option = document.createElement('option');
+                            option.value = idx;
+                            option.textContent = `${tier.region}: $${tier.targetRate}/hr (max: $${tier.maxRate}/hr)`;
+                            select.appendChild(option);
+                        });
+                        showToast(`Loaded ${tiers.length} rate tier(s) for Job ${jobId}`, 'success');
+                    } else {
+                        showToast('No rate tiers found for this job', 'warning');
+                    }
+                })
+                .withFailureHandler(err => {
+                    showToast('Failed to load rate tiers: ' + err.message, 'error');
+                })
+                .getRateTiersForJob(jobId);
+        }
+
+        // Apply selected rate tier to input fields
+        function applySelectedRateTier() {
+            const select = document.getElementById('aiTestRateTier');
+            const infoDiv = document.getElementById('aiTestRateTierInfo');
+            const infoText = document.getElementById('aiTestRateTierInfoText');
+
+            if (select.value === '') {
+                infoDiv.classList.add('hidden');
+                return;
+            }
+
+            const idx = parseInt(select.value);
+            const tier = aiTestLoadedRateTiers[idx];
+
+            if (tier) {
+                document.getElementById('aiTestTargetRate').value = tier.targetRate;
+                document.getElementById('aiTestMaxRate').value = tier.maxRate;
+
+                // Show tier info
+                infoDiv.classList.remove('hidden');
+                let infoHtml = `<strong>${tier.region}</strong>: Target $${tier.targetRate}/hr, Max $${tier.maxRate}/hr`;
+                if (tier.notes) {
+                    infoHtml += ` — ${tier.notes}`;
+                }
+                infoText.innerHTML = infoHtml;
+
+                // Auto-fill country if it matches region
+                const country = document.getElementById('aiTestDevCountry');
+                if (!country.value) {
+                    country.value = tier.region;
+                }
+
+                showToast(`Applied ${tier.region} rates`, 'success');
+            }
+        }
+
         // Start a new test session
         function startNewAiTestSession() {
             // Clear inputs
             document.getElementById('aiTestDevName').value = '';
             document.getElementById('aiTestDevEmail').value = '';
+            document.getElementById('aiTestDevCountry').value = '';
+            document.getElementById('aiTestJobId').value = '';
             document.getElementById('aiTestJobDesc').value = '';
             document.getElementById('aiTestTargetRate').value = '';
+            document.getElementById('aiTestMaxRate').value = '';
             document.getElementById('aiTestAttempt').value = '1';
             document.getElementById('aiTestFollowUpNum').value = '1';
             document.getElementById('aiTestPendingQuestions').value = '';
             document.getElementById('aiTestCandidateReply').value = '';
+
+            // Clear rate tier selection
+            const rateTierSelect = document.getElementById('aiTestRateTier');
+            rateTierSelect.innerHTML = '<option value="">-- Manual Entry (no tier selected) --</option>';
+            document.getElementById('aiTestRateTierInfo').classList.add('hidden');
+            aiTestLoadedRateTiers = [];
 
             // Reset type to negotiation
             selectAiTestType('negotiation');
@@ -4323,6 +4444,8 @@
         function runAiTest() {
             const devName = document.getElementById('aiTestDevName').value.trim();
             const devEmail = document.getElementById('aiTestDevEmail').value.trim();
+            const devCountry = document.getElementById('aiTestDevCountry').value.trim();
+            const jobId = document.getElementById('aiTestJobId').value.trim();
             const jobDesc = document.getElementById('aiTestJobDesc').value.trim();
             const candidateReply = document.getElementById('aiTestCandidateReply').value.trim();
 
@@ -4341,13 +4464,22 @@
                 type: aiTestCurrentType,
                 devName: devName,
                 devEmail: devEmail || 'test@example.com',
+                devCountry: devCountry || '',
+                jobId: jobId || '',
                 jobDesc: jobDesc || 'General software development position',
                 candidateReply: candidateReply
             };
 
             if (aiTestCurrentType === 'negotiation') {
                 testData.targetRate = document.getElementById('aiTestTargetRate').value || '45';
+                testData.maxRate = document.getElementById('aiTestMaxRate').value || '';
                 testData.attempt = document.getElementById('aiTestAttempt').value || '1';
+
+                // Include selected rate tier info if any
+                const rateTierSelect = document.getElementById('aiTestRateTier');
+                if (rateTierSelect.value !== '' && aiTestLoadedRateTiers[parseInt(rateTierSelect.value)]) {
+                    testData.rateTier = aiTestLoadedRateTiers[parseInt(rateTierSelect.value)];
+                }
             } else if (aiTestCurrentType === 'followup') {
                 testData.followUpNumber = document.getElementById('aiTestFollowUpNum').value || '1';
             } else if (aiTestCurrentType === 'datagathering') {
