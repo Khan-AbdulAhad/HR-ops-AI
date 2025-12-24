@@ -408,6 +408,10 @@ function ensureSheetsExist(ss) {
   const faqSheet = ss.getSheetByName('Negotiation_FAQs');
   if (faqSheet.getLastRow() === 0) faqSheet.appendRow(['Question', 'Answer']);
 
+  // Email_Logs sheet - track all sent emails with country/region for AI reference
+  const emailLogsSheet = ss.getSheetByName('Email_Logs');
+  if (emailLogsSheet.getLastRow() === 0) emailLogsSheet.appendRow(['Timestamp', 'Job ID', 'Email', 'Name', 'Thread ID', 'Type', 'Country']);
+
   const compSheet = ss.getSheetByName('Negotiation_Completed');
   if (compSheet.getLastRow() === 0) compSheet.appendRow(['Timestamp', 'Job ID', 'Email', 'Name', 'Final Status', 'Notes', 'Dev ID', 'Region']);
 
@@ -2682,11 +2686,11 @@ function sendBulkEmails(recipients, senderName, subject, htmlBody, jobId, opts) 
         Gmail.Users.Threads.modify({ addLabelIds: [labelId] }, 'me', threadId);
       }
 
-      // Log the email
-      logSheet.appendRow([new Date(), jobId, r.email, r.name, threadId, "Initial"]);
-
       // Add to state with thread ID and Region (column 11)
       const region = r.region || '';
+
+      // Log the email with country/region data
+      logSheet.appendRow([new Date(), jobId, r.email, r.name, threadId, "Initial", region]);
       stateSheet.appendRow([r.email, jobId, 0, "Initial Sent", "Initial Outreach", new Date(), r.devId || "N/A", r.name, "", threadId, region]);
       existingEmails.add(emailKey);
 
@@ -3105,8 +3109,8 @@ function processJobNegotiations(jobId, rules, ss, faqContent) {
         dataStatus = 'Pending Escalation';
       }
 
-      // Save to job-specific details sheet
-      const saveResult = saveJobCandidateDetails(ss, jobId, candidateEmail, candidateName, devId, thread.getId(), answers, dataStatus);
+      // Save to job-specific details sheet (include region for AI rate tier consideration)
+      const saveResult = saveJobCandidateDetails(ss, jobId, candidateEmail, candidateName, devId, thread.getId(), answers, dataStatus, candidateRegion);
       if(saveResult.success) {
         jobStats.detailsExtracted++;
         jobStats.log.push({type: 'info', message: `${candidateEmail} - Details extracted: ${answers.is_negotiating ? 'Negotiating' : 'Provided'} (${saveResult.answeredCount}/${saveResult.totalQuestions} answered)`});
@@ -3733,9 +3737,10 @@ Write ONLY the email, nothing else.
           stateSheet.getRange(stateRowIndex, 6).setValue(new Date());
           stateSheet.getRange(stateRowIndex, 9).setValue(comprehensiveSummary);
         } else {
-          stateSheet.appendRow([cleanCandidateEmail, jobId, newAttemptCount, "Counter Offer", "Active", new Date(), devId, candidateName, comprehensiveSummary, thread.getId()]);
+          // Include region (column 11) when appending new state row
+          stateSheet.appendRow([cleanCandidateEmail, jobId, newAttemptCount, "Counter Offer", "Active", new Date(), devId, candidateName, comprehensiveSummary, thread.getId(), candidateRegion]);
         }
-        
+
         // Remove Awaiting-Response label since we've now engaged with the candidate
         updateFollowUpLabels(thread.getId(), 'responded');
 
@@ -3898,7 +3903,8 @@ Write ONLY the email, nothing else.
         stateSheet.getRange(stateRowIndex, 6).setValue(new Date());
         stateSheet.getRange(stateRowIndex, 9).setValue(comprehensiveSummary);
       } else {
-        stateSheet.appendRow([cleanCandidateEmail, jobId, newAttemptCount, "Counter Offer", "Active", new Date(), devId, candidateName, comprehensiveSummary, thread.getId()]);
+        // Include region (column 11) when appending new state row
+        stateSheet.appendRow([cleanCandidateEmail, jobId, newAttemptCount, "Counter Offer", "Active", new Date(), devId, candidateName, comprehensiveSummary, thread.getId(), candidateRegion]);
       }
 
       // Remove Awaiting-Response label since we've now engaged with the candidate
@@ -4984,13 +4990,26 @@ ${EMAIL_SIGNATURE}
         // Use the custom sender reply function
         sendReplyWithSenderName(thread, emailBody, EMAIL_SENDER_NAME);
 
-        // Log the follow-up
+        // Log the follow-up with region data from state
         const url = getStoredSheetUrl();
         if(url) {
           const ss = SpreadsheetApp.openByUrl(url);
           const logSheet = ss.getSheetByName('Email_Logs');
           if(logSheet) {
-            logSheet.appendRow([new Date(), jobId, email, name, threadId, `Follow-up ${followUpNumber}`]);
+            // Get region from Negotiation_State for this candidate
+            let region = '';
+            const stateSheet = ss.getSheetByName('Negotiation_State');
+            if(stateSheet) {
+              const stateData = stateSheet.getDataRange().getValues();
+              const cleanEmail = String(email).toLowerCase();
+              for(let i = 1; i < stateData.length; i++) {
+                if(String(stateData[i][0]).toLowerCase() === cleanEmail && String(stateData[i][1]) === String(jobId)) {
+                  region = stateData[i][10] || ''; // Column 11 (index 10) = Region
+                  break;
+                }
+              }
+            }
+            logSheet.appendRow([new Date(), jobId, email, name, threadId, `Follow-up ${followUpNumber}`, region]);
           }
         }
 
