@@ -707,7 +707,14 @@
                     <!-- Status Filter Section (Hidden until data loaded) -->
                     <div id="statusFilterContainer" class="hidden mb-6 bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm">
                         <div class="flex items-center justify-between mb-3">
-                            <span class="text-xs font-bold uppercase text-slate-500">Quick Filters</span>
+                            <div class="flex items-center gap-4">
+                                <span class="text-xs font-bold uppercase text-slate-500">Quick Filters</span>
+                                <div class="flex items-center gap-2 text-xs text-slate-400">
+                                    <span class="inline-flex items-center gap-1"><span class="inline-flex items-center justify-center w-5 h-5 rounded-full text-[9px] font-bold bg-purple-100 text-purple-700 border border-purple-200">N</span> Negotiation</span>
+                                    <span class="inline-flex items-center gap-1"><span class="inline-flex items-center justify-center w-5 h-5 rounded-full text-[9px] font-bold bg-amber-100 text-amber-700 border border-amber-200">F</span> Follow-up</span>
+                                    <span class="inline-flex items-center gap-1"><span class="inline-flex items-center justify-center w-5 h-5 rounded-full text-[9px] font-bold bg-blue-100 text-blue-700 border border-blue-200">D</span> Data Gathering</span>
+                                </div>
+                            </div>
                             <span id="selectAllCount" class="text-xs text-blue-600 font-medium bg-blue-50 px-2 py-1 rounded hidden">(0) selected</span>
                         </div>
                         <div id="statusButtons" class="flex flex-wrap gap-2.5">
@@ -979,7 +986,14 @@
 
                     <!-- Action Bar -->
                     <div class="flex flex-wrap justify-between items-center gap-4 mb-6">
-                        <h3 class="text-lg font-bold text-slate-800">Active Negotiations</h3>
+                        <div class="flex items-center gap-4">
+                            <h3 class="text-lg font-bold text-slate-800">Active Negotiations</h3>
+                            <div class="flex items-center gap-2 text-xs text-slate-500">
+                                <span class="inline-flex items-center gap-1"><span class="inline-flex items-center justify-center w-5 h-5 rounded-full text-[9px] font-bold bg-purple-100 text-purple-700 border border-purple-200">N</span> Negotiation</span>
+                                <span class="inline-flex items-center gap-1"><span class="inline-flex items-center justify-center w-5 h-5 rounded-full text-[9px] font-bold bg-amber-100 text-amber-700 border border-amber-200">F</span> Follow-up</span>
+                                <span class="inline-flex items-center gap-1"><span class="inline-flex items-center justify-center w-5 h-5 rounded-full text-[9px] font-bold bg-blue-100 text-blue-700 border border-blue-200">D</span> Data Gathering</span>
+                            </div>
+                        </div>
                         <div class="flex gap-2">
                             <select id="taskJobFilter" onchange="filterTasks()" class="input-field py-2 w-auto"><option value="all">All Jobs</option></select>
                             <select id="taskStatusFilter" onchange="filterTasks()" class="input-field py-2 w-auto">
@@ -1074,8 +1088,14 @@
                     </div>
 
                     <!-- Action Bar -->
-                    <div class="flex justify-between items-center mb-6">
-                        <h3 class="text-lg font-bold text-slate-800">Automated Follow-Up Queue</h3>
+                    <div class="flex flex-wrap justify-between items-center gap-4 mb-6">
+                        <div class="flex items-center gap-4">
+                            <h3 class="text-lg font-bold text-slate-800">Automated Follow-Up Queue</h3>
+                            <div class="flex items-center gap-2 text-xs text-slate-500">
+                                <span class="inline-flex items-center gap-1"><span class="inline-flex items-center justify-center w-5 h-5 rounded-full text-[9px] font-bold bg-amber-100 text-amber-700 border border-amber-200">F</span> Follow-up</span>
+                                <span class="inline-flex items-center gap-1"><span class="inline-flex items-center justify-center w-5 h-5 rounded-full text-[9px] font-bold bg-blue-100 text-blue-700 border border-blue-200">D</span> Data Gathering</span>
+                            </div>
+                        </div>
                         <div class="flex gap-2">
                             <select id="followUpJobFilter" onchange="loadFollowUpData()" class="input-field w-auto"><option value="all">All Jobs</option></select>
                             <select id="followUpStatusFilter" onchange="loadFollowUpData()" class="input-field w-auto">
@@ -1949,6 +1969,48 @@
             }
         }
 
+        // --- Status Badge Helper (N=Negotiation, F=Follow-up, D=Data Gathering) ---
+        function getStatusBadges(tags, status, type, isFollowUp = false) {
+            let badges = [];
+
+            if (isFollowUp) {
+                // Follow-up items always get F badge
+                badges.push('<span class="inline-flex items-center justify-center w-6 h-6 rounded-full text-[10px] font-bold bg-amber-100 text-amber-700 border border-amber-200" title="Follow-up">F</span>');
+                // If still pending, also gathering data
+                if (status === 'Pending') {
+                    badges.push('<span class="inline-flex items-center justify-center w-6 h-6 rounded-full text-[10px] font-bold bg-blue-100 text-blue-700 border border-blue-200" title="Data Gathering">D</span>');
+                }
+            } else {
+                // Task items
+                const tagsLower = (tags || '').toLowerCase();
+                const statusLower = (status || '').toLowerCase();
+                const typeLower = (type || '').toLowerCase();
+
+                // Data Gathering: Initial outreach or gathering info
+                if (tagsLower.includes('initial') || tagsLower.includes('outreach')) {
+                    badges.push('<span class="inline-flex items-center justify-center w-6 h-6 rounded-full text-[10px] font-bold bg-blue-100 text-blue-700 border border-blue-200" title="Data Gathering">D</span>');
+                }
+
+                // Negotiation: AI attempts or human negotiation or actively negotiating
+                if (tagsLower.includes('attempt') || tagsLower.includes('negotiat') ||
+                    statusLower.includes('negotiat') || typeLower === 'negotiating') {
+                    badges.push('<span class="inline-flex items-center justify-center w-6 h-6 rounded-full text-[10px] font-bold bg-purple-100 text-purple-700 border border-purple-200" title="Negotiation">N</span>');
+                }
+
+                // Follow-up: If it's a follow-up type task
+                if (tagsLower.includes('follow') || statusLower.includes('follow')) {
+                    badges.push('<span class="inline-flex items-center justify-center w-6 h-6 rounded-full text-[10px] font-bold bg-amber-100 text-amber-700 border border-amber-200" title="Follow-up">F</span>');
+                }
+
+                // If accepted, show a checkmark badge
+                if (statusLower.includes('accepted') || tagsLower.includes('completed')) {
+                    badges.push('<span class="inline-flex items-center justify-center w-6 h-6 rounded-full text-[10px] font-bold bg-green-100 text-green-700 border border-green-200" title="Completed"><i class="fa-solid fa-check text-[8px]"></i></span>');
+                }
+            }
+
+            return badges.length > 0 ? '<div class="flex gap-1">' + badges.join('') + '</div>' : '';
+        }
+
         // --- Toast ---
         function showToast(message, type = 'info', duration = 4000) {
             const container = document.getElementById('toastContainer');
@@ -2584,6 +2646,20 @@
                     historyBadge = `<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-bold bg-emerald-100 text-emerald-700 border border-emerald-200"><i class="fa-solid fa-sparkles text-[10px]"></i> New</span>`;
                 }
 
+                // Status initials badges (N/F/D) for candidates
+                let candidateInitialBadges = [];
+                if (!d.is_sent && !d.is_manual_sent) {
+                    // New candidates - Data Gathering phase
+                    candidateInitialBadges.push('<span class="inline-flex items-center justify-center w-6 h-6 rounded-full text-[10px] font-bold bg-blue-100 text-blue-700 border border-blue-200" title="Data Gathering">D</span>');
+                } else {
+                    // Sent candidates - Follow-up & potentially Negotiation
+                    candidateInitialBadges.push('<span class="inline-flex items-center justify-center w-6 h-6 rounded-full text-[10px] font-bold bg-amber-100 text-amber-700 border border-amber-200" title="Follow-up">F</span>');
+                    if (d.is_sent && !d.is_manual_sent) {
+                        candidateInitialBadges.push('<span class="inline-flex items-center justify-center w-6 h-6 rounded-full text-[10px] font-bold bg-purple-100 text-purple-700 border border-purple-200" title="Negotiation">N</span>');
+                    }
+                }
+                const candidateStatusBadges = candidateInitialBadges.length > 0 ? '<div class="flex gap-1">' + candidateInitialBadges.join('') + '</div>' : '';
+
                 // Row class for sent status
                 if (d.is_manual_sent) {
                     tr.classList.add('manual-sent-row');
@@ -2601,7 +2677,12 @@
                 tr.innerHTML = `
                     <td class="px-6 py-4 text-center"><input type="checkbox" class="row-checkbox rounded" value="${d.developer_id}" ${isChecked} onchange="toggleRowCheckbox('${d.developer_id}')"></td>
                     <td class="px-6 py-4 font-mono text-xs text-slate-500">${d.developer_id}</td>
-                    <td class="px-6 py-4 font-bold text-slate-800 dark:text-slate-200">${d.full_name}</td>
+                    <td class="px-6 py-4">
+                        <div class="flex items-center gap-2">
+                            <span class="font-bold text-slate-800 dark:text-slate-200">${d.full_name}</span>
+                            ${candidateStatusBadges}
+                        </div>
+                    </td>
                     <td class="px-6 py-4 text-slate-500 dark:text-slate-400">${d.email}</td>
                     <td class="px-6 py-4 text-xs text-slate-600 dark:text-slate-400">${d.developer_country || '-'}</td>
                     <td class="px-6 py-4 text-xs text-slate-500 dark:text-slate-400 font-mono">${phoneDisplay}</td>
@@ -2750,13 +2831,21 @@
                         if(t.tags.includes('Human')) badgeClass = 'bg-amber-100 text-amber-700';
                         else if(t.status === 'Offer Accepted') badgeClass = 'bg-green-100 text-green-700';
 
+                        // Status initials badges (N/F/D)
+                        const statusBadges = getStatusBadges(t.tags, t.status, t.type, false);
+
                         const isChecked = selectedTasks.has(t.email) ? 'checked' : '';
                         if(selectedTasks.has(t.email)) tr.classList.add('selected');
 
                         tr.innerHTML = `
                             <td class="px-6 py-4 text-center"><input type="checkbox" class="task-check rounded" onchange="toggleTaskSelection('${t.email}')" ${isChecked}></td>
                             <td class="px-6 py-4 font-mono text-xs">${t.jobId}</td>
-                            <td class="px-6 py-4 font-bold text-slate-800">${t.name}</td>
+                            <td class="px-6 py-4">
+                                <div class="flex items-center gap-2">
+                                    <span class="font-bold text-slate-800">${t.name}</span>
+                                    ${statusBadges}
+                                </div>
+                            </td>
                             <td class="px-6 py-4"><span class="px-2 py-1 rounded text-xs font-bold ${badgeClass}">${t.tags}</span></td>
                             <td class="px-6 py-4 text-xs text-slate-500 max-w-sm cursor-pointer hover:text-blue-600" onclick="showNotes(\`${encodeURIComponent(t.aiNotes)}\`)">
                                 ${t.aiNotes && t.aiNotes.length > 0 ?
@@ -2889,9 +2978,17 @@
                             statusBadge = `<span class="px-2 py-1 rounded text-xs font-bold bg-blue-100 text-blue-700">${status}</span>`;
                         }
 
+                        // Status initials badges (N/F/D) for follow-ups
+                        const initialBadges = getStatusBadges('', status, '', true);
+
                         tr.innerHTML = `
                             <td class="px-6 py-4 font-mono text-xs">${item.jobId}</td>
-                            <td class="px-6 py-4 font-bold">${item.name}</td>
+                            <td class="px-6 py-4">
+                                <div class="flex items-center gap-2">
+                                    <span class="font-bold">${item.name}</span>
+                                    ${initialBadges}
+                                </div>
+                            </td>
                             <td class="px-6 py-4 text-slate-500">${item.email}</td>
                             <td class="px-6 py-4">${statusBadge}</td>
                             <td class="px-6 py-4 text-sm text-slate-600">${formatDateTime(item.lastReachedOut)}</td>
