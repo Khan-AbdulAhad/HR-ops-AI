@@ -6029,12 +6029,28 @@ function logAnalytics(action, jobId, count, details) {
 
 /**
  * Check if current user has access to analytics dashboard
- * @returns {Object} { hasAccess: boolean, accessLevel: string, userEmail: string }
+ * Role-based access control (RBAC):
+ * - admin: Full operational access + All analytics + Manage users
+ * - tl: Full operational access + All analytics (no user management)
+ * - tm/ta/manager: Analytics only (all data) + No operational access
+ * - other: Full operational access + Own analytics only
+ *
+ * @returns {Object} { hasAccess: boolean, accessLevel: string, userEmail: string,
+ *                     hasOperationalAccess: boolean, canViewAllAnalytics: boolean,
+ *                     canManageUsers: boolean, isNewUser: boolean }
  */
 function checkAnalyticsAccess() {
   try {
     const userEmail = Session.getActiveUser().getEmail();
-    if (!userEmail) return { hasAccess: false, accessLevel: 'none', userEmail: '' };
+    if (!userEmail) return {
+      hasAccess: false,
+      accessLevel: 'none',
+      userEmail: '',
+      hasOperationalAccess: false,
+      canViewAllAnalytics: false,
+      canManageUsers: false,
+      isNewUser: false
+    };
 
     // Default admins who always have full admin access
     const defaultAdmins = [
@@ -6063,37 +6079,229 @@ function checkAnalyticsAccess() {
       } catch (sheetError) {
         console.log("Could not update viewers sheet for admin:", sheetError);
       }
-      return { hasAccess: true, accessLevel: 'admin', userEmail: userEmail };
+      return {
+        hasAccess: true,
+        accessLevel: 'admin',
+        userEmail: userEmail,
+        hasOperationalAccess: true,
+        canViewAllAnalytics: true,
+        canManageUsers: true,
+        isNewUser: false
+      };
     }
 
     // For non-default-admins, check the spreadsheet
     const ss = getAnalyticsSpreadsheet();
     if (!ss) {
-      return { hasAccess: false, accessLevel: 'none', userEmail: userEmail };
+      // Log new user and return as 'other' with operational access
+      logNewUserAccess(userEmail);
+      return {
+        hasAccess: true,
+        accessLevel: 'other',
+        userEmail: userEmail,
+        hasOperationalAccess: true,
+        canViewAllAnalytics: false,
+        canManageUsers: false,
+        isNewUser: true
+      };
     }
 
-    const sheet = ss.getSheetByName('Analytics_Viewers');
+    let sheet = ss.getSheetByName('Analytics_Viewers');
     if (!sheet) {
-      // If no viewers sheet, initialize it but don't grant access to non-admins
+      // If no viewers sheet, initialize it
       initAnalyticsSheet();
-      return { hasAccess: false, accessLevel: 'none', userEmail: userEmail };
+      sheet = ss.getSheetByName('Analytics_Viewers');
     }
 
     const data = sheet.getDataRange().getValues();
     for (let i = 1; i < data.length; i++) {
       if (String(data[i][0]).toLowerCase() === userEmail.toLowerCase()) {
-        return {
-          hasAccess: true,
-          accessLevel: String(data[i][3] || 'viewer'),
-          userEmail: userEmail
-        };
+        const role = String(data[i][3] || 'other').toLowerCase();
+        return buildAccessResponse(role, userEmail, false);
       }
     }
 
-    return { hasAccess: false, accessLevel: 'none', userEmail: userEmail };
+    // User not in sheet - they are a new user with 'other' role (default)
+    // Log new user for admin notification
+    logNewUserAccess(userEmail);
+    return {
+      hasAccess: true,
+      accessLevel: 'other',
+      userEmail: userEmail,
+      hasOperationalAccess: true,
+      canViewAllAnalytics: false,
+      canManageUsers: false,
+      isNewUser: true
+    };
   } catch (e) {
     console.error("Error checking analytics access:", e);
-    return { hasAccess: false, accessLevel: 'none', userEmail: '' };
+    return {
+      hasAccess: false,
+      accessLevel: 'none',
+      userEmail: '',
+      hasOperationalAccess: false,
+      canViewAllAnalytics: false,
+      canManageUsers: false,
+      isNewUser: false
+    };
+  }
+}
+
+/**
+ * Build access response based on role
+ * @param {string} role - User role (admin, tl, tm, ta, manager, other)
+ * @param {string} userEmail - User's email
+ * @param {boolean} isNewUser - Whether this is a new user
+ * @returns {Object} Access response object
+ */
+function buildAccessResponse(role, userEmail, isNewUser) {
+  const normalizedRole = role.toLowerCase();
+
+  // Define permissions per role
+  const rolePermissions = {
+    'admin': {
+      hasOperationalAccess: true,
+      canViewAllAnalytics: true,
+      canManageUsers: true
+    },
+    'tl': {
+      hasOperationalAccess: true,
+      canViewAllAnalytics: true,
+      canManageUsers: false
+    },
+    'tm': {
+      hasOperationalAccess: false,
+      canViewAllAnalytics: true,
+      canManageUsers: false
+    },
+    'ta': {
+      hasOperationalAccess: false,
+      canViewAllAnalytics: true,
+      canManageUsers: false
+    },
+    'manager': {
+      hasOperationalAccess: false,
+      canViewAllAnalytics: true,
+      canManageUsers: false
+    },
+    'other': {
+      hasOperationalAccess: true,
+      canViewAllAnalytics: false,
+      canManageUsers: false
+    }
+  };
+
+  // Get permissions for role, default to 'other' if unknown
+  const perms = rolePermissions[normalizedRole] || rolePermissions['other'];
+
+  return {
+    hasAccess: true,
+    accessLevel: normalizedRole,
+    userEmail: userEmail,
+    hasOperationalAccess: perms.hasOperationalAccess,
+    canViewAllAnalytics: perms.canViewAllAnalytics,
+    canManageUsers: perms.canManageUsers,
+    isNewUser: isNewUser
+  };
+}
+
+/**
+ * Log a new user's first access for admin notification
+ * @param {string} userEmail - Email of the new user
+ */
+function logNewUserAccess(userEmail) {
+  try {
+    const ss = getAnalyticsSpreadsheet();
+    if (!ss) return;
+
+    // Get or create New_Users sheet
+    let sheet = ss.getSheetByName('New_Users');
+    if (!sheet) {
+      sheet = ss.insertSheet('New_Users');
+      sheet.appendRow(['Email', 'First Seen', 'Reviewed', 'Reviewed By', 'Reviewed Date']);
+      sheet.getRange(1, 1, 1, 5).setFontWeight('bold');
+    }
+
+    // Check if user is already logged
+    const data = sheet.getDataRange().getValues();
+    const exists = data.some((row, i) => i > 0 && String(row[0]).toLowerCase() === userEmail.toLowerCase());
+
+    if (!exists) {
+      sheet.appendRow([userEmail.toLowerCase(), new Date(), 'No', '', '']);
+    }
+  } catch (e) {
+    console.error("Error logging new user access:", e);
+  }
+}
+
+/**
+ * Get list of new users that haven't been reviewed by admin
+ * @returns {Array} List of new users
+ */
+function getNewUsers() {
+  const access = checkAnalyticsAccess();
+  if (!access.canManageUsers) {
+    return [];
+  }
+
+  try {
+    const ss = getAnalyticsSpreadsheet();
+    if (!ss) return [];
+
+    const sheet = ss.getSheetByName('New_Users');
+    if (!sheet || sheet.getLastRow() <= 1) return [];
+
+    const data = sheet.getDataRange().getValues();
+    const newUsers = [];
+
+    for (let i = 1; i < data.length; i++) {
+      if (String(data[i][2]).toLowerCase() !== 'yes') {
+        newUsers.push({
+          email: String(data[i][0]),
+          firstSeen: data[i][1] ? new Date(data[i][1]).toISOString() : null
+        });
+      }
+    }
+
+    return newUsers;
+  } catch (e) {
+    console.error("Error getting new users:", e);
+    return [];
+  }
+}
+
+/**
+ * Mark a new user as reviewed (used when admin assigns a role or dismisses)
+ * @param {string} email - Email of the user to mark as reviewed
+ * @returns {Object} Result of the operation
+ */
+function markUserReviewed(email) {
+  const access = checkAnalyticsAccess();
+  if (!access.canManageUsers) {
+    return { success: false, error: "Only admins can review users" };
+  }
+
+  try {
+    const ss = getAnalyticsSpreadsheet();
+    if (!ss) return { success: false, error: "Cannot access analytics sheet" };
+
+    const sheet = ss.getSheetByName('New_Users');
+    if (!sheet) return { success: false, error: "New_Users sheet not found" };
+
+    const data = sheet.getDataRange().getValues();
+    for (let i = 1; i < data.length; i++) {
+      if (String(data[i][0]).toLowerCase() === email.toLowerCase()) {
+        sheet.getRange(i + 1, 3).setValue('Yes');
+        sheet.getRange(i + 1, 4).setValue(access.userEmail);
+        sheet.getRange(i + 1, 5).setValue(new Date());
+        return { success: true };
+      }
+    }
+
+    return { success: false, error: "User not found" };
+  } catch (e) {
+    console.error("Error marking user reviewed:", e);
+    return { success: false, error: e.message };
   }
 }
 
@@ -6108,9 +6316,9 @@ function searchAnalyticsUsers(searchQuery) {
     return [];
   }
 
-  // NON-ADMIN RESTRICTION: Non-admin users can only search for their own email
-  const isAdmin = access.accessLevel === 'admin';
-  if (!isAdmin) {
+  // Users who can view all analytics can search all emails
+  // Others can only search for their own email
+  if (!access.canViewAllAnalytics) {
     // Only return user's own email if it matches the search query
     const query = String(searchQuery || '').toLowerCase().trim();
     const userEmail = access.userEmail.toLowerCase();
@@ -6158,8 +6366,9 @@ function searchAnalyticsJobIds(searchQuery) {
     return [];
   }
 
-  // NON-ADMIN RESTRICTION: Non-admin users can only search job IDs from their own activity
-  const isAdmin = access.accessLevel === 'admin';
+  // Users who can view all analytics can search all job IDs
+  // Others can only search job IDs from their own activity
+  const canViewAll = access.canViewAllAnalytics;
 
   try {
     const ss = getAnalyticsSpreadsheet();
@@ -6177,8 +6386,8 @@ function searchAnalyticsJobIds(searchQuery) {
       const rowUserEmail = String(data[i][1] || '').toLowerCase();
       const jobId = String(data[i][3] || '').trim();
 
-      // Non-admins can only see job IDs from their own activity
-      if (!isAdmin && rowUserEmail !== access.userEmail.toLowerCase()) {
+      // Users without all-analytics access can only see job IDs from their own activity
+      if (!canViewAll && rowUserEmail !== access.userEmail.toLowerCase()) {
         continue;
       }
 
@@ -6206,24 +6415,42 @@ function searchAnalyticsJobIds(searchQuery) {
 /**
  * Get all unique emails and job IDs for client-side caching
  * This enables instant search without backend round-trips
- * @returns {Object} Object containing arrays of all unique emails and job IDs
+ * @returns {Object} Object containing arrays of all unique emails and job IDs, plus role info
  */
 function getAnalyticsSearchCache() {
   const access = checkAnalyticsAccess();
+
+  // Base response with role information
+  const baseResponse = {
+    emails: [],
+    jobIds: [],
+    isAdmin: access.canManageUsers,
+    canViewAllAnalytics: access.canViewAllAnalytics,
+    hasOperationalAccess: access.hasOperationalAccess,
+    accessLevel: access.accessLevel,
+    userEmail: access.userEmail
+  };
+
   if (!access.hasAccess) {
-    return { emails: [], jobIds: [], isAdmin: false };
+    return baseResponse;
   }
 
-  // NON-ADMIN RESTRICTION: Non-admin users can only see their own email and job IDs
-  const isAdmin = access.accessLevel === 'admin';
-  if (!isAdmin) {
+  // RBAC: Users without canViewAllAnalytics can only see their own email and job IDs
+  const canViewAll = access.canViewAllAnalytics;
+  if (!canViewAll) {
     // Return only the user's own email and their job IDs
     try {
       const ss = getAnalyticsSpreadsheet();
-      if (!ss) return { emails: [access.userEmail.toLowerCase()], jobIds: [], isAdmin: false };
+      if (!ss) {
+        baseResponse.emails = [access.userEmail.toLowerCase()];
+        return baseResponse;
+      }
 
       const sheet = ss.getSheetByName('Activity_Log');
-      if (!sheet || sheet.getLastRow() <= 1) return { emails: [access.userEmail.toLowerCase()], jobIds: [], isAdmin: false };
+      if (!sheet || sheet.getLastRow() <= 1) {
+        baseResponse.emails = [access.userEmail.toLowerCase()];
+        return baseResponse;
+      }
 
       const data = sheet.getDataRange().getValues();
       const uniqueJobIds = new Set();
@@ -6245,19 +6472,22 @@ function getAnalyticsSearchCache() {
         return a.localeCompare(b);
       });
 
-      return { emails: [access.userEmail.toLowerCase()], jobIds: sortedJobIds, isAdmin: false };
+      baseResponse.emails = [access.userEmail.toLowerCase()];
+      baseResponse.jobIds = sortedJobIds;
+      return baseResponse;
     } catch (e) {
       console.error("Error getting non-admin search cache:", e);
-      return { emails: [access.userEmail.toLowerCase()], jobIds: [], isAdmin: false };
+      baseResponse.emails = [access.userEmail.toLowerCase()];
+      return baseResponse;
     }
   }
 
   try {
     const ss = getAnalyticsSpreadsheet();
-    if (!ss) return { emails: [], jobIds: [], isAdmin: true };
+    if (!ss) return baseResponse;
 
     const sheet = ss.getSheetByName('Activity_Log');
-    if (!sheet || sheet.getLastRow() <= 1) return { emails: [], jobIds: [], isAdmin: true };
+    if (!sheet || sheet.getLastRow() <= 1) return baseResponse;
 
     const data = sheet.getDataRange().getValues();
     const uniqueEmails = new Set();
@@ -6289,10 +6519,12 @@ function getAnalyticsSearchCache() {
       return a.localeCompare(b);
     });
 
-    return { emails: sortedEmails, jobIds: sortedJobIds, isAdmin: true };
+    baseResponse.emails = sortedEmails;
+    baseResponse.jobIds = sortedJobIds;
+    return baseResponse;
   } catch (e) {
     console.error("Error getting analytics search cache:", e);
-    return { emails: [], jobIds: [], isAdmin: true };
+    return baseResponse;
   }
 }
 
@@ -6326,10 +6558,10 @@ function getUserAnalytics(filterEmail, filterJobId, startDate, endDate) {
     endDateFilter.setHours(23, 59, 59, 999);
   }
 
-  // NON-ADMIN RESTRICTION: Non-admin users can only see their own analytics
+  // RBAC: Users without canViewAllAnalytics can only see their own analytics
   // Force email filter to their own email regardless of what was passed
-  const isAdmin = access.accessLevel === 'admin';
-  if (!isAdmin) {
+  const canViewAll = access.canViewAllAnalytics;
+  if (!canViewAll) {
     emailFilter = access.userEmail.toLowerCase();
   }
 
@@ -6348,7 +6580,9 @@ function getUserAnalytics(filterEmail, filterJobId, startDate, endDate) {
       actionsByType: {},
       actionsByJob: {},
       accessLevel: access.accessLevel,
-      isAdmin: isAdmin,
+      isAdmin: access.canManageUsers,
+      canViewAllAnalytics: canViewAll,
+      hasOperationalAccess: access.hasOperationalAccess,
       currentUser: access.userEmail,
       filterApplied: emailFilter || null,
       jobFilterApplied: jobIdFilter || null,
@@ -6507,9 +6741,9 @@ function getDetailedEmailStats(filterEmail, filterJobId, startDate, endDate) {
     endDateFilter.setHours(23, 59, 59, 999);
   }
 
-  // NON-ADMIN RESTRICTION: Non-admin users can only see their own stats
-  const isAdmin = access.accessLevel === 'admin';
-  if (!isAdmin) {
+  // RBAC: Users without canViewAllAnalytics can only see their own stats
+  const canViewAll = access.canViewAllAnalytics;
+  if (!canViewAll) {
     emailFilter = access.userEmail.toLowerCase();
   }
 
@@ -6591,7 +6825,7 @@ function getDetailedEmailStats(filterEmail, filterJobId, startDate, endDate) {
  */
 function getAnalyticsViewers() {
   const access = checkAnalyticsAccess();
-  if (!access.hasAccess || access.accessLevel !== 'admin') {
+  if (!access.canManageUsers) {
     return { error: "Only admins can manage viewers" };
   }
 
@@ -6624,12 +6858,12 @@ function getAnalyticsViewers() {
 /**
  * Add a viewer to analytics dashboard
  * @param {string} email - Email of the user to add
- * @param {string} accessLevel - 'viewer' or 'admin'
+ * @param {string} role - Role: 'admin', 'tl', 'tm', 'ta', 'manager', 'other'
  * @returns {Object} Result of the operation
  */
-function addAnalyticsViewer(email, accessLevel) {
+function addAnalyticsViewer(email, role) {
   const access = checkAnalyticsAccess();
-  if (!access.hasAccess || access.accessLevel !== 'admin') {
+  if (!access.canManageUsers) {
     return { success: false, error: "Only admins can add viewers" };
   }
 
@@ -6637,9 +6871,11 @@ function addAnalyticsViewer(email, accessLevel) {
     return { success: false, error: "Invalid email address" };
   }
 
-  const validLevels = ['viewer', 'admin'];
-  if (!validLevels.includes(accessLevel)) {
-    accessLevel = 'viewer';
+  // Valid roles for RBAC
+  const validRoles = ['admin', 'tl', 'tm', 'ta', 'manager', 'other'];
+  let accessLevel = String(role || 'other').toLowerCase();
+  if (!validRoles.includes(accessLevel)) {
+    accessLevel = 'other';
   }
 
   try {
@@ -6678,7 +6914,7 @@ function addAnalyticsViewer(email, accessLevel) {
  */
 function removeAnalyticsViewer(email) {
   const access = checkAnalyticsAccess();
-  if (!access.hasAccess || access.accessLevel !== 'admin') {
+  if (!access.canManageUsers) {
     return { success: false, error: "Only admins can remove viewers" };
   }
 

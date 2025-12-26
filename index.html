@@ -558,28 +558,29 @@
         <!-- Navigation Links -->
         <nav class="flex-1 px-4 py-6 space-y-1 overflow-y-auto">
             <div class="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2 px-2">Main Menu</div>
-            
-            <div class="nav-tab active" onclick="switchTab('outreach', this)">
+
+            <!-- Operational tabs - hidden for TM/TA/Manager roles -->
+            <div id="navTabOutreach" class="nav-tab active operational-tab" onclick="switchTab('outreach', this)">
                 <i class="fa-solid fa-users-viewfinder w-5 text-center"></i>
                 <span>Outreach Manager</span>
             </div>
-            
-            <div class="nav-tab" onclick="switchTab('negotiation', this)">
+
+            <div id="navTabNegotiation" class="nav-tab operational-tab" onclick="switchTab('negotiation', this)">
                 <i class="fa-solid fa-hand-holding-dollar w-5 text-center"></i>
                 <span>Negotiation AI</span>
             </div>
-            
-            <div class="nav-tab" onclick="switchTab('tasks', this)">
+
+            <div id="navTabTasks" class="nav-tab operational-tab" onclick="switchTab('tasks', this)">
                 <i class="fa-solid fa-clipboard-check w-5 text-center"></i>
                 <span>Task List</span>
             </div>
-            
-            <div class="nav-tab" onclick="switchTab('followups', this)">
+
+            <div id="navTabFollowups" class="nav-tab operational-tab" onclick="switchTab('followups', this)">
                 <i class="fa-solid fa-clock-rotate-left w-5 text-center"></i>
                 <span>Follow-Ups</span>
             </div>
-            
-            <div class="nav-tab" onclick="switchTab('analytics', this)">
+
+            <div id="navTabAnalytics" class="nav-tab" onclick="switchTab('analytics', this)">
                 <i class="fa-solid fa-chart-line w-5 text-center"></i>
                 <span>Analytics</span>
             </div>
@@ -594,11 +595,11 @@
 
         <!-- Sidebar Footer -->
         <div class="p-4 border-t border-slate-800 space-y-2">
-            <div onclick="openConfigModal()" class="nav-tab hover:bg-slate-800 text-slate-400">
+            <div id="navTabConfig" class="nav-tab hover:bg-slate-800 text-slate-400 operational-tab" onclick="openConfigModal()">
                 <i class="fa-solid fa-cog w-5 text-center"></i>
                 <span>Configuration</span>
             </div>
-            
+
             <!-- User Profile Tiny -->
             <div class="flex items-center gap-3 px-2 py-3 mt-2 rounded-lg bg-slate-800/50 border border-slate-700">
                 <div class="w-8 h-8 rounded-full bg-indigo-500 flex items-center justify-center text-xs font-bold text-white">
@@ -609,7 +610,7 @@
                     <!-- Hidden elements required by original JS logic -->
                     <div id="userEmailText" class="hidden"></div>
                     <div id="userEmailDisplay" class="hidden"></div>
-                    <p class="text-[10px] text-slate-400">Admin</p>
+                    <p class="text-[10px] text-slate-400" id="userRoleBadge">Loading...</p>
                 </div>
             </div>
         </div>
@@ -629,6 +630,21 @@
                     <i class="fa-solid fa-search absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm"></i>
                     <input type="text" id="globalSearchInput" placeholder="Global search..." oninput="handleGlobalSearch()" onkeydown="if(event.key==='Escape') clearGlobalSearch()" class="pl-9 pr-4 py-2 rounded-full border border-slate-200 dark:border-slate-600 bg-slate-50 dark:bg-slate-700 text-sm w-64 focus:outline-none focus:ring-2 focus:ring-blue-500">
                     <div id="globalSearchResults" class="absolute top-full left-0 right-0 mt-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-lg max-h-80 overflow-y-auto z-50 hidden"></div>
+                </div>
+
+                <!-- New Users Notification (Admin Only) -->
+                <button id="newUsersBtn" onclick="toggleNewUsersPanel()" class="w-8 h-8 rounded-full bg-slate-50 dark:bg-slate-700 flex items-center justify-center text-slate-500 hover:text-green-600 transition relative hidden" title="New Users">
+                    <i class="fa-solid fa-user-plus"></i>
+                    <span id="newUsersBadge" class="absolute -top-1 -right-1 w-4 h-4 bg-green-500 text-white text-xs rounded-full flex items-center justify-center hidden">0</span>
+                </button>
+                <div id="newUsersPanel" class="absolute top-14 right-20 w-96 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-lg z-50 hidden">
+                    <div class="p-3 border-b border-slate-200 dark:border-slate-700 flex justify-between items-center">
+                        <span class="font-semibold text-slate-800 dark:text-white text-sm"><i class="fa-solid fa-user-plus mr-2 text-green-500"></i>New Users</span>
+                        <button onclick="closeNewUsersPanel()" class="text-slate-400 hover:text-slate-600"><i class="fa-solid fa-times"></i></button>
+                    </div>
+                    <div id="newUsersList" class="max-h-80 overflow-y-auto">
+                        <div class="p-4 text-center text-slate-500 text-sm">No new users</div>
+                    </div>
                 </div>
 
                 <button id="notificationBtn" onclick="toggleNotifications()" class="w-8 h-8 rounded-full bg-slate-50 dark:bg-slate-700 flex items-center justify-center text-slate-500 hover:text-blue-600 transition relative">
@@ -1839,16 +1855,35 @@
 
     <!-- Viewers Modal -->
     <div id="viewersModal" class="fixed inset-0 z-50 hidden bg-black/50 backdrop-blur-sm flex items-center justify-center">
-        <div class="bg-white p-6 rounded-xl shadow-xl w-full max-w-md">
-            <h3 class="font-bold mb-4">Manage Access</h3>
-            <div class="flex gap-2 mb-4">
-                <input id="newViewerEmail" class="input-field" placeholder="Email">
-                <select id="newViewerLevel" class="input-field w-24"><option value="viewer">Viewer</option><option value="admin">Admin</option></select>
-                <button onclick="addViewer()" class="bg-blue-600 text-white px-3 rounded-lg"><i class="fa-solid fa-plus"></i></button>
+        <div class="bg-white dark:bg-slate-800 p-6 rounded-xl shadow-xl w-full max-w-lg">
+            <h3 class="font-bold mb-4 text-slate-800 dark:text-white">Manage User Access</h3>
+
+            <!-- Role Legend -->
+            <div class="mb-4 p-3 bg-slate-50 dark:bg-slate-700 rounded-lg text-xs">
+                <div class="font-semibold mb-2 text-slate-600 dark:text-slate-300">Role Permissions:</div>
+                <div class="grid grid-cols-2 gap-1 text-slate-500 dark:text-slate-400">
+                    <div><span class="font-medium text-blue-600">Admin</span> - Full access + Manage users</div>
+                    <div><span class="font-medium text-indigo-600">TL</span> - Full access (no user mgmt)</div>
+                    <div><span class="font-medium text-purple-600">TM/TA/Manager</span> - Analytics only</div>
+                    <div><span class="font-medium text-slate-600">Other</span> - Operations + Own analytics</div>
+                </div>
             </div>
-            <div id="viewersList" class="max-h-48 overflow-y-auto space-y-2"></div>
+
+            <div class="flex gap-2 mb-4">
+                <input id="newViewerEmail" class="input-field flex-1" placeholder="user@example.com">
+                <select id="newViewerLevel" class="input-field w-28">
+                    <option value="other">Other</option>
+                    <option value="tl">TL</option>
+                    <option value="tm">TM</option>
+                    <option value="ta">TA</option>
+                    <option value="manager">Manager</option>
+                    <option value="admin">Admin</option>
+                </select>
+                <button onclick="addViewer()" class="bg-blue-600 hover:bg-blue-700 text-white px-3 rounded-lg transition"><i class="fa-solid fa-plus"></i></button>
+            </div>
+            <div id="viewersList" class="max-h-64 overflow-y-auto space-y-2"></div>
             <div class="flex justify-end mt-4">
-                <button onclick="closeViewersModal()" class="px-4 py-2 bg-slate-100 rounded-lg">Close</button>
+                <button onclick="closeViewersModal()" class="px-4 py-2 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-white rounded-lg hover:bg-slate-200 dark:hover:bg-slate-600 transition">Close</button>
             </div>
         </div>
     </div>
@@ -3767,7 +3802,16 @@
             loading: false
         };
 
-        // Track if user is admin for UI visibility
+        // RBAC: Track user permissions
+        let userPermissions = {
+            isAdmin: false,              // Can manage users
+            canViewAllAnalytics: false,  // Can see all analytics data
+            hasOperationalAccess: true,  // Can use operational tabs
+            accessLevel: 'other',        // Role: admin, tl, tm, ta, manager, other
+            userEmail: ''
+        };
+
+        // For backward compatibility
         let isAnalyticsAdmin = false;
 
         // Load search cache for instant filtering
@@ -3781,9 +3825,24 @@
                     analyticsSearchCache.jobIds = cache.jobIds || [];
                     analyticsSearchCache.loaded = true;
                     analyticsSearchCache.loading = false;
-                    // Store admin status and update UI
-                    isAnalyticsAdmin = cache.isAdmin || false;
+
+                    // Store RBAC permissions
+                    userPermissions.isAdmin = cache.isAdmin || false;
+                    userPermissions.canViewAllAnalytics = cache.canViewAllAnalytics || false;
+                    userPermissions.hasOperationalAccess = cache.hasOperationalAccess !== false; // default true
+                    userPermissions.accessLevel = cache.accessLevel || 'other';
+                    userPermissions.userEmail = cache.userEmail || '';
+
+                    // For backward compatibility
+                    isAnalyticsAdmin = userPermissions.isAdmin;
+
                     updateAnalyticsAdminUI();
+                    updateRoleBasedUI();
+
+                    // Load new users for admin
+                    if (userPermissions.isAdmin) {
+                        loadNewUsers();
+                    }
                 })
                 .withFailureHandler(() => {
                     analyticsSearchCache.loading = false;
@@ -3791,7 +3850,7 @@
                 .getAnalyticsSearchCache();
         }
 
-        // Update UI based on admin status
+        // Update UI based on RBAC permissions
         function updateAnalyticsAdminUI() {
             const manageViewersBtn = document.getElementById('manageViewersBtn');
             const userFilterContainer = document.getElementById('analyticsUserFilterContainer');
@@ -3800,22 +3859,76 @@
             const aiTestingNavTab = document.getElementById('aiTestingNavTab');
             // AI TESTING FEATURE - DELETE FOR PRODUCTION (END)
 
-            if (isAnalyticsAdmin) {
-                // Admin: show all controls
+            // Show Manage Viewers only for admins (canManageUsers)
+            if (userPermissions.isAdmin) {
                 if (manageViewersBtn) manageViewersBtn.classList.remove('hidden');
+            } else {
+                if (manageViewersBtn) manageViewersBtn.classList.add('hidden');
+            }
+
+            // Show user filter for users who can view all analytics (admin, tl, tm, ta, manager)
+            if (userPermissions.canViewAllAnalytics) {
                 if (userFilterContainer) userFilterContainer.classList.remove('hidden');
                 if (viewOnlyBadge) viewOnlyBadge.classList.add('hidden');
-                // AI TESTING FEATURE - DELETE FOR PRODUCTION (START)
-                if (aiTestingNavTab) aiTestingNavTab.classList.remove('hidden');
-                // AI TESTING FEATURE - DELETE FOR PRODUCTION (END)
             } else {
-                // Non-admin: hide admin controls, show "viewing your data" badge
-                if (manageViewersBtn) manageViewersBtn.classList.add('hidden');
+                // 'other' role: hide filter, show "viewing your data" badge
                 if (userFilterContainer) userFilterContainer.classList.add('hidden');
                 if (viewOnlyBadge) viewOnlyBadge.classList.remove('hidden');
-                // AI TESTING FEATURE - DELETE FOR PRODUCTION (START)
+            }
+
+            // AI TESTING FEATURE - DELETE FOR PRODUCTION (START)
+            // Only admins can access AI Testing
+            if (userPermissions.isAdmin) {
+                if (aiTestingNavTab) aiTestingNavTab.classList.remove('hidden');
+            } else {
                 if (aiTestingNavTab) aiTestingNavTab.classList.add('hidden');
-                // AI TESTING FEATURE - DELETE FOR PRODUCTION (END)
+            }
+            // AI TESTING FEATURE - DELETE FOR PRODUCTION (END)
+        }
+
+        // Update UI based on role (show/hide operational tabs)
+        function updateRoleBasedUI() {
+            const operationalTabs = document.querySelectorAll('.operational-tab');
+            const newUsersBtn = document.getElementById('newUsersBtn');
+            const userRoleBadge = document.getElementById('userRoleBadge');
+
+            // Show/hide operational tabs based on hasOperationalAccess
+            operationalTabs.forEach(tab => {
+                if (userPermissions.hasOperationalAccess) {
+                    tab.classList.remove('hidden');
+                } else {
+                    tab.classList.add('hidden');
+                }
+            });
+
+            // Show new users button for admins
+            if (newUsersBtn) {
+                if (userPermissions.isAdmin) {
+                    newUsersBtn.classList.remove('hidden');
+                } else {
+                    newUsersBtn.classList.add('hidden');
+                }
+            }
+
+            // Update role badge in sidebar
+            if (userRoleBadge) {
+                const roleLabels = {
+                    'admin': 'Admin',
+                    'tl': 'Team Lead',
+                    'tm': 'Tech Manager',
+                    'ta': 'Tech Analyst',
+                    'manager': 'Manager',
+                    'other': 'User'
+                };
+                userRoleBadge.textContent = roleLabels[userPermissions.accessLevel] || 'User';
+            }
+
+            // If user has no operational access, switch to analytics tab
+            if (!userPermissions.hasOperationalAccess) {
+                const analyticsTab = document.getElementById('navTabAnalytics');
+                if (analyticsTab) {
+                    switchTab('analytics', analyticsTab);
+                }
             }
         }
 
@@ -4279,11 +4392,22 @@
             google.script.run.withSuccessHandler(data => {
                 if(data.error) { console.error('Analytics error:', data.error); return; }
 
-                // Update admin status from returned data
+                // Update RBAC permissions from returned data
                 if (data.isAdmin !== undefined) {
-                    isAnalyticsAdmin = data.isAdmin;
-                    updateAnalyticsAdminUI();
+                    userPermissions.isAdmin = data.isAdmin;
+                    isAnalyticsAdmin = data.isAdmin; // backward compat
                 }
+                if (data.canViewAllAnalytics !== undefined) {
+                    userPermissions.canViewAllAnalytics = data.canViewAllAnalytics;
+                }
+                if (data.hasOperationalAccess !== undefined) {
+                    userPermissions.hasOperationalAccess = data.hasOperationalAccess;
+                }
+                if (data.accessLevel !== undefined) {
+                    userPermissions.accessLevel = data.accessLevel;
+                }
+                updateAnalyticsAdminUI();
+                updateRoleBasedUI();
 
                 document.getElementById('statTotalUsers').textContent = data.totalUsers || 0;
                 document.getElementById('statTotalEmails').textContent = data.totalEmailsSent || 0;
@@ -4375,9 +4499,33 @@
                 if(viewers.error) { list.innerHTML = viewers.error; return; }
                 list.innerHTML = '';
                 viewers.forEach(v => {
+                    const roleColors = {
+                        'admin': 'bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300',
+                        'tl': 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900 dark:text-indigo-300',
+                        'tm': 'bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-300',
+                        'ta': 'bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-300',
+                        'manager': 'bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-300',
+                        'other': 'bg-slate-100 text-slate-700 dark:bg-slate-700 dark:text-slate-300'
+                    };
+                    const roleLabels = {
+                        'admin': 'Admin',
+                        'tl': 'TL',
+                        'tm': 'TM',
+                        'ta': 'TA',
+                        'manager': 'Manager',
+                        'other': 'Other',
+                        'viewer': 'Other' // backwards compat
+                    };
+                    const role = (v.accessLevel || 'other').toLowerCase();
+                    const colorClass = roleColors[role] || roleColors['other'];
+                    const roleLabel = roleLabels[role] || role.toUpperCase();
+
                     list.innerHTML += `
-                        <div class="flex justify-between items-center p-2 bg-slate-50 rounded mb-1">
-                            <div><span class="font-bold text-sm">${v.email}</span> <span class="text-xs text-slate-500">(${v.accessLevel})</span></div>
+                        <div class="flex justify-between items-center p-2 bg-slate-50 dark:bg-slate-700 rounded mb-1">
+                            <div class="flex items-center gap-2">
+                                <span class="font-medium text-sm text-slate-800 dark:text-white">${v.email}</span>
+                                <span class="text-xs px-2 py-0.5 rounded-full ${colorClass}">${roleLabel}</span>
+                            </div>
                             <button onclick="removeViewer('${v.email}')" class="text-red-500 hover:text-red-700"><i class="fa-solid fa-trash"></i></button>
                         </div>
                     `;
@@ -4389,12 +4537,18 @@
             const level = document.getElementById('newViewerLevel').value;
             if(!email) return;
             google.script.run.withSuccessHandler(res => {
-                if(res.success) { showToast("Viewer Added", "success"); loadViewers(); document.getElementById('newViewerEmail').value=''; }
+                if(res.success) {
+                    showToast("User Added", "success");
+                    loadViewers();
+                    document.getElementById('newViewerEmail').value='';
+                    // Also mark as reviewed if they were a new user
+                    google.script.run.markUserReviewed(email);
+                }
                 else showToast(res.error, "error");
             }).addAnalyticsViewer(email, level);
         }
         function removeViewer(email) {
-            if(!confirm("Remove?")) return;
+            if(!confirm("Remove this user?")) return;
             google.script.run.withSuccessHandler(res => {
                 if(res.success) { showToast("Removed", "success"); loadViewers(); }
                 else showToast(res.error, "error");
@@ -4406,6 +4560,107 @@
         }
         function closeViewersModal() {
             document.getElementById('viewersModal').classList.add('hidden');
+        }
+
+        // ===== New Users Panel (Admin Only) =====
+        let newUsersList = [];
+
+        function loadNewUsers() {
+            if (!userPermissions.isAdmin) return;
+
+            google.script.run
+                .withSuccessHandler(users => {
+                    newUsersList = users || [];
+                    updateNewUsersBadge();
+                    renderNewUsersList();
+                })
+                .withFailureHandler(() => {
+                    console.error('Failed to load new users');
+                })
+                .getNewUsers();
+        }
+
+        function updateNewUsersBadge() {
+            const badge = document.getElementById('newUsersBadge');
+            const count = newUsersList.length;
+            if (badge) {
+                badge.textContent = count > 9 ? '9+' : count;
+                if (count > 0) {
+                    badge.classList.remove('hidden');
+                } else {
+                    badge.classList.add('hidden');
+                }
+            }
+        }
+
+        function renderNewUsersList() {
+            const listContainer = document.getElementById('newUsersList');
+            if (!listContainer) return;
+
+            if (newUsersList.length === 0) {
+                listContainer.innerHTML = '<div class="p-4 text-center text-slate-500 text-sm">No new users</div>';
+                return;
+            }
+
+            listContainer.innerHTML = newUsersList.map(user => {
+                const firstSeen = user.firstSeen ? new Date(user.firstSeen).toLocaleDateString() : 'Unknown';
+                return `
+                    <div class="p-3 border-b border-slate-100 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700/50">
+                        <div class="flex justify-between items-start">
+                            <div>
+                                <div class="font-medium text-sm text-slate-800 dark:text-white">${user.email}</div>
+                                <div class="text-xs text-slate-500">First seen: ${firstSeen}</div>
+                            </div>
+                            <div class="flex gap-1">
+                                <button onclick="assignRoleToNewUser('${user.email}')" class="px-2 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700 transition" title="Assign Role">
+                                    <i class="fa-solid fa-user-tag"></i>
+                                </button>
+                                <button onclick="dismissNewUser('${user.email}')" class="px-2 py-1 text-xs bg-slate-200 dark:bg-slate-600 text-slate-600 dark:text-white rounded hover:bg-slate-300 dark:hover:bg-slate-500 transition" title="Dismiss">
+                                    <i class="fa-solid fa-check"></i>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function toggleNewUsersPanel() {
+            const panel = document.getElementById('newUsersPanel');
+            const notifPanel = document.getElementById('notificationPanel');
+            if (panel) {
+                // Close other panels
+                if (notifPanel) notifPanel.classList.add('hidden');
+                panel.classList.toggle('hidden');
+            }
+        }
+
+        function closeNewUsersPanel() {
+            const panel = document.getElementById('newUsersPanel');
+            if (panel) panel.classList.add('hidden');
+        }
+
+        function assignRoleToNewUser(email) {
+            // Pre-fill the email in the viewers modal and open it
+            closeNewUsersPanel();
+            document.getElementById('newViewerEmail').value = email;
+            openViewersModal();
+        }
+
+        function dismissNewUser(email) {
+            google.script.run
+                .withSuccessHandler(res => {
+                    if (res.success) {
+                        showToast('User dismissed', 'success');
+                        loadNewUsers(); // Refresh the list
+                    } else {
+                        showToast(res.error || 'Failed to dismiss user', 'error');
+                    }
+                })
+                .withFailureHandler(err => {
+                    showToast('Failed to dismiss user', 'error');
+                })
+                .markUserReviewed(email);
         }
 
         // ===== AI TESTING FEATURE - DELETE FOR PRODUCTION (START JAVASCRIPT) =====
