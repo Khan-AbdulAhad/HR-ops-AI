@@ -1968,7 +1968,7 @@
             progressContainer.classList.remove('hidden'); // Show progress bar
             
             // 5. Batching Logic
-            const BATCH_SIZE = 5; // Send 5 emails at a time to allow UI updates
+            const BATCH_SIZE = 15; // Send 15 emails at a time for faster sending while respecting rate limits
             const total = recipients.length;
             let sentCount = 0;
             let successCount = 0;

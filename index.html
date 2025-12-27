@@ -3396,7 +3396,17 @@
             updateJobTypeHint();
         }
 
-        function sendEmails() {
+        // Helper function to send a batch of emails
+        function sendEmailBatch(recipientsBatch, senderName, subject, body, jobId, opts) {
+            return new Promise((resolve, reject) => {
+                google.script.run
+                    .withSuccessHandler(resolve)
+                    .withFailureHandler(reject)
+                    .sendBulkEmails(recipientsBatch, senderName, subject, body, jobId, opts);
+            });
+        }
+
+        async function sendEmails() {
             const subject = document.getElementById('emailSubject').value;
             const senderName = document.getElementById('senderName')?.value || '';
 
@@ -3442,58 +3452,77 @@
             btn.disabled = true;
             progressContainer.classList.remove('hidden');
 
-            // Fake progress animation
-            let progress = 0;
-            const interval = setInterval(() => {
-                progress += Math.random() * 15;
-                if(progress > 90) progress = 90;
-                document.getElementById('sendProgressBar').style.width = progress + '%';
-            }, 300);
-
             // Build options with all job settings
             const opts = {
                 jobType: jobType,
-                jobSettings: jobSettings, // Pass full settings object
+                jobSettings: jobSettings,
                 senderName: senderName
             };
 
-            google.script.run
-                .withSuccessHandler(result => {
-                    clearInterval(interval);
-                    document.getElementById('sendProgressBar').style.width = '100%';
-                    setTimeout(() => {
-                        btn.innerHTML = '<i class="fa-solid fa-paper-plane"></i> Send Campaign';
-                        btn.disabled = false;
-                        progressContainer.classList.add('hidden');
-                        document.getElementById('sendProgressBar').style.width = '0%';
+            // Batch sending logic - send 15 emails at a time
+            const BATCH_SIZE = 15;
+            const total = recipients.length;
+            let totalSent = 0;
+            let errors = [];
 
-                        if(result.sent > 0) {
-                            showToast(`Sent ${result.sent} emails!`, "success");
-                            closeEmailPanel();
-                            fetchData();
-                            // Clear form
-                            document.getElementById('emailSubject').value = '';
-                            document.getElementById('emailBody').innerHTML = '';
-                            if(document.getElementById('senderName')) document.getElementById('senderName').value = '';
-                            if(document.getElementById('saveAsTemplateCheck')) document.getElementById('saveAsTemplateCheck').checked = false;
-                            if(document.getElementById('newTemplateName')) {
-                                document.getElementById('newTemplateName').value = '';
-                                document.getElementById('newTemplateName').classList.add('hidden');
-                            }
-                        } else {
-                            showToast("No emails sent (duplicates?)", "warning");
+            try {
+                for (let i = 0; i < total; i += BATCH_SIZE) {
+                    const batch = recipients.slice(i, i + BATCH_SIZE);
+                    const progress = Math.floor((i / total) * 100);
+                    document.getElementById('sendProgressBar').style.width = progress + '%';
+
+                    try {
+                        const result = await sendEmailBatch(batch, senderName, subject, body, jobId, opts);
+                        if (result.sent) {
+                            totalSent += result.sent;
                         }
-                    }, 500);
-                })
-                .withFailureHandler(err => {
-                    clearInterval(interval);
+                        if (result.errors) {
+                            errors.push(...result.errors);
+                        }
+                    } catch (err) {
+                        errors.push(err.message || "Batch failure");
+                    }
+
+                    // Small delay between batches to avoid rate limiting
+                    await new Promise(r => setTimeout(r, 100));
+                }
+
+                // Complete
+                document.getElementById('sendProgressBar').style.width = '100%';
+                setTimeout(() => {
                     btn.innerHTML = '<i class="fa-solid fa-paper-plane"></i> Send Campaign';
                     btn.disabled = false;
                     progressContainer.classList.add('hidden');
                     document.getElementById('sendProgressBar').style.width = '0%';
-                    showToast("Error: " + err.message, "error");
-                })
-                .sendBulkEmails(recipients, senderName, subject, body, jobId, opts);
+
+                    if(totalSent > 0) {
+                        showToast(`Sent ${totalSent} emails!`, "success");
+                        closeEmailPanel();
+                        fetchData();
+                        // Clear form
+                        document.getElementById('emailSubject').value = '';
+                        document.getElementById('emailBody').innerHTML = '';
+                        if(document.getElementById('senderName')) document.getElementById('senderName').value = '';
+                        if(document.getElementById('saveAsTemplateCheck')) document.getElementById('saveAsTemplateCheck').checked = false;
+                        if(document.getElementById('newTemplateName')) {
+                            document.getElementById('newTemplateName').value = '';
+                            document.getElementById('newTemplateName').classList.add('hidden');
+                        }
+                    } else {
+                        showToast("No emails sent (duplicates?)", "warning");
+                    }
+
+                    if (errors.length > 0) {
+                        console.error("Email sending errors:", errors);
+                    }
+                }, 500);
+            } catch (err) {
+                btn.innerHTML = '<i class="fa-solid fa-paper-plane"></i> Send Campaign';
+                btn.disabled = false;
+                progressContainer.classList.add('hidden');
+                document.getElementById('sendProgressBar').style.width = '0%';
+                showToast("Error: " + err.message, "error");
+            }
         }
 
         function saveNegotiationSettings() {
