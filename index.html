@@ -764,15 +764,12 @@
             position: relative;
             display: inline-flex;
             align-items: center;
-            cursor: help;
+            cursor: pointer;
         }
 
         /* The tooltip itself */
         .process-tooltip {
-            position: absolute;
-            bottom: calc(100% + 10px);
-            left: 50%;
-            transform: translateX(-50%) translateY(4px);
+            position: fixed;
             background: #1e293b;
             color: #f8fafc;
             padding: 10px 14px;
@@ -785,29 +782,17 @@
             max-width: 280px;
             opacity: 0;
             visibility: hidden;
-            transition: opacity 0.2s ease, transform 0.2s ease, visibility 0.2s;
-            z-index: 1000;
-            box-shadow: 0 8px 20px rgba(0,0,0,0.25);
+            transition: opacity 0.15s ease, visibility 0.15s;
+            z-index: 9999;
+            box-shadow: 0 8px 20px rgba(0,0,0,0.3);
             text-align: left;
             pointer-events: none;
         }
 
-        /* Tooltip arrow */
-        .process-tooltip::after {
-            content: '';
-            position: absolute;
-            top: 100%;
-            left: 50%;
-            transform: translateX(-50%);
-            border: 7px solid transparent;
-            border-top-color: #1e293b;
-        }
-
-        /* Show tooltip on hover */
+        /* Show tooltip on hover - positioned via JS */
         .process-tooltip-wrapper:hover .process-tooltip {
             opacity: 1;
             visibility: visible;
-            transform: translateX(-50%) translateY(0);
         }
 
         /* Tooltip title styling */
@@ -833,18 +818,24 @@
             background: #334155;
             border: 1px solid #475569;
         }
-        .dark .process-tooltip::after {
-            border-top-color: #334155;
-        }
 
         /* Function name styling */
         .func-name {
             font-family: 'SF Mono', 'Monaco', 'Menlo', monospace;
             color: #3b82f6;
-            cursor: help;
+            cursor: pointer;
+            text-decoration: underline;
+            text-decoration-style: dotted;
+            text-underline-offset: 2px;
         }
         .dark .func-name {
             color: #60a5fa;
+        }
+        .func-name:hover {
+            color: #2563eb;
+        }
+        .dark .func-name:hover {
+            color: #93c5fd;
         }
 
         /* Text overflow handling for process nodes */
@@ -6285,6 +6276,45 @@
             showToast('History cleared', 'info');
         }
         // ===== AI TESTING FEATURE - DELETE FOR PRODUCTION (END JAVASCRIPT) =====
+
+        // ===== PROCESS MAP TOOLTIP POSITIONING =====
+
+        // Position tooltips dynamically to avoid clipping
+        (function initProcessMapTooltips() {
+            document.addEventListener('mouseover', function(e) {
+                const wrapper = e.target.closest('.process-tooltip-wrapper');
+                if (!wrapper) return;
+
+                const tooltip = wrapper.querySelector('.process-tooltip');
+                if (!tooltip) return;
+
+                // Get wrapper position
+                const rect = wrapper.getBoundingClientRect();
+                const tooltipRect = tooltip.getBoundingClientRect();
+
+                // Calculate position - above the element, centered
+                let left = rect.left + (rect.width / 2) - (tooltipRect.width / 2);
+                let top = rect.top - tooltipRect.height - 10;
+
+                // Keep tooltip within viewport
+                const padding = 10;
+
+                // Horizontal bounds
+                if (left < padding) {
+                    left = padding;
+                } else if (left + tooltipRect.width > window.innerWidth - padding) {
+                    left = window.innerWidth - tooltipRect.width - padding;
+                }
+
+                // If tooltip goes above viewport, show below instead
+                if (top < padding) {
+                    top = rect.bottom + 10;
+                }
+
+                tooltip.style.left = left + 'px';
+                tooltip.style.top = top + 'px';
+            });
+        })();
 
         // ===== PROCESS MAP FUNCTIONS =====
 
