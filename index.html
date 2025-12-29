@@ -2784,10 +2784,92 @@
             country: new Set()
         };
 
-        // ===== INIT: Load user email on page load =====
+        // ===== INIT: Load user email and permissions on page load =====
         document.addEventListener('DOMContentLoaded', function() {
             loadUserEmail();
+            // Load cached permissions INSTANTLY, then refresh in background
+            loadCachedPermissions();
+            loadFreshPermissions();
         });
+
+        // Load permissions from localStorage for instant UI (< 50ms)
+        function loadCachedPermissions() {
+            try {
+                const cached = localStorage.getItem('hr_ops_permissions');
+                if (cached) {
+                    const data = JSON.parse(cached);
+                    // Check if cache is less than 1 hour old
+                    if (data.timestamp && (Date.now() - data.timestamp) < 3600000) {
+                        userPermissions.isAdmin = data.isAdmin || false;
+                        userPermissions.canViewAllAnalytics = data.canViewAllAnalytics || false;
+                        userPermissions.hasOperationalAccess = data.hasOperationalAccess !== false;
+                        userPermissions.accessLevel = data.accessLevel || 'other';
+                        userPermissions.userEmail = data.userEmail || '';
+                        isAnalyticsAdmin = userPermissions.isAdmin;
+
+                        // Update UI immediately with cached data
+                        updateAnalyticsAdminUI();
+                        updateRoleBasedUI();
+
+                        // Update role badge
+                        const roleLabels = { 'admin': 'Admin', 'tl': 'Team Lead', 'tm': 'Talent Manager', 'ta': 'Talent Acquisition', 'manager': 'Manager', 'other': 'User' };
+                        const userRoleBadge = document.getElementById('userRoleBadge');
+                        if (userRoleBadge) userRoleBadge.textContent = roleLabels[userPermissions.accessLevel] || 'User';
+
+                        console.log('Loaded cached permissions in < 50ms');
+                    }
+                }
+            } catch (e) {
+                console.log('No cached permissions found');
+            }
+        }
+
+        // Fetch fresh permissions from server (background refresh)
+        function loadFreshPermissions() {
+            google.script.run
+                .withSuccessHandler(function(data) {
+                    if (data && data.hasAccess) {
+                        userPermissions.isAdmin = data.isAdmin || data.canManageUsers || false;
+                        userPermissions.canViewAllAnalytics = data.canViewAllAnalytics || false;
+                        userPermissions.hasOperationalAccess = data.hasOperationalAccess !== false;
+                        userPermissions.accessLevel = data.accessLevel || 'other';
+                        userPermissions.userEmail = data.userEmail || '';
+                        isAnalyticsAdmin = userPermissions.isAdmin;
+
+                        // Cache in localStorage for next page load
+                        try {
+                            localStorage.setItem('hr_ops_permissions', JSON.stringify({
+                                isAdmin: userPermissions.isAdmin,
+                                canViewAllAnalytics: userPermissions.canViewAllAnalytics,
+                                hasOperationalAccess: userPermissions.hasOperationalAccess,
+                                accessLevel: userPermissions.accessLevel,
+                                userEmail: userPermissions.userEmail,
+                                timestamp: Date.now()
+                            }));
+                        } catch (e) {}
+
+                        // Update UI with fresh data
+                        updateAnalyticsAdminUI();
+                        updateRoleBasedUI();
+
+                        // Update role badge
+                        const roleLabels = { 'admin': 'Admin', 'tl': 'Team Lead', 'tm': 'Talent Manager', 'ta': 'Talent Acquisition', 'manager': 'Manager', 'other': 'User' };
+                        const userRoleBadge = document.getElementById('userRoleBadge');
+                        if (userRoleBadge) userRoleBadge.textContent = roleLabels[userPermissions.accessLevel] || 'User';
+
+                        // Load new users for admin
+                        if (userPermissions.isAdmin) {
+                            loadNewUsers();
+                        }
+
+                        console.log('Fresh permissions loaded from server');
+                    }
+                })
+                .withFailureHandler(function(err) {
+                    console.log('Failed to load fresh permissions:', err);
+                })
+                .checkAnalyticsAccess();
+        }
 
         function loadUserEmail() {
             google.script.run
