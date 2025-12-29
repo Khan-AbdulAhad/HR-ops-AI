@@ -7319,3 +7319,284 @@ function testAiEmailResponse(testData) {
 }
 // ===== AI TESTING FEATURE - DELETE FOR PRODUCTION (END) =====
 
+// ===== PROCESS MAP FUNCTIONS =====
+
+/**
+ * Get comprehensive status for the Process Map page
+ * Admin-only function that provides system status, statistics, and activity
+ * @returns {Object} Process map status data
+ */
+function getProcessMapStatus() {
+  try {
+    // Check admin access
+    const access = checkAnalyticsAccess();
+    if (!access.hasAccess || access.accessLevel !== 'admin') {
+      return { error: 'Admin access required' };
+    }
+
+    const result = {
+      triggers: {},
+      sheets: {},
+      gmail: {},
+      openai: {},
+      todayStats: {},
+      queueStatus: {},
+      recentActivity: []
+    };
+
+    // Get trigger status
+    try {
+      const triggerStatus = getTriggerStatus();
+
+      // Check Auto Negotiator trigger
+      const negotiatorTrigger = triggerStatus.triggers.find(t => t.functionName === 'runAutoNegotiator');
+      if (negotiatorTrigger && negotiatorTrigger.exists) {
+        result.triggers.negotiator = { status: 'ok', message: 'Active' };
+      } else {
+        result.triggers.negotiator = { status: 'error', message: 'Missing' };
+      }
+
+      // Check Follow-Up Processor trigger
+      const followupTrigger = triggerStatus.triggers.find(t => t.functionName === 'runFollowUpProcessor');
+      if (followupTrigger && followupTrigger.exists) {
+        result.triggers.followup = { status: 'ok', message: 'Active' };
+      } else {
+        result.triggers.followup = { status: 'error', message: 'Missing' };
+      }
+    } catch (triggerErr) {
+      console.error('Error checking triggers:', triggerErr);
+      result.triggers.negotiator = { status: 'error', message: 'Check failed' };
+      result.triggers.followup = { status: 'error', message: 'Check failed' };
+    }
+
+    // Check Sheets access
+    try {
+      const ss = getCachedSpreadsheet();
+      if (ss) {
+        result.sheets = { status: 'ok', message: 'Connected' };
+      } else {
+        result.sheets = { status: 'error', message: 'Not configured' };
+      }
+    } catch (sheetErr) {
+      result.sheets = { status: 'error', message: 'Connection failed' };
+    }
+
+    // Check Gmail access
+    try {
+      GmailApp.getInboxUnreadCount(); // Simple check
+      result.gmail = { status: 'ok', message: 'Connected' };
+    } catch (gmailErr) {
+      result.gmail = { status: 'error', message: 'Auth required' };
+    }
+
+    // Check OpenAI API (check if key exists, don't make actual call)
+    try {
+      const apiKey = PropertiesService.getScriptProperties().getProperty('OPENAI_API_KEY');
+      if (apiKey && apiKey.length > 10) {
+        result.openai = { status: 'ok', message: 'Configured' };
+      } else {
+        result.openai = { status: 'error', message: 'Key missing' };
+      }
+    } catch (openaiErr) {
+      result.openai = { status: 'error', message: 'Check failed' };
+    }
+
+    // Get today's statistics
+    try {
+      const ss = getCachedSpreadsheet();
+      if (ss) {
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+
+        // Emails sent today (from Email_Logs)
+        const emailLogsSheet = ss.getSheetByName('Email_Logs');
+        let emailsSentToday = 0;
+        if (emailLogsSheet) {
+          const emailData = emailLogsSheet.getDataRange().getValues();
+          for (let i = 1; i < emailData.length; i++) {
+            const timestamp = emailData[i][2]; // Timestamp column
+            if (timestamp) {
+              const rowDate = new Date(timestamp);
+              if (rowDate >= today) emailsSentToday++;
+            }
+          }
+        }
+        result.todayStats.emailsSent = emailsSentToday;
+
+        // Get negotiation stats (from Negotiation_State)
+        const stateSheet = ss.getSheetByName('Negotiation_State');
+        let aiReplies = 0;
+        let escalated = 0;
+        let activeNegotiations = 0;
+        if (stateSheet) {
+          const stateData = stateSheet.getDataRange().getValues();
+          for (let i = 1; i < stateData.length; i++) {
+            const status = String(stateData[i][3] || '').toLowerCase();
+            const attempts = parseInt(stateData[i][4]) || 0;
+
+            if (status === 'active' || status === 'pending') {
+              activeNegotiations++;
+            }
+
+            // Count AI attempts from today (based on last updated timestamp if available)
+            if (attempts > 0) {
+              aiReplies += attempts;
+            }
+
+            if (status === 'escalated' || status === 'human') {
+              escalated++;
+            }
+          }
+        }
+        result.todayStats.aiReplies = aiReplies;
+        result.todayStats.escalated = escalated;
+        result.queueStatus.activeNegotiations = activeNegotiations;
+
+        // Get follow-up stats
+        const followUpSheet = ss.getSheetByName('Follow_Up_Queue');
+        let pendingFollowups = 0;
+        let followupsSentToday = 0;
+        if (followUpSheet) {
+          const followUpData = followUpSheet.getDataRange().getValues();
+          for (let i = 1; i < followUpData.length; i++) {
+            const status = String(followUpData[i][5] || '').toLowerCase();
+            if (status === 'pending') pendingFollowups++;
+          }
+        }
+        result.todayStats.followupsSent = followupsSentToday;
+        result.queueStatus.pendingFollowups = pendingFollowups;
+
+        // Get task/human review count
+        const taskSheet = ss.getSheetByName('Negotiation_Tasks');
+        let humanReview = 0;
+        if (taskSheet) {
+          const taskData = taskSheet.getDataRange().getValues();
+          humanReview = Math.max(0, taskData.length - 1); // Subtract header
+        }
+        result.queueStatus.humanReview = humanReview;
+
+        // Get completed count (from Negotiation_Completed)
+        const completedSheet = ss.getSheetByName('Negotiation_Completed');
+        let completedToday = 0;
+        if (completedSheet) {
+          const completedData = completedSheet.getDataRange().getValues();
+          for (let i = 1; i < completedData.length; i++) {
+            const timestamp = completedData[i][3]; // Completion timestamp
+            if (timestamp) {
+              const rowDate = new Date(timestamp);
+              if (rowDate >= today) completedToday++;
+            }
+          }
+        }
+        result.todayStats.completed = completedToday;
+
+        // Get unresponsive count
+        const unresponsiveSheet = ss.getSheetByName('Unresponsive_Devs');
+        let unresponsiveToday = 0;
+        if (unresponsiveSheet) {
+          const unresponsiveData = unresponsiveSheet.getDataRange().getValues();
+          for (let i = 1; i < unresponsiveData.length; i++) {
+            const timestamp = unresponsiveData[i][2]; // Timestamp column
+            if (timestamp) {
+              const rowDate = new Date(timestamp);
+              if (rowDate >= today) unresponsiveToday++;
+            }
+          }
+        }
+        result.todayStats.unresponsive = unresponsiveToday;
+
+        // Get configured jobs count
+        const configSheet = ss.getSheetByName('Negotiation_Config');
+        let configuredJobs = 0;
+        if (configSheet) {
+          const configData = configSheet.getDataRange().getValues();
+          configuredJobs = Math.max(0, configData.length - 1);
+        }
+        result.queueStatus.configuredJobs = configuredJobs;
+      }
+    } catch (statsErr) {
+      console.error('Error getting stats:', statsErr);
+    }
+
+    // Get recent activity (last 24 hours from Email_Logs and other sources)
+    try {
+      const ss = getCachedSpreadsheet();
+      if (ss) {
+        const activities = [];
+        const yesterday = new Date();
+        yesterday.setHours(yesterday.getHours() - 24);
+
+        // Recent emails
+        const emailLogsSheet = ss.getSheetByName('Email_Logs');
+        if (emailLogsSheet) {
+          const emailData = emailLogsSheet.getDataRange().getValues();
+          for (let i = Math.max(1, emailData.length - 20); i < emailData.length; i++) {
+            const email = emailData[i][0];
+            const jobId = emailData[i][1];
+            const timestamp = emailData[i][2];
+            const type = emailData[i][3];
+
+            if (timestamp && new Date(timestamp) >= yesterday) {
+              activities.push({
+                type: type === 'follow-up' ? 'followup' : 'email',
+                message: `${type === 'follow-up' ? 'Follow-up' : 'Email'} sent to ${email} (Job ${jobId})`,
+                timestamp: new Date(timestamp).toISOString()
+              });
+            }
+          }
+        }
+
+        // Recent escalations from Negotiation_Tasks
+        const taskSheet = ss.getSheetByName('Negotiation_Tasks');
+        if (taskSheet) {
+          const taskData = taskSheet.getDataRange().getValues();
+          for (let i = Math.max(1, taskData.length - 10); i < taskData.length; i++) {
+            const email = taskData[i][0];
+            const jobId = taskData[i][1];
+            const timestamp = taskData[i][5]; // Created timestamp
+
+            if (timestamp && new Date(timestamp) >= yesterday) {
+              activities.push({
+                type: 'escalation',
+                message: `Escalated to human: ${email} (Job ${jobId})`,
+                timestamp: new Date(timestamp).toISOString()
+              });
+            }
+          }
+        }
+
+        // Recent completions
+        const completedSheet = ss.getSheetByName('Negotiation_Completed');
+        if (completedSheet) {
+          const completedData = completedSheet.getDataRange().getValues();
+          for (let i = Math.max(1, completedData.length - 10); i < completedData.length; i++) {
+            const email = completedData[i][0];
+            const finalStatus = completedData[i][2];
+            const timestamp = completedData[i][3];
+
+            if (timestamp && new Date(timestamp) >= yesterday) {
+              activities.push({
+                type: 'completed',
+                message: `Completed: ${email} - ${finalStatus}`,
+                timestamp: new Date(timestamp).toISOString()
+              });
+            }
+          }
+        }
+
+        // Sort by timestamp descending and limit to 15
+        activities.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+        result.recentActivity = activities.slice(0, 15);
+      }
+    } catch (activityErr) {
+      console.error('Error getting activity:', activityErr);
+    }
+
+    return result;
+
+  } catch (e) {
+    console.error('Error in getProcessMapStatus:', e);
+    return { error: 'Failed to get process status: ' + e.message };
+  }
+}
+
