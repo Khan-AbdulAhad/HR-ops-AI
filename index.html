@@ -535,6 +535,266 @@
         .toggle-tooltip .tooltip-off {
             color: #f87171;
         }
+
+        /* ========== PROCESS MAP STYLES ========== */
+
+        /* Process Node Base Styles */
+        .process-node {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.75rem;
+            border-radius: 0.5rem;
+            font-size: 0.875rem;
+            font-weight: 500;
+            transition: all 0.2s;
+        }
+
+        /* User Action Node (rounded pill) */
+        .process-node-user {
+            background: linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%);
+            border: 2px solid #93c5fd;
+            color: #1e40af;
+            border-radius: 9999px;
+            padding: 0.5rem 1rem;
+            justify-content: center;
+        }
+        .dark .process-node-user {
+            background: linear-gradient(135deg, #1e3a5f 0%, #1e40af 100%);
+            border-color: #3b82f6;
+            color: #93c5fd;
+        }
+
+        /* Action Node (rectangle) */
+        .process-node-action {
+            background: white;
+            border: 1px solid #e2e8f0;
+            border-left: 4px solid #3b82f6;
+        }
+        .dark .process-node-action {
+            background: #1e293b;
+            border-color: #334155;
+            border-left-color: #3b82f6;
+        }
+        .process-node-action:hover {
+            box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);
+            transform: translateX(2px);
+        }
+
+        /* Trigger Node (rectangle with clock icon) */
+        .process-node-trigger {
+            background: linear-gradient(135deg, #f5f3ff 0%, #ede9fe 100%);
+            border: 2px dashed #a78bfa;
+            border-left: 4px solid #7c3aed;
+        }
+        .dark .process-node-trigger {
+            background: linear-gradient(135deg, #2e1065 0%, #4c1d95 100%);
+            border-color: #7c3aed;
+            border-left-color: #a78bfa;
+        }
+
+        /* Decision Node (diamond-like) */
+        .process-node-decision {
+            background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
+            border: 2px solid #f59e0b;
+            color: #92400e;
+            justify-content: center;
+            clip-path: polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%);
+            padding: 1.25rem 2rem;
+            text-align: center;
+        }
+        .dark .process-node-decision {
+            background: linear-gradient(135deg, #78350f 0%, #92400e 100%);
+            border-color: #f59e0b;
+            color: #fde68a;
+        }
+
+        /* Output Node */
+        .process-node-output {
+            background: #f1f5f9;
+            border: 1px dashed #94a3b8;
+        }
+        .dark .process-node-output {
+            background: #334155;
+            border-color: #64748b;
+        }
+
+        /* Mini Node (for sheets/outputs) */
+        .process-node-mini {
+            display: flex;
+            align-items: center;
+            gap: 0.375rem;
+            padding: 0.375rem 0.5rem;
+            border-radius: 0.375rem;
+            background: #f8fafc;
+            border: 1px solid #e2e8f0;
+            font-size: 0.75rem;
+            color: #64748b;
+        }
+        .dark .process-node-mini {
+            background: #1e293b;
+            border-color: #334155;
+            color: #94a3b8;
+        }
+
+        /* Process Arrow */
+        .process-arrow {
+            text-align: center;
+            padding: 0.25rem 0;
+        }
+
+        /* Status Light Indicators */
+        .status-light {
+            display: inline-block;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            flex-shrink: 0;
+        }
+        .status-light.status-ok {
+            background: #22c55e;
+            box-shadow: 0 0 8px #22c55e;
+            animation: pulse-green 2s infinite;
+        }
+        .status-light.status-idle {
+            background: #f59e0b;
+        }
+        .status-light.status-error {
+            background: #ef4444;
+            box-shadow: 0 0 8px #ef4444;
+            animation: pulse-red 1s infinite;
+        }
+        .status-light.status-disabled {
+            background: #94a3b8;
+        }
+        .status-light.status-checking {
+            background: #94a3b8;
+            animation: blink 1s infinite;
+        }
+
+        @keyframes pulse-green {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.6; }
+        }
+        @keyframes pulse-red {
+            0%, 100% { opacity: 1; box-shadow: 0 0 8px #ef4444; }
+            50% { opacity: 0.8; box-shadow: 0 0 12px #ef4444; }
+        }
+        @keyframes blink {
+            0%, 100% { opacity: 0.4; }
+            50% { opacity: 1; }
+        }
+
+        /* Status Dashboard Row */
+        .status-row {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            padding: 0.5rem 0;
+            border-bottom: 1px solid #f1f5f9;
+        }
+        .dark .status-row {
+            border-color: #334155;
+        }
+        .status-row:last-child {
+            border-bottom: none;
+        }
+        .status-label {
+            flex: 1;
+            font-size: 0.875rem;
+            color: #64748b;
+        }
+        .dark .status-label {
+            color: #94a3b8;
+        }
+        .status-value {
+            font-size: 0.75rem;
+            font-weight: 600;
+            color: #334155;
+        }
+        .dark .status-value {
+            color: #e2e8f0;
+        }
+
+        /* Stat Box */
+        .stat-box {
+            background: #f8fafc;
+            border-radius: 0.5rem;
+            padding: 0.75rem;
+            text-align: center;
+            border: 1px solid #e2e8f0;
+        }
+        .dark .stat-box {
+            background: #1e293b;
+            border-color: #334155;
+        }
+        .stat-box .stat-value {
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: #1e293b;
+        }
+        .dark .stat-box .stat-value {
+            color: white;
+        }
+        .stat-box .stat-label {
+            font-size: 0.65rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: #64748b;
+            margin-top: 0.25rem;
+        }
+
+        /* Activity Log Item */
+        .activity-item {
+            display: flex;
+            align-items: flex-start;
+            gap: 0.75rem;
+            padding: 0.75rem;
+            border-radius: 0.5rem;
+            background: #f8fafc;
+            border-left: 3px solid #e2e8f0;
+        }
+        .dark .activity-item {
+            background: #1e293b;
+            border-left-color: #334155;
+        }
+        .activity-item.activity-success {
+            border-left-color: #22c55e;
+        }
+        .activity-item.activity-error {
+            border-left-color: #ef4444;
+        }
+        .activity-item.activity-info {
+            border-left-color: #3b82f6;
+        }
+        .activity-item.activity-warning {
+            border-left-color: #f59e0b;
+        }
+        .activity-icon {
+            width: 28px;
+            height: 28px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+        }
+        .activity-content {
+            flex: 1;
+            min-width: 0;
+        }
+        .activity-title {
+            font-size: 0.875rem;
+            font-weight: 500;
+            color: #1e293b;
+        }
+        .dark .activity-title {
+            color: #f1f5f9;
+        }
+        .activity-time {
+            font-size: 0.75rem;
+            color: #94a3b8;
+        }
     </style>
 </head>
 <body class="bg-slate-100 dark:bg-slate-900 text-slate-900 dark:text-slate-100 flex h-screen overflow-hidden">
@@ -591,6 +851,12 @@
                 <span>AI Testing</span>
             </div>
             <!-- AI TESTING FEATURE - DELETE FOR PRODUCTION (END NAV) -->
+
+            <!-- PROCESS MAP - ADMIN ONLY -->
+            <div id="processMapNavTab" class="nav-tab hidden" onclick="switchTab('processmap', this)">
+                <i class="fa-solid fa-diagram-project w-5 text-center"></i>
+                <span>Process Map</span>
+            </div>
         </nav>
 
         <!-- Sidebar Footer -->
@@ -1600,6 +1866,506 @@
                 </div>
                 <!-- AI TESTING FEATURE - DELETE FOR PRODUCTION (END TAB CONTENT) -->
 
+                <!-- TAB 7: PROCESS MAP (ADMIN ONLY) -->
+                <div id="tab-processmap" class="tab-content hidden-tab">
+                    <div class="mb-6">
+                        <div class="flex justify-between items-center">
+                            <div>
+                                <h3 class="text-xl font-bold text-slate-800 dark:text-white mb-1">System Process Map</h3>
+                                <p class="text-sm text-slate-500">Visual flowchart of the HR-Ops-AI system workflow with real-time status indicators.</p>
+                            </div>
+                            <button onclick="refreshProcessMap()" id="refreshProcessMapBtn" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2">
+                                <i class="fa-solid fa-sync"></i> Refresh Status
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Legend -->
+                    <div class="mb-6 flex flex-wrap gap-4 items-center">
+                        <div class="text-xs font-bold uppercase text-slate-500">Status Legend:</div>
+                        <div class="flex items-center gap-2">
+                            <span class="w-3 h-3 rounded-full bg-green-500 animate-pulse"></span>
+                            <span class="text-xs text-slate-600 dark:text-slate-400">Working</span>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <span class="w-3 h-3 rounded-full bg-amber-500"></span>
+                            <span class="text-xs text-slate-600 dark:text-slate-400">Idle / Waiting</span>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <span class="w-3 h-3 rounded-full bg-red-500 animate-pulse"></span>
+                            <span class="text-xs text-slate-600 dark:text-slate-400">Error / Needs Attention</span>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <span class="w-3 h-3 rounded-full bg-slate-400"></span>
+                            <span class="text-xs text-slate-600 dark:text-slate-400">Disabled / Not Configured</span>
+                        </div>
+                    </div>
+
+                    <!-- Main Flowchart Grid -->
+                    <div class="grid grid-cols-1 xl:grid-cols-4 gap-6">
+
+                        <!-- PHASE 1: Data Fetching & Email Sending -->
+                        <div class="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 p-5">
+                            <div class="flex items-center gap-2 mb-4">
+                                <div class="w-8 h-8 rounded-full bg-blue-100 dark:bg-blue-900 flex items-center justify-center">
+                                    <span class="text-blue-600 dark:text-blue-400 font-bold text-sm">1</span>
+                                </div>
+                                <h4 class="font-bold text-slate-800 dark:text-white">Data Fetching & Outreach</h4>
+                            </div>
+
+                            <!-- Flow Steps -->
+                            <div class="space-y-3">
+                                <!-- User Action -->
+                                <div class="process-node process-node-user">
+                                    <i class="fa-solid fa-user text-blue-500"></i>
+                                    <span>User enters Job ID</span>
+                                </div>
+                                <div class="process-arrow"><i class="fa-solid fa-arrow-down text-slate-400"></i></div>
+
+                                <!-- BigQuery Fetch -->
+                                <div id="node-bigquery" class="process-node process-node-action">
+                                    <div class="flex items-center gap-2">
+                                        <span id="status-bigquery" class="status-light status-idle"></span>
+                                        <i class="fa-solid fa-database text-purple-500"></i>
+                                        <span>BigQuery Fetch</span>
+                                    </div>
+                                    <div class="text-xs text-slate-500 mt-1" id="bigquery-detail">getDevelopers()</div>
+                                </div>
+                                <div class="process-arrow"><i class="fa-solid fa-arrow-down text-slate-400"></i></div>
+
+                                <!-- Decision: Data Found? -->
+                                <div class="process-node process-node-decision">
+                                    <i class="fa-solid fa-code-branch text-amber-500"></i>
+                                    <span>Candidates Found?</span>
+                                </div>
+                                <div class="flex gap-4 text-xs">
+                                    <div class="flex-1 text-center">
+                                        <div class="text-green-600 font-medium">Yes</div>
+                                        <i class="fa-solid fa-arrow-down text-green-400"></i>
+                                    </div>
+                                    <div class="flex-1 text-center">
+                                        <div class="text-red-500 font-medium">No</div>
+                                        <i class="fa-solid fa-arrow-right text-red-400"></i>
+                                        <span class="text-slate-400">Stop</span>
+                                    </div>
+                                </div>
+
+                                <!-- Email Sending -->
+                                <div id="node-email-send" class="process-node process-node-action">
+                                    <div class="flex items-center gap-2">
+                                        <span id="status-email-send" class="status-light status-idle"></span>
+                                        <i class="fa-solid fa-envelope text-green-500"></i>
+                                        <span>Send Bulk Emails</span>
+                                    </div>
+                                    <div class="text-xs text-slate-500 mt-1" id="email-send-detail">sendBulkEmails()</div>
+                                </div>
+                                <div class="process-arrow"><i class="fa-solid fa-arrow-down text-slate-400"></i></div>
+
+                                <!-- Outputs -->
+                                <div class="grid grid-cols-2 gap-2">
+                                    <div class="process-node-mini">
+                                        <i class="fa-solid fa-list-check text-blue-400 text-xs"></i>
+                                        <span class="text-xs">Email_Logs</span>
+                                    </div>
+                                    <div class="process-node-mini">
+                                        <i class="fa-solid fa-brain text-purple-400 text-xs"></i>
+                                        <span class="text-xs">Negotiation_State</span>
+                                    </div>
+                                    <div class="process-node-mini">
+                                        <i class="fa-solid fa-clock text-amber-400 text-xs"></i>
+                                        <span class="text-xs">Follow_Up_Queue</span>
+                                    </div>
+                                    <div class="process-node-mini">
+                                        <i class="fa-solid fa-table text-green-400 text-xs"></i>
+                                        <span class="text-xs">Job_Details</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- PHASE 2: Auto Negotiation -->
+                        <div class="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 p-5">
+                            <div class="flex items-center gap-2 mb-4">
+                                <div class="w-8 h-8 rounded-full bg-purple-100 dark:bg-purple-900 flex items-center justify-center">
+                                    <span class="text-purple-600 dark:text-purple-400 font-bold text-sm">2</span>
+                                </div>
+                                <h4 class="font-bold text-slate-800 dark:text-white">Auto Negotiation</h4>
+                                <span class="ml-auto text-xs bg-purple-100 dark:bg-purple-900 text-purple-600 dark:text-purple-400 px-2 py-1 rounded-full">Hourly</span>
+                            </div>
+
+                            <!-- Flow Steps -->
+                            <div class="space-y-3">
+                                <!-- Trigger -->
+                                <div id="node-auto-negotiator" class="process-node process-node-trigger">
+                                    <div class="flex items-center gap-2">
+                                        <span id="status-auto-negotiator" class="status-light status-idle"></span>
+                                        <i class="fa-solid fa-clock text-purple-500"></i>
+                                        <span>runAutoNegotiator()</span>
+                                    </div>
+                                    <div class="text-xs text-slate-500 mt-1" id="auto-negotiator-detail">Trigger: Every hour</div>
+                                </div>
+                                <div class="process-arrow"><i class="fa-solid fa-arrow-down text-slate-400"></i></div>
+
+                                <!-- Sync Gmail -->
+                                <div class="process-node process-node-action">
+                                    <div class="flex items-center gap-2">
+                                        <i class="fa-solid fa-sync text-blue-500"></i>
+                                        <span>Sync Gmail Threads</span>
+                                    </div>
+                                    <div class="text-xs text-slate-500 mt-1">syncCompletedFromGmail()</div>
+                                </div>
+                                <div class="process-arrow"><i class="fa-solid fa-arrow-down text-slate-400"></i></div>
+
+                                <!-- Decision: Reply? -->
+                                <div class="process-node process-node-decision">
+                                    <i class="fa-solid fa-code-branch text-amber-500"></i>
+                                    <span>Candidate Replied?</span>
+                                </div>
+                                <div class="flex gap-4 text-xs mb-2">
+                                    <div class="flex-1 text-center">
+                                        <div class="text-green-600 font-medium">Yes</div>
+                                        <i class="fa-solid fa-arrow-down text-green-400"></i>
+                                    </div>
+                                    <div class="flex-1 text-center">
+                                        <div class="text-red-500 font-medium">No</div>
+                                        <span class="text-slate-400 text-xs">Skip</span>
+                                    </div>
+                                </div>
+
+                                <!-- Decision: Attempts? -->
+                                <div class="process-node process-node-decision">
+                                    <i class="fa-solid fa-code-branch text-amber-500"></i>
+                                    <span>Attempts &lt; 2?</span>
+                                </div>
+                                <div class="flex gap-2 text-xs">
+                                    <div class="flex-1 text-center">
+                                        <div class="text-green-600 font-medium">Yes</div>
+                                        <i class="fa-solid fa-arrow-down text-green-400"></i>
+                                    </div>
+                                    <div class="flex-1 text-center">
+                                        <div class="text-red-500 font-medium">No</div>
+                                        <i class="fa-solid fa-arrow-right text-red-400"></i>
+                                    </div>
+                                </div>
+
+                                <!-- Two outcomes -->
+                                <div class="grid grid-cols-2 gap-2">
+                                    <!-- AI Reply -->
+                                    <div id="node-openai" class="process-node process-node-action p-2">
+                                        <div class="flex items-center gap-1">
+                                            <span id="status-openai" class="status-light status-idle"></span>
+                                            <i class="fa-solid fa-robot text-green-500 text-xs"></i>
+                                            <span class="text-xs">AI Reply</span>
+                                        </div>
+                                        <div class="text-[10px] text-slate-500">OpenAI API</div>
+                                    </div>
+                                    <!-- Escalate -->
+                                    <div class="process-node process-node-output p-2">
+                                        <div class="flex items-center gap-1">
+                                            <i class="fa-solid fa-user-tie text-amber-500 text-xs"></i>
+                                            <span class="text-xs">Escalate</span>
+                                        </div>
+                                        <div class="text-[10px] text-slate-500">To Human</div>
+                                    </div>
+                                </div>
+
+                                <!-- Rate Logic -->
+                                <div class="mt-3 p-2 bg-slate-50 dark:bg-slate-900 rounded-lg text-xs">
+                                    <div class="font-medium text-slate-600 dark:text-slate-400 mb-1">Rate Offers:</div>
+                                    <div class="text-slate-500">1st: 70% of target</div>
+                                    <div class="text-slate-500">2nd: 100% of target</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- PHASE 3: Follow-Up Processing -->
+                        <div class="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 p-5">
+                            <div class="flex items-center gap-2 mb-4">
+                                <div class="w-8 h-8 rounded-full bg-amber-100 dark:bg-amber-900 flex items-center justify-center">
+                                    <span class="text-amber-600 dark:text-amber-400 font-bold text-sm">3</span>
+                                </div>
+                                <h4 class="font-bold text-slate-800 dark:text-white">Follow-Up Processor</h4>
+                                <span class="ml-auto text-xs bg-amber-100 dark:bg-amber-900 text-amber-600 dark:text-amber-400 px-2 py-1 rounded-full">Hourly</span>
+                            </div>
+
+                            <!-- Flow Steps -->
+                            <div class="space-y-3">
+                                <!-- Trigger -->
+                                <div id="node-followup-processor" class="process-node process-node-trigger">
+                                    <div class="flex items-center gap-2">
+                                        <span id="status-followup-processor" class="status-light status-idle"></span>
+                                        <i class="fa-solid fa-clock text-amber-500"></i>
+                                        <span>runFollowUpProcessor()</span>
+                                    </div>
+                                    <div class="text-xs text-slate-500 mt-1" id="followup-processor-detail">Trigger: Every hour</div>
+                                </div>
+                                <div class="process-arrow"><i class="fa-solid fa-arrow-down text-slate-400"></i></div>
+
+                                <!-- Load Queue -->
+                                <div class="process-node process-node-action">
+                                    <div class="flex items-center gap-2">
+                                        <i class="fa-solid fa-table text-blue-500"></i>
+                                        <span>Load Follow_Up_Queue</span>
+                                    </div>
+                                </div>
+                                <div class="process-arrow"><i class="fa-solid fa-arrow-down text-slate-400"></i></div>
+
+                                <!-- Decision: Response? -->
+                                <div class="process-node process-node-decision">
+                                    <i class="fa-solid fa-code-branch text-amber-500"></i>
+                                    <span>Candidate Responded?</span>
+                                </div>
+                                <div class="flex gap-4 text-xs">
+                                    <div class="flex-1 text-center">
+                                        <div class="text-green-600 font-medium">Yes</div>
+                                        <i class="fa-solid fa-arrow-down text-green-400"></i>
+                                        <div class="process-node-mini mt-1">
+                                            <i class="fa-solid fa-check text-green-400 text-xs"></i>
+                                            <span class="text-xs">Responded</span>
+                                        </div>
+                                    </div>
+                                    <div class="flex-1 text-center">
+                                        <div class="text-red-500 font-medium">No</div>
+                                        <i class="fa-solid fa-arrow-down text-red-400"></i>
+                                    </div>
+                                </div>
+
+                                <!-- Time-based decisions -->
+                                <div class="mt-2 p-3 bg-slate-50 dark:bg-slate-900 rounded-lg">
+                                    <div class="text-xs font-medium text-slate-600 dark:text-slate-400 mb-2">Time Since Initial:</div>
+                                    <div class="space-y-2 text-xs">
+                                        <div class="flex items-center gap-2">
+                                            <span class="w-16 font-mono text-slate-500">12h+</span>
+                                            <i class="fa-solid fa-arrow-right text-slate-400 text-xs"></i>
+                                            <span class="px-2 py-0.5 bg-blue-100 dark:bg-blue-900 text-blue-600 dark:text-blue-400 rounded">1st Follow-Up</span>
+                                        </div>
+                                        <div class="flex items-center gap-2">
+                                            <span class="w-16 font-mono text-slate-500">28h+</span>
+                                            <i class="fa-solid fa-arrow-right text-slate-400 text-xs"></i>
+                                            <span class="px-2 py-0.5 bg-amber-100 dark:bg-amber-900 text-amber-600 dark:text-amber-400 rounded">2nd Follow-Up</span>
+                                        </div>
+                                        <div class="flex items-center gap-2">
+                                            <span class="w-16 font-mono text-slate-500">76h+</span>
+                                            <i class="fa-solid fa-arrow-right text-slate-400 text-xs"></i>
+                                            <span class="px-2 py-0.5 bg-red-100 dark:bg-red-900 text-red-600 dark:text-red-400 rounded">Unresponsive</span>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Follow-up emails -->
+                                <div id="node-followup-email" class="process-node process-node-action">
+                                    <div class="flex items-center gap-2">
+                                        <span id="status-followup-email" class="status-light status-idle"></span>
+                                        <i class="fa-solid fa-paper-plane text-blue-500"></i>
+                                        <span>Send Follow-Up</span>
+                                    </div>
+                                    <div class="text-xs text-slate-500 mt-1">sendFollowUpEmail()</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- PHASE 4: Human Review & Completion -->
+                        <div class="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 p-5">
+                            <div class="flex items-center gap-2 mb-4">
+                                <div class="w-8 h-8 rounded-full bg-green-100 dark:bg-green-900 flex items-center justify-center">
+                                    <span class="text-green-600 dark:text-green-400 font-bold text-sm">4</span>
+                                </div>
+                                <h4 class="font-bold text-slate-800 dark:text-white">Human Review</h4>
+                                <span class="ml-auto text-xs bg-green-100 dark:bg-green-900 text-green-600 dark:text-green-400 px-2 py-1 rounded-full">Manual</span>
+                            </div>
+
+                            <!-- Flow Steps -->
+                            <div class="space-y-3">
+                                <!-- Task List -->
+                                <div class="process-node process-node-user">
+                                    <i class="fa-solid fa-clipboard-check text-green-500"></i>
+                                    <span>Task List (UI)</span>
+                                </div>
+                                <div class="process-arrow"><i class="fa-solid fa-arrow-down text-slate-400"></i></div>
+
+                                <!-- Sources -->
+                                <div class="grid grid-cols-2 gap-2 mb-2">
+                                    <div class="process-node-mini">
+                                        <i class="fa-solid fa-user-tag text-purple-400 text-xs"></i>
+                                        <span class="text-xs">Escalated</span>
+                                    </div>
+                                    <div class="process-node-mini">
+                                        <i class="fa-solid fa-bell text-amber-400 text-xs"></i>
+                                        <span class="text-xs">Human-Negotiation</span>
+                                    </div>
+                                </div>
+
+                                <!-- User reviews -->
+                                <div class="process-node process-node-user">
+                                    <i class="fa-solid fa-user-check text-blue-500"></i>
+                                    <span>Admin Reviews Task</span>
+                                </div>
+                                <div class="process-arrow"><i class="fa-solid fa-arrow-down text-slate-400"></i></div>
+
+                                <!-- Decision: Outcome -->
+                                <div class="process-node process-node-decision">
+                                    <i class="fa-solid fa-code-branch text-amber-500"></i>
+                                    <span>Final Decision?</span>
+                                </div>
+
+                                <!-- Outcomes -->
+                                <div class="grid grid-cols-2 gap-2">
+                                    <div class="process-node-mini bg-green-50 dark:bg-green-900/30 border-green-200 dark:border-green-800">
+                                        <i class="fa-solid fa-check text-green-500 text-xs"></i>
+                                        <span class="text-xs text-green-700 dark:text-green-400">Accepted</span>
+                                    </div>
+                                    <div class="process-node-mini bg-red-50 dark:bg-red-900/30 border-red-200 dark:border-red-800">
+                                        <i class="fa-solid fa-times text-red-500 text-xs"></i>
+                                        <span class="text-xs text-red-700 dark:text-red-400">Rejected</span>
+                                    </div>
+                                    <div class="process-node-mini bg-amber-50 dark:bg-amber-900/30 border-amber-200 dark:border-amber-800">
+                                        <i class="fa-solid fa-user-minus text-amber-500 text-xs"></i>
+                                        <span class="text-xs text-amber-700 dark:text-amber-400">Withdrew</span>
+                                    </div>
+                                    <div class="process-node-mini bg-slate-50 dark:bg-slate-900/30 border-slate-200 dark:border-slate-700">
+                                        <i class="fa-solid fa-ellipsis text-slate-500 text-xs"></i>
+                                        <span class="text-xs text-slate-700 dark:text-slate-400">Other</span>
+                                    </div>
+                                </div>
+                                <div class="process-arrow"><i class="fa-solid fa-arrow-down text-slate-400"></i></div>
+
+                                <!-- Complete -->
+                                <div id="node-complete" class="process-node process-node-action">
+                                    <div class="flex items-center gap-2">
+                                        <span id="status-complete" class="status-light status-idle"></span>
+                                        <i class="fa-solid fa-flag-checkered text-green-500"></i>
+                                        <span>Complete Negotiation</span>
+                                    </div>
+                                    <div class="text-xs text-slate-500 mt-1">completeHumanNegotiation()</div>
+                                </div>
+
+                                <!-- Final outputs -->
+                                <div class="grid grid-cols-2 gap-2 mt-2">
+                                    <div class="process-node-mini">
+                                        <i class="fa-solid fa-archive text-slate-400 text-xs"></i>
+                                        <span class="text-xs">Negotiation_Completed</span>
+                                    </div>
+                                    <div class="process-node-mini">
+                                        <i class="fa-solid fa-tag text-blue-400 text-xs"></i>
+                                        <span class="text-xs">Gmail Label</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Status Dashboard -->
+                    <div class="mt-6 grid grid-cols-1 lg:grid-cols-3 gap-6">
+                        <!-- System Status -->
+                        <div class="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 p-5">
+                            <h4 class="font-bold text-slate-800 dark:text-white mb-4 flex items-center gap-2">
+                                <i class="fa-solid fa-heartbeat text-red-500"></i> System Status
+                            </h4>
+                            <div id="systemStatusContainer" class="space-y-3">
+                                <div class="status-row">
+                                    <span id="status-light-trigger-negotiator" class="status-light status-checking"></span>
+                                    <span class="status-label">Auto Negotiator Trigger</span>
+                                    <span id="status-text-trigger-negotiator" class="status-value">Checking...</span>
+                                </div>
+                                <div class="status-row">
+                                    <span id="status-light-trigger-followup" class="status-light status-checking"></span>
+                                    <span class="status-label">Follow-Up Processor Trigger</span>
+                                    <span id="status-text-trigger-followup" class="status-value">Checking...</span>
+                                </div>
+                                <div class="status-row">
+                                    <span id="status-light-sheets" class="status-light status-checking"></span>
+                                    <span class="status-label">Database Sheets</span>
+                                    <span id="status-text-sheets" class="status-value">Checking...</span>
+                                </div>
+                                <div class="status-row">
+                                    <span id="status-light-gmail" class="status-light status-checking"></span>
+                                    <span class="status-label">Gmail API</span>
+                                    <span id="status-text-gmail" class="status-value">Checking...</span>
+                                </div>
+                                <div class="status-row">
+                                    <span id="status-light-openai" class="status-light status-checking"></span>
+                                    <span class="status-label">OpenAI API</span>
+                                    <span id="status-text-openai" class="status-value">Checking...</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Today's Statistics -->
+                        <div class="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 p-5">
+                            <h4 class="font-bold text-slate-800 dark:text-white mb-4 flex items-center gap-2">
+                                <i class="fa-solid fa-chart-pie text-blue-500"></i> Today's Activity
+                            </h4>
+                            <div id="todayStatsContainer" class="grid grid-cols-2 gap-3">
+                                <div class="stat-box">
+                                    <div class="stat-value" id="stat-emails-sent">-</div>
+                                    <div class="stat-label">Emails Sent</div>
+                                </div>
+                                <div class="stat-box">
+                                    <div class="stat-value" id="stat-ai-replies">-</div>
+                                    <div class="stat-label">AI Replies</div>
+                                </div>
+                                <div class="stat-box">
+                                    <div class="stat-value" id="stat-escalated">-</div>
+                                    <div class="stat-label">Escalated</div>
+                                </div>
+                                <div class="stat-box">
+                                    <div class="stat-value" id="stat-followups-sent">-</div>
+                                    <div class="stat-label">Follow-Ups Sent</div>
+                                </div>
+                                <div class="stat-box">
+                                    <div class="stat-value" id="stat-completed">-</div>
+                                    <div class="stat-label">Completed</div>
+                                </div>
+                                <div class="stat-box">
+                                    <div class="stat-value" id="stat-unresponsive">-</div>
+                                    <div class="stat-label">Unresponsive</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Queue Status -->
+                        <div class="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 p-5">
+                            <h4 class="font-bold text-slate-800 dark:text-white mb-4 flex items-center gap-2">
+                                <i class="fa-solid fa-layer-group text-purple-500"></i> Queue Status
+                            </h4>
+                            <div id="queueStatusContainer" class="space-y-3">
+                                <div class="flex justify-between items-center py-2 border-b border-slate-100 dark:border-slate-700">
+                                    <span class="text-sm text-slate-600 dark:text-slate-400">Active Negotiations</span>
+                                    <span id="queue-negotiations" class="font-bold text-slate-800 dark:text-white">-</span>
+                                </div>
+                                <div class="flex justify-between items-center py-2 border-b border-slate-100 dark:border-slate-700">
+                                    <span class="text-sm text-slate-600 dark:text-slate-400">Pending Follow-Ups</span>
+                                    <span id="queue-followups" class="font-bold text-slate-800 dark:text-white">-</span>
+                                </div>
+                                <div class="flex justify-between items-center py-2 border-b border-slate-100 dark:border-slate-700">
+                                    <span class="text-sm text-slate-600 dark:text-slate-400">Awaiting Human Review</span>
+                                    <span id="queue-human" class="font-bold text-slate-800 dark:text-white">-</span>
+                                </div>
+                                <div class="flex justify-between items-center py-2">
+                                    <span class="text-sm text-slate-600 dark:text-slate-400">Configured Jobs</span>
+                                    <span id="queue-jobs" class="font-bold text-slate-800 dark:text-white">-</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Recent Activity Log -->
+                    <div class="mt-6 bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 p-5">
+                        <div class="flex justify-between items-center mb-4">
+                            <h4 class="font-bold text-slate-800 dark:text-white flex items-center gap-2">
+                                <i class="fa-solid fa-history text-amber-500"></i> Recent Activity
+                            </h4>
+                            <span class="text-xs text-slate-500">Last 24 hours</span>
+                        </div>
+                        <div id="activityLogContainer" class="max-h-48 overflow-y-auto space-y-2">
+                            <div class="text-center py-6 text-slate-400">
+                                <i class="fa-solid fa-spinner fa-spin text-xl mb-2 block"></i>
+                                <span class="text-sm">Loading activity...</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
             </div>
         </div>
     </main>
@@ -1970,9 +2736,15 @@
                 'tasks': 'Task List',
                 'followups': 'Follow-Ups',
                 'analytics': 'Analytics',
-                'aitesting': 'AI Testing' // AI TESTING FEATURE - DELETE FOR PRODUCTION
+                'aitesting': 'AI Testing', // AI TESTING FEATURE - DELETE FOR PRODUCTION
+                'processmap': 'System Process Map'
             };
             document.getElementById('headerTitle').textContent = titles[tabName] || 'Dashboard';
+
+            // Load process map data when switching to that tab
+            if (tabName === 'processmap') {
+                loadProcessMapData();
+            }
 
             // Trigger data loads only if cache is invalid
             if(tabName === 'tasks' && !isCacheValid('tasks')) loadTasks();
@@ -3913,6 +4685,14 @@
                 if (aiTestingNavTab) aiTestingNavTab.classList.add('hidden');
             }
             // AI TESTING FEATURE - DELETE FOR PRODUCTION (END)
+
+            // Process Map - Admin Only
+            const processMapNavTab = document.getElementById('processMapNavTab');
+            if (userPermissions.isAdmin) {
+                if (processMapNavTab) processMapNavTab.classList.remove('hidden');
+            } else {
+                if (processMapNavTab) processMapNavTab.classList.add('hidden');
+            }
         }
 
         // Update UI based on role (show/hide operational tabs)
@@ -4968,6 +5748,221 @@
             showToast('History cleared', 'info');
         }
         // ===== AI TESTING FEATURE - DELETE FOR PRODUCTION (END JAVASCRIPT) =====
+
+        // ===== PROCESS MAP FUNCTIONS =====
+
+        // Load all process map data
+        function loadProcessMapData() {
+            refreshProcessMap();
+        }
+
+        // Refresh all process map status indicators
+        function refreshProcessMap() {
+            const btn = document.getElementById('refreshProcessMapBtn');
+            if (btn) {
+                btn.disabled = true;
+                btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Refreshing...';
+            }
+
+            // Call server-side function to get process status
+            google.script.run
+                .withSuccessHandler(function(data) {
+                    if (data && !data.error) {
+                        updateProcessMapUI(data);
+                    } else {
+                        console.error('Failed to load process map data:', data?.error);
+                        showToast('Failed to load process status', 'error');
+                    }
+                    if (btn) {
+                        btn.disabled = false;
+                        btn.innerHTML = '<i class="fa-solid fa-sync"></i> Refresh Status';
+                    }
+                })
+                .withFailureHandler(function(err) {
+                    console.error('Error loading process map:', err);
+                    showToast('Error loading process status', 'error');
+                    if (btn) {
+                        btn.disabled = false;
+                        btn.innerHTML = '<i class="fa-solid fa-sync"></i> Refresh Status';
+                    }
+                })
+                .getProcessMapStatus();
+        }
+
+        // Update the Process Map UI with data
+        function updateProcessMapUI(data) {
+            // Update System Status lights
+            updateStatusLight('status-light-trigger-negotiator', 'status-text-trigger-negotiator', data.triggers?.negotiator);
+            updateStatusLight('status-light-trigger-followup', 'status-text-trigger-followup', data.triggers?.followup);
+            updateStatusLight('status-light-sheets', 'status-text-sheets', data.sheets);
+            updateStatusLight('status-light-gmail', 'status-text-gmail', data.gmail);
+            updateStatusLight('status-light-openai', 'status-text-openai', data.openai);
+
+            // Update Today's Statistics
+            if (data.todayStats) {
+                document.getElementById('stat-emails-sent').textContent = data.todayStats.emailsSent || 0;
+                document.getElementById('stat-ai-replies').textContent = data.todayStats.aiReplies || 0;
+                document.getElementById('stat-escalated').textContent = data.todayStats.escalated || 0;
+                document.getElementById('stat-followups-sent').textContent = data.todayStats.followupsSent || 0;
+                document.getElementById('stat-completed').textContent = data.todayStats.completed || 0;
+                document.getElementById('stat-unresponsive').textContent = data.todayStats.unresponsive || 0;
+            }
+
+            // Update Queue Status
+            if (data.queueStatus) {
+                document.getElementById('queue-negotiations').textContent = data.queueStatus.activeNegotiations || 0;
+                document.getElementById('queue-followups').textContent = data.queueStatus.pendingFollowups || 0;
+                document.getElementById('queue-human').textContent = data.queueStatus.humanReview || 0;
+                document.getElementById('queue-jobs').textContent = data.queueStatus.configuredJobs || 0;
+            }
+
+            // Update Activity Log
+            if (data.recentActivity) {
+                renderActivityLog(data.recentActivity);
+            }
+
+            // Update flowchart node status lights
+            updateFlowchartNodes(data);
+        }
+
+        // Update individual status light
+        function updateStatusLight(lightId, textId, statusData) {
+            const light = document.getElementById(lightId);
+            const text = document.getElementById(textId);
+
+            if (!light || !text) return;
+
+            // Remove all status classes
+            light.classList.remove('status-ok', 'status-idle', 'status-error', 'status-disabled', 'status-checking');
+
+            if (!statusData) {
+                light.classList.add('status-disabled');
+                text.textContent = 'Unknown';
+                return;
+            }
+
+            if (statusData.status === 'ok') {
+                light.classList.add('status-ok');
+                text.textContent = statusData.message || 'Active';
+            } else if (statusData.status === 'idle') {
+                light.classList.add('status-idle');
+                text.textContent = statusData.message || 'Idle';
+            } else if (statusData.status === 'error') {
+                light.classList.add('status-error');
+                text.textContent = statusData.message || 'Error';
+            } else if (statusData.status === 'disabled') {
+                light.classList.add('status-disabled');
+                text.textContent = statusData.message || 'Disabled';
+            } else {
+                light.classList.add('status-idle');
+                text.textContent = statusData.message || '-';
+            }
+        }
+
+        // Update flowchart node status lights
+        function updateFlowchartNodes(data) {
+            // Auto Negotiator node
+            const negotiatorLight = document.getElementById('status-auto-negotiator');
+            if (negotiatorLight) {
+                negotiatorLight.classList.remove('status-ok', 'status-idle', 'status-error', 'status-disabled');
+                if (data.triggers?.negotiator?.status === 'ok') {
+                    negotiatorLight.classList.add('status-ok');
+                } else if (data.triggers?.negotiator?.status === 'error') {
+                    negotiatorLight.classList.add('status-error');
+                } else {
+                    negotiatorLight.classList.add('status-idle');
+                }
+            }
+
+            // Follow-up Processor node
+            const followupLight = document.getElementById('status-followup-processor');
+            if (followupLight) {
+                followupLight.classList.remove('status-ok', 'status-idle', 'status-error', 'status-disabled');
+                if (data.triggers?.followup?.status === 'ok') {
+                    followupLight.classList.add('status-ok');
+                } else if (data.triggers?.followup?.status === 'error') {
+                    followupLight.classList.add('status-error');
+                } else {
+                    followupLight.classList.add('status-idle');
+                }
+            }
+
+            // OpenAI node
+            const openaiLight = document.getElementById('status-openai');
+            if (openaiLight) {
+                openaiLight.classList.remove('status-ok', 'status-idle', 'status-error', 'status-disabled');
+                if (data.openai?.status === 'ok') {
+                    openaiLight.classList.add('status-ok');
+                } else if (data.openai?.status === 'error') {
+                    openaiLight.classList.add('status-error');
+                } else {
+                    openaiLight.classList.add('status-idle');
+                }
+            }
+        }
+
+        // Render the activity log
+        function renderActivityLog(activities) {
+            const container = document.getElementById('activityLogContainer');
+            if (!container) return;
+
+            if (!activities || activities.length === 0) {
+                container.innerHTML = `
+                    <div class="text-center py-6 text-slate-400">
+                        <i class="fa-regular fa-clock text-xl mb-2 block"></i>
+                        <span class="text-sm">No recent activity</span>
+                    </div>
+                `;
+                return;
+            }
+
+            const typeStyles = {
+                'success': { bg: 'bg-green-100 dark:bg-green-900/30', icon: 'fa-check', color: 'text-green-600' },
+                'error': { bg: 'bg-red-100 dark:bg-red-900/30', icon: 'fa-times', color: 'text-red-600' },
+                'info': { bg: 'bg-blue-100 dark:bg-blue-900/30', icon: 'fa-info', color: 'text-blue-600' },
+                'warning': { bg: 'bg-amber-100 dark:bg-amber-900/30', icon: 'fa-exclamation', color: 'text-amber-600' },
+                'email': { bg: 'bg-green-100 dark:bg-green-900/30', icon: 'fa-envelope', color: 'text-green-600' },
+                'negotiation': { bg: 'bg-purple-100 dark:bg-purple-900/30', icon: 'fa-robot', color: 'text-purple-600' },
+                'followup': { bg: 'bg-amber-100 dark:bg-amber-900/30', icon: 'fa-clock', color: 'text-amber-600' },
+                'escalation': { bg: 'bg-red-100 dark:bg-red-900/30', icon: 'fa-user-tie', color: 'text-red-600' },
+                'completed': { bg: 'bg-green-100 dark:bg-green-900/30', icon: 'fa-flag-checkered', color: 'text-green-600' }
+            };
+
+            container.innerHTML = activities.map(item => {
+                const style = typeStyles[item.type] || typeStyles['info'];
+                const timeAgo = formatTimeAgo(item.timestamp);
+                return `
+                    <div class="activity-item activity-${item.type === 'error' ? 'error' : item.type === 'success' || item.type === 'email' || item.type === 'completed' ? 'success' : item.type === 'warning' || item.type === 'escalation' ? 'warning' : 'info'}">
+                        <div class="activity-icon ${style.bg}">
+                            <i class="fa-solid ${style.icon} ${style.color} text-xs"></i>
+                        </div>
+                        <div class="activity-content">
+                            <div class="activity-title">${item.message}</div>
+                            <div class="activity-time">${timeAgo}</div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        // Format time ago
+        function formatTimeAgo(timestamp) {
+            if (!timestamp) return '';
+            try {
+                const date = new Date(timestamp);
+                const now = new Date();
+                const diffMs = now - date;
+                const diffMins = Math.floor(diffMs / 60000);
+                const diffHours = Math.floor(diffMs / 3600000);
+
+                if (diffMins < 1) return 'Just now';
+                if (diffMins < 60) return `${diffMins}m ago`;
+                if (diffHours < 24) return `${diffHours}h ago`;
+                return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+            } catch (e) {
+                return '';
+            }
+        }
 
     </script>
 </body>
