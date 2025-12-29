@@ -2079,9 +2079,9 @@
                                     <div class="flex items-center gap-2">
                                         <span id="status-auto-negotiator" class="status-light status-idle"></span>
                                         <i class="fa-solid fa-clock text-purple-500"></i>
-                                        <span>Auto Negotiator</span>
+                                        <span>runAutoNegotiator()</span>
                                     </div>
-                                    <div class="text-xs text-slate-500 mt-1" id="auto-negotiator-detail">Hourly Trigger</div>
+                                    <div class="text-xs text-slate-500 mt-1" id="auto-negotiator-detail">Trigger: Every hour</div>
                                 </div>
                                 <div class="process-arrow"><i class="fa-solid fa-arrow-down text-slate-400"></i></div>
 
@@ -2090,9 +2090,8 @@
                                     <span class="pm-tooltip-text">Checks Gmail for completed negotiations and syncs their status</span>
                                     <div class="flex items-center gap-2">
                                         <i class="fa-solid fa-sync text-blue-500"></i>
-                                        <span>Sync Gmail</span>
+                                        <span>syncCompletedFromGmail()</span>
                                     </div>
-                                    <div class="text-xs text-slate-500 mt-1">Sync completed threads</div>
                                 </div>
                                 <div class="process-arrow"><i class="fa-solid fa-arrow-down text-slate-400"></i></div>
 
@@ -2178,9 +2177,9 @@
                                     <div class="flex items-center gap-2">
                                         <span id="status-followup-processor" class="status-light status-idle"></span>
                                         <i class="fa-solid fa-clock text-amber-500"></i>
-                                        <span>Follow-Up Bot</span>
+                                        <span>runFollowUpProcessor()</span>
                                     </div>
-                                    <div class="text-xs text-slate-500 mt-1" id="followup-processor-detail">Hourly Trigger</div>
+                                    <div class="text-xs text-slate-500 mt-1" id="followup-processor-detail">Trigger: Every hour</div>
                                 </div>
                                 <div class="process-arrow"><i class="fa-solid fa-arrow-down text-slate-400"></i></div>
 
@@ -2189,7 +2188,7 @@
                                     <span class="pm-tooltip-text">Loads list of candidates waiting for follow-up</span>
                                     <div class="flex items-center gap-2">
                                         <i class="fa-solid fa-table text-blue-500"></i>
-                                        <span>Load Queue</span>
+                                        <span>Load Follow_Up_Queue</span>
                                     </div>
                                 </div>
                                 <div class="process-arrow"><i class="fa-solid fa-arrow-down text-slate-400"></i></div>
