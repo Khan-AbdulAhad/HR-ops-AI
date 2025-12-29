@@ -635,7 +635,7 @@
             white-space: nowrap;
             min-width: 0;
             position: relative;
-            cursor: help;
+            cursor: pointer;
         }
         .dark .process-node-mini {
             background: #1e293b;
@@ -664,15 +664,12 @@
         /* Process Map Tooltip */
         .pm-tooltip {
             position: relative;
-            cursor: help;
+            cursor: pointer;
         }
         .pm-tooltip .pm-tooltip-text {
             visibility: hidden;
             opacity: 0;
-            position: absolute;
-            bottom: 100%;
-            left: 50%;
-            transform: translateX(-50%);
+            position: fixed;
             background: #1e293b;
             color: white;
             padding: 0.5rem 0.75rem;
@@ -683,20 +680,15 @@
             width: max-content;
             max-width: 200px;
             text-align: center;
-            z-index: 100;
-            margin-bottom: 6px;
+            z-index: 9999;
             box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-            transition: opacity 0.2s, visibility 0.2s;
+            transition: opacity 0.15s, visibility 0.15s;
             line-height: 1.4;
+            pointer-events: none;
         }
+        /* Arrow hidden for fixed positioning */
         .pm-tooltip .pm-tooltip-text::after {
-            content: '';
-            position: absolute;
-            top: 100%;
-            left: 50%;
-            transform: translateX(-50%);
-            border: 6px solid transparent;
-            border-top-color: #1e293b;
+            display: none;
         }
         .pm-tooltip:hover .pm-tooltip-text {
             visibility: visible;
@@ -6282,15 +6274,34 @@
         // Position tooltips dynamically to avoid clipping
         (function initProcessMapTooltips() {
             document.addEventListener('mouseover', function(e) {
-                const wrapper = e.target.closest('.process-tooltip-wrapper');
-                if (!wrapper) return;
+                // Handle both tooltip systems
+                let wrapper = e.target.closest('.process-tooltip-wrapper');
+                let tooltip = wrapper ? wrapper.querySelector('.process-tooltip') : null;
 
-                const tooltip = wrapper.querySelector('.process-tooltip');
-                if (!tooltip) return;
+                // Also check for pm-tooltip system
+                if (!wrapper) {
+                    wrapper = e.target.closest('.pm-tooltip');
+                    tooltip = wrapper ? wrapper.querySelector('.pm-tooltip-text') : null;
+                }
+
+                if (!wrapper || !tooltip) return;
 
                 // Get wrapper position
                 const rect = wrapper.getBoundingClientRect();
+
+                // Force tooltip to be visible momentarily to get its size
+                const originalVisibility = tooltip.style.visibility;
+                const originalOpacity = tooltip.style.opacity;
+                tooltip.style.visibility = 'hidden';
+                tooltip.style.opacity = '0';
+                tooltip.style.display = 'block';
+
                 const tooltipRect = tooltip.getBoundingClientRect();
+
+                // Reset
+                tooltip.style.display = '';
+                tooltip.style.visibility = originalVisibility;
+                tooltip.style.opacity = originalOpacity;
 
                 // Calculate position - above the element, centered
                 let left = rect.left + (rect.width / 2) - (tooltipRect.width / 2);
