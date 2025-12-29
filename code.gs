@@ -4654,14 +4654,81 @@ function getThreadUrl(threadId) {
 // ======================================================
 
 /**
- * Follow-up timing configuration
+ * Follow-up timing configuration (default values)
  * FOLLOW_UP_1_HOURS: Hours after initial email to send first follow-up (12 hours)
  * FOLLOW_UP_2_HOURS: Hours after initial email to send second follow-up (28 hours)
+ * These are default values - actual values are loaded from script properties
  */
-const FOLLOW_UP_CONFIG = {
+const FOLLOW_UP_CONFIG_DEFAULTS = {
   FOLLOW_UP_1_HOURS: 12,  // First follow-up after 12 hours
   FOLLOW_UP_2_HOURS: 28,  // Second follow-up after 28 hours (third total reachout)
   UNRESPONSIVE_HOURS: 76  // Mark as unresponsive 48 hours after 2nd follow-up (28 + 48 = 76 hours)
+};
+
+/**
+ * Get the follow-up timing configuration
+ * @returns {object} The timing configuration with FOLLOW_UP_1_HOURS, FOLLOW_UP_2_HOURS, UNRESPONSIVE_HOURS
+ */
+function getFollowUpTimingConfig() {
+  const stored = PropertiesService.getScriptProperties().getProperty('FOLLOW_UP_TIMING_CONFIG');
+  if (stored) {
+    try {
+      const config = JSON.parse(stored);
+      return {
+        FOLLOW_UP_1_HOURS: config.FOLLOW_UP_1_HOURS || FOLLOW_UP_CONFIG_DEFAULTS.FOLLOW_UP_1_HOURS,
+        FOLLOW_UP_2_HOURS: config.FOLLOW_UP_2_HOURS || FOLLOW_UP_CONFIG_DEFAULTS.FOLLOW_UP_2_HOURS,
+        UNRESPONSIVE_HOURS: config.UNRESPONSIVE_HOURS || FOLLOW_UP_CONFIG_DEFAULTS.UNRESPONSIVE_HOURS
+      };
+    } catch (e) {
+      console.error('Error parsing follow-up timing config:', e);
+    }
+  }
+  return { ...FOLLOW_UP_CONFIG_DEFAULTS };
+}
+
+/**
+ * Save the follow-up timing configuration
+ * @param {object} config - Object with FOLLOW_UP_1_HOURS, FOLLOW_UP_2_HOURS, UNRESPONSIVE_HOURS
+ * @returns {object} Result with success status
+ */
+function saveFollowUpTimingConfig(config) {
+  try {
+    // Validate the config values
+    const followUp1 = parseInt(config.FOLLOW_UP_1_HOURS) || FOLLOW_UP_CONFIG_DEFAULTS.FOLLOW_UP_1_HOURS;
+    const followUp2 = parseInt(config.FOLLOW_UP_2_HOURS) || FOLLOW_UP_CONFIG_DEFAULTS.FOLLOW_UP_2_HOURS;
+    const unresponsive = parseInt(config.UNRESPONSIVE_HOURS) || FOLLOW_UP_CONFIG_DEFAULTS.UNRESPONSIVE_HOURS;
+
+    // Basic validation: follow-up 2 should be after follow-up 1, unresponsive after follow-up 2
+    if (followUp1 < 1) {
+      return { success: false, error: 'First follow-up must be at least 1 hour' };
+    }
+    if (followUp2 <= followUp1) {
+      return { success: false, error: 'Second follow-up must be after first follow-up' };
+    }
+    if (unresponsive <= followUp2) {
+      return { success: false, error: 'Mark unresponsive time must be after second follow-up' };
+    }
+
+    const configToSave = {
+      FOLLOW_UP_1_HOURS: followUp1,
+      FOLLOW_UP_2_HOURS: followUp2,
+      UNRESPONSIVE_HOURS: unresponsive
+    };
+
+    PropertiesService.getScriptProperties().setProperty('FOLLOW_UP_TIMING_CONFIG', JSON.stringify(configToSave));
+
+    return { success: true, config: configToSave };
+  } catch (e) {
+    console.error('Error saving follow-up timing config:', e);
+    return { success: false, error: e.message };
+  }
+}
+
+// Dynamic getter for FOLLOW_UP_CONFIG (for backward compatibility)
+const FOLLOW_UP_CONFIG = {
+  get FOLLOW_UP_1_HOURS() { return getFollowUpTimingConfig().FOLLOW_UP_1_HOURS; },
+  get FOLLOW_UP_2_HOURS() { return getFollowUpTimingConfig().FOLLOW_UP_2_HOURS; },
+  get UNRESPONSIVE_HOURS() { return getFollowUpTimingConfig().UNRESPONSIVE_HOURS; }
 };
 
 // Gmail labels for follow-up tracking
