@@ -757,6 +757,111 @@
             50% { opacity: 1; }
         }
 
+        /* ========== PROCESS NODE TOOLTIPS ========== */
+
+        /* Tooltip container for process nodes */
+        .process-tooltip-wrapper {
+            position: relative;
+            display: inline-flex;
+            align-items: center;
+            cursor: help;
+        }
+
+        /* The tooltip itself */
+        .process-tooltip {
+            position: absolute;
+            bottom: calc(100% + 10px);
+            left: 50%;
+            transform: translateX(-50%) translateY(4px);
+            background: #1e293b;
+            color: #f8fafc;
+            padding: 10px 14px;
+            border-radius: 8px;
+            font-size: 0.75rem;
+            font-weight: 400;
+            line-height: 1.5;
+            white-space: normal;
+            min-width: 200px;
+            max-width: 280px;
+            opacity: 0;
+            visibility: hidden;
+            transition: opacity 0.2s ease, transform 0.2s ease, visibility 0.2s;
+            z-index: 1000;
+            box-shadow: 0 8px 20px rgba(0,0,0,0.25);
+            text-align: left;
+            pointer-events: none;
+        }
+
+        /* Tooltip arrow */
+        .process-tooltip::after {
+            content: '';
+            position: absolute;
+            top: 100%;
+            left: 50%;
+            transform: translateX(-50%);
+            border: 7px solid transparent;
+            border-top-color: #1e293b;
+        }
+
+        /* Show tooltip on hover */
+        .process-tooltip-wrapper:hover .process-tooltip {
+            opacity: 1;
+            visibility: visible;
+            transform: translateX(-50%) translateY(0);
+        }
+
+        /* Tooltip title styling */
+        .process-tooltip .tooltip-title {
+            font-weight: 600;
+            color: #60a5fa;
+            margin-bottom: 4px;
+            font-size: 0.8rem;
+        }
+
+        /* Technical term highlighting in tooltips */
+        .process-tooltip .tech-term {
+            color: #a78bfa;
+            font-family: 'SF Mono', 'Monaco', 'Menlo', monospace;
+            font-size: 0.7rem;
+            background: rgba(167, 139, 250, 0.15);
+            padding: 1px 4px;
+            border-radius: 3px;
+        }
+
+        /* Dark mode tooltip adjustments */
+        .dark .process-tooltip {
+            background: #334155;
+            border: 1px solid #475569;
+        }
+        .dark .process-tooltip::after {
+            border-top-color: #334155;
+        }
+
+        /* Function name styling */
+        .func-name {
+            font-family: 'SF Mono', 'Monaco', 'Menlo', monospace;
+            color: #3b82f6;
+            cursor: help;
+        }
+        .dark .func-name {
+            color: #60a5fa;
+        }
+
+        /* Text overflow handling for process nodes */
+        .process-node-text {
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            max-width: 100%;
+        }
+
+        .process-node-mini .node-label {
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            max-width: 100px;
+        }
+
         /* Status Dashboard Row */
         .status-row {
             display: flex;
@@ -2000,9 +2105,23 @@
                                     <div class="flex items-center gap-2">
                                         <span id="status-bigquery" class="status-light status-idle"></span>
                                         <i class="fa-solid fa-database text-purple-500"></i>
-                                        <span>BigQuery Fetch</span>
+                                        <span class="process-tooltip-wrapper">
+                                            BigQuery Fetch
+                                            <span class="process-tooltip">
+                                                <div class="tooltip-title">BigQuery Data Warehouse</div>
+                                                Google's serverless data warehouse that stores candidate profiles. Queries candidate data based on Job ID filters.
+                                            </span>
+                                        </span>
                                     </div>
-                                    <div class="text-xs text-slate-500 mt-1" id="bigquery-detail">getDevelopers()</div>
+                                    <div class="text-xs text-slate-500 mt-1" id="bigquery-detail">
+                                        <span class="process-tooltip-wrapper func-name">
+                                            getDevelopers()
+                                            <span class="process-tooltip">
+                                                <div class="tooltip-title">getDevelopers()</div>
+                                                Queries BigQuery to fetch developer candidates matching the job requirements. Returns name, email, skills, and rate expectations.
+                                            </span>
+                                        </span>
+                                    </div>
                                 </div>
                                 <div class="process-arrow"><i class="fa-solid fa-arrow-down text-slate-400"></i></div>
 
@@ -2031,7 +2150,6 @@
                                         <i class="fa-solid fa-envelope text-green-500"></i>
                                         <span>Send Emails</span>
                                     </div>
-                                    <div class="text-xs text-slate-500 mt-1" id="email-send-detail">sendBulkEmails()</div>
                                 </div>
                                 <div class="process-arrow"><i class="fa-solid fa-arrow-down text-slate-400"></i></div>
 
@@ -2040,7 +2158,11 @@
                                     <div class="process-node-mini pm-tooltip">
                                         <span class="pm-tooltip-text">Records all sent emails with timestamps</span>
                                         <i class="fa-solid fa-list-check text-blue-400 text-xs"></i>
-                                        <span class="text-xs">Email_Logs</span>
+                                        <span class="text-xs node-label">Email_Logs</span>
+                                        <span class="process-tooltip">
+                                            <div class="tooltip-title">Email_Logs Sheet</div>
+                                            Records all sent emails with timestamps, recipient info, and thread IDs for tracking.
+                                        </span>
                                     </div>
                                     <div class="process-node-mini pm-tooltip">
                                         <span class="pm-tooltip-text">Tracks negotiation progress for each candidate</span>
@@ -2055,7 +2177,11 @@
                                     <div class="process-node-mini pm-tooltip">
                                         <span class="pm-tooltip-text">Stores candidate responses and details per job</span>
                                         <i class="fa-solid fa-table text-green-400 text-xs"></i>
-                                        <span class="text-xs">Job_Details</span>
+                                        <span class="text-xs node-label">Job_Details</span>
+                                        <span class="process-tooltip">
+                                            <div class="tooltip-title">Job_Details Sheet</div>
+                                            Stores job requirements including target rates, required skills, and negotiation parameters.
+                                        </span>
                                     </div>
                                 </div>
                             </div>
@@ -2079,7 +2205,13 @@
                                     <div class="flex items-center gap-2">
                                         <span id="status-auto-negotiator" class="status-light status-idle"></span>
                                         <i class="fa-solid fa-clock text-purple-500"></i>
-                                        <span>runAutoNegotiator()</span>
+                                        <span class="process-tooltip-wrapper func-name">
+                                            runAutoNegotiator()
+                                            <span class="process-tooltip">
+                                                <div class="tooltip-title">runAutoNegotiator()</div>
+                                                Main orchestrator for AI negotiations. Runs hourly via time-based trigger. Syncs emails, processes replies, and sends AI responses.
+                                            </span>
+                                        </span>
                                     </div>
                                     <div class="text-xs text-slate-500 mt-1" id="auto-negotiator-detail">Trigger: Every hour</div>
                                 </div>
@@ -2177,7 +2309,13 @@
                                     <div class="flex items-center gap-2">
                                         <span id="status-followup-processor" class="status-light status-idle"></span>
                                         <i class="fa-solid fa-clock text-amber-500"></i>
-                                        <span>runFollowUpProcessor()</span>
+                                        <span class="process-tooltip-wrapper func-name">
+                                            runFollowUpProcessor()
+                                            <span class="process-tooltip">
+                                                <div class="tooltip-title">runFollowUpProcessor()</div>
+                                                Processes the follow-up queue hourly. Checks time since initial contact and sends appropriate follow-up emails.
+                                            </span>
+                                        </span>
                                     </div>
                                     <div class="text-xs text-slate-500 mt-1" id="followup-processor-detail">Trigger: Every hour</div>
                                 </div>
@@ -2188,7 +2326,13 @@
                                     <span class="pm-tooltip-text">Loads list of candidates waiting for follow-up</span>
                                     <div class="flex items-center gap-2">
                                         <i class="fa-solid fa-table text-blue-500"></i>
-                                        <span>Load Follow_Up_Queue</span>
+                                        <span class="process-tooltip-wrapper">
+                                            Load Follow_Up_Queue
+                                            <span class="process-tooltip">
+                                                <div class="tooltip-title">Follow-Up Queue Sheet</div>
+                                                Loads pending candidates from the Follow_Up_Queue sheet. Filters by time thresholds for follow-up eligibility.
+                                            </span>
+                                        </span>
                                     </div>
                                 </div>
                                 <div class="process-arrow"><i class="fa-solid fa-arrow-down text-slate-400"></i></div>
@@ -2241,7 +2385,22 @@
                                     <div class="flex items-center gap-2">
                                         <span id="status-followup-email" class="status-light status-idle"></span>
                                         <i class="fa-solid fa-paper-plane text-blue-500"></i>
-                                        <span>Send Follow-Up</span>
+                                        <span class="process-tooltip-wrapper">
+                                            Send Follow-Up
+                                            <span class="process-tooltip">
+                                                <div class="tooltip-title">Follow-Up Email</div>
+                                                Sends reminder emails to non-responsive candidates. Timing based on hours since initial contact (12h, 28h, 76h).
+                                            </span>
+                                        </span>
+                                    </div>
+                                    <div class="text-xs text-slate-500 mt-1">
+                                        <span class="process-tooltip-wrapper func-name">
+                                            sendFollowUpEmail()
+                                            <span class="process-tooltip">
+                                                <div class="tooltip-title">sendFollowUpEmail()</div>
+                                                Composes and sends follow-up emails. Uses templates based on follow-up number (1st, 2nd, or final).
+                                            </span>
+                                        </span>
                                     </div>
                                     <div class="text-xs text-slate-500 mt-1">Auto-generated email</div>
                                 </div>
@@ -2272,7 +2431,11 @@
                                     <div class="process-node-mini pm-tooltip">
                                         <span class="pm-tooltip-text">Tasks moved here after 2 AI attempts failed</span>
                                         <i class="fa-solid fa-user-tag text-purple-400 text-xs"></i>
-                                        <span class="text-xs">Escalated</span>
+                                        <span class="text-xs node-label">Escalated</span>
+                                        <span class="process-tooltip">
+                                            <div class="tooltip-title">Escalated Tasks</div>
+                                            Candidates escalated after 2 AI negotiation attempts. Requires human intervention.
+                                        </span>
                                     </div>
                                     <div class="process-node-mini pm-tooltip">
                                         <span class="pm-tooltip-text">Gmail label marking threads that need human attention</span>
@@ -4898,6 +5061,94 @@
         // For backward compatibility
         let isAnalyticsAdmin = false;
 
+        // ===== FAST ACCESS LOADING =====
+        // Cache key for localStorage
+        const ACCESS_CACHE_KEY = 'hr_ops_access_cache';
+        const ACCESS_CACHE_EXPIRY = 30 * 60 * 1000; // 30 minutes
+
+        // Load cached access immediately on page init (before DOMContentLoaded)
+        function loadCachedAccess() {
+            try {
+                const cached = localStorage.getItem(ACCESS_CACHE_KEY);
+                if (cached) {
+                    const data = JSON.parse(cached);
+                    // Check if cache is still valid (not expired)
+                    if (data.timestamp && (Date.now() - data.timestamp) < ACCESS_CACHE_EXPIRY) {
+                        // Apply cached permissions immediately
+                        userPermissions.isAdmin = data.isAdmin || false;
+                        userPermissions.canViewAllAnalytics = data.canViewAllAnalytics || false;
+                        userPermissions.hasOperationalAccess = data.hasOperationalAccess !== false;
+                        userPermissions.accessLevel = data.accessLevel || 'other';
+                        userPermissions.userEmail = data.userEmail || '';
+                        isAnalyticsAdmin = userPermissions.isAdmin;
+                        console.log('[Access] Loaded from cache in <1ms');
+                        return true;
+                    }
+                }
+            } catch (e) {
+                console.log('[Access] Cache read failed:', e);
+            }
+            return false;
+        }
+
+        // Save access to localStorage
+        function saveAccessToCache(data) {
+            try {
+                const cacheData = {
+                    isAdmin: data.isAdmin || false,
+                    canViewAllAnalytics: data.canViewAllAnalytics || false,
+                    hasOperationalAccess: data.hasOperationalAccess !== false,
+                    accessLevel: data.accessLevel || 'other',
+                    userEmail: data.userEmail || '',
+                    timestamp: Date.now()
+                };
+                localStorage.setItem(ACCESS_CACHE_KEY, JSON.stringify(cacheData));
+            } catch (e) {
+                console.log('[Access] Cache write failed:', e);
+            }
+        }
+
+        // Load access from server (runs in background)
+        function loadAccessFromServer() {
+            google.script.run
+                .withSuccessHandler(cache => {
+                    // Store RBAC permissions
+                    userPermissions.isAdmin = cache.isAdmin || false;
+                    userPermissions.canViewAllAnalytics = cache.canViewAllAnalytics || false;
+                    userPermissions.hasOperationalAccess = cache.hasOperationalAccess !== false;
+                    userPermissions.accessLevel = cache.accessLevel || 'other';
+                    userPermissions.userEmail = cache.userEmail || '';
+                    isAnalyticsAdmin = userPermissions.isAdmin;
+
+                    // Save to localStorage for next load
+                    saveAccessToCache(cache);
+
+                    // Update UI with fresh data
+                    updateAnalyticsAdminUI();
+                    updateRoleBasedUI();
+
+                    // Load new users for admin
+                    if (userPermissions.isAdmin) {
+                        loadNewUsers();
+                    }
+                    console.log('[Access] Refreshed from server');
+                })
+                .withFailureHandler(err => {
+                    console.log('[Access] Server fetch failed:', err);
+                })
+                .getAnalyticsSearchCache();
+        }
+
+        // Initialize access on page load - FAST!
+        (function initFastAccess() {
+            const hasCached = loadCachedAccess();
+            // Always fetch fresh data in background
+            // Use setTimeout to not block initial render
+            setTimeout(() => {
+                loadAccessFromServer();
+            }, hasCached ? 500 : 0); // If cached, delay server fetch; if not, fetch immediately
+        })();
+
         // Load search cache for instant filtering
         function loadAnalyticsSearchCache() {
             if (analyticsSearchCache.loaded || analyticsSearchCache.loading) return;
@@ -4919,6 +5170,9 @@
 
                     // For backward compatibility
                     isAnalyticsAdmin = userPermissions.isAdmin;
+
+                    // Save to localStorage for fast loading next time
+                    saveAccessToCache(cache);
 
                     updateAnalyticsAdminUI();
                     updateRoleBasedUI();
