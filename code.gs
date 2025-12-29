@@ -7346,22 +7346,29 @@ function getProcessMapStatus() {
 
     // Get trigger status
     try {
-      const triggerStatus = getTriggerStatus();
+      const triggerResult = getTriggerStatus();
 
-      // Check Auto Negotiator trigger
-      const negotiatorTrigger = triggerStatus.triggers.find(t => t.functionName === 'runAutoNegotiator');
-      if (negotiatorTrigger && negotiatorTrigger.exists) {
-        result.triggers.negotiator = { status: 'ok', message: 'Active' };
-      } else {
-        result.triggers.negotiator = { status: 'error', message: 'Missing' };
-      }
+      if (triggerResult.success && triggerResult.status) {
+        const triggers = triggerResult.status.triggers || [];
 
-      // Check Follow-Up Processor trigger
-      const followupTrigger = triggerStatus.triggers.find(t => t.functionName === 'runFollowUpProcessor');
-      if (followupTrigger && followupTrigger.exists) {
-        result.triggers.followup = { status: 'ok', message: 'Active' };
+        // Check Auto Negotiator trigger
+        const negotiatorTrigger = triggers.find(t => t.functionName === 'runAutoNegotiator');
+        if (negotiatorTrigger && negotiatorTrigger.exists) {
+          result.triggers.negotiator = { status: 'ok', message: 'Active' };
+        } else {
+          result.triggers.negotiator = { status: 'error', message: 'Missing' };
+        }
+
+        // Check Follow-Up Processor trigger
+        const followupTrigger = triggers.find(t => t.functionName === 'runFollowUpProcessor');
+        if (followupTrigger && followupTrigger.exists) {
+          result.triggers.followup = { status: 'ok', message: 'Active' };
+        } else {
+          result.triggers.followup = { status: 'error', message: 'Missing' };
+        }
       } else {
-        result.triggers.followup = { status: 'error', message: 'Missing' };
+        result.triggers.negotiator = { status: 'error', message: 'Check failed' };
+        result.triggers.followup = { status: 'error', message: 'Check failed' };
       }
     } catch (triggerErr) {
       console.error('Error checking triggers:', triggerErr);
