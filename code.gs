@@ -257,51 +257,24 @@ ${isFirstResponse ? `
 - If they say "too low" without a number → Ask what rate they'd be comfortable with
 - Present rates without justification or internal terminology
 - ONLY answer questions from the FAQ - for anything else, politely defer
+- Do NOT escalate on this response unless they ask sensitive questions
 ` : `
 - If candidate stated a rate ≤ $${max}/hr → Accept their rate and confirm details
 - If candidate stated a rate > $${max}/hr → Counter with $${max}/hr as final offer
-- If they decline final offer → Thank them and use ACTION: HIGH
-- If they need time to think → Acknowledge and use ACTION: SOFT_HOLD
+- If they explicitly refuse this rate, escalate for human review
 - ONLY answer questions from the FAQ - for anything else, politely defer
 `}
 
-=== EXIT CONDITIONS ===
-Use these ACTION codes based on the outcome:
+**Response Options:**
+1. If they ACCEPT an offer at or below $${max}/hr:
+   Reply with: ACTION: ACCEPT [$RATE]
 
-**ACTION: ALIGNED [$RATE]**
-- Candidate confirmed at or below max rate ($${max}/hr)
-- All critical details have been provided
-- Ready to proceed
-- Example: "ACTION: ALIGNED [$35]"
+2. If they refuse your offer or ask sensitive questions outside the FAQ:
+   Reply with: ACTION: ESCALATE [REASON: brief reason]
 
-**ACTION: PENDING [MISSING: details]**
-- Candidate is engaged but missing critical details
-- List what's still needed (rate, hours, availability, etc.)
-- Example: "ACTION: PENDING [MISSING: weekly hours, start date]"
+3. Otherwise, write a professional email (no internal terminology)
 
-**ACTION: HIGH [$RATE]**
-- Candidate's final rate expectation is above our maximum ($${max}/hr)
-- We've made our final counter-offer and they declined
-- Example: "ACTION: HIGH [$50]"
-
-**ACTION: SOFT_HOLD**
-- Candidate needs time to think or will respond later
-- Acknowledge gracefully: "I'll await your response. Let me know if anything changes."
-- Example: "ACTION: SOFT_HOLD"
-
-**ACTION: UNAVAILABLE [REASON]**
-- Candidate explicitly states they cannot join or are not interested
-- NOT related to compensation (different from HIGH)
-- Example: "ACTION: UNAVAILABLE [accepted another offer]"
-
-**ACTION: ESCALATE [REASON: reason]**
-- Complex situation requiring human review
-- Sensitive questions outside FAQ
-- Example: "ACTION: ESCALATE [REASON: asking about internal processes]"
-
-**IMPORTANT:** Always write the email FIRST, then add the ACTION code on a new line at the end.
-
-Respond with the email text followed by the appropriate ACTION code.
+Respond with ONLY the email text OR the ACTION code. No other explanations.
 `;
 }
 
@@ -3900,51 +3873,24 @@ ${isFirstResponse ? `
 - If they say "too low" without a number → Ask what rate they'd be comfortable with
 - Present rates without justification or internal terminology
 - ONLY answer questions from the FAQ - for anything else, politely defer
+- Do NOT escalate on this response unless they ask sensitive questions
 ` : `
 - If candidate stated a rate ≤ $${maxRate}/hr → Accept their rate and confirm details
 - If candidate stated a rate > $${maxRate}/hr → Counter with $${maxRate}/hr as final offer
-- If they decline final offer → Thank them and use ACTION: HIGH
-- If they need time to think → Acknowledge and use ACTION: SOFT_HOLD
+- If they explicitly refuse this rate, escalate for human review
 - ONLY answer questions from the FAQ - for anything else, politely defer
 `}
 
-=== EXIT CONDITIONS ===
-Use these ACTION codes based on the outcome:
+**Response Options:**
+1. If they ACCEPT an offer at or below $${maxRate}/hr:
+   Reply with: ACTION: ACCEPT [$RATE]
 
-**ACTION: ALIGNED [$RATE]**
-- Candidate confirmed at or below max rate ($${maxRate}/hr)
-- All critical details have been provided
-- Ready to proceed
-- Example: "ACTION: ALIGNED [$35]"
+2. If they refuse your offer or ask sensitive questions outside the FAQ:
+   Reply with: ACTION: ESCALATE [REASON: brief reason]
 
-**ACTION: PENDING [MISSING: details]**
-- Candidate is engaged but missing critical details
-- List what's still needed (rate, hours, availability, etc.)
-- Example: "ACTION: PENDING [MISSING: weekly hours, start date]"
+3. Otherwise, write a professional email (no internal terminology)
 
-**ACTION: HIGH [$RATE]**
-- Candidate's final rate expectation is above our maximum ($${maxRate}/hr)
-- We've made our final counter-offer and they declined
-- Example: "ACTION: HIGH [$50]"
-
-**ACTION: SOFT_HOLD**
-- Candidate needs time to think or will respond later
-- Acknowledge gracefully: "I'll await your response. Let me know if anything changes."
-- Example: "ACTION: SOFT_HOLD"
-
-**ACTION: UNAVAILABLE [REASON]**
-- Candidate explicitly states they cannot join or are not interested
-- NOT related to compensation (different from HIGH)
-- Example: "ACTION: UNAVAILABLE [accepted another offer]"
-
-**ACTION: ESCALATE [REASON: reason]**
-- Complex situation requiring human review
-- Sensitive questions outside FAQ
-- Example: "ACTION: ESCALATE [REASON: asking about internal processes]"
-
-**IMPORTANT:** Always write the email FIRST, then add the ACTION code on a new line at the end.
-
-Respond with the email text followed by the appropriate ACTION code.
+Respond with ONLY the email text OR the ACTION code. No other explanations.
     `;
     
     const aiResponse = callAI(prompt);
