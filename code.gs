@@ -87,6 +87,18 @@ NEVER include any of the following in your email:
 - Any terminology like "target rate", "max rate", "first offer", "second offer"
 - Information about how many times we've contacted them or our internal processes
 
+=== IMPORTANT BEHAVIORAL GUIDELINES ===
+**Apply these naturally without stating them explicitly:**
+
+1. **This Conversation Does Not Mean Selection**
+   - This is just a follow-up to check interest, NOT an offer
+   - Avoid phrases like "welcome to the team" or anything implying they're already hired
+   - Keep tone as "checking in" not "finalizing onboarding"
+
+2. **Never Suggest Phone Calls or Meetings**
+   - Keep the conversation email-based
+   - Do NOT offer to schedule a call or suggest a meeting
+
 Write ONLY the email body (no subject line). Start with "Hi ${firstName}," and end with:
 
 Best regards,
@@ -241,6 +253,26 @@ Best regards,
 ${EMAIL_SIGNATURE}
 
 6. **This is FREELANCE**: Never mention full-time benefits, team culture, or long-term employment
+
+=== IMPORTANT BEHAVIORAL GUIDELINES ===
+**These rules guide your behavior - apply them naturally without stating them explicitly:**
+
+1. **Rates Are Final At This Stage**
+   - Once a rate is agreed upon, it will not change
+   - Performance reviews are for improving output and determining project extensions, NOT rate adjustments
+   - If candidate asks about future raises or rate reviews, explain that rates are set at the start of the engagement
+
+2. **This Conversation Does Not Mean Selection**
+   - This is an information-gathering phase, NOT an offer or approval
+   - After confirming details, the information goes to our team/client for final decision
+   - The candidate will only know they are selected when the Onboarding Team contacts them
+   - Avoid phrases like "welcome to the team", "excited to have you", or anything implying they're already hired
+   - Use phrases like "once we have your details, our team will review and follow up with next steps"
+
+3. **Never Agree to Phone Calls or Meetings**
+   - If candidate requests a call or meeting, politely redirect to email
+   - Say something like: "We handle everything via email for efficiency - feel free to ask any questions here and I'll be happy to help"
+   - Do NOT suggest scheduling a call or offer to set up a meeting
 
 === RESPONSE FORMAT ===
 ${isFirstResponse ? `
@@ -1785,7 +1817,27 @@ CONTENT GUIDELINES:
 5. Don't repeat information they already provided
 6. End with an encouraging note about moving forward
 
-IMPORTANT:
+IMPORTANT BEHAVIORAL GUIDELINES:
+**Apply these naturally without stating them explicitly:**
+
+1. **Rates Are Final At This Stage**
+   - If rate was already discussed/agreed, it will not change
+   - Performance reviews are for project quality, NOT rate adjustments
+   - If candidate asks about future raises, explain rates are set at engagement start
+
+2. **This Conversation Does Not Mean Selection**
+   - This is information gathering, NOT an offer or approval
+   - After collecting details, information goes to team/client for final decision
+   - Candidate only knows they're selected when Onboarding Team contacts them
+   - Avoid "welcome to the team", "excited to have you" or similar
+   - Use phrases like "once we have your details, our team will review and follow up"
+
+3. **Never Agree to Phone Calls or Meetings**
+   - If candidate requests a call, politely redirect to email
+   - Say: "We handle everything via email for efficiency - feel free to ask any questions here"
+   - Do NOT suggest scheduling a call or offer to set up a meeting
+
+FORMATTING RULES:
 - Do NOT include a subject line
 - Do NOT include a signature name after the closing
 - Write in a professional, human tone
@@ -1833,6 +1885,20 @@ TONE:
 - Brief and to the point
 - Reassuring about next steps
 
+IMPORTANT BEHAVIORAL GUIDELINES:
+**Apply these naturally - this is CRITICAL:**
+
+1. **This Does NOT Mean They Are Selected**
+   - Having all information does NOT equal an offer
+   - The information will be reviewed by the team/client who makes the final decision
+   - They will only know they're selected when the Onboarding Team contacts them
+   - NEVER use phrases like "welcome to the team", "excited to have you onboard", "you're all set to start"
+   - USE phrases like "our team will review your details and be in touch with next steps"
+
+2. **Never Suggest Phone Calls or Meetings**
+   - Keep everything email-based
+   - Do NOT offer to schedule a call
+
 Return ONLY the email body text, nothing else.
 `;
 
@@ -1844,9 +1910,9 @@ Return ONLY the email body text, nothing else.
     // Fallback message
     return `Hi ${firstName},
 
-Thank you for providing all the information we needed. We now have everything required to move forward with your application.
+Thank you for providing all the information we needed. Our team will now review your details and be in touch with next steps.
 
-Our team will review your details and get back to you soon with next steps.
+We appreciate your time and interest in this opportunity.
 
 Best regards,`;
   }
