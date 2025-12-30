@@ -1755,7 +1755,7 @@ function generateMissingInfoFollowUp(candidateName, pendingQuestions, conversati
   const missingInfoList = pendingQuestions.map((q, i) => `${i+1}. ${q.question}`).join('\n');
 
   const prompt = `
-You are a friendly recruiter at Turing following up with a candidate to collect missing information.
+You are a professional recruiter at Turing following up with a candidate to collect missing information.
 
 CANDIDATE NAME: ${firstName}
 
@@ -1767,23 +1767,29 @@ ${jobDescription ? `JOB CONTEXT: ${jobDescription}` : ''}
 RECENT CONVERSATION:
 ${conversationContext || 'Initial outreach sent'}
 
-TASK: Write a SHORT, friendly follow-up email asking for the missing information.
+TASK: Write a SHORT, professional follow-up email asking for the missing information.
 
-GUIDELINES:
-1. Be warm and conversational, not robotic or formal
+EMAIL FORMAT REQUIREMENTS:
+1. Start with "Hi ${firstName}," on its own line
+2. Leave a blank line after the greeting
+3. Write the email body (3-5 sentences)
+4. Leave a blank line before the closing
+5. End with a professional closing like "Best regards," or "Kind regards,"
+6. Do NOT include a signature name - just the closing
+
+CONTENT GUIDELINES:
+1. Be professional yet friendly
 2. Thank them for their previous response if they responded
 3. Politely explain you need a few more details to proceed
-4. List the missing information naturally (don't make it feel like a form)
-5. Keep it brief - 4-6 sentences maximum
-6. Don't repeat information they already provided
-7. End with an encouraging note about moving forward
+4. List the missing information clearly
+5. Don't repeat information they already provided
+6. End with an encouraging note about moving forward
 
 IMPORTANT:
 - Do NOT include a subject line
-- Do NOT include any greeting like "Dear" or "Hello" - start directly with the message
-- Do NOT include a signature - just the message body
-- Write in a natural, human tone
-- If only 1-2 items are missing, work them into sentences rather than a list
+- Do NOT include a signature name after the closing
+- Write in a professional, human tone
+- If only 1-2 items are missing, work them into sentences rather than a numbered list
 
 Return ONLY the email body text, nothing else.
 `;
@@ -1794,6 +1800,55 @@ Return ONLY the email body text, nothing else.
   } catch (e) {
     console.error("Failed to generate missing info follow-up:", e);
     return null;
+  }
+}
+
+/**
+ * Generate a professional email when all data has been collected
+ * @param {string} candidateName - The candidate's name
+ * @param {string} jobDescription - Optional job description for context
+ * @returns {string} The email body
+ */
+function generateDataCompleteEmail(candidateName, jobDescription) {
+  const firstName = candidateName.split(' ')[0];
+
+  const prompt = `
+You are a professional recruiter at Turing writing a confirmation email to a candidate.
+
+CANDIDATE NAME: ${firstName}
+
+${jobDescription ? `JOB CONTEXT: ${jobDescription}` : ''}
+
+TASK: Write a SHORT, professional email thanking them for providing all the information needed and confirming we have everything to proceed.
+
+FORMAT REQUIREMENTS:
+1. Start with "Hi ${firstName}," on its own line
+2. Leave a blank line after the greeting
+3. Write 2-3 sentences thanking them and explaining next steps
+4. End with a professional closing like "Best regards," or "Kind regards,"
+5. Do NOT include a signature name - just the closing
+
+TONE:
+- Professional and warm
+- Brief and to the point
+- Reassuring about next steps
+
+Return ONLY the email body text, nothing else.
+`;
+
+  try {
+    const emailBody = callAI(prompt);
+    return emailBody.trim();
+  } catch (e) {
+    console.error("Failed to generate data complete email:", e);
+    // Fallback message
+    return `Hi ${firstName},
+
+Thank you for providing all the information we needed. We now have everything required to move forward with your application.
+
+Our team will review your details and get back to you soon with next steps.
+
+Best regards,`;
   }
 }
 
@@ -7427,22 +7482,61 @@ function testAiEmailResponse(testData) {
       aiResponse = callAI(prompt);
 
     } else if (type === 'datagathering') {
-      // Use the EXACT SAME function used in production - generateMissingInfoFollowUp()
-      // This is the actual production function, not a replica
-      const questions = (pendingQuestions || 'What is your expected rate?').split(',').map(q => ({
-        question: q.trim()
-      }));
+      // PRODUCTION-MATCHING BEHAVIOR:
+      // 1. First extract answers from candidate's reply
+      // 2. Determine which questions are ACTUALLY still pending (not answered)
+      // 3. Only ask for truly missing information
 
-      aiResponse = generateMissingInfoFollowUp(
-        devName,                    // candidateName
-        questions,                  // pendingQuestions array
-        candidateReply || 'Initial outreach sent',  // conversationContext
-        jobDesc                     // jobDescription
-      );
+      // Parse questions into format expected by extractAnswersFromResponse
+      const allQuestions = (pendingQuestions || 'What is your expected rate?').split(',').map(q => {
+        const trimmed = q.trim();
+        return {
+          header: trimmed,  // Use question text as header for extraction
+          question: trimmed
+        };
+      });
+
+      // If candidate has replied, extract their answers first
+      let actuallyPendingQuestions = allQuestions;
+      let extractedAnswers = {};
+
+      if (candidateReply && candidateReply.trim() && candidateReply !== 'Initial outreach sent') {
+        // Extract answers from the candidate's reply (same as production)
+        extractedAnswers = extractAnswersFromResponse(candidateReply, allQuestions, devName);
+
+        // Filter to only questions that weren't answered
+        actuallyPendingQuestions = allQuestions.filter(q => {
+          const answer = extractedAnswers[q.header];
+          // Question is still pending if no answer or answer is NOT_PROVIDED/PARSE_ERROR
+          return !answer || answer === 'NOT_PROVIDED' || answer === 'PARSE_ERROR';
+        });
+      }
+
+      // If all questions have been answered, return a completion message
+      if (actuallyPendingQuestions.length === 0) {
+        aiResponse = generateDataCompleteEmail(devName, jobDesc);
+      } else {
+        // Generate follow-up asking only for truly missing info
+        aiResponse = generateMissingInfoFollowUp(
+          devName,                    // candidateName
+          actuallyPendingQuestions,   // only truly pending questions
+          candidateReply || 'Initial outreach sent',  // conversationContext
+          jobDesc                     // jobDescription
+        );
+      }
 
       if (!aiResponse) {
         return { error: 'Data gathering function returned empty - check pending questions' };
       }
+
+      // Include extraction info in response for visibility
+      return {
+        aiResponse: aiResponse.trim(),
+        extractedData: extractedAnswers,
+        answeredCount: allQuestions.length - actuallyPendingQuestions.length,
+        totalQuestions: allQuestions.length,
+        pendingQuestions: actuallyPendingQuestions.map(q => q.question)
+      };
 
     } else {
       return { error: 'Unknown test type: ' + type };
