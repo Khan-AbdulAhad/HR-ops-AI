@@ -7459,6 +7459,107 @@ function testAiEmailResponse(testData) {
     return { error: 'Failed to generate AI response: ' + e.message };
   }
 }
+
+/**
+ * Test data extraction from a candidate's reply
+ * Shows how AI would extract data and what it would look like in sheets
+ * @param {Object} testData - { candidateReply, questions, devName, jobId }
+ * @returns {Object} - Extraction results with preview data
+ */
+function testDataExtraction(testData) {
+  try {
+    const access = checkAnalyticsAccess();
+    if (!access.hasAccess || access.accessLevel !== 'admin') {
+      return { error: 'Admin access required for AI testing' };
+    }
+
+    const { candidateReply, questions, devName, jobId } = testData;
+
+    if (!candidateReply || !candidateReply.trim()) {
+      return { error: 'Please provide a candidate reply to extract data from' };
+    }
+
+    // Parse questions - can be comma-separated string or array
+    let questionsList = [];
+    if (typeof questions === 'string') {
+      questionsList = questions.split(',').map((q, i) => ({
+        header: q.trim().split(' ').slice(0, 3).join(' '), // First 3 words as header
+        question: q.trim()
+      }));
+    } else if (Array.isArray(questions)) {
+      questionsList = questions;
+    }
+
+    // If no questions provided, use defaults
+    if (questionsList.length === 0) {
+      questionsList = [
+        { header: 'Expected Rate', question: 'What is your expected hourly rate?' },
+        { header: 'Start Date', question: 'When can you start?' },
+        { header: 'Weekly Hours', question: 'How many hours per week are you available?' },
+        { header: 'Notice Period', question: 'What is your notice period?' }
+      ];
+    }
+
+    // Call the SAME extraction function used in production
+    const extractedData = extractAnswersFromResponse(candidateReply, questionsList, devName || 'Candidate');
+
+    // Determine which fields were answered vs pending
+    const results = [];
+    let answeredCount = 0;
+    const pendingQuestions = [];
+
+    for (const q of questionsList) {
+      const value = extractedData[q.header];
+      const isAnswered = value && value !== 'NOT_PROVIDED' && value !== '';
+
+      results.push({
+        field: q.header,
+        question: q.question,
+        extractedValue: value || 'NOT_PROVIDED',
+        status: isAnswered ? 'answered' : 'pending'
+      });
+
+      if (isAnswered) {
+        answeredCount++;
+      } else {
+        pendingQuestions.push(q);
+      }
+    }
+
+    // Build sheet preview - what a row would look like
+    const sheetPreview = {
+      headers: ['Timestamp', 'Email', 'Name', ...questionsList.map(q => q.header), 'Status', 'Negotiation Notes'],
+      values: [
+        new Date().toLocaleString(),
+        'test@example.com',
+        devName || 'Test Candidate',
+        ...questionsList.map(q => extractedData[q.header] || ''),
+        answeredCount === questionsList.length ? 'Data Complete' : 'Pending',
+        extractedData.negotiation_notes || ''
+      ]
+    };
+
+    return {
+      success: true,
+      extractedData: extractedData,
+      results: results,
+      summary: {
+        totalQuestions: questionsList.length,
+        answeredCount: answeredCount,
+        pendingCount: questionsList.length - answeredCount,
+        dataComplete: answeredCount === questionsList.length,
+        isNegotiating: extractedData.is_negotiating || false,
+        negotiationNotes: extractedData.negotiation_notes || ''
+      },
+      pendingQuestions: pendingQuestions,
+      sheetPreview: sheetPreview
+    };
+
+  } catch (e) {
+    console.error('Error in testDataExtraction:', e);
+    return { error: 'Failed to extract data: ' + e.message };
+  }
+}
 // ===== AI TESTING FEATURE - DELETE FOR PRODUCTION (END) =====
 
 // ===== PROCESS MAP FUNCTIONS =====
