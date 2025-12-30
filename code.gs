@@ -7554,13 +7554,21 @@ function testAiEmailResponse(testData) {
       // 3. Only ask for truly missing information
 
       // Parse questions into format expected by extractAnswersFromResponse
-      const allQuestions = (pendingQuestions || 'What is your expected rate?').split(',').map(q => {
-        const trimmed = q.trim();
-        return {
-          header: trimmed,  // Use question text as header for extraction
-          question: trimmed
-        };
-      });
+      // Support both comma and "and" as separators, and remove duplicates
+      const rawQuestions = (pendingQuestions || 'What is your expected rate?')
+        .replace(/\s+and\s+/gi, ',')  // Replace " and " with comma
+        .split(',')
+        .map(q => q.trim())
+        .filter(q => q.length > 0);  // Remove empty strings
+
+      // Remove duplicate questions (case-insensitive)
+      const uniqueQuestions = [...new Set(rawQuestions.map(q => q.toLowerCase()))]
+        .map(lowerQ => rawQuestions.find(q => q.toLowerCase() === lowerQ));
+
+      const allQuestions = uniqueQuestions.map(q => ({
+        header: q,  // Use question text as header for extraction
+        question: q
+      }));
 
       // If candidate has replied, extract their answers first
       let actuallyPendingQuestions = allQuestions;
