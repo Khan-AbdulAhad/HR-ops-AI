@@ -1151,11 +1151,6 @@
                         <div class="flex items-center justify-between mb-3">
                             <div class="flex items-center gap-4">
                                 <span class="text-xs font-bold uppercase text-slate-500">Quick Filters</span>
-                                <div class="flex items-center gap-2 text-xs text-slate-400">
-                                    <span class="inline-flex items-center gap-1"><span class="inline-flex items-center justify-center w-5 h-5 rounded-full text-[9px] font-bold bg-purple-100 text-purple-700 border border-purple-200">N</span> Negotiation</span>
-                                    <span class="inline-flex items-center gap-1"><span class="inline-flex items-center justify-center w-5 h-5 rounded-full text-[9px] font-bold bg-amber-100 text-amber-700 border border-amber-200">F</span> Follow-up</span>
-                                    <span class="inline-flex items-center gap-1"><span class="inline-flex items-center justify-center w-5 h-5 rounded-full text-[9px] font-bold bg-blue-100 text-blue-700 border border-blue-200">D</span> Data Gathering</span>
-                                </div>
                             </div>
                             <span id="selectAllCount" class="text-xs text-blue-600 font-medium bg-blue-50 px-2 py-1 rounded hidden">(0) selected</span>
                         </div>
@@ -3895,20 +3890,6 @@
                     historyBadge = `<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-bold bg-emerald-100 text-emerald-700 border border-emerald-200"><i class="fa-solid fa-sparkles text-[10px]"></i> New</span>`;
                 }
 
-                // Status initials badges (N/F/D) for candidates
-                let candidateInitialBadges = [];
-                if (!d.is_sent && !d.is_manual_sent) {
-                    // New candidates - Data Gathering phase
-                    candidateInitialBadges.push('<span class="inline-flex items-center justify-center w-6 h-6 rounded-full text-[10px] font-bold bg-blue-100 text-blue-700 border border-blue-200" title="Data Gathering">D</span>');
-                } else {
-                    // Sent candidates - Follow-up & potentially Negotiation
-                    candidateInitialBadges.push('<span class="inline-flex items-center justify-center w-6 h-6 rounded-full text-[10px] font-bold bg-amber-100 text-amber-700 border border-amber-200" title="Follow-up">F</span>');
-                    if (d.is_sent && !d.is_manual_sent) {
-                        candidateInitialBadges.push('<span class="inline-flex items-center justify-center w-6 h-6 rounded-full text-[10px] font-bold bg-purple-100 text-purple-700 border border-purple-200" title="Negotiation">N</span>');
-                    }
-                }
-                const candidateStatusBadges = candidateInitialBadges.length > 0 ? '<div class="flex gap-1">' + candidateInitialBadges.join('') + '</div>' : '';
-
                 // Row class for sent status
                 if (d.is_manual_sent) {
                     tr.classList.add('manual-sent-row');
@@ -3927,10 +3908,7 @@
                     <td class="px-6 py-4 text-center"><input type="checkbox" class="row-checkbox rounded" value="${d.developer_id}" ${isChecked} onchange="toggleRowCheckbox('${d.developer_id}')"></td>
                     <td class="px-6 py-4 font-mono text-xs text-slate-500">${d.developer_id}</td>
                     <td class="px-6 py-4">
-                        <div class="flex items-center gap-2">
-                            <span class="font-bold text-slate-800 dark:text-slate-200">${d.full_name}</span>
-                            ${candidateStatusBadges}
-                        </div>
+                        <span class="font-bold text-slate-800 dark:text-slate-200">${d.full_name}</span>
                     </td>
                     <td class="px-6 py-4 text-slate-500 dark:text-slate-400">${d.email}</td>
                     <td class="px-6 py-4 text-xs text-slate-600 dark:text-slate-400">${d.developer_country || '-'}</td>
