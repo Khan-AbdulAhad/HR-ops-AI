@@ -1955,11 +1955,14 @@
 
                             <!-- Data Gathering specific fields -->
                             <div id="dataGatheringFields" class="mb-4 p-4 bg-slate-50 dark:bg-slate-900 rounded-lg border border-slate-200 dark:border-slate-700 hidden">
-                                <h5 class="text-sm font-bold text-slate-700 dark:text-slate-300 mb-3">Missing Information</h5>
-                                <div>
-                                    <label class="block text-xs font-bold uppercase text-slate-500 mb-1">Pending Questions (comma separated)</label>
-                                    <textarea id="aiTestPendingQuestions" class="input-field min-h-[60px]" placeholder="What is your expected hourly rate?, Are you available to start immediately?"></textarea>
+                                <h5 class="text-sm font-bold text-slate-700 dark:text-slate-300 mb-3">Data Extraction Settings</h5>
+                                <div class="mb-3">
+                                    <label class="block text-xs font-bold uppercase text-slate-500 mb-1">Questions to Extract (comma separated)</label>
+                                    <textarea id="aiTestPendingQuestions" class="input-field min-h-[60px]" placeholder="What is your expected hourly rate?, When can you start?, How many hours per week are you available?"></textarea>
                                 </div>
+                                <button onclick="runDataExtraction()" id="extractDataBtn" class="w-full bg-purple-600 hover:bg-purple-700 text-white font-medium py-2 px-4 rounded-lg flex items-center justify-center gap-2">
+                                    <i class="fa-solid fa-table-cells"></i> <span>Extract Data & Preview Sheet</span>
+                                </button>
                             </div>
 
                             <!-- Simulated Reply (Candidate Response) -->
@@ -2000,6 +2003,70 @@
                                         <i class="fa-solid fa-spinner fa-spin text-3xl text-blue-500 mb-3 block"></i>
                                         <p class="text-sm text-slate-500">Generating AI response...</p>
                                     </div>
+                                </div>
+                            </div>
+
+                            <!-- Data Extraction Results (for Data Gathering mode) -->
+                            <div id="dataExtractionResults" class="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 p-6 hidden">
+                                <h4 class="font-bold text-slate-800 dark:text-white mb-4 flex items-center gap-2">
+                                    <i class="fa-solid fa-table-cells text-purple-500"></i> Data Extraction Results
+                                </h4>
+
+                                <!-- Summary -->
+                                <div id="extractionSummary" class="mb-4 p-3 rounded-lg bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700">
+                                    <div class="flex items-center justify-between mb-2">
+                                        <span class="text-sm font-medium text-slate-600 dark:text-slate-400">Data Completeness</span>
+                                        <span id="extractionStatus" class="text-xs font-bold px-2 py-1 rounded">--</span>
+                                    </div>
+                                    <div class="w-full bg-slate-200 dark:bg-slate-700 rounded-full h-2 mb-2">
+                                        <div id="extractionProgressBar" class="bg-green-500 h-2 rounded-full transition-all" style="width: 0%"></div>
+                                    </div>
+                                    <p id="extractionProgressText" class="text-xs text-slate-500">0 of 0 fields extracted</p>
+                                </div>
+
+                                <!-- Extracted Fields Table -->
+                                <div class="mb-4">
+                                    <h5 class="text-sm font-bold text-slate-700 dark:text-slate-300 mb-2">Extracted Fields</h5>
+                                    <div class="overflow-x-auto">
+                                        <table class="w-full text-sm">
+                                            <thead>
+                                                <tr class="border-b border-slate-200 dark:border-slate-700">
+                                                    <th class="text-left py-2 px-2 text-xs font-bold text-slate-500">Field</th>
+                                                    <th class="text-left py-2 px-2 text-xs font-bold text-slate-500">Extracted Value</th>
+                                                    <th class="text-left py-2 px-2 text-xs font-bold text-slate-500">Status</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody id="extractedFieldsTable">
+                                                <!-- Populated by JS -->
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+
+                                <!-- Sheet Preview -->
+                                <div class="mb-4">
+                                    <h5 class="text-sm font-bold text-slate-700 dark:text-slate-300 mb-2">
+                                        <i class="fa-solid fa-file-excel text-green-500 mr-1"></i> Sheet Preview
+                                        <span class="text-slate-400 font-normal text-xs">(how it would appear in Job_X_Details)</span>
+                                    </h5>
+                                    <div class="overflow-x-auto bg-white dark:bg-slate-900 rounded border border-slate-300 dark:border-slate-600">
+                                        <table class="w-full text-xs">
+                                            <thead id="sheetPreviewHeaders" class="bg-green-50 dark:bg-green-900/20">
+                                                <!-- Populated by JS -->
+                                            </thead>
+                                            <tbody id="sheetPreviewValues">
+                                                <!-- Populated by JS -->
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+
+                                <!-- Negotiation Notes -->
+                                <div id="extractionNegotiationNotes" class="hidden p-3 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800">
+                                    <p class="text-sm text-amber-800 dark:text-amber-200">
+                                        <i class="fa-solid fa-triangle-exclamation mr-1"></i>
+                                        <span id="negotiationNotesText"></span>
+                                    </p>
                                 </div>
                             </div>
 
@@ -6012,6 +6079,9 @@
             document.getElementById('negotiationFields').classList.toggle('hidden', type !== 'negotiation');
             document.getElementById('followupFields').classList.toggle('hidden', type !== 'followup');
             document.getElementById('dataGatheringFields').classList.toggle('hidden', type !== 'datagathering');
+
+            // Hide data extraction results when not in data gathering mode
+            document.getElementById('dataExtractionResults').classList.toggle('hidden', type !== 'datagathering');
         }
 
         // Load rate tiers for a job
@@ -6114,6 +6184,9 @@
             document.getElementById('aiTestResponseEmpty').classList.remove('hidden');
             document.getElementById('aiTestResponseContent').classList.add('hidden');
 
+            // Clear data extraction results
+            document.getElementById('dataExtractionResults').classList.add('hidden');
+
             // Clear history
             aiTestHistory = [];
             renderAiTestHistory();
@@ -6214,6 +6287,112 @@
                     showToast('Failed to generate AI response: ' + err.message, 'error');
                 })
                 .testAiEmailResponse(testData);
+        }
+
+        // Run data extraction test (for Data Gathering mode)
+        function runDataExtraction() {
+            const devName = document.getElementById('aiTestDevName').value.trim();
+            const candidateReply = document.getElementById('aiTestCandidateReply').value.trim();
+            const questions = document.getElementById('aiTestPendingQuestions').value.trim();
+            const jobId = document.getElementById('aiTestJobId').value.trim();
+
+            if (!candidateReply) {
+                showToast('Please enter a simulated candidate reply to extract data from', 'warning');
+                return;
+            }
+
+            // Show loading state
+            const btn = document.getElementById('extractDataBtn');
+            const originalText = btn.innerHTML;
+            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin mr-1"></i> Extracting...';
+            btn.disabled = true;
+
+            google.script.run
+                .withSuccessHandler(response => {
+                    btn.innerHTML = originalText;
+                    btn.disabled = false;
+
+                    if (response.error) {
+                        showToast(response.error, 'error');
+                        return;
+                    }
+
+                    // Show the results panel
+                    const resultsPanel = document.getElementById('dataExtractionResults');
+                    resultsPanel.classList.remove('hidden');
+
+                    // Update summary
+                    const summary = response.summary;
+                    const progressPercent = summary.totalQuestions > 0
+                        ? Math.round((summary.answeredCount / summary.totalQuestions) * 100)
+                        : 0;
+
+                    document.getElementById('extractionProgressBar').style.width = progressPercent + '%';
+                    document.getElementById('extractionProgressText').textContent =
+                        `${summary.answeredCount} of ${summary.totalQuestions} fields extracted`;
+
+                    const statusEl = document.getElementById('extractionStatus');
+                    if (summary.dataComplete) {
+                        statusEl.textContent = 'COMPLETE';
+                        statusEl.className = 'text-xs font-bold px-2 py-1 rounded bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300';
+                        document.getElementById('extractionProgressBar').className = 'bg-green-500 h-2 rounded-full transition-all';
+                    } else {
+                        statusEl.textContent = 'PENDING';
+                        statusEl.className = 'text-xs font-bold px-2 py-1 rounded bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300';
+                        document.getElementById('extractionProgressBar').className = 'bg-amber-500 h-2 rounded-full transition-all';
+                    }
+
+                    // Populate extracted fields table
+                    const tableBody = document.getElementById('extractedFieldsTable');
+                    tableBody.innerHTML = response.results.map(r => `
+                        <tr class="border-b border-slate-100 dark:border-slate-800">
+                            <td class="py-2 px-2 font-medium text-slate-700 dark:text-slate-300">${r.field}</td>
+                            <td class="py-2 px-2 ${r.status === 'answered' ? 'text-slate-700 dark:text-slate-300' : 'text-slate-400 italic'}">${r.extractedValue}</td>
+                            <td class="py-2 px-2">
+                                ${r.status === 'answered'
+                                    ? '<span class="inline-flex items-center text-xs text-green-600"><i class="fa-solid fa-check-circle mr-1"></i>Extracted</span>'
+                                    : '<span class="inline-flex items-center text-xs text-amber-600"><i class="fa-solid fa-clock mr-1"></i>Pending</span>'
+                                }
+                            </td>
+                        </tr>
+                    `).join('');
+
+                    // Populate sheet preview
+                    const preview = response.sheetPreview;
+                    document.getElementById('sheetPreviewHeaders').innerHTML = `
+                        <tr>
+                            ${preview.headers.map(h => `<th class="py-2 px-2 text-left font-bold text-green-800 dark:text-green-300 border-b border-green-200 dark:border-green-800 whitespace-nowrap">${h}</th>`).join('')}
+                        </tr>
+                    `;
+                    document.getElementById('sheetPreviewValues').innerHTML = `
+                        <tr>
+                            ${preview.values.map((v, i) => `<td class="py-2 px-2 border-b border-slate-200 dark:border-slate-700 whitespace-nowrap ${i === preview.values.length - 2 ? (v === 'Data Complete' ? 'text-green-600 font-medium' : 'text-amber-600 font-medium') : ''}">${v || '<span class="text-slate-300">-</span>'}</td>`).join('')}
+                        </tr>
+                    `;
+
+                    // Show negotiation notes if any
+                    const notesPanel = document.getElementById('extractionNegotiationNotes');
+                    if (summary.isNegotiating || summary.negotiationNotes) {
+                        notesPanel.classList.remove('hidden');
+                        document.getElementById('negotiationNotesText').textContent =
+                            summary.negotiationNotes || 'Candidate appears to be negotiating';
+                    } else {
+                        notesPanel.classList.add('hidden');
+                    }
+
+                    showToast('Data extracted successfully', 'success');
+                })
+                .withFailureHandler(err => {
+                    btn.innerHTML = originalText;
+                    btn.disabled = false;
+                    showToast('Failed to extract data: ' + err.message, 'error');
+                })
+                .testDataExtraction({
+                    candidateReply: candidateReply,
+                    questions: questions,
+                    devName: devName || 'Test Candidate',
+                    jobId: jobId
+                });
         }
 
         // Render test history

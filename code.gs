@@ -7372,16 +7372,31 @@ function testAiEmailResponse(testData) {
     let aiResponse = '';
 
     if (type === 'negotiation') {
-      // Determine rates - use rate tier if provided, otherwise use manual inputs
-      let effectiveTargetRate = targetRate || '45';
-      let effectiveMaxRate = maxRate || effectiveTargetRate;
+      // PRODUCTION-MATCHING BEHAVIOR:
+      // 1. Manual Target/Max rates are the DEFAULT (fallback values)
+      // 2. Developer's Country is used to AUTO-LOOKUP regional rates
+      // 3. If regional tier exists for that country → use tier rates
+      // 4. If no matching tier → use manual default rates
+
+      // Start with manual defaults (like production uses job config rates as defaults)
+      let effectiveTargetRate = Number(targetRate) || 45;
+      let effectiveMaxRate = Number(maxRate) || effectiveTargetRate;
       let regionName = devCountry || '';
 
-      // If a rate tier was selected, use its values (this matches production behavior)
-      if (rateTier) {
-        effectiveTargetRate = rateTier.targetRate || effectiveTargetRate;
-        effectiveMaxRate = rateTier.maxRate || effectiveMaxRate;
-        regionName = rateTier.region || regionName;
+      // Auto-lookup regional rates based on Developer Country (matches production behavior)
+      // This ignores the dropdown selection and does real lookup like production does
+      if (devCountry && jobId) {
+        const regionRates = getRateForRegion(jobId, devCountry, null);
+        if (regionRates && regionRates.targetRate) {
+          // Regional tier found for this country - use tier rates (overrides defaults)
+          effectiveTargetRate = regionRates.targetRate;
+          effectiveMaxRate = regionRates.maxRate || effectiveTargetRate;
+          regionName = regionRates.region || devCountry;
+          console.log(`AI Test: Using ${regionRates.region} rates for ${devCountry}: target=$${effectiveTargetRate}, max=$${effectiveMaxRate}`);
+        } else {
+          // No regional tier found - use manual defaults
+          console.log(`AI Test: No tier found for ${devCountry}, using manual defaults: target=$${effectiveTargetRate}, max=$${effectiveMaxRate}`);
+        }
       }
 
       // Use the SAME prompt builder used in production (buildNegotiationReplyPrompt)
@@ -7442,6 +7457,107 @@ function testAiEmailResponse(testData) {
   } catch (e) {
     console.error('Error in testAiEmailResponse:', e);
     return { error: 'Failed to generate AI response: ' + e.message };
+  }
+}
+
+/**
+ * Test data extraction from a candidate's reply
+ * Shows how AI would extract data and what it would look like in sheets
+ * @param {Object} testData - { candidateReply, questions, devName, jobId }
+ * @returns {Object} - Extraction results with preview data
+ */
+function testDataExtraction(testData) {
+  try {
+    const access = checkAnalyticsAccess();
+    if (!access.hasAccess || access.accessLevel !== 'admin') {
+      return { error: 'Admin access required for AI testing' };
+    }
+
+    const { candidateReply, questions, devName, jobId } = testData;
+
+    if (!candidateReply || !candidateReply.trim()) {
+      return { error: 'Please provide a candidate reply to extract data from' };
+    }
+
+    // Parse questions - can be comma-separated string or array
+    let questionsList = [];
+    if (typeof questions === 'string') {
+      questionsList = questions.split(',').map((q, i) => ({
+        header: q.trim().split(' ').slice(0, 3).join(' '), // First 3 words as header
+        question: q.trim()
+      }));
+    } else if (Array.isArray(questions)) {
+      questionsList = questions;
+    }
+
+    // If no questions provided, use defaults
+    if (questionsList.length === 0) {
+      questionsList = [
+        { header: 'Expected Rate', question: 'What is your expected hourly rate?' },
+        { header: 'Start Date', question: 'When can you start?' },
+        { header: 'Weekly Hours', question: 'How many hours per week are you available?' },
+        { header: 'Notice Period', question: 'What is your notice period?' }
+      ];
+    }
+
+    // Call the SAME extraction function used in production
+    const extractedData = extractAnswersFromResponse(candidateReply, questionsList, devName || 'Candidate');
+
+    // Determine which fields were answered vs pending
+    const results = [];
+    let answeredCount = 0;
+    const pendingQuestions = [];
+
+    for (const q of questionsList) {
+      const value = extractedData[q.header];
+      const isAnswered = value && value !== 'NOT_PROVIDED' && value !== '';
+
+      results.push({
+        field: q.header,
+        question: q.question,
+        extractedValue: value || 'NOT_PROVIDED',
+        status: isAnswered ? 'answered' : 'pending'
+      });
+
+      if (isAnswered) {
+        answeredCount++;
+      } else {
+        pendingQuestions.push(q);
+      }
+    }
+
+    // Build sheet preview - what a row would look like
+    const sheetPreview = {
+      headers: ['Timestamp', 'Email', 'Name', ...questionsList.map(q => q.header), 'Status', 'Negotiation Notes'],
+      values: [
+        new Date().toLocaleString(),
+        'test@example.com',
+        devName || 'Test Candidate',
+        ...questionsList.map(q => extractedData[q.header] || ''),
+        answeredCount === questionsList.length ? 'Data Complete' : 'Pending',
+        extractedData.negotiation_notes || ''
+      ]
+    };
+
+    return {
+      success: true,
+      extractedData: extractedData,
+      results: results,
+      summary: {
+        totalQuestions: questionsList.length,
+        answeredCount: answeredCount,
+        pendingCount: questionsList.length - answeredCount,
+        dataComplete: answeredCount === questionsList.length,
+        isNegotiating: extractedData.is_negotiating || false,
+        negotiationNotes: extractedData.negotiation_notes || ''
+      },
+      pendingQuestions: pendingQuestions,
+      sheetPreview: sheetPreview
+    };
+
+  } catch (e) {
+    console.error('Error in testDataExtraction:', e);
+    return { error: 'Failed to extract data: ' + e.message };
   }
 }
 // ===== AI TESTING FEATURE - DELETE FOR PRODUCTION (END) =====
