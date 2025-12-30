@@ -6194,6 +6194,87 @@
             showToast('New testing session started', 'info');
         }
 
+        // Update data extraction results panel from AI test response
+        function updateDataExtractionResults(response) {
+            const resultsPanel = document.getElementById('dataExtractionResults');
+            resultsPanel.classList.remove('hidden');
+
+            const answeredCount = response.answeredCount || 0;
+            const totalQuestions = response.totalQuestions || 0;
+            const extractedData = response.extractedData || {};
+            const pendingQuestions = response.pendingQuestions || [];
+
+            // Calculate progress
+            const progressPercent = totalQuestions > 0
+                ? Math.round((answeredCount / totalQuestions) * 100)
+                : 0;
+
+            document.getElementById('extractionProgressBar').style.width = progressPercent + '%';
+            document.getElementById('extractionProgressText').textContent =
+                `${answeredCount} of ${totalQuestions} fields extracted`;
+
+            // Update status badge
+            const statusEl = document.getElementById('extractionStatus');
+            const dataComplete = answeredCount === totalQuestions && totalQuestions > 0;
+            if (dataComplete) {
+                statusEl.textContent = 'COMPLETE';
+                statusEl.className = 'text-xs font-bold px-2 py-1 rounded bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300';
+                document.getElementById('extractionProgressBar').className = 'bg-green-500 h-2 rounded-full transition-all';
+            } else {
+                statusEl.textContent = 'PENDING';
+                statusEl.className = 'text-xs font-bold px-2 py-1 rounded bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300';
+                document.getElementById('extractionProgressBar').className = 'bg-amber-500 h-2 rounded-full transition-all';
+            }
+
+            // Build results table from extracted data
+            const tableBody = document.getElementById('extractedFieldsTable');
+            const rows = [];
+            for (const [field, value] of Object.entries(extractedData)) {
+                // Skip internal fields
+                if (field === 'is_negotiating' || field === 'negotiation_notes') continue;
+
+                const isAnswered = value && value !== 'NOT_PROVIDED' && value !== 'PARSE_ERROR';
+                rows.push(`
+                    <tr class="border-b border-slate-100 dark:border-slate-800">
+                        <td class="py-2 px-2 font-medium text-slate-700 dark:text-slate-300">${field}</td>
+                        <td class="py-2 px-2 ${isAnswered ? 'text-slate-700 dark:text-slate-300' : 'text-slate-400 italic'}">${isAnswered ? value : '(not provided)'}</td>
+                        <td class="py-2 px-2">
+                            ${isAnswered
+                                ? '<span class="inline-flex items-center text-xs text-green-600"><i class="fa-solid fa-check-circle mr-1"></i>Extracted</span>'
+                                : '<span class="inline-flex items-center text-xs text-amber-600"><i class="fa-solid fa-clock mr-1"></i>Pending</span>'
+                            }
+                        </td>
+                    </tr>
+                `);
+            }
+            tableBody.innerHTML = rows.length > 0 ? rows.join('') : '<tr><td colspan="3" class="py-4 text-center text-slate-400 text-sm">No extraction data available</td></tr>';
+
+            // Update sheet preview headers/values
+            const headers = Object.keys(extractedData).filter(k => k !== 'is_negotiating' && k !== 'negotiation_notes');
+            const values = headers.map(h => extractedData[h] && extractedData[h] !== 'NOT_PROVIDED' ? extractedData[h] : '-');
+
+            document.getElementById('sheetPreviewHeaders').innerHTML = `
+                <tr>
+                    ${headers.map(h => `<th class="py-2 px-2 text-left font-bold text-green-800 dark:text-green-300 border-b border-green-200 dark:border-green-800 whitespace-nowrap">${h}</th>`).join('')}
+                </tr>
+            `;
+            document.getElementById('sheetPreviewValues').innerHTML = `
+                <tr>
+                    ${values.map(v => `<td class="py-2 px-2 border-b border-slate-200 dark:border-slate-700 whitespace-nowrap">${v || '<span class="text-slate-300">-</span>'}</td>`).join('')}
+                </tr>
+            `;
+
+            // Show negotiation notes if any
+            const notesPanel = document.getElementById('extractionNegotiationNotes');
+            if (extractedData.is_negotiating || extractedData.negotiation_notes) {
+                notesPanel.classList.remove('hidden');
+                document.getElementById('negotiationNotesText').textContent =
+                    extractedData.negotiation_notes || 'Candidate appears to be negotiating';
+            } else {
+                notesPanel.classList.add('hidden');
+            }
+        }
+
         // Run the AI test
         function runAiTest() {
             const devName = document.getElementById('aiTestDevName').value.trim();
@@ -6266,6 +6347,11 @@
                     document.getElementById('aiTestResponseTime').textContent = new Date().toLocaleTimeString();
                     document.getElementById('aiTestResponseText').textContent = response.aiResponse;
 
+                    // For data gathering, also show extraction results
+                    if (aiTestCurrentType === 'datagathering' && response.extractedData) {
+                        updateDataExtractionResults(response);
+                    }
+
                     // Add to history
                     aiTestHistory.unshift({
                         type: aiTestCurrentType,
@@ -6273,7 +6359,10 @@
                         candidateReply: candidateReply.substring(0, 50) + (candidateReply.length > 50 ? '...' : ''),
                         aiResponse: response.aiResponse.substring(0, 100) + (response.aiResponse.length > 100 ? '...' : ''),
                         fullResponse: response.aiResponse,
-                        time: new Date().toLocaleTimeString()
+                        time: new Date().toLocaleTimeString(),
+                        extractedData: response.extractedData,
+                        answeredCount: response.answeredCount,
+                        totalQuestions: response.totalQuestions
                     });
                     renderAiTestHistory();
 
