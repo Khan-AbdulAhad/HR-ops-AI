@@ -7372,16 +7372,31 @@ function testAiEmailResponse(testData) {
     let aiResponse = '';
 
     if (type === 'negotiation') {
-      // Determine rates - use rate tier if provided, otherwise use manual inputs
-      let effectiveTargetRate = targetRate || '45';
-      let effectiveMaxRate = maxRate || effectiveTargetRate;
+      // PRODUCTION-MATCHING BEHAVIOR:
+      // 1. Manual Target/Max rates are the DEFAULT (fallback values)
+      // 2. Developer's Country is used to AUTO-LOOKUP regional rates
+      // 3. If regional tier exists for that country → use tier rates
+      // 4. If no matching tier → use manual default rates
+
+      // Start with manual defaults (like production uses job config rates as defaults)
+      let effectiveTargetRate = Number(targetRate) || 45;
+      let effectiveMaxRate = Number(maxRate) || effectiveTargetRate;
       let regionName = devCountry || '';
 
-      // If a rate tier was selected, use its values (this matches production behavior)
-      if (rateTier) {
-        effectiveTargetRate = rateTier.targetRate || effectiveTargetRate;
-        effectiveMaxRate = rateTier.maxRate || effectiveMaxRate;
-        regionName = rateTier.region || regionName;
+      // Auto-lookup regional rates based on Developer Country (matches production behavior)
+      // This ignores the dropdown selection and does real lookup like production does
+      if (devCountry && jobId) {
+        const regionRates = getRateForRegion(jobId, devCountry, null);
+        if (regionRates && regionRates.targetRate) {
+          // Regional tier found for this country - use tier rates (overrides defaults)
+          effectiveTargetRate = regionRates.targetRate;
+          effectiveMaxRate = regionRates.maxRate || effectiveTargetRate;
+          regionName = regionRates.region || devCountry;
+          console.log(`AI Test: Using ${regionRates.region} rates for ${devCountry}: target=$${effectiveTargetRate}, max=$${effectiveMaxRate}`);
+        } else {
+          // No regional tier found - use manual defaults
+          console.log(`AI Test: No tier found for ${devCountry}, using manual defaults: target=$${effectiveTargetRate}, max=$${effectiveMaxRate}`);
+        }
       }
 
       // Use the SAME prompt builder used in production (buildNegotiationReplyPrompt)
