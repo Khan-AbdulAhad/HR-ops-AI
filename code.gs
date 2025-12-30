@@ -1919,6 +1919,98 @@ Best regards,`;
 }
 
 /**
+ * Use AI to intelligently parse questions from any format
+ * Handles: comma-separated, "and"-separated, bullet points, numbered lists, sub-questions, etc.
+ * @param {string} rawInput - The raw questions input in any format
+ * @returns {Array} Array of individual question strings
+ */
+function parseQuestionsWithAI(rawInput) {
+  if (!rawInput || !rawInput.trim()) {
+    return [];
+  }
+
+  const prompt = `
+You are a question parser. Extract individual questions from the input below.
+
+INPUT:
+"${rawInput}"
+
+TASK: Extract each distinct question as a separate item.
+
+RULES:
+1. Handle ANY format: comma-separated, "and"-separated, bullet points, numbered lists, newlines, etc.
+2. If a question has sub-questions, extract each sub-question separately
+3. Remove duplicates (keep only unique questions)
+4. Clean up each question (remove numbering, bullets, extra punctuation)
+5. If input is already a single clear question, return just that one
+6. Preserve the meaning/intent of each question
+
+EXAMPLES:
+
+Input: "whats your age and whats your domain and how many people live with you"
+Output: ["whats your age", "whats your domain", "how many people live with you"]
+
+Input: "1. Age? 2. Location? 3. Expected rate?"
+Output: ["Age?", "Location?", "Expected rate?"]
+
+Input: "Tell me about: a) your experience b) your skills c) your availability"
+Output: ["your experience", "your skills", "your availability"]
+
+Input: "What is your expected rate, when can you start, and do you have your own laptop?"
+Output: ["What is your expected rate", "when can you start", "do you have your own laptop"]
+
+Input: "Age, location, rate"
+Output: ["Age", "location", "rate"]
+
+Input: "What's your background? Include education, work experience, and skills."
+Output: ["What's your education", "What's your work experience", "What's your skills"]
+
+RESPOND WITH ONLY a valid JSON array of strings, nothing else.
+Example response format: ["question 1", "question 2", "question 3"]
+`;
+
+  try {
+    const response = callAI(prompt);
+
+    // Parse the JSON response
+    const cleanResponse = response.trim();
+    const questions = JSON.parse(cleanResponse);
+
+    if (Array.isArray(questions) && questions.length > 0) {
+      // Filter out empty strings and duplicates
+      const unique = [...new Set(questions.filter(q => q && q.trim().length > 0))];
+      return unique;
+    }
+
+    // Fallback: if AI returns invalid format, do basic parsing
+    return fallbackQuestionParse(rawInput);
+  } catch (e) {
+    console.error("AI question parsing failed, using fallback:", e);
+    return fallbackQuestionParse(rawInput);
+  }
+}
+
+/**
+ * Fallback question parser if AI parsing fails
+ * @param {string} rawInput - The raw questions input
+ * @returns {Array} Array of question strings
+ */
+function fallbackQuestionParse(rawInput) {
+  const questions = rawInput
+    .replace(/\s+and\s+/gi, ',')        // Replace " and " with comma
+    .replace(/\s*[•\-\*]\s*/g, ',')     // Replace bullets with comma
+    .replace(/\s*\d+[\.\)]\s*/g, ',')   // Replace "1." or "1)" with comma
+    .replace(/\s*[a-z][\.\)]\s*/gi, ',') // Replace "a." or "a)" with comma
+    .split(/[,\n]+/)                     // Split by comma or newline
+    .map(q => q.trim())
+    .filter(q => q.length > 0);
+
+  // Remove duplicates
+  return [...new Set(questions.map(q => q.toLowerCase()))]
+    .map(lowerQ => questions.find(q => q.toLowerCase() === lowerQ));
+}
+
+/**
  * Check if we should send a missing info follow-up for a candidate
  * @param {string} jobId - The job ID
  * @param {string} candidateEmail - The candidate's email
@@ -7549,18 +7641,18 @@ function testAiEmailResponse(testData) {
 
     } else if (type === 'datagathering') {
       // PRODUCTION-MATCHING BEHAVIOR:
-      // 1. First extract answers from candidate's reply
-      // 2. Determine which questions are ACTUALLY still pending (not answered)
-      // 3. Only ask for truly missing information
+      // 1. Use AI to intelligently parse questions from ANY format
+      // 2. Extract answers from candidate's reply
+      // 3. Determine which questions are ACTUALLY still pending (not answered)
+      // 4. Only ask for truly missing information
 
-      // Parse questions into format expected by extractAnswersFromResponse
-      const allQuestions = (pendingQuestions || 'What is your expected rate?').split(',').map(q => {
-        const trimmed = q.trim();
-        return {
-          header: trimmed,  // Use question text as header for extraction
-          question: trimmed
-        };
-      });
+      // Use AI to parse questions - handles any format: comma, "and", bullets, numbered, sub-questions, etc.
+      const parsedQuestions = parseQuestionsWithAI(pendingQuestions || 'What is your expected rate?');
+
+      const allQuestions = parsedQuestions.map(q => ({
+        header: q,  // Use question text as header for extraction
+        question: q
+      }));
 
       // If candidate has replied, extract their answers first
       let actuallyPendingQuestions = allQuestions;
