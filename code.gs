@@ -10,11 +10,11 @@
  */
 
 // ============================================================
-// EMAIL CONFIGURATION - Easy to customize sender name & signature
+// EMAIL CONFIGURATION - Default values (can be overridden in Settings)
 // ============================================================
-// Change these values to update all automated emails at once
-const EMAIL_SENDER_NAME = 'Turing Recruitment Team';  // Appears as sender name in recipient's inbox
-const EMAIL_SIGNATURE = 'Turing | Talent Operations';  // Appears at the end of emails
+// These are fallback values - users can override via Settings UI
+const EMAIL_SENDER_NAME = 'Turing Recruitment Team';  // Default sender name
+const EMAIL_SIGNATURE = 'Turing | Talent Operations';  // Default signature
 
 const CONFIG = {
   PROJECT_ID: 'turing-230020',
@@ -1069,7 +1069,7 @@ function saveEmailTemplate(templateName, subject, body, jobId) {
   }
 }
 
-// --- NEGOTIATION CONFIGURATION (UPDATED - No Walk Away) ---
+// --- NEGOTIATION CONFIGURATION (UPDATED - Added Start Dates & JD Link) ---
 
 function saveNegotiationConfig(jobId, config) {
   const url = getStoredSheetUrl();
@@ -1078,19 +1078,23 @@ function saveNegotiationConfig(jobId, config) {
   const sheet = ss.getSheetByName('Negotiation_Config');
   const data = sheet.getDataRange().getValues();
 
+  // Serialize start dates array to JSON string
+  const startDatesJson = config.startDates ? JSON.stringify(config.startDates) : '[]';
+  const jdLink = config.jdLink || '';
+
   let found = false;
   for(let i=1; i<data.length; i++) {
     if(String(data[i][0]) === String(jobId)) {
       const row = i+1;
-      // Updated: Removed walkAwayRate
-      sheet.getRange(row, 2, 1, 6).setValues([[config.targetRate, config.maxRate, config.style, config.specialRules, config.jobDescription || '', new Date()]]);
+      // Updated: Added Start Dates (col 8) and JD Link (col 9)
+      sheet.getRange(row, 2, 1, 8).setValues([[config.targetRate, config.maxRate, config.style, config.specialRules, config.jobDescription || '', new Date(), startDatesJson, jdLink]]);
       found = true;
       break;
     }
   }
 
   if(!found) {
-    sheet.appendRow([jobId, config.targetRate, config.maxRate, config.style, config.specialRules, config.jobDescription || '', new Date()]);
+    sheet.appendRow([jobId, config.targetRate, config.maxRate, config.style, config.specialRules, config.jobDescription || '', new Date(), startDatesJson, jdLink]);
   }
 
   // Invalidate cache after save
@@ -1107,12 +1111,24 @@ function getNegotiationConfig(jobId) {
 
   for(let i=1; i<data.length; i++) {
     if(String(data[i][0]) === String(jobId)) {
+      // Parse start dates from JSON string
+      let startDates = [];
+      try {
+        if (data[i][7]) {
+          startDates = JSON.parse(data[i][7]);
+        }
+      } catch(e) {
+        console.error('Failed to parse start dates:', e);
+      }
+
       return {
         targetRate: data[i][1],
         maxRate: data[i][2],
         style: data[i][3],
         specialRules: data[i][4],
-        jobDescription: data[i][5] || ''
+        jobDescription: data[i][5] || '',
+        startDates: startDates,
+        jdLink: data[i][8] || ''
       };
     }
   }
@@ -1132,6 +1148,55 @@ function getJobConfigList() {
     if(data[i][0]) jobs.push(String(data[i][0]));
   }
   return jobs;
+}
+
+// --- EMAIL SENDER SETTINGS (User Customizable) ---
+
+/**
+ * Save email sender settings (name, signature, toggle)
+ * Uses PropertiesService for simple key-value storage
+ */
+function saveEmailSenderConfig(config) {
+  const props = PropertiesService.getUserProperties();
+  props.setProperty('EMAIL_SENDER_ENABLED', config.enabled ? 'true' : 'false');
+  props.setProperty('EMAIL_SENDER_NAME_CUSTOM', config.senderName || '');
+  props.setProperty('EMAIL_SIGNATURE_CUSTOM', config.signature || '');
+  return { success: true };
+}
+
+/**
+ * Get email sender settings
+ * Returns the custom settings or defaults
+ */
+function getEmailSenderConfig() {
+  const props = PropertiesService.getUserProperties();
+  return {
+    enabled: props.getProperty('EMAIL_SENDER_ENABLED') === 'true',
+    senderName: props.getProperty('EMAIL_SENDER_NAME_CUSTOM') || '',
+    signature: props.getProperty('EMAIL_SIGNATURE_CUSTOM') || ''
+  };
+}
+
+/**
+ * Get the effective sender name (custom if enabled, otherwise default)
+ */
+function getEffectiveSenderName() {
+  const config = getEmailSenderConfig();
+  if (config.enabled && config.senderName) {
+    return config.senderName;
+  }
+  return EMAIL_SENDER_NAME;
+}
+
+/**
+ * Get the effective signature (custom if enabled, otherwise default)
+ */
+function getEffectiveSignature() {
+  const config = getEmailSenderConfig();
+  if (config.enabled && config.signature) {
+    return config.signature;
+  }
+  return EMAIL_SIGNATURE;
 }
 
 // --- ENHANCED FAQ HELPER ---
@@ -3050,7 +3115,7 @@ function getEmailLogs(jobId) {
   return logMap;
 }
 
-// UPDATED: Send Email with progress callback support + Job Details Sheet creation
+// UPDATED: Send Email with progress callback support + Job Details Sheet creation + {{job_link}} placeholder
 function sendBulkEmails(recipients, senderName, subject, htmlBody, jobId, opts) {
   const url = getStoredSheetUrl();
   if(!url) return {success: false, sent: 0, errors: ["No config URL set. Please configure in Settings."]};
@@ -3063,6 +3128,13 @@ function sendBulkEmails(recipients, senderName, subject, htmlBody, jobId, opts) 
 
   // Get job type from options (defaults to 'negotiation' for backward compatibility)
   const jobType = opts?.jobType || 'negotiation';
+
+  // Get job config for JD link placeholder
+  const jobConfig = getNegotiationConfig(jobId);
+  const jdLink = jobConfig?.jdLink || '';
+
+  // Use effective sender name (custom if enabled, otherwise passed name or default)
+  const effectiveSenderName = senderName || getEffectiveSenderName();
 
   // Save job settings if provided (new toggle-based system)
   if (opts?.jobSettings) {
@@ -3121,8 +3193,10 @@ function sendBulkEmails(recipients, senderName, subject, htmlBody, jobId, opts) 
         return;
       }
 
-      const body = htmlBody.replace(/{{name}}/gi, r.name.split(' ')[0]);
-      const rawMessage = createMimeMessage(senderName, r.email, subject, body);
+      // Replace placeholders: {{name}} and {{job_link}}
+      let body = htmlBody.replace(/{{name}}/gi, r.name.split(' ')[0]);
+      body = body.replace(/{{job_link}}/gi, jdLink);
+      const rawMessage = createMimeMessage(effectiveSenderName, r.email, subject, body);
       const message = Gmail.Users.Messages.send({ raw: rawMessage }, 'me');
       const threadId = message.threadId;
 

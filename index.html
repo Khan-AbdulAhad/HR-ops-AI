@@ -986,8 +986,8 @@
             </div>
 
             <div id="navTabNegotiation" class="nav-tab operational-tab" onclick="switchTab('negotiation', this)">
-                <i class="fa-solid fa-hand-holding-dollar w-5 text-center"></i>
-                <span>Negotiation AI</span>
+                <i class="fa-solid fa-briefcase w-5 text-center"></i>
+                <span>Setup Job Details</span>
             </div>
 
             <div id="navTabTasks" class="nav-tab operational-tab" onclick="switchTab('tasks', this)">
@@ -1265,11 +1265,11 @@
                     </div>
                 </div>
 
-                <!-- TAB 2: NEGOTIATION AI -->
+                <!-- TAB 2: SETUP JOB DETAILS -->
                 <div id="tab-negotiation" class="tab-content hidden-tab">
                     <div class="mb-6">
-                        <h3 class="text-xl font-bold text-slate-800 dark:text-white mb-1">Negotiation Configuration</h3>
-                        <p class="text-sm text-slate-500">Configure AI behavior and rate limits per Job ID.</p>
+                        <h3 class="text-xl font-bold text-slate-800 dark:text-white mb-1">Setup Job Details</h3>
+                        <p class="text-sm text-slate-500">Configure job details, start dates, and AI negotiation settings per Job ID.</p>
                     </div>
 
                     <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
@@ -1279,11 +1279,33 @@
                                 <div>
                                     <label class="block text-sm font-semibold text-slate-700 dark:text-slate-300 mb-1">Select Job</label>
                                     <select id="activeJobsDropdown" onchange="selectJobFromDropdown(this.value)" class="input-field cursor-pointer bg-slate-50"><option value="">-- Select --</option></select>
-                                    
+
                                     <div class="flex items-center gap-2 mt-2">
                                         <span class="text-xs text-slate-400">Or enter manual ID:</span>
                                         <input type="number" id="negJobId" class="input-field py-1 px-2 text-xs w-24" placeholder="ID" onchange="loadNegotiationConfig()">
                                     </div>
+                                </div>
+
+                                <!-- Job Description Link -->
+                                <div>
+                                    <label class="block text-xs font-bold uppercase text-slate-500 mb-1">
+                                        <i class="fa-solid fa-link text-blue-500 mr-1"></i>Job Description Link
+                                    </label>
+                                    <input type="url" id="jdLink" class="input-field" placeholder="https://your-site.com/jobs/12345">
+                                    <p class="text-xs text-slate-400 mt-1">Use <span class="bg-blue-100 text-blue-700 px-1 rounded">{{job_link}}</span> in emails to auto-insert this link</p>
+                                </div>
+
+                                <!-- Start Dates -->
+                                <div>
+                                    <label class="block text-xs font-bold uppercase text-slate-500 mb-1">
+                                        <i class="fa-solid fa-calendar-days text-green-500 mr-1"></i>Start Dates
+                                    </label>
+                                    <div id="startDatesContainer" class="space-y-2 mb-2">
+                                        <!-- Start dates will be dynamically added here -->
+                                    </div>
+                                    <button type="button" onclick="addStartDate()" class="text-sm text-blue-600 hover:text-blue-800 flex items-center gap-1">
+                                        <i class="fa-solid fa-plus"></i> Add Start Date
+                                    </button>
                                 </div>
 
                                 <div class="grid grid-cols-2 gap-4">
@@ -2691,6 +2713,34 @@
                 </div>
                 <div id="allTriggersGood" class="hidden text-green-600 text-sm"><i class="fa-solid fa-check"></i> Triggers Active</div>
 
+                <!-- Email Sender Settings -->
+                <div class="border-t border-slate-200 dark:border-slate-600 pt-4 mt-4">
+                    <label class="block text-xs font-bold uppercase text-slate-500 mb-3">
+                        <i class="fa-solid fa-envelope mr-1"></i> Email Sender Settings
+                    </label>
+                    <p class="text-xs text-slate-500 dark:text-slate-400 mb-3">
+                        Customize sender name and signature for all outreach emails.
+                    </p>
+
+                    <!-- Toggle for custom sender -->
+                    <div class="flex items-center gap-3 mb-3">
+                        <div class="toggle-switch" id="toggleEmailSender" onclick="toggleEmailSenderSetting()"></div>
+                        <span class="text-sm text-slate-600 dark:text-slate-400">Use custom sender settings</span>
+                    </div>
+
+                    <div id="emailSenderFields" class="space-y-3 hidden">
+                        <div>
+                            <label class="block text-xs text-slate-600 dark:text-slate-400 mb-1">Sender Name</label>
+                            <input id="customSenderName" type="text" class="input-field" placeholder="e.g., Turing Recruitment Team">
+                        </div>
+                        <div>
+                            <label class="block text-xs text-slate-600 dark:text-slate-400 mb-1">Email Signature</label>
+                            <textarea id="customSignature" rows="2" class="input-field text-sm" placeholder="e.g., Turing | Talent Operations"></textarea>
+                        </div>
+                    </div>
+                    <div id="emailSenderConfigStatus" class="hidden mt-2 text-xs"></div>
+                </div>
+
                 <!-- Follow-up Timing Configuration -->
                 <div class="border-t border-slate-200 dark:border-slate-600 pt-4 mt-4">
                     <label class="block text-xs font-bold uppercase text-slate-500 mb-3">
@@ -2836,9 +2886,11 @@
                 <div class="mb-4">
                     <div class="flex items-center justify-between mb-2">
                         <label class="block text-xs font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider">Email Body</label>
-                        <span class="text-xs text-slate-500 dark:text-slate-400">
-                            Use <span class="name-placeholder">{{name}}</span> as a placeholder for the candidate's name
-                        </span>
+                        <div class="text-xs text-slate-500 dark:text-slate-400 flex items-center gap-2">
+                            <span>Placeholders:</span>
+                            <span class="name-placeholder cursor-pointer" onclick="insertPlaceholder('{{name}}')" title="Click to insert">{{name}}</span>
+                            <span class="name-placeholder cursor-pointer bg-blue-100 text-blue-700" onclick="insertPlaceholder('{{job_link}}')" title="Click to insert - JD link from job config">{{job_link}}</span>
+                        </div>
                     </div>
 
                     <!-- Formatting Toolbar -->
@@ -3151,7 +3203,7 @@
             // Update Header Title
             const titles = {
                 'outreach': 'Outreach Manager',
-                'negotiation': 'Negotiation AI',
+                'negotiation': 'Setup Job Details',
                 'tasks': 'Task List',
                 'followups': 'Follow-Ups',
                 'analytics': 'Analytics',
@@ -3276,6 +3328,64 @@
             document.getElementById('configModal').classList.remove('hidden');
             refreshTriggerStatus(); // Load trigger status when modal opens
             loadFollowUpTimingConfig(); // Load follow-up timing settings
+            loadEmailSenderConfig(); // Load email sender settings
+        }
+
+        // Email Sender Settings Functions
+        function loadEmailSenderConfig() {
+            google.script.run
+                .withSuccessHandler(config => {
+                    const toggle = document.getElementById('toggleEmailSender');
+                    const fields = document.getElementById('emailSenderFields');
+                    if (config.enabled) {
+                        toggle.classList.add('active');
+                        fields.classList.remove('hidden');
+                    } else {
+                        toggle.classList.remove('active');
+                        fields.classList.add('hidden');
+                    }
+                    document.getElementById('customSenderName').value = config.senderName || '';
+                    document.getElementById('customSignature').value = config.signature || '';
+                })
+                .withFailureHandler(err => {
+                    console.error('Error loading email sender config:', err);
+                })
+                .getEmailSenderConfig();
+        }
+
+        function toggleEmailSenderSetting() {
+            const toggle = document.getElementById('toggleEmailSender');
+            const fields = document.getElementById('emailSenderFields');
+            toggle.classList.toggle('active');
+            if (toggle.classList.contains('active')) {
+                fields.classList.remove('hidden');
+            } else {
+                fields.classList.add('hidden');
+            }
+        }
+
+        function saveEmailSenderConfig() {
+            const enabled = document.getElementById('toggleEmailSender').classList.contains('active');
+            const config = {
+                enabled: enabled,
+                senderName: document.getElementById('customSenderName').value.trim(),
+                signature: document.getElementById('customSignature').value.trim()
+            };
+            google.script.run
+                .withSuccessHandler(() => {
+                    const statusEl = document.getElementById('emailSenderConfigStatus');
+                    statusEl.textContent = '✓ Email sender settings saved';
+                    statusEl.className = 'mt-2 text-xs text-green-600';
+                    statusEl.classList.remove('hidden');
+                    setTimeout(() => statusEl.classList.add('hidden'), 3000);
+                })
+                .withFailureHandler(err => {
+                    const statusEl = document.getElementById('emailSenderConfigStatus');
+                    statusEl.textContent = 'Error: ' + err.message;
+                    statusEl.className = 'mt-2 text-xs text-red-600';
+                    statusEl.classList.remove('hidden');
+                })
+                .saveEmailSenderConfig(config);
         }
 
         function loadFollowUpTimingConfig() {
@@ -4453,9 +4563,91 @@
                     document.getElementById('negStyle').value = cfg.style || 'Friendly but firm';
                     document.getElementById('specialRules').value = cfg.specialRules || '';
                     document.getElementById('jobDescription').value = cfg.jobDescription || '';
+                    document.getElementById('jdLink').value = cfg.jdLink || '';
+
+                    // Load start dates
+                    renderStartDates(cfg.startDates || []);
+                } else {
+                    // Clear fields for new job
+                    document.getElementById('jdLink').value = '';
+                    renderStartDates([]);
                 }
             }).getNegotiationConfig(jId);
             refreshRateTiers();
+        }
+
+        // --- Start Dates Management ---
+        let currentStartDates = [];
+
+        function renderStartDates(dates) {
+            currentStartDates = dates || [];
+            const container = document.getElementById('startDatesContainer');
+            container.innerHTML = '';
+
+            if (currentStartDates.length === 0) {
+                container.innerHTML = '<p class="text-xs text-slate-400 italic">No start dates added yet</p>';
+                return;
+            }
+
+            currentStartDates.forEach((date, index) => {
+                const row = document.createElement('div');
+                row.className = 'flex items-center gap-2';
+                row.innerHTML = `
+                    <input type="date" value="${date}" onchange="updateStartDate(${index}, this.value)" class="input-field flex-1 text-sm">
+                    <button type="button" onclick="removeStartDate(${index})" class="text-red-500 hover:text-red-700 p-1" title="Remove">
+                        <i class="fa-solid fa-times"></i>
+                    </button>
+                `;
+                container.appendChild(row);
+            });
+        }
+
+        function addStartDate() {
+            currentStartDates.push('');
+            renderStartDates(currentStartDates);
+            // Focus on the new date input
+            const inputs = document.querySelectorAll('#startDatesContainer input[type="date"]');
+            if (inputs.length > 0) {
+                inputs[inputs.length - 1].focus();
+            }
+        }
+
+        function updateStartDate(index, value) {
+            currentStartDates[index] = value;
+        }
+
+        function removeStartDate(index) {
+            currentStartDates.splice(index, 1);
+            renderStartDates(currentStartDates);
+        }
+
+        function getStartDates() {
+            // Filter out empty dates
+            return currentStartDates.filter(d => d && d.trim() !== '');
+        }
+
+        // --- Insert Placeholder into Email Editor ---
+        function insertPlaceholder(placeholder) {
+            const editor = document.getElementById('emailBody');
+            editor.focus();
+
+            // Insert at cursor position
+            const selection = window.getSelection();
+            if (selection.rangeCount > 0) {
+                const range = selection.getRangeAt(0);
+                range.deleteContents();
+                range.insertNode(document.createTextNode(placeholder));
+
+                // Move cursor after inserted text
+                range.collapse(false);
+                selection.removeAllRanges();
+                selection.addRange(range);
+            } else {
+                // Append at end if no selection
+                editor.innerHTML += placeholder;
+            }
+
+            handleEditorInput();
         }
 
         // --- Initial Load ---
@@ -4560,12 +4752,13 @@
             btnText.textContent = 'Saving...';
             spinner.classList.remove('hidden');
 
-            // Save both URLs and timing config
+            // Save URLs, timing config, and email sender config
             let urlsSaved = false;
             let timingSaved = false;
+            let emailSenderSaved = false;
 
             const checkComplete = () => {
-                if (urlsSaved && timingSaved) {
+                if (urlsSaved && timingSaved && emailSenderSaved) {
                     btn.disabled = false;
                     btnText.textContent = 'Save';
                     spinner.classList.add('hidden');
@@ -4609,6 +4802,24 @@
                     FOLLOW_UP_1_HOURS: followUp1,
                     FOLLOW_UP_2_HOURS: followUp2,
                     UNRESPONSIVE_HOURS: unresponsive
+                });
+
+            // Save email sender config
+            const emailSenderEnabled = document.getElementById('toggleEmailSender').classList.contains('active');
+            google.script.run
+                .withSuccessHandler(() => {
+                    emailSenderSaved = true;
+                    checkComplete();
+                })
+                .withFailureHandler(err => {
+                    console.error('Error saving email sender config:', err);
+                    emailSenderSaved = true; // Don't block other saves
+                    checkComplete();
+                })
+                .saveEmailSenderConfig({
+                    enabled: emailSenderEnabled,
+                    senderName: document.getElementById('customSenderName').value.trim(),
+                    signature: document.getElementById('customSignature').value.trim()
                 });
         }
 
@@ -4774,15 +4985,17 @@
         function saveNegotiationSettings() {
             const jobId = document.getElementById('negJobId').value;
             if(!jobId) { showToast("Enter Job ID", "warning"); return; }
-            
+
             const config = {
                 targetRate: document.getElementById('targetRate').value,
                 maxRate: document.getElementById('maxRate').value,
                 style: document.getElementById('negStyle').value,
                 specialRules: document.getElementById('specialRules').value,
-                jobDescription: document.getElementById('jobDescription').value
+                jobDescription: document.getElementById('jobDescription').value,
+                jdLink: document.getElementById('jdLink').value.trim(),
+                startDates: getStartDates()
             };
-            
+
             google.script.run.withSuccessHandler(() => {
                 showToast("Configuration saved!", "success");
                 refreshJobDropdown();
