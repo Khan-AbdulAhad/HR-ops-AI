@@ -1465,6 +1465,9 @@
                             <button id="runAiBtn" onclick="manualTriggerAI()" class="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg font-medium text-sm flex items-center gap-2 shadow-sm">
                                 <i class="fa-solid fa-wand-magic-sparkles"></i> Run AI
                             </button>
+                            <button id="processHumanBtn" onclick="processCompletedHumanEscalations()" class="bg-amber-500 hover:bg-amber-600 text-white px-4 py-2 rounded-lg font-medium text-sm flex items-center gap-2 shadow-sm" title="Process human escalations marked as Completed in Gmail">
+                                <i class="fa-solid fa-user-check"></i> Sync Human
+                            </button>
                             <button onclick="loadTasks()" class="bg-white border border-slate-300 hover:bg-slate-50 text-slate-600 px-3 py-2 rounded-lg transition">
                                 <i class="fa-solid fa-rotate"></i>
                             </button>
@@ -4704,6 +4707,40 @@
                     showToast("Failed: " + err.message, "error");
                 })
                 .runAutoNegotiator();
+        }
+
+        function processCompletedHumanEscalations() {
+            const btn = document.getElementById('processHumanBtn');
+            const originalContent = btn.innerHTML;
+
+            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Processing...';
+            btn.disabled = true;
+
+            google.script.run
+                .withSuccessHandler(res => {
+                    btn.innerHTML = originalContent;
+                    btn.disabled = false;
+
+                    if (res.processed > 0) {
+                        showToast(`Processed ${res.processed} human escalations`, "success");
+                        // Show details in log if AI progress panel is visible
+                        const logContainer = document.getElementById('aiLogContainer');
+                        if (logContainer && res.log) {
+                            res.log.forEach(l => addLog(l.type, l.message));
+                        }
+                    } else {
+                        showToast("No completed human escalations to process", "info");
+                    }
+
+                    // Refresh task list
+                    loadTasks();
+                })
+                .withFailureHandler(err => {
+                    btn.innerHTML = originalContent;
+                    btn.disabled = false;
+                    showToast("Error: " + err.message, "error");
+                })
+                .processCompletedHumanEscalations();
         }
 
         function addLog(type, message) {

@@ -3415,14 +3415,17 @@ function runAutoNegotiator() {
     log.push({type: 'warning', message: 'Gmail sync skipped: ' + e.message});
   }
   
-  // STEP 2: Cleanup any conflicting labels (Completed + Human-Negotiation)
+  // STEP 2: Process completed human escalations (threads with Human-Negotiation + Completed labels)
   try {
-    const cleanupResult = cleanupConflictingLabels();
-    if(cleanupResult.cleaned > 0) {
-      stats.cleaned += cleanupResult.cleaned;
-      log.push({type: 'info', message: `Removed Human-Negotiation label from ${cleanupResult.cleaned} completed threads`});
+    const humanResult = processCompletedHumanEscalations();
+    if(humanResult.processed > 0) {
+      stats.cleaned += humanResult.processed;
+      log.push({type: 'success', message: `Processed ${humanResult.processed} completed human escalations (AI extracted outcomes)`});
+      humanResult.log.forEach(l => log.push(l));
     }
-  } catch(e) {}
+  } catch(e) {
+    log.push({type: 'warning', message: 'Human escalation processing skipped: ' + e.message});
+  }
   
   if(configs.length <= 1) {
     return {status: "Error", message: "No job configurations found. Please configure at least one job.", stats: stats, log: log};
@@ -4946,31 +4949,224 @@ function syncCompletedFromGmail() {
 }
 
 /**
- * Cleanup function: Remove Human-Negotiation label from any thread that has Completed label
+ * AUTOMATED HUMAN ESCALATION PROCESSOR
+ * Finds threads with both "Human-Negotiation" + "Completed" labels,
+ * uses AI to extract negotiation outcome, and updates all sheets.
+ * Can be run manually or via hourly trigger.
+ */
+function processCompletedHumanEscalations() {
+  const results = { processed: 0, errors: 0, log: [] };
+
+  try {
+    // Find threads with both labels (human marked as completed)
+    const query = 'label:Completed label:Human-Negotiation';
+    const threads = GmailApp.search(query, 0, 50);
+
+    if (threads.length === 0) {
+      results.log.push({ type: 'info', message: 'No completed human escalations to process' });
+      return results;
+    }
+
+    results.log.push({ type: 'info', message: `Found ${threads.length} completed human escalations to process` });
+
+    // Get or create labels
+    const humanLabel = GmailApp.getUserLabelByName("Human-Negotiation");
+    let humanCompletedLabel = GmailApp.getUserLabelByName("Human-Negotiation-Completed");
+    if (!humanCompletedLabel) {
+      humanCompletedLabel = GmailApp.createLabel("Human-Negotiation-Completed");
+    }
+
+    const url = getStoredSheetUrl();
+    if (!url) {
+      results.log.push({ type: 'error', message: 'No config URL set' });
+      return results;
+    }
+    const ss = SpreadsheetApp.openByUrl(url);
+
+    // Get state data to find job info for each thread
+    const stateSheet = ss.getSheetByName('Negotiation_State');
+    const stateData = stateSheet ? stateSheet.getDataRange().getValues() : [];
+
+    // Build lookup maps
+    const threadToState = new Map();
+    const emailToState = new Map();
+    for (let i = 1; i < stateData.length; i++) {
+      const email = String(stateData[i][0]).toLowerCase();
+      const jobId = stateData[i][1];
+      const threadId = stateData[i][9] || '';
+      const name = stateData[i][7] || 'Unknown';
+      const devId = stateData[i][6] || 'N/A';
+      const region = stateData[i][10] || '';
+
+      const stateInfo = { email, jobId, name, devId, region, rowIndex: i + 1 };
+      if (threadId) threadToState.set(threadId, stateInfo);
+      emailToState.set(email + '_' + jobId, stateInfo);
+    }
+
+    threads.forEach(thread => {
+      try {
+        const threadId = thread.getId();
+
+        // Try to find state info by thread ID first
+        let stateInfo = threadToState.get(threadId);
+
+        // If not found, try to find by sender email
+        if (!stateInfo) {
+          const msgs = thread.getMessages();
+          for (const msg of msgs) {
+            const from = msg.getFrom().toLowerCase();
+            const emailMatch = from.match(/<([^>]+)>/);
+            const senderEmail = emailMatch ? emailMatch[1] : from.replace(/.*<|>.*/g, '').trim();
+
+            // Check all job IDs for this email
+            for (const [key, info] of emailToState) {
+              if (key.startsWith(senderEmail.toLowerCase() + '_')) {
+                stateInfo = info;
+                break;
+              }
+            }
+            if (stateInfo) break;
+          }
+        }
+
+        // Extract job ID from Gmail labels if still not found
+        let jobId = stateInfo?.jobId || '';
+        if (!jobId) {
+          const labels = thread.getLabels();
+          for (const label of labels) {
+            const labelName = label.getName();
+            if (labelName.startsWith('Job-')) {
+              jobId = labelName.replace('Job-', '');
+              break;
+            }
+          }
+        }
+
+        // Get conversation for AI analysis
+        const msgs = thread.getMessages();
+        const conversationText = msgs.slice(-10).map(m => {
+          const from = m.getFrom();
+          const body = m.getPlainBody().substring(0, 500);
+          return `FROM: ${from}\n${body}`;
+        }).join('\n---\n');
+
+        // Get candidate info
+        const lastExternalMsg = [...msgs].reverse().find(m => {
+          const from = m.getFrom().toLowerCase();
+          return !from.includes('turing') && !from.includes('recruiter');
+        });
+
+        let candidateEmail = stateInfo?.email || '';
+        let candidateName = stateInfo?.name || 'Unknown';
+
+        if (lastExternalMsg && !candidateEmail) {
+          const from = lastExternalMsg.getFrom();
+          const emailMatch = from.match(/<([^>]+)>/);
+          candidateEmail = emailMatch ? emailMatch[1] : from.replace(/.*<|>.*/g, '').trim();
+          const nameMatch = from.match(/^([^<]+)/);
+          candidateName = nameMatch ? nameMatch[1].trim() : candidateEmail.split('@')[0];
+        }
+
+        // Use AI to analyze the conversation and extract outcome
+        const analysisPrompt = `
+Analyze this recruitment negotiation conversation and extract the outcome.
+
+CONVERSATION:
+${conversationText}
+
+TASK: Determine the negotiation outcome. Return ONLY a JSON object:
+
+{
+  "outcome": "ACCEPTED" | "REJECTED" | "WITHDREW" | "UNCLEAR",
+  "agreed_rate": <number or null if no rate agreed>,
+  "summary": "<1-2 sentence summary of what happened>",
+  "confidence": "HIGH" | "MEDIUM" | "LOW"
+}
+
+RULES:
+- If candidate accepted an offer with a specific rate, set outcome to "ACCEPTED" and include the rate
+- If candidate declined/rejected, set outcome to "REJECTED"
+- If candidate withdrew or stopped responding, set outcome to "WITHDREW"
+- If unclear from conversation, set outcome to "UNCLEAR"
+- Extract the FINAL agreed rate (number only, no $ or /hr)
+
+Return ONLY the JSON, no other text.
+`;
+
+        let analysis = { outcome: 'UNCLEAR', agreed_rate: null, summary: 'Completed by human', confidence: 'LOW' };
+        try {
+          const aiResponse = callAI(analysisPrompt);
+          const cleanResponse = aiResponse.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+          analysis = JSON.parse(cleanResponse);
+        } catch (e) {
+          console.error('AI analysis failed:', e);
+          results.log.push({ type: 'warning', message: `AI analysis failed for ${candidateEmail}, using defaults` });
+        }
+
+        // Determine final status
+        let finalStatus = 'Human Negotiation Complete';
+        if (analysis.outcome === 'ACCEPTED') {
+          finalStatus = analysis.agreed_rate ? `Offer Accepted at $${analysis.agreed_rate}/hr (Human)` : 'Offer Accepted (Human)';
+        } else if (analysis.outcome === 'REJECTED') {
+          finalStatus = 'Rejected by Candidate (Human)';
+        } else if (analysis.outcome === 'WITHDREW') {
+          finalStatus = 'Candidate Withdrew (Human)';
+        }
+
+        // Update sheets using existing completion function
+        if (candidateEmail && jobId) {
+          try {
+            // Update job details sheet
+            const formattedRate = analysis.agreed_rate ? `$${analysis.agreed_rate}/hr` : null;
+            updateJobCandidateStatus(ss, jobId, candidateEmail, finalStatus, formattedRate);
+
+            // Move to completed (removes from state sheet, adds to completed sheet)
+            moveToCompleted(candidateEmail, finalStatus, jobId);
+
+            results.log.push({
+              type: 'success',
+              message: `${candidateEmail} (Job ${jobId}): ${finalStatus}${analysis.summary ? ' - ' + analysis.summary : ''}`
+            });
+          } catch (updateErr) {
+            console.error('Sheet update error:', updateErr);
+            results.log.push({ type: 'error', message: `Failed to update sheets for ${candidateEmail}: ${updateErr.message}` });
+          }
+        }
+
+        // Update labels: Remove Human-Negotiation, Add Human-Negotiation-Completed
+        if (humanLabel) {
+          thread.removeLabel(humanLabel);
+        }
+        thread.addLabel(humanCompletedLabel);
+
+        results.processed++;
+
+      } catch (threadErr) {
+        console.error('Thread processing error:', threadErr);
+        results.errors++;
+        results.log.push({ type: 'error', message: `Error processing thread: ${threadErr.message}` });
+      }
+    });
+
+    // Invalidate caches
+    invalidateSheetCache('Negotiation_State');
+    invalidateSheetCache('Negotiation_Completed');
+
+  } catch (e) {
+    console.error('Process completed escalations error:', e);
+    results.log.push({ type: 'error', message: `Fatal error: ${e.message}` });
+  }
+
+  return results;
+}
+
+/**
+ * Legacy cleanup function - now calls the full processor
  * Can be run manually or as part of the auto-negotiator
  */
 function cleanupConflictingLabels() {
-  let cleaned = 0;
-  
-  try {
-    // Find threads with both labels
-    const query = 'label:Completed label:Human-Negotiation';
-    const threads = GmailApp.search(query, 0, 100);
-    
-    const humanLabel = GmailApp.getUserLabelByName("Human-Negotiation");
-    if(!humanLabel) return { cleaned: 0 };
-    
-    threads.forEach(thread => {
-      try {
-        thread.removeLabel(humanLabel);
-        cleaned++;
-      } catch(e) {}
-    });
-  } catch(e) {
-    console.error("Cleanup error:", e);
-  }
-  
-  return { cleaned: cleaned };
+  const result = processCompletedHumanEscalations();
+  return { cleaned: result.processed };
 }
 
 function callAI(prompt) {
