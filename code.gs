@@ -123,7 +123,9 @@ function buildNegotiationReplyPrompt(params) {
     faqContent = '',
     conversationContext = '',
     specialRules = '',
-    region = ''
+    region = '',
+    startDates = [],
+    jdLink = ''
   } = params;
 
   const attempts = parseInt(attempt) - 1; // Convert to 0-indexed like production
@@ -135,6 +137,22 @@ function buildNegotiationReplyPrompt(params) {
 
   // Region context for the prompt (if provided)
   const regionContext = region ? `\n- Candidate Region: ${region} (rates adjusted for this region)` : '';
+
+  // Start dates context for the prompt (if provided)
+  let startDatesContext = '';
+  if (startDates && startDates.length > 0) {
+    const formattedDates = startDates.map((d, i) => `  ${i + 1}. ${d}`).join('\n');
+    startDatesContext = `\n\n=== AVAILABLE START DATES ===
+The following start dates are available for this role:
+${formattedDates}
+
+**START DATE INSTRUCTIONS:**
+- If the candidate asks about start dates, offer the FIRST available date
+- If they say they're not available for that date, offer the NEXT date in the list
+- If none of the dates work for them and they propose a different date, use ACTION: ESCALATE to let a human handle it
+- Do NOT reveal all dates at once - offer them one at a time
+`;
+  }
 
   const conversationHistory = conversationContext || `
 Previous context: Initial outreach sent.
@@ -155,7 +173,7 @@ Perks of Freelancing With Turing:
 
 === JOB DESCRIPTION ===
 ${jobDescription || 'No specific job description provided.'}${regionContext}
-
+${startDatesContext}
 === YOUR RATE PARAMETERS ===
 - Initial Offer: $${firstOfferRate}/hr
 - Maximum Rate: $${max}/hr (NEVER reveal this to candidate)
@@ -3404,13 +3422,24 @@ function runAutoNegotiator() {
 
     log.push({type: 'info', message: `Processing Job ${jobId}...`});
 
-    // UPDATED: Removed walkaway from rules
+    // UPDATED: Added startDates and jdLink to rules
+    let startDates = [];
+    try {
+      if (configs[i][7]) {
+        startDates = JSON.parse(configs[i][7]);
+      }
+    } catch(e) {
+      console.error('Failed to parse start dates for job ' + jobId + ':', e);
+    }
+
     const rules = {
       target: configs[i][1],
       max: configs[i][2],
       style: configs[i][3],
       special: configs[i][4],
-      jobDescription: configs[i][5] || ''
+      jobDescription: configs[i][5] || '',
+      startDates: startDates,
+      jdLink: configs[i][8] || ''
     };
     
     let jobResult = processJobNegotiations(jobId, rules, ss, faqContent);
@@ -4039,7 +4068,17 @@ Perks of Freelancing With Turing:
 
 === JOB DESCRIPTION ===
 ${rules.jobDescription || 'No specific job description provided.'}
+${rules.startDates && rules.startDates.length > 0 ? `
+=== AVAILABLE START DATES ===
+The following start dates are available for this role:
+${rules.startDates.map((d, i) => `  ${i + 1}. ${d}`).join('\n')}
 
+**START DATE INSTRUCTIONS:**
+- If the candidate asks about start dates, offer the FIRST available date
+- If they say they're not available for that date, offer the NEXT date in the list
+- If none of the dates work for them and they propose a different date, use ACTION: ESCALATE to let a human handle it
+- Do NOT reveal all dates at once - offer them one at a time
+` : ''}
 === YOUR RATE PARAMETERS ===
 - Initial Offer: $${firstOfferRate}/hr
 - Maximum Rate: $${maxRate}/hr (NEVER reveal this to candidate)
@@ -7686,6 +7725,17 @@ function testAiEmailResponse(testData) {
         }
       }
 
+      // Get start dates from job config if jobId is provided
+      let startDates = [];
+      let jdLink = '';
+      if (jobId) {
+        const jobConfig = getNegotiationConfig(jobId);
+        if (jobConfig) {
+          startDates = jobConfig.startDates || [];
+          jdLink = jobConfig.jdLink || '';
+        }
+      }
+
       // Use the SAME prompt builder used in production (buildNegotiationReplyPrompt)
       const prompt = buildNegotiationReplyPrompt({
         candidateName: devName,
@@ -7698,7 +7748,9 @@ function testAiEmailResponse(testData) {
         faqContent: '', // In testing, no FAQs - simulates fresh negotiation
         conversationContext: `Latest candidate message: "${candidateReply}"`,
         specialRules: '',
-        region: regionName
+        region: regionName,
+        startDates: startDates,
+        jdLink: jdLink
       });
 
       aiResponse = callAI(prompt);
