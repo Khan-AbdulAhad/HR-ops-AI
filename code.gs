@@ -10,11 +10,11 @@
  */
 
 // ============================================================
-// EMAIL CONFIGURATION - Easy to customize sender name & signature
+// EMAIL CONFIGURATION - Default values (can be overridden in Settings)
 // ============================================================
-// Change these values to update all automated emails at once
-const EMAIL_SENDER_NAME = 'Turing Recruitment Team';  // Appears as sender name in recipient's inbox
-const EMAIL_SIGNATURE = 'Turing | Talent Operations';  // Appears at the end of emails
+// These are fallback values - users can override via Settings UI
+const EMAIL_SENDER_NAME = 'Turing Recruitment Team';  // Default sender name
+const EMAIL_SIGNATURE = 'Turing | Talent Operations';  // Default signature
 
 const CONFIG = {
   PROJECT_ID: 'turing-230020',
@@ -123,7 +123,9 @@ function buildNegotiationReplyPrompt(params) {
     faqContent = '',
     conversationContext = '',
     specialRules = '',
-    region = ''
+    region = '',
+    startDates = [],
+    jdLink = ''
   } = params;
 
   const attempts = parseInt(attempt) - 1; // Convert to 0-indexed like production
@@ -135,6 +137,22 @@ function buildNegotiationReplyPrompt(params) {
 
   // Region context for the prompt (if provided)
   const regionContext = region ? `\n- Candidate Region: ${region} (rates adjusted for this region)` : '';
+
+  // Start dates context for the prompt (if provided)
+  let startDatesContext = '';
+  if (startDates && startDates.length > 0) {
+    const formattedDates = startDates.map((d, i) => `  ${i + 1}. ${d}`).join('\n');
+    startDatesContext = `\n\n=== AVAILABLE START DATES ===
+The following start dates are available for this role:
+${formattedDates}
+
+**START DATE INSTRUCTIONS:**
+- If the candidate asks about start dates, offer the FIRST available date
+- If they say they're not available for that date, offer the NEXT date in the list
+- If none of the dates work for them and they propose a different date, use ACTION: ESCALATE to let a human handle it
+- Do NOT reveal all dates at once - offer them one at a time
+`;
+  }
 
   const conversationHistory = conversationContext || `
 Previous context: Initial outreach sent.
@@ -155,7 +173,7 @@ Perks of Freelancing With Turing:
 
 === JOB DESCRIPTION ===
 ${jobDescription || 'No specific job description provided.'}${regionContext}
-
+${startDatesContext}
 === YOUR RATE PARAMETERS ===
 - Initial Offer: $${firstOfferRate}/hr
 - Maximum Rate: $${max}/hr (NEVER reveal this to candidate)
@@ -1069,7 +1087,7 @@ function saveEmailTemplate(templateName, subject, body, jobId) {
   }
 }
 
-// --- NEGOTIATION CONFIGURATION (UPDATED - No Walk Away) ---
+// --- NEGOTIATION CONFIGURATION (UPDATED - Added Start Dates & JD Link) ---
 
 function saveNegotiationConfig(jobId, config) {
   const url = getStoredSheetUrl();
@@ -1078,19 +1096,23 @@ function saveNegotiationConfig(jobId, config) {
   const sheet = ss.getSheetByName('Negotiation_Config');
   const data = sheet.getDataRange().getValues();
 
+  // Serialize start dates array to JSON string
+  const startDatesJson = config.startDates ? JSON.stringify(config.startDates) : '[]';
+  const jdLink = config.jdLink || '';
+
   let found = false;
   for(let i=1; i<data.length; i++) {
     if(String(data[i][0]) === String(jobId)) {
       const row = i+1;
-      // Updated: Removed walkAwayRate
-      sheet.getRange(row, 2, 1, 6).setValues([[config.targetRate, config.maxRate, config.style, config.specialRules, config.jobDescription || '', new Date()]]);
+      // Updated: Added Start Dates (col 8) and JD Link (col 9)
+      sheet.getRange(row, 2, 1, 8).setValues([[config.targetRate, config.maxRate, config.style, config.specialRules, config.jobDescription || '', new Date(), startDatesJson, jdLink]]);
       found = true;
       break;
     }
   }
 
   if(!found) {
-    sheet.appendRow([jobId, config.targetRate, config.maxRate, config.style, config.specialRules, config.jobDescription || '', new Date()]);
+    sheet.appendRow([jobId, config.targetRate, config.maxRate, config.style, config.specialRules, config.jobDescription || '', new Date(), startDatesJson, jdLink]);
   }
 
   // Invalidate cache after save
@@ -1107,12 +1129,24 @@ function getNegotiationConfig(jobId) {
 
   for(let i=1; i<data.length; i++) {
     if(String(data[i][0]) === String(jobId)) {
+      // Parse start dates from JSON string
+      let startDates = [];
+      try {
+        if (data[i][7]) {
+          startDates = JSON.parse(data[i][7]);
+        }
+      } catch(e) {
+        console.error('Failed to parse start dates:', e);
+      }
+
       return {
         targetRate: data[i][1],
         maxRate: data[i][2],
         style: data[i][3],
         specialRules: data[i][4],
-        jobDescription: data[i][5] || ''
+        jobDescription: data[i][5] || '',
+        startDates: startDates,
+        jdLink: data[i][8] || ''
       };
     }
   }
@@ -1132,6 +1166,55 @@ function getJobConfigList() {
     if(data[i][0]) jobs.push(String(data[i][0]));
   }
   return jobs;
+}
+
+// --- EMAIL SENDER SETTINGS (User Customizable) ---
+
+/**
+ * Save email sender settings (name, signature, toggle)
+ * Uses PropertiesService for simple key-value storage
+ */
+function saveEmailSenderConfig(config) {
+  const props = PropertiesService.getUserProperties();
+  props.setProperty('EMAIL_SENDER_ENABLED', config.enabled ? 'true' : 'false');
+  props.setProperty('EMAIL_SENDER_NAME_CUSTOM', config.senderName || '');
+  props.setProperty('EMAIL_SIGNATURE_CUSTOM', config.signature || '');
+  return { success: true };
+}
+
+/**
+ * Get email sender settings
+ * Returns the custom settings or defaults
+ */
+function getEmailSenderConfig() {
+  const props = PropertiesService.getUserProperties();
+  return {
+    enabled: props.getProperty('EMAIL_SENDER_ENABLED') === 'true',
+    senderName: props.getProperty('EMAIL_SENDER_NAME_CUSTOM') || '',
+    signature: props.getProperty('EMAIL_SIGNATURE_CUSTOM') || ''
+  };
+}
+
+/**
+ * Get the effective sender name (custom if enabled, otherwise default)
+ */
+function getEffectiveSenderName() {
+  const config = getEmailSenderConfig();
+  if (config.enabled && config.senderName) {
+    return config.senderName;
+  }
+  return EMAIL_SENDER_NAME;
+}
+
+/**
+ * Get the effective signature (custom if enabled, otherwise default)
+ */
+function getEffectiveSignature() {
+  const config = getEmailSenderConfig();
+  if (config.enabled && config.signature) {
+    return config.signature;
+  }
+  return EMAIL_SIGNATURE;
 }
 
 // --- ENHANCED FAQ HELPER ---
@@ -1776,15 +1859,33 @@ function jobHasDataGathering(jobId) {
  * @param {Array} pendingQuestions - Array of {header, question} objects for missing info
  * @param {string} conversationContext - Recent conversation history for context
  * @param {string} jobDescription - Optional job description for context
+ * @param {Array} startDates - Optional array of available start dates
  * @returns {string} The generated follow-up email body
  */
-function generateMissingInfoFollowUp(candidateName, pendingQuestions, conversationContext, jobDescription) {
+function generateMissingInfoFollowUp(candidateName, pendingQuestions, conversationContext, jobDescription, startDates) {
   if (!pendingQuestions || pendingQuestions.length === 0) {
     return null;
   }
 
   const firstName = candidateName.split(' ')[0];
   const missingInfoList = pendingQuestions.map((q, i) => `${i+1}. ${q.question}`).join('\n');
+
+  // Build start dates context if available
+  let startDatesContext = '';
+  if (startDates && startDates.length > 0) {
+    const formattedDates = startDates.map((d, i) => `  ${i + 1}. ${d}`).join('\n');
+    startDatesContext = `
+=== AVAILABLE START DATES ===
+The following start dates are available for this role:
+${formattedDates}
+
+**START DATE INSTRUCTIONS:**
+- If the candidate asks about start dates, offer the FIRST available date
+- If they say they're not available for that date, offer the NEXT date in the list
+- If none of the dates work for them, acknowledge and say you'll check with the team
+- Do NOT reveal all dates at once - offer them one at a time
+`;
+  }
 
   const prompt = `
 You are a professional recruiter at Turing following up with a candidate to collect missing information.
@@ -1795,6 +1896,7 @@ MISSING INFORMATION NEEDED:
 ${missingInfoList}
 
 ${jobDescription ? `JOB CONTEXT: ${jobDescription}` : ''}
+${startDatesContext}
 
 RECENT CONVERSATION:
 ${conversationContext || 'Initial outreach sent'}
@@ -3050,7 +3152,7 @@ function getEmailLogs(jobId) {
   return logMap;
 }
 
-// UPDATED: Send Email with progress callback support + Job Details Sheet creation
+// UPDATED: Send Email with progress callback support + Job Details Sheet creation + {{job_link}} placeholder
 function sendBulkEmails(recipients, senderName, subject, htmlBody, jobId, opts) {
   const url = getStoredSheetUrl();
   if(!url) return {success: false, sent: 0, errors: ["No config URL set. Please configure in Settings."]};
@@ -3063,6 +3165,13 @@ function sendBulkEmails(recipients, senderName, subject, htmlBody, jobId, opts) 
 
   // Get job type from options (defaults to 'negotiation' for backward compatibility)
   const jobType = opts?.jobType || 'negotiation';
+
+  // Get job config for JD link placeholder
+  const jobConfig = getNegotiationConfig(jobId);
+  const jdLink = jobConfig?.jdLink || '';
+
+  // Use effective sender name (custom if enabled, otherwise passed name or default)
+  const effectiveSenderName = senderName || getEffectiveSenderName();
 
   // Save job settings if provided (new toggle-based system)
   if (opts?.jobSettings) {
@@ -3121,8 +3230,10 @@ function sendBulkEmails(recipients, senderName, subject, htmlBody, jobId, opts) 
         return;
       }
 
-      const body = htmlBody.replace(/{{name}}/gi, r.name.split(' ')[0]);
-      const rawMessage = createMimeMessage(senderName, r.email, subject, body);
+      // Replace placeholders: {{name}} and {{job_link}}
+      let body = htmlBody.replace(/{{name}}/gi, r.name.split(' ')[0]);
+      body = body.replace(/{{job_link}}/gi, jdLink);
+      const rawMessage = createMimeMessage(effectiveSenderName, r.email, subject, body);
       const message = Gmail.Users.Messages.send({ raw: rawMessage }, 'me');
       const threadId = message.threadId;
 
@@ -3304,14 +3415,17 @@ function runAutoNegotiator() {
     log.push({type: 'warning', message: 'Gmail sync skipped: ' + e.message});
   }
   
-  // STEP 2: Cleanup any conflicting labels (Completed + Human-Negotiation)
+  // STEP 2: Process completed human escalations (threads with Human-Negotiation + Completed labels)
   try {
-    const cleanupResult = cleanupConflictingLabels();
-    if(cleanupResult.cleaned > 0) {
-      stats.cleaned += cleanupResult.cleaned;
-      log.push({type: 'info', message: `Removed Human-Negotiation label from ${cleanupResult.cleaned} completed threads`});
+    const humanResult = processCompletedHumanEscalations();
+    if(humanResult.processed > 0) {
+      stats.cleaned += humanResult.processed;
+      log.push({type: 'success', message: `Processed ${humanResult.processed} completed human escalations (AI extracted outcomes)`});
+      humanResult.log.forEach(l => log.push(l));
     }
-  } catch(e) {}
+  } catch(e) {
+    log.push({type: 'warning', message: 'Human escalation processing skipped: ' + e.message});
+  }
   
   if(configs.length <= 1) {
     return {status: "Error", message: "No job configurations found. Please configure at least one job.", stats: stats, log: log};
@@ -3330,13 +3444,24 @@ function runAutoNegotiator() {
 
     log.push({type: 'info', message: `Processing Job ${jobId}...`});
 
-    // UPDATED: Removed walkaway from rules
+    // UPDATED: Added startDates and jdLink to rules
+    let startDates = [];
+    try {
+      if (configs[i][7]) {
+        startDates = JSON.parse(configs[i][7]);
+      }
+    } catch(e) {
+      console.error('Failed to parse start dates for job ' + jobId + ':', e);
+    }
+
     const rules = {
       target: configs[i][1],
       max: configs[i][2],
       style: configs[i][3],
       special: configs[i][4],
-      jobDescription: configs[i][5] || ''
+      jobDescription: configs[i][5] || '',
+      startDates: startDates,
+      jdLink: configs[i][8] || ''
     };
     
     let jobResult = processJobNegotiations(jobId, rules, ss, faqContent);
@@ -3568,7 +3693,8 @@ function processJobNegotiations(jobId, rules, ss, faqContent) {
                 candidateName,
                 saveResult.pendingQuestions,
                 conversationHistory,
-                rules.jobDescription || ''
+                rules.jobDescription || '',
+                rules.startDates || []
               );
 
               if (missingInfoEmail) {
@@ -3965,7 +4091,17 @@ Perks of Freelancing With Turing:
 
 === JOB DESCRIPTION ===
 ${rules.jobDescription || 'No specific job description provided.'}
+${rules.startDates && rules.startDates.length > 0 ? `
+=== AVAILABLE START DATES ===
+The following start dates are available for this role:
+${rules.startDates.map((d, i) => `  ${i + 1}. ${d}`).join('\n')}
 
+**START DATE INSTRUCTIONS:**
+- If the candidate asks about start dates, offer the FIRST available date
+- If they say they're not available for that date, offer the NEXT date in the list
+- If none of the dates work for them and they propose a different date, use ACTION: ESCALATE to let a human handle it
+- Do NOT reveal all dates at once - offer them one at a time
+` : ''}
 === YOUR RATE PARAMETERS ===
 - Initial Offer: $${firstOfferRate}/hr
 - Maximum Rate: $${maxRate}/hr (NEVER reveal this to candidate)
@@ -4813,31 +4949,224 @@ function syncCompletedFromGmail() {
 }
 
 /**
- * Cleanup function: Remove Human-Negotiation label from any thread that has Completed label
+ * AUTOMATED HUMAN ESCALATION PROCESSOR
+ * Finds threads with both "Human-Negotiation" + "Completed" labels,
+ * uses AI to extract negotiation outcome, and updates all sheets.
+ * Can be run manually or via hourly trigger.
+ */
+function processCompletedHumanEscalations() {
+  const results = { processed: 0, errors: 0, log: [] };
+
+  try {
+    // Find threads with both labels (human marked as completed)
+    const query = 'label:Completed label:Human-Negotiation';
+    const threads = GmailApp.search(query, 0, 50);
+
+    if (threads.length === 0) {
+      results.log.push({ type: 'info', message: 'No completed human escalations to process' });
+      return results;
+    }
+
+    results.log.push({ type: 'info', message: `Found ${threads.length} completed human escalations to process` });
+
+    // Get or create labels
+    const humanLabel = GmailApp.getUserLabelByName("Human-Negotiation");
+    let humanCompletedLabel = GmailApp.getUserLabelByName("Human-Negotiation-Completed");
+    if (!humanCompletedLabel) {
+      humanCompletedLabel = GmailApp.createLabel("Human-Negotiation-Completed");
+    }
+
+    const url = getStoredSheetUrl();
+    if (!url) {
+      results.log.push({ type: 'error', message: 'No config URL set' });
+      return results;
+    }
+    const ss = SpreadsheetApp.openByUrl(url);
+
+    // Get state data to find job info for each thread
+    const stateSheet = ss.getSheetByName('Negotiation_State');
+    const stateData = stateSheet ? stateSheet.getDataRange().getValues() : [];
+
+    // Build lookup maps
+    const threadToState = new Map();
+    const emailToState = new Map();
+    for (let i = 1; i < stateData.length; i++) {
+      const email = String(stateData[i][0]).toLowerCase();
+      const jobId = stateData[i][1];
+      const threadId = stateData[i][9] || '';
+      const name = stateData[i][7] || 'Unknown';
+      const devId = stateData[i][6] || 'N/A';
+      const region = stateData[i][10] || '';
+
+      const stateInfo = { email, jobId, name, devId, region, rowIndex: i + 1 };
+      if (threadId) threadToState.set(threadId, stateInfo);
+      emailToState.set(email + '_' + jobId, stateInfo);
+    }
+
+    threads.forEach(thread => {
+      try {
+        const threadId = thread.getId();
+
+        // Try to find state info by thread ID first
+        let stateInfo = threadToState.get(threadId);
+
+        // If not found, try to find by sender email
+        if (!stateInfo) {
+          const msgs = thread.getMessages();
+          for (const msg of msgs) {
+            const from = msg.getFrom().toLowerCase();
+            const emailMatch = from.match(/<([^>]+)>/);
+            const senderEmail = emailMatch ? emailMatch[1] : from.replace(/.*<|>.*/g, '').trim();
+
+            // Check all job IDs for this email
+            for (const [key, info] of emailToState) {
+              if (key.startsWith(senderEmail.toLowerCase() + '_')) {
+                stateInfo = info;
+                break;
+              }
+            }
+            if (stateInfo) break;
+          }
+        }
+
+        // Extract job ID from Gmail labels if still not found
+        let jobId = stateInfo?.jobId || '';
+        if (!jobId) {
+          const labels = thread.getLabels();
+          for (const label of labels) {
+            const labelName = label.getName();
+            if (labelName.startsWith('Job-')) {
+              jobId = labelName.replace('Job-', '');
+              break;
+            }
+          }
+        }
+
+        // Get conversation for AI analysis
+        const msgs = thread.getMessages();
+        const conversationText = msgs.slice(-10).map(m => {
+          const from = m.getFrom();
+          const body = m.getPlainBody().substring(0, 500);
+          return `FROM: ${from}\n${body}`;
+        }).join('\n---\n');
+
+        // Get candidate info
+        const lastExternalMsg = [...msgs].reverse().find(m => {
+          const from = m.getFrom().toLowerCase();
+          return !from.includes('turing') && !from.includes('recruiter');
+        });
+
+        let candidateEmail = stateInfo?.email || '';
+        let candidateName = stateInfo?.name || 'Unknown';
+
+        if (lastExternalMsg && !candidateEmail) {
+          const from = lastExternalMsg.getFrom();
+          const emailMatch = from.match(/<([^>]+)>/);
+          candidateEmail = emailMatch ? emailMatch[1] : from.replace(/.*<|>.*/g, '').trim();
+          const nameMatch = from.match(/^([^<]+)/);
+          candidateName = nameMatch ? nameMatch[1].trim() : candidateEmail.split('@')[0];
+        }
+
+        // Use AI to analyze the conversation and extract outcome
+        const analysisPrompt = `
+Analyze this recruitment negotiation conversation and extract the outcome.
+
+CONVERSATION:
+${conversationText}
+
+TASK: Determine the negotiation outcome. Return ONLY a JSON object:
+
+{
+  "outcome": "ACCEPTED" | "REJECTED" | "WITHDREW" | "UNCLEAR",
+  "agreed_rate": <number or null if no rate agreed>,
+  "summary": "<1-2 sentence summary of what happened>",
+  "confidence": "HIGH" | "MEDIUM" | "LOW"
+}
+
+RULES:
+- If candidate accepted an offer with a specific rate, set outcome to "ACCEPTED" and include the rate
+- If candidate declined/rejected, set outcome to "REJECTED"
+- If candidate withdrew or stopped responding, set outcome to "WITHDREW"
+- If unclear from conversation, set outcome to "UNCLEAR"
+- Extract the FINAL agreed rate (number only, no $ or /hr)
+
+Return ONLY the JSON, no other text.
+`;
+
+        let analysis = { outcome: 'UNCLEAR', agreed_rate: null, summary: 'Completed by human', confidence: 'LOW' };
+        try {
+          const aiResponse = callAI(analysisPrompt);
+          const cleanResponse = aiResponse.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+          analysis = JSON.parse(cleanResponse);
+        } catch (e) {
+          console.error('AI analysis failed:', e);
+          results.log.push({ type: 'warning', message: `AI analysis failed for ${candidateEmail}, using defaults` });
+        }
+
+        // Determine final status
+        let finalStatus = 'Human Negotiation Complete';
+        if (analysis.outcome === 'ACCEPTED') {
+          finalStatus = analysis.agreed_rate ? `Offer Accepted at $${analysis.agreed_rate}/hr (Human)` : 'Offer Accepted (Human)';
+        } else if (analysis.outcome === 'REJECTED') {
+          finalStatus = 'Rejected by Candidate (Human)';
+        } else if (analysis.outcome === 'WITHDREW') {
+          finalStatus = 'Candidate Withdrew (Human)';
+        }
+
+        // Update sheets using existing completion function
+        if (candidateEmail && jobId) {
+          try {
+            // Update job details sheet
+            const formattedRate = analysis.agreed_rate ? `$${analysis.agreed_rate}/hr` : null;
+            updateJobCandidateStatus(ss, jobId, candidateEmail, finalStatus, formattedRate);
+
+            // Move to completed (removes from state sheet, adds to completed sheet)
+            moveToCompleted(candidateEmail, finalStatus, jobId);
+
+            results.log.push({
+              type: 'success',
+              message: `${candidateEmail} (Job ${jobId}): ${finalStatus}${analysis.summary ? ' - ' + analysis.summary : ''}`
+            });
+          } catch (updateErr) {
+            console.error('Sheet update error:', updateErr);
+            results.log.push({ type: 'error', message: `Failed to update sheets for ${candidateEmail}: ${updateErr.message}` });
+          }
+        }
+
+        // Update labels: Remove Human-Negotiation, Add Human-Negotiation-Completed
+        if (humanLabel) {
+          thread.removeLabel(humanLabel);
+        }
+        thread.addLabel(humanCompletedLabel);
+
+        results.processed++;
+
+      } catch (threadErr) {
+        console.error('Thread processing error:', threadErr);
+        results.errors++;
+        results.log.push({ type: 'error', message: `Error processing thread: ${threadErr.message}` });
+      }
+    });
+
+    // Invalidate caches
+    invalidateSheetCache('Negotiation_State');
+    invalidateSheetCache('Negotiation_Completed');
+
+  } catch (e) {
+    console.error('Process completed escalations error:', e);
+    results.log.push({ type: 'error', message: `Fatal error: ${e.message}` });
+  }
+
+  return results;
+}
+
+/**
+ * Legacy cleanup function - now calls the full processor
  * Can be run manually or as part of the auto-negotiator
  */
 function cleanupConflictingLabels() {
-  let cleaned = 0;
-  
-  try {
-    // Find threads with both labels
-    const query = 'label:Completed label:Human-Negotiation';
-    const threads = GmailApp.search(query, 0, 100);
-    
-    const humanLabel = GmailApp.getUserLabelByName("Human-Negotiation");
-    if(!humanLabel) return { cleaned: 0 };
-    
-    threads.forEach(thread => {
-      try {
-        thread.removeLabel(humanLabel);
-        cleaned++;
-      } catch(e) {}
-    });
-  } catch(e) {
-    console.error("Cleanup error:", e);
-  }
-  
-  return { cleaned: cleaned };
+  const result = processCompletedHumanEscalations();
+  return { cleaned: result.processed };
 }
 
 function callAI(prompt) {
@@ -7612,6 +7941,17 @@ function testAiEmailResponse(testData) {
         }
       }
 
+      // Get start dates from job config if jobId is provided
+      let startDates = [];
+      let jdLink = '';
+      if (jobId) {
+        const jobConfig = getNegotiationConfig(jobId);
+        if (jobConfig) {
+          startDates = jobConfig.startDates || [];
+          jdLink = jobConfig.jdLink || '';
+        }
+      }
+
       // Use the SAME prompt builder used in production (buildNegotiationReplyPrompt)
       const prompt = buildNegotiationReplyPrompt({
         candidateName: devName,
@@ -7624,7 +7964,9 @@ function testAiEmailResponse(testData) {
         faqContent: '', // In testing, no FAQs - simulates fresh negotiation
         conversationContext: `Latest candidate message: "${candidateReply}"`,
         specialRules: '',
-        region: regionName
+        region: regionName,
+        startDates: startDates,
+        jdLink: jdLink
       });
 
       aiResponse = callAI(prompt);
@@ -7674,12 +8016,22 @@ function testAiEmailResponse(testData) {
       if (actuallyPendingQuestions.length === 0) {
         aiResponse = generateDataCompleteEmail(devName, jobDesc);
       } else {
+        // Get start dates from job config if available
+        let testStartDates = [];
+        if (jobId) {
+          const testJobConfig = getNegotiationConfig(jobId);
+          if (testJobConfig && testJobConfig.startDates) {
+            testStartDates = testJobConfig.startDates;
+          }
+        }
+
         // Generate follow-up asking only for truly missing info
         aiResponse = generateMissingInfoFollowUp(
           devName,                    // candidateName
           actuallyPendingQuestions,   // only truly pending questions
           candidateReply || 'Initial outreach sent',  // conversationContext
-          jobDesc                     // jobDescription
+          jobDesc,                    // jobDescription
+          testStartDates              // startDates
         );
       }
 
