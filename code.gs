@@ -1859,15 +1859,33 @@ function jobHasDataGathering(jobId) {
  * @param {Array} pendingQuestions - Array of {header, question} objects for missing info
  * @param {string} conversationContext - Recent conversation history for context
  * @param {string} jobDescription - Optional job description for context
+ * @param {Array} startDates - Optional array of available start dates
  * @returns {string} The generated follow-up email body
  */
-function generateMissingInfoFollowUp(candidateName, pendingQuestions, conversationContext, jobDescription) {
+function generateMissingInfoFollowUp(candidateName, pendingQuestions, conversationContext, jobDescription, startDates) {
   if (!pendingQuestions || pendingQuestions.length === 0) {
     return null;
   }
 
   const firstName = candidateName.split(' ')[0];
   const missingInfoList = pendingQuestions.map((q, i) => `${i+1}. ${q.question}`).join('\n');
+
+  // Build start dates context if available
+  let startDatesContext = '';
+  if (startDates && startDates.length > 0) {
+    const formattedDates = startDates.map((d, i) => `  ${i + 1}. ${d}`).join('\n');
+    startDatesContext = `
+=== AVAILABLE START DATES ===
+The following start dates are available for this role:
+${formattedDates}
+
+**START DATE INSTRUCTIONS:**
+- If the candidate asks about start dates, offer the FIRST available date
+- If they say they're not available for that date, offer the NEXT date in the list
+- If none of the dates work for them, acknowledge and say you'll check with the team
+- Do NOT reveal all dates at once - offer them one at a time
+`;
+  }
 
   const prompt = `
 You are a professional recruiter at Turing following up with a candidate to collect missing information.
@@ -1878,6 +1896,7 @@ MISSING INFORMATION NEEDED:
 ${missingInfoList}
 
 ${jobDescription ? `JOB CONTEXT: ${jobDescription}` : ''}
+${startDatesContext}
 
 RECENT CONVERSATION:
 ${conversationContext || 'Initial outreach sent'}
@@ -3671,7 +3690,8 @@ function processJobNegotiations(jobId, rules, ss, faqContent) {
                 candidateName,
                 saveResult.pendingQuestions,
                 conversationHistory,
-                rules.jobDescription || ''
+                rules.jobDescription || '',
+                rules.startDates || []
               );
 
               if (missingInfoEmail) {
@@ -7800,12 +7820,22 @@ function testAiEmailResponse(testData) {
       if (actuallyPendingQuestions.length === 0) {
         aiResponse = generateDataCompleteEmail(devName, jobDesc);
       } else {
+        // Get start dates from job config if available
+        let testStartDates = [];
+        if (jobId) {
+          const testJobConfig = getNegotiationConfig(jobId);
+          if (testJobConfig && testJobConfig.startDates) {
+            testStartDates = testJobConfig.startDates;
+          }
+        }
+
         // Generate follow-up asking only for truly missing info
         aiResponse = generateMissingInfoFollowUp(
           devName,                    // candidateName
           actuallyPendingQuestions,   // only truly pending questions
           candidateReply || 'Initial outreach sent',  // conversationContext
-          jobDesc                     // jobDescription
+          jobDesc,                    // jobDescription
+          testStartDates              // startDates
         );
       }
 
