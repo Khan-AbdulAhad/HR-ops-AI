@@ -1005,6 +1005,11 @@
                 <span>Analytics</span>
             </div>
 
+            <div id="navTabLearning" class="nav-tab" onclick="switchTab('learning', this)">
+                <i class="fa-solid fa-brain w-5 text-center"></i>
+                <span>AI Learning</span>
+            </div>
+
             <!-- AI TESTING FEATURE - DELETE FOR PRODUCTION (START NAV) -->
             <div id="aiTestingNavTab" class="nav-tab hidden" onclick="switchTab('aitesting', this)">
                 <i class="fa-solid fa-flask w-5 text-center"></i>
@@ -1846,6 +1851,113 @@
                     
                     <!-- Hidden container for recent activity to prevent errors if script references it -->
                     <div id="recentActivityList" class="hidden"></div>
+                </div>
+
+                <!-- TAB: AI LEARNING - Train AI from Human Escalations -->
+                <div id="tab-learning" class="tab-content hidden-tab">
+                    <div class="flex flex-col gap-4 mb-6">
+                        <div class="flex justify-between items-center">
+                            <div>
+                                <h3 class="text-xl font-bold text-slate-800 dark:text-white">AI Learning Center</h3>
+                                <p class="text-sm text-slate-500">Review and approve learnings from successful human escalations to improve AI negotiations.</p>
+                            </div>
+                            <div class="flex gap-2">
+                                <button onclick="loadLearningCases()" class="bg-white border border-slate-300 px-3 py-2 rounded-lg text-sm hover:bg-slate-50">
+                                    <i class="fa-solid fa-rotate mr-1"></i> Refresh
+                                </button>
+                                <button onclick="consolidateLearnings()" class="bg-green-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-green-700">
+                                    <i class="fa-solid fa-compress-arrows-alt mr-1"></i> Consolidate to FAQs
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Learning Stats Cards -->
+                    <div class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+                        <div class="bg-white dark:bg-slate-800 rounded-xl p-6 shadow-sm border border-slate-200 dark:border-slate-700">
+                            <div class="flex items-center justify-between">
+                                <div>
+                                    <p class="text-sm text-slate-500 dark:text-slate-400">Pending Review</p>
+                                    <p id="learningPendingCount" class="text-3xl font-bold text-amber-600">0</p>
+                                </div>
+                                <div class="w-12 h-12 bg-amber-100 dark:bg-amber-900/30 rounded-xl flex items-center justify-center">
+                                    <i class="fa-solid fa-clock text-amber-600 text-xl"></i>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="bg-white dark:bg-slate-800 rounded-xl p-6 shadow-sm border border-slate-200 dark:border-slate-700">
+                            <div class="flex items-center justify-between">
+                                <div>
+                                    <p class="text-sm text-slate-500 dark:text-slate-400">Approved</p>
+                                    <p id="learningApprovedCount" class="text-3xl font-bold text-green-600">0</p>
+                                </div>
+                                <div class="w-12 h-12 bg-green-100 dark:bg-green-900/30 rounded-xl flex items-center justify-center">
+                                    <i class="fa-solid fa-check text-green-600 text-xl"></i>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="bg-white dark:bg-slate-800 rounded-xl p-6 shadow-sm border border-slate-200 dark:border-slate-700">
+                            <div class="flex items-center justify-between">
+                                <div>
+                                    <p class="text-sm text-slate-500 dark:text-slate-400">Consolidated</p>
+                                    <p id="learningConsolidatedCount" class="text-3xl font-bold text-indigo-600">0</p>
+                                </div>
+                                <div class="w-12 h-12 bg-indigo-100 dark:bg-indigo-900/30 rounded-xl flex items-center justify-center">
+                                    <i class="fa-solid fa-book text-indigo-600 text-xl"></i>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="bg-white dark:bg-slate-800 rounded-xl p-6 shadow-sm border border-slate-200 dark:border-slate-700">
+                            <div class="flex items-center justify-between">
+                                <div>
+                                    <p class="text-sm text-slate-500 dark:text-slate-400">Total Learnings</p>
+                                    <p id="learningTotalCount" class="text-3xl font-bold text-slate-800 dark:text-white">0</p>
+                                </div>
+                                <div class="w-12 h-12 bg-slate-100 dark:bg-slate-700 rounded-xl flex items-center justify-center">
+                                    <i class="fa-solid fa-brain text-slate-600 dark:text-slate-300 text-xl"></i>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Weekly Consolidation Trigger -->
+                    <div class="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-xl p-4 mb-6">
+                        <div class="flex items-center justify-between">
+                            <div class="flex items-center gap-3">
+                                <i class="fa-solid fa-calendar-week text-blue-600 text-xl"></i>
+                                <div>
+                                    <p class="font-medium text-blue-800 dark:text-blue-200">Weekly Auto-Consolidation</p>
+                                    <p class="text-sm text-blue-600 dark:text-blue-300">Approved learnings are automatically added to Negotiation FAQs every Sunday at 2 AM</p>
+                                </div>
+                            </div>
+                            <div class="flex gap-2">
+                                <button onclick="setupWeeklyConsolidation()" class="bg-blue-600 text-white px-3 py-2 rounded-lg text-sm hover:bg-blue-700">
+                                    <i class="fa-solid fa-play mr-1"></i> Enable
+                                </button>
+                                <button onclick="removeWeeklyConsolidation()" class="bg-white border border-blue-300 text-blue-700 px-3 py-2 rounded-lg text-sm hover:bg-blue-50">
+                                    <i class="fa-solid fa-stop mr-1"></i> Disable
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Pending Learning Cases -->
+                    <div class="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700">
+                        <div class="p-4 border-b border-slate-200 dark:border-slate-700">
+                            <h4 class="font-semibold text-slate-800 dark:text-white flex items-center gap-2">
+                                <i class="fa-solid fa-lightbulb text-amber-500"></i>
+                                Pending Learning Cases
+                            </h4>
+                            <p class="text-sm text-slate-500 mt-1">Review and approve cases to add them to the AI's knowledge base</p>
+                        </div>
+                        <div id="learningCasesList" class="divide-y divide-slate-200 dark:divide-slate-700">
+                            <div class="p-8 text-center text-slate-500">
+                                <i class="fa-solid fa-inbox text-4xl mb-3 text-slate-300"></i>
+                                <p>No pending learning cases</p>
+                                <p class="text-sm">Learning cases will appear here when human escalations are completed</p>
+                            </div>
+                        </div>
+                    </div>
                 </div>
 
                 <!-- AI TESTING FEATURE - DELETE FOR PRODUCTION (START TAB CONTENT) -->
@@ -3210,6 +3322,7 @@
                 'tasks': 'Task List',
                 'followups': 'Follow-Ups',
                 'analytics': 'Analytics',
+                'learning': 'AI Learning Center',
                 'aitesting': 'AI Testing', // AI TESTING FEATURE - DELETE FOR PRODUCTION
                 'processmap': 'System Process Map'
             };
@@ -3218,6 +3331,11 @@
             // Load process map data when switching to that tab
             if (tabName === 'processmap') {
                 loadProcessMapData();
+            }
+
+            // Load learning cases when switching to learning tab
+            if (tabName === 'learning') {
+                loadLearningCases();
             }
 
             // Trigger data loads only if cache is invalid
@@ -4741,6 +4859,208 @@
                     showToast("Error: " + err.message, "error");
                 })
                 .processCompletedHumanEscalations();
+        }
+
+        // ==========================================
+        // AI LEARNING CENTER FUNCTIONS
+        // ==========================================
+
+        function loadLearningCases() {
+            // Load stats
+            google.script.run
+                .withSuccessHandler(stats => {
+                    document.getElementById('learningPendingCount').textContent = stats.pending || 0;
+                    document.getElementById('learningApprovedCount').textContent = stats.approved || 0;
+                    document.getElementById('learningConsolidatedCount').textContent = stats.consolidated || 0;
+                    document.getElementById('learningTotalCount').textContent = stats.total || 0;
+                })
+                .withFailureHandler(err => console.error('Failed to load learning stats:', err))
+                .getLearningStats();
+
+            // Load pending cases
+            google.script.run
+                .withSuccessHandler(cases => {
+                    renderLearningCases(cases);
+                })
+                .withFailureHandler(err => {
+                    console.error('Failed to load learning cases:', err);
+                    showToast('Failed to load learning cases', 'error');
+                })
+                .getPendingLearningCases();
+        }
+
+        function renderLearningCases(cases) {
+            const container = document.getElementById('learningCasesList');
+
+            if (!cases || cases.length === 0) {
+                container.innerHTML = `
+                    <div class="p-8 text-center text-slate-500">
+                        <i class="fa-solid fa-inbox text-4xl mb-3 text-slate-300"></i>
+                        <p>No pending learning cases</p>
+                        <p class="text-sm">Learning cases will appear here when human escalations are completed</p>
+                    </div>
+                `;
+                return;
+            }
+
+            container.innerHTML = cases.map(c => `
+                <div class="p-4 hover:bg-slate-50 dark:hover:bg-slate-700/50 transition" data-row="${c.rowIndex}">
+                    <div class="flex items-start justify-between gap-4">
+                        <div class="flex-1">
+                            <div class="flex items-center gap-2 mb-2">
+                                <span class="px-2 py-1 text-xs font-medium rounded-full ${getCategoryColor(c.category)}">${formatCategory(c.category)}</span>
+                                <span class="text-xs text-slate-400">Job ${c.jobId}</span>
+                                <span class="text-xs text-slate-400">${formatDate(c.timestamp)}</span>
+                            </div>
+                            <p class="font-medium text-slate-800 dark:text-white mb-1">${escapeHtml(c.candidateConcern)}</p>
+                            <div class="text-sm text-slate-600 dark:text-slate-300 mb-2">
+                                <strong>Human Approach:</strong> ${escapeHtml(c.humanApproach)}
+                            </div>
+                            <div class="text-sm text-slate-600 dark:text-slate-300 mb-2">
+                                <strong>Key Phrases:</strong> <span class="italic">${escapeHtml(c.keyPhrases)}</span>
+                            </div>
+                            <div class="text-sm text-green-700 dark:text-green-400 bg-green-50 dark:bg-green-900/20 px-3 py-2 rounded-lg">
+                                <i class="fa-solid fa-lightbulb mr-1"></i> <strong>Lesson:</strong> ${escapeHtml(c.lessonLearned)}
+                            </div>
+                            <div class="text-xs text-slate-400 mt-2">
+                                Outcome: ${c.resolutionOutcome} | Candidate: ${c.candidateEmail}
+                            </div>
+                        </div>
+                        <div class="flex flex-col gap-2">
+                            <button onclick="approveLearning(${c.rowIndex})" class="bg-green-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-green-700 flex items-center gap-1">
+                                <i class="fa-solid fa-check"></i> Approve
+                            </button>
+                            <button onclick="rejectLearning(${c.rowIndex})" class="bg-red-100 text-red-700 px-4 py-2 rounded-lg text-sm font-medium hover:bg-red-200 flex items-center gap-1">
+                                <i class="fa-solid fa-trash"></i> Reject
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function getCategoryColor(category) {
+            const colors = {
+                'rate_objection': 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300',
+                'availability': 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300',
+                'competitor': 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300',
+                'requirements': 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300',
+                'trust': 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300',
+                'other': 'bg-slate-100 text-slate-700 dark:bg-slate-700 dark:text-slate-300'
+            };
+            return colors[category] || colors['other'];
+        }
+
+        function formatCategory(category) {
+            const labels = {
+                'rate_objection': 'Rate Objection',
+                'availability': 'Availability',
+                'competitor': 'Competitor Offer',
+                'requirements': 'Requirements',
+                'trust': 'Trust Concerns',
+                'other': 'Other'
+            };
+            return labels[category] || category;
+        }
+
+        function escapeHtml(str) {
+            if (!str) return '';
+            const div = document.createElement('div');
+            div.textContent = str;
+            return div.innerHTML;
+        }
+
+        function formatDate(dateStr) {
+            try {
+                const date = new Date(dateStr);
+                return date.toLocaleDateString() + ' ' + date.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+            } catch {
+                return dateStr;
+            }
+        }
+
+        function approveLearning(rowIndex) {
+            const userEmail = document.getElementById('userEmailText')?.textContent || 'Unknown';
+
+            google.script.run
+                .withSuccessHandler(success => {
+                    if (success) {
+                        showToast('Learning case approved!', 'success');
+                        loadLearningCases();
+                    } else {
+                        showToast('Failed to approve learning case', 'error');
+                    }
+                })
+                .withFailureHandler(err => {
+                    showToast('Error: ' + err.message, 'error');
+                })
+                .approveLearningCase(rowIndex, userEmail);
+        }
+
+        function rejectLearning(rowIndex) {
+            if (!confirm('Are you sure you want to reject this learning case? This cannot be undone.')) {
+                return;
+            }
+
+            google.script.run
+                .withSuccessHandler(success => {
+                    if (success) {
+                        showToast('Learning case rejected', 'info');
+                        loadLearningCases();
+                    } else {
+                        showToast('Failed to reject learning case', 'error');
+                    }
+                })
+                .withFailureHandler(err => {
+                    showToast('Error: ' + err.message, 'error');
+                })
+                .rejectLearningCase(rowIndex);
+        }
+
+        function consolidateLearnings() {
+            if (!confirm('This will consolidate all approved learnings into Negotiation FAQs. Continue?')) {
+                return;
+            }
+
+            showToast('Consolidating approved learnings...', 'info');
+
+            google.script.run
+                .withSuccessHandler(result => {
+                    if (result.consolidated > 0) {
+                        showToast(`Successfully consolidated ${result.consolidated} learnings into FAQs!`, 'success');
+                    } else {
+                        showToast('No approved learnings to consolidate', 'info');
+                    }
+                    // Show detailed log
+                    result.log.forEach(l => console.log(`[${l.type}] ${l.message}`));
+                    loadLearningCases();
+                })
+                .withFailureHandler(err => {
+                    showToast('Consolidation failed: ' + err.message, 'error');
+                })
+                .consolidateApprovedLearnings();
+        }
+
+        function setupWeeklyConsolidation() {
+            google.script.run
+                .withSuccessHandler(result => {
+                    showToast(result.message, 'success');
+                })
+                .withFailureHandler(err => {
+                    showToast('Error: ' + err.message, 'error');
+                })
+                .setupWeeklyLearningConsolidation();
+        }
+
+        function removeWeeklyConsolidation() {
+            google.script.run
+                .withSuccessHandler(result => {
+                    showToast(result.message, 'info');
+                })
+                .withFailureHandler(err => {
+                    showToast('Error: ' + err.message, 'error');
+                })
+                .removeWeeklyLearningConsolidation();
         }
 
         function addLog(type, message) {
