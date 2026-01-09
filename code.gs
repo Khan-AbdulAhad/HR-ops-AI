@@ -7371,6 +7371,9 @@ function buildAccessResponse(role, userEmail, isNewUser) {
   // Get permissions for role, default to 'other' if unknown
   const perms = rolePermissions[normalizedRole] || rolePermissions['other'];
 
+  // Get page access settings for this role
+  const pageAccess = getPageAccessForRole(normalizedRole);
+
   return {
     hasAccess: true,
     accessLevel: normalizedRole,
@@ -7378,7 +7381,8 @@ function buildAccessResponse(role, userEmail, isNewUser) {
     hasOperationalAccess: perms.hasOperationalAccess,
     canViewAllAnalytics: perms.canViewAllAnalytics,
     canManageUsers: perms.canManageUsers,
-    isNewUser: isNewUser
+    isNewUser: isNewUser,
+    pageAccess: pageAccess
   };
 }
 
@@ -8127,6 +8131,229 @@ function removeAnalyticsViewer(email) {
   } catch (e) {
     console.error("Error removing analytics viewer:", e);
     return { success: false, error: e.message };
+  }
+}
+
+
+// ============================================================
+// PAGE ACCESS CONTROL SYSTEM
+// ============================================================
+
+/**
+ * Define all available pages and their default access per role
+ * Pages: outreach, negotiation, tasks, followups, analytics, learning, aitesting, processmap
+ * Roles: admin, tl, tm, ta, manager, other
+ */
+const PAGE_ACCESS_DEFAULTS = {
+  'admin': {
+    outreach: true, negotiation: true, tasks: true, followups: true,
+    analytics: true, learning: true, aitesting: true, processmap: true
+  },
+  'tl': {
+    outreach: true, negotiation: true, tasks: true, followups: true,
+    analytics: true, learning: true, aitesting: false, processmap: false
+  },
+  'tm': {
+    outreach: false, negotiation: false, tasks: false, followups: false,
+    analytics: true, learning: true, aitesting: false, processmap: false
+  },
+  'ta': {
+    outreach: false, negotiation: false, tasks: false, followups: false,
+    analytics: true, learning: true, aitesting: false, processmap: false
+  },
+  'manager': {
+    outreach: false, negotiation: false, tasks: false, followups: false,
+    analytics: true, learning: true, aitesting: false, processmap: false
+  },
+  'other': {
+    outreach: true, negotiation: true, tasks: true, followups: true,
+    analytics: true, learning: true, aitesting: false, processmap: false
+  }
+};
+
+const ALL_PAGES = ['outreach', 'negotiation', 'tasks', 'followups', 'analytics', 'learning', 'aitesting', 'processmap'];
+const ALL_ROLES = ['admin', 'tl', 'tm', 'ta', 'manager', 'other'];
+
+/**
+ * Initialize Page_Access_Control sheet with default values
+ * @returns {Object} Result of the operation
+ */
+function initPageAccessControl() {
+  try {
+    const ss = getAnalyticsSpreadsheet();
+    if (!ss) return { success: false, error: "Cannot access analytics sheet" };
+
+    let sheet = ss.getSheetByName('Page_Access_Control');
+    if (!sheet) {
+      sheet = ss.insertSheet('Page_Access_Control');
+
+      // Create header row: Role, Page, Enabled
+      sheet.appendRow(['Role', 'Page', 'Enabled']);
+      sheet.setFrozenRows(1);
+
+      // Populate with default values
+      ALL_ROLES.forEach(role => {
+        ALL_PAGES.forEach(page => {
+          const enabled = PAGE_ACCESS_DEFAULTS[role][page];
+          sheet.appendRow([role, page, enabled]);
+        });
+      });
+    }
+
+    return { success: true };
+  } catch (e) {
+    console.error("Error initializing page access control:", e);
+    return { success: false, error: e.message };
+  }
+}
+
+/**
+ * Get page access settings for all roles
+ * @returns {Object} Page access settings matrix
+ */
+function getPageAccessSettings() {
+  const access = checkAnalyticsAccess();
+  if (!access.canManageUsers) {
+    return { error: "Only admins can view page access settings" };
+  }
+
+  try {
+    const ss = getAnalyticsSpreadsheet();
+    if (!ss) return { error: "Cannot access analytics sheet" };
+
+    let sheet = ss.getSheetByName('Page_Access_Control');
+    if (!sheet) {
+      // Initialize if doesn't exist
+      initPageAccessControl();
+      sheet = ss.getSheetByName('Page_Access_Control');
+    }
+
+    const data = sheet.getDataRange().getValues();
+    const settings = {};
+
+    // Initialize with defaults
+    ALL_ROLES.forEach(role => {
+      settings[role] = { ...PAGE_ACCESS_DEFAULTS[role] };
+    });
+
+    // Override with actual data from sheet
+    for (let i = 1; i < data.length; i++) {
+      const role = String(data[i][0]).toLowerCase();
+      const page = String(data[i][1]).toLowerCase();
+      const enabled = data[i][2] === true || data[i][2] === 'TRUE' || data[i][2] === 'true';
+
+      if (settings[role] && ALL_PAGES.includes(page)) {
+        settings[role][page] = enabled;
+      }
+    }
+
+    return {
+      success: true,
+      settings: settings,
+      pages: ALL_PAGES,
+      roles: ALL_ROLES
+    };
+  } catch (e) {
+    console.error("Error getting page access settings:", e);
+    return { error: e.message };
+  }
+}
+
+/**
+ * Update a specific page access setting for a role
+ * @param {string} role - The role to update
+ * @param {string} page - The page to update
+ * @param {boolean} enabled - Whether access is enabled
+ * @returns {Object} Result of the operation
+ */
+function updatePageAccessSetting(role, page, enabled) {
+  const access = checkAnalyticsAccess();
+  if (!access.canManageUsers) {
+    return { success: false, error: "Only admins can update page access settings" };
+  }
+
+  const normalizedRole = String(role).toLowerCase();
+  const normalizedPage = String(page).toLowerCase();
+
+  if (!ALL_ROLES.includes(normalizedRole)) {
+    return { success: false, error: "Invalid role" };
+  }
+
+  if (!ALL_PAGES.includes(normalizedPage)) {
+    return { success: false, error: "Invalid page" };
+  }
+
+  try {
+    const ss = getAnalyticsSpreadsheet();
+    if (!ss) return { success: false, error: "Cannot access analytics sheet" };
+
+    let sheet = ss.getSheetByName('Page_Access_Control');
+    if (!sheet) {
+      initPageAccessControl();
+      sheet = ss.getSheetByName('Page_Access_Control');
+    }
+
+    const data = sheet.getDataRange().getValues();
+    let rowToUpdate = -1;
+
+    // Find existing row for this role/page combination
+    for (let i = 1; i < data.length; i++) {
+      if (String(data[i][0]).toLowerCase() === normalizedRole &&
+          String(data[i][1]).toLowerCase() === normalizedPage) {
+        rowToUpdate = i + 1; // Sheet rows are 1-indexed
+        break;
+      }
+    }
+
+    if (rowToUpdate > 0) {
+      // Update existing row
+      sheet.getRange(rowToUpdate, 3).setValue(enabled);
+    } else {
+      // Add new row
+      sheet.appendRow([normalizedRole, normalizedPage, enabled]);
+    }
+
+    return { success: true, message: `Updated ${page} access for ${role} to ${enabled}` };
+  } catch (e) {
+    console.error("Error updating page access setting:", e);
+    return { success: false, error: e.message };
+  }
+}
+
+/**
+ * Get page access for a specific user based on their role
+ * Called during permission check to include page access in response
+ * @param {string} role - The user's role
+ * @returns {Object} Page access settings for the role
+ */
+function getPageAccessForRole(role) {
+  try {
+    const ss = getAnalyticsSpreadsheet();
+    if (!ss) return PAGE_ACCESS_DEFAULTS[role] || PAGE_ACCESS_DEFAULTS['other'];
+
+    const sheet = ss.getSheetByName('Page_Access_Control');
+    if (!sheet) {
+      return PAGE_ACCESS_DEFAULTS[role] || PAGE_ACCESS_DEFAULTS['other'];
+    }
+
+    const data = sheet.getDataRange().getValues();
+    const normalizedRole = String(role).toLowerCase();
+    const pageAccess = { ...PAGE_ACCESS_DEFAULTS[normalizedRole] || PAGE_ACCESS_DEFAULTS['other'] };
+
+    for (let i = 1; i < data.length; i++) {
+      if (String(data[i][0]).toLowerCase() === normalizedRole) {
+        const page = String(data[i][1]).toLowerCase();
+        const enabled = data[i][2] === true || data[i][2] === 'TRUE' || data[i][2] === 'true';
+        if (ALL_PAGES.includes(page)) {
+          pageAccess[page] = enabled;
+        }
+      }
+    }
+
+    return pageAccess;
+  } catch (e) {
+    console.error("Error getting page access for role:", e);
+    return PAGE_ACCESS_DEFAULTS[role] || PAGE_ACCESS_DEFAULTS['other'];
   }
 }
 
