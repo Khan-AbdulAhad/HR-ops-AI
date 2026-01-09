@@ -611,7 +611,7 @@ function invalidateSheetCache(sheetName) {
  */
 function invalidateAllSheetCaches() {
   const cache = CacheService.getUserCache();
-  const sheetNames = ['Negotiation_State', 'Negotiation_Tasks', 'Negotiation_Config', 'Negotiation_Completed', 'Negotiation_FAQs'];
+  const sheetNames = ['Negotiation_State', 'Negotiation_Tasks', 'Negotiation_Config', 'Negotiation_Completed', 'Negotiation_FAQs', 'AI_Learning_Cases'];
   sheetNames.forEach(name => cache.remove('sheet_' + name));
 }
 
@@ -669,8 +669,8 @@ function saveLogSheetUrl(url) {
 }
 
 function ensureSheetsExist(ss) {
-  // Include new sheets: Manual_Sent_Logs, Data_Fetch_Logs, Follow_Up_Queue, Daily_Reports, Unresponsive_Devs, Email_Mismatch_Reports
-  const sheets = ['Email_Logs', 'Email_Templates', 'Negotiation_Config', 'Negotiation_Tasks', 'Negotiation_State', 'Negotiation_FAQs', 'Negotiation_Completed', 'Rate_Tiers', 'Manual_Sent_Logs', 'Data_Fetch_Logs', 'Follow_Up_Queue', 'Daily_Reports', 'Unresponsive_Devs', 'Email_Mismatch_Reports'];
+  // Include new sheets: Manual_Sent_Logs, Data_Fetch_Logs, Follow_Up_Queue, Daily_Reports, Unresponsive_Devs, Email_Mismatch_Reports, AI_Learning_Cases
+  const sheets = ['Email_Logs', 'Email_Templates', 'Negotiation_Config', 'Negotiation_Tasks', 'Negotiation_State', 'Negotiation_FAQs', 'Negotiation_Completed', 'Rate_Tiers', 'Manual_Sent_Logs', 'Data_Fetch_Logs', 'Follow_Up_Queue', 'Daily_Reports', 'Unresponsive_Devs', 'Email_Mismatch_Reports', 'AI_Learning_Cases'];
   sheets.forEach(name => {
     if (!ss.getSheetByName(name)) ss.insertSheet(name);
   });
@@ -740,6 +740,29 @@ function ensureSheetsExist(ss) {
   // Email_Mismatch_Reports sheet - for tracking when candidates reply from different email addresses
   const mismatchSheet = ss.getSheetByName('Email_Mismatch_Reports');
   if (mismatchSheet.getLastRow() === 0) mismatchSheet.appendRow(['Timestamp', 'Job ID', 'Expected Email', 'Actual Reply Email', 'Name', 'Dev ID', 'Thread ID', 'Context', 'Action Taken', 'Requires Review']);
+
+  // AI_Learning_Cases sheet - stores learning cases from successful human escalations
+  // These are used to train the AI by consolidating approved cases into Negotiation_FAQs
+  const learningSheet = ss.getSheetByName('AI_Learning_Cases');
+  if (learningSheet.getLastRow() === 0) {
+    learningSheet.appendRow([
+      'Timestamp',           // When the learning was created
+      'Job_ID',              // Reference to the job
+      'Category',            // rate_objection | availability | competitor | requirements | trust | other
+      'Candidate_Concern',   // Brief summary of what candidate wanted/asked
+      'Human_Approach',      // How the human handled it (key tactics)
+      'Resolution_Outcome',  // What was agreed upon (ACCEPTED/REJECTED/etc)
+      'Key_Phrases',         // Effective phrases that worked
+      'Lesson_Learned',      // 1 sentence - what should AI learn
+      'Approved',            // FALSE (default) - human must approve before AI uses
+      'Approved_By',         // Who approved this learning
+      'Approved_At',         // When it was approved
+      'Consolidated',        // FALSE (default) - TRUE after added to FAQs
+      'Times_Used',          // Counter for how often AI used this (future use)
+      'Candidate_Email',     // Reference to original candidate
+      'Thread_ID'            // Reference to Gmail thread
+    ]);
+  }
 }
 
 /**
@@ -5127,6 +5150,36 @@ Return ONLY the JSON, no other text.
               type: 'success',
               message: `${candidateEmail} (Job ${jobId}): ${finalStatus}${analysis.summary ? ' - ' + analysis.summary : ''}`
             });
+
+            // Extract and save learning case from this human escalation
+            try {
+              const learning = extractLearningFromConversation(conversationText, analysis.outcome, analysis.agreed_rate);
+
+              if (learning && learning.confidence !== 'LOW') {
+                const saved = saveLearningCase({
+                  jobId: jobId,
+                  category: learning.category,
+                  candidateConcern: learning.candidate_concern,
+                  humanApproach: learning.human_approach,
+                  resolutionOutcome: finalStatus,
+                  keyPhrases: learning.key_phrases,
+                  lessonLearned: learning.lesson_learned,
+                  candidateEmail: candidateEmail,
+                  threadId: threadId
+                });
+
+                if (saved) {
+                  results.log.push({
+                    type: 'info',
+                    message: `Learning case extracted: ${learning.category} - pending approval`
+                  });
+                }
+              }
+            } catch (learningErr) {
+              console.error('Learning extraction error:', learningErr);
+              // Non-fatal - continue processing even if learning extraction fails
+            }
+
           } catch (updateErr) {
             console.error('Sheet update error:', updateErr);
             results.log.push({ type: 'error', message: `Failed to update sheets for ${candidateEmail}: ${updateErr.message}` });
@@ -5167,6 +5220,461 @@ Return ONLY the JSON, no other text.
 function cleanupConflictingLabels() {
   const result = processCompletedHumanEscalations();
   return { cleaned: result.processed };
+}
+
+// ==========================================
+// AI LEARNING SYSTEM - Train from Human Escalations
+// ==========================================
+
+/**
+ * Extract detailed learning case from a completed human escalation conversation
+ * This analyzes the full conversation to understand what tactics worked
+ * @param {string} conversationText - The full conversation history
+ * @param {string} outcome - The outcome (ACCEPTED/REJECTED/WITHDREW/UNCLEAR)
+ * @param {number|null} agreedRate - The agreed rate if applicable
+ * @returns {Object} Structured learning case
+ */
+function extractLearningFromConversation(conversationText, outcome, agreedRate) {
+  const learningPrompt = `
+Analyze this completed human escalation conversation and extract a learning case for AI training.
+
+CONVERSATION:
+${conversationText}
+
+OUTCOME: ${outcome}
+AGREED RATE: ${agreedRate ? '$' + agreedRate + '/hr' : 'N/A'}
+
+Your task is to extract actionable learning that can help the AI handle similar situations in the future.
+
+Return ONLY a JSON object with these fields:
+{
+  "category": "rate_objection" | "availability" | "competitor" | "requirements" | "trust" | "other",
+  "candidate_concern": "<1 sentence - what was the candidate's main objection or concern?>",
+  "human_approach": "<2-3 bullet points describing what tactics the human used that worked>",
+  "key_phrases": "<comma-separated effective phrases the human used that helped close the deal or resolve concerns>",
+  "lesson_learned": "<1 sentence - what should AI learn and apply from this case?>",
+  "confidence": "HIGH" | "MEDIUM" | "LOW"
+}
+
+CATEGORY DEFINITIONS:
+- rate_objection: Candidate wanted higher rate than offered
+- availability: Candidate had concerns about start date, hours, or scheduling
+- competitor: Candidate mentioned other job offers or companies
+- requirements: Candidate had questions about job requirements, skills, or expectations
+- trust: Candidate had concerns about company, payment, or legitimacy
+- other: Doesn't fit other categories
+
+RULES:
+- Focus on ACTIONABLE tactics, not just what happened
+- Extract specific phrases that were persuasive
+- The lesson should be something the AI can directly apply
+- If the outcome was REJECTED or WITHDREW, still extract learnings about what might have worked better
+- Be concise but specific
+
+Return ONLY the JSON, no other text.
+`;
+
+  try {
+    const aiResponse = callAI(learningPrompt);
+    const cleanResponse = aiResponse.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+    return JSON.parse(cleanResponse);
+  } catch (e) {
+    console.error('Learning extraction failed:', e);
+    return {
+      category: 'other',
+      candidate_concern: 'Unable to extract - manual review needed',
+      human_approach: 'Manual review required',
+      key_phrases: '',
+      lesson_learned: 'Manual review required',
+      confidence: 'LOW'
+    };
+  }
+}
+
+/**
+ * Save a learning case to the AI_Learning_Cases sheet
+ * @param {Object} params - Learning case parameters
+ * @returns {boolean} Success status
+ */
+function saveLearningCase(params) {
+  const {
+    jobId,
+    category,
+    candidateConcern,
+    humanApproach,
+    resolutionOutcome,
+    keyPhrases,
+    lessonLearned,
+    candidateEmail,
+    threadId
+  } = params;
+
+  try {
+    const url = getStoredSheetUrl();
+    if (!url) return false;
+
+    const ss = SpreadsheetApp.openByUrl(url);
+    const sheet = ss.getSheetByName('AI_Learning_Cases');
+    if (!sheet) return false;
+
+    sheet.appendRow([
+      new Date().toISOString(),  // Timestamp
+      jobId,                      // Job_ID
+      category,                   // Category
+      candidateConcern,           // Candidate_Concern
+      humanApproach,              // Human_Approach
+      resolutionOutcome,          // Resolution_Outcome
+      keyPhrases,                 // Key_Phrases
+      lessonLearned,              // Lesson_Learned
+      false,                      // Approved (default FALSE)
+      '',                         // Approved_By (empty until approved)
+      '',                         // Approved_At (empty until approved)
+      false,                      // Consolidated (FALSE until added to FAQs)
+      0,                          // Times_Used
+      candidateEmail,             // Candidate_Email
+      threadId                    // Thread_ID
+    ]);
+
+    invalidateSheetCache('AI_Learning_Cases');
+    return true;
+  } catch (e) {
+    console.error('Failed to save learning case:', e);
+    return false;
+  }
+}
+
+/**
+ * Get all learning cases for review (pending approval)
+ * @returns {Array} Array of learning cases
+ */
+function getPendingLearningCases() {
+  const url = getStoredSheetUrl();
+  if (!url) return [];
+
+  const ss = SpreadsheetApp.openByUrl(url);
+  const sheet = ss.getSheetByName('AI_Learning_Cases');
+  if (!sheet || sheet.getLastRow() <= 1) return [];
+
+  const data = sheet.getDataRange().getValues();
+  const cases = [];
+
+  for (let i = 1; i < data.length; i++) {
+    if (data[i][8] === false || data[i][8] === 'FALSE' || data[i][8] === '') {
+      cases.push({
+        rowIndex: i + 1,
+        timestamp: data[i][0],
+        jobId: data[i][1],
+        category: data[i][2],
+        candidateConcern: data[i][3],
+        humanApproach: data[i][4],
+        resolutionOutcome: data[i][5],
+        keyPhrases: data[i][6],
+        lessonLearned: data[i][7],
+        approved: data[i][8],
+        consolidated: data[i][11],
+        candidateEmail: data[i][13],
+        threadId: data[i][14]
+      });
+    }
+  }
+
+  return cases;
+}
+
+/**
+ * Get all approved learning cases (not yet consolidated)
+ * @returns {Array} Array of approved learning cases
+ */
+function getApprovedLearningCases() {
+  const url = getStoredSheetUrl();
+  if (!url) return [];
+
+  const ss = SpreadsheetApp.openByUrl(url);
+  const sheet = ss.getSheetByName('AI_Learning_Cases');
+  if (!sheet || sheet.getLastRow() <= 1) return [];
+
+  const data = sheet.getDataRange().getValues();
+  const cases = [];
+
+  for (let i = 1; i < data.length; i++) {
+    // Approved but not yet consolidated
+    const isApproved = data[i][8] === true || data[i][8] === 'TRUE';
+    const isConsolidated = data[i][11] === true || data[i][11] === 'TRUE';
+
+    if (isApproved && !isConsolidated) {
+      cases.push({
+        rowIndex: i + 1,
+        timestamp: data[i][0],
+        jobId: data[i][1],
+        category: data[i][2],
+        candidateConcern: data[i][3],
+        humanApproach: data[i][4],
+        resolutionOutcome: data[i][5],
+        keyPhrases: data[i][6],
+        lessonLearned: data[i][7],
+        approvedBy: data[i][9],
+        approvedAt: data[i][10]
+      });
+    }
+  }
+
+  return cases;
+}
+
+/**
+ * Approve a learning case
+ * @param {number} rowIndex - Row index of the learning case
+ * @param {string} approvedBy - Name/email of approver
+ * @returns {boolean} Success status
+ */
+function approveLearningCase(rowIndex, approvedBy) {
+  try {
+    const url = getStoredSheetUrl();
+    if (!url) return false;
+
+    const ss = SpreadsheetApp.openByUrl(url);
+    const sheet = ss.getSheetByName('AI_Learning_Cases');
+    if (!sheet) return false;
+
+    // Update Approved, Approved_By, and Approved_At columns (columns 9, 10, 11 = I, J, K)
+    sheet.getRange(rowIndex, 9).setValue(true);                    // Approved
+    sheet.getRange(rowIndex, 10).setValue(approvedBy);              // Approved_By
+    sheet.getRange(rowIndex, 11).setValue(new Date().toISOString()); // Approved_At
+
+    invalidateSheetCache('AI_Learning_Cases');
+    return true;
+  } catch (e) {
+    console.error('Failed to approve learning case:', e);
+    return false;
+  }
+}
+
+/**
+ * Reject/delete a learning case
+ * @param {number} rowIndex - Row index of the learning case
+ * @returns {boolean} Success status
+ */
+function rejectLearningCase(rowIndex) {
+  try {
+    const url = getStoredSheetUrl();
+    if (!url) return false;
+
+    const ss = SpreadsheetApp.openByUrl(url);
+    const sheet = ss.getSheetByName('AI_Learning_Cases');
+    if (!sheet) return false;
+
+    sheet.deleteRow(rowIndex);
+    invalidateSheetCache('AI_Learning_Cases');
+    return true;
+  } catch (e) {
+    console.error('Failed to reject learning case:', e);
+    return false;
+  }
+}
+
+/**
+ * Consolidate approved learnings into Negotiation_FAQs
+ * This runs weekly (or manually) to add approved learnings to the FAQ database
+ * The AI then uses these FAQs during negotiations
+ * @returns {Object} Result with count and log
+ */
+function consolidateApprovedLearnings() {
+  const results = { consolidated: 0, errors: 0, log: [] };
+
+  try {
+    const approvedCases = getApprovedLearningCases();
+
+    if (approvedCases.length === 0) {
+      results.log.push({ type: 'info', message: 'No approved learnings to consolidate' });
+      return results;
+    }
+
+    results.log.push({ type: 'info', message: `Found ${approvedCases.length} approved learnings to consolidate` });
+
+    const url = getStoredSheetUrl();
+    if (!url) {
+      results.log.push({ type: 'error', message: 'No config URL set' });
+      return results;
+    }
+
+    const ss = SpreadsheetApp.openByUrl(url);
+    const faqSheet = ss.getSheetByName('Negotiation_FAQs');
+    const learningSheet = ss.getSheetByName('AI_Learning_Cases');
+
+    if (!faqSheet || !learningSheet) {
+      results.log.push({ type: 'error', message: 'Required sheets not found' });
+      return results;
+    }
+
+    // Group approved cases by category for better FAQ organization
+    const casesByCategory = {};
+    approvedCases.forEach(c => {
+      if (!casesByCategory[c.category]) {
+        casesByCategory[c.category] = [];
+      }
+      casesByCategory[c.category].push(c);
+    });
+
+    // Generate FAQ entries from approved learnings
+    for (const [category, cases] of Object.entries(casesByCategory)) {
+      try {
+        // Generate a consolidated FAQ entry using AI
+        const consolidationPrompt = `
+You are creating a FAQ entry for a recruitment AI system based on successful human escalation cases.
+
+CATEGORY: ${category}
+NUMBER OF CASES: ${cases.length}
+
+LEARNING CASES:
+${cases.map((c, i) => `
+Case ${i + 1}:
+- Concern: ${c.candidateConcern}
+- Approach: ${c.humanApproach}
+- Key Phrases: ${c.keyPhrases}
+- Lesson: ${c.lessonLearned}
+- Outcome: ${c.resolutionOutcome}
+`).join('\n')}
+
+Create a Q&A entry that captures the essence of these learnings.
+The Question should be what a candidate might ask or object about.
+The Answer should be a template the AI can use, incorporating the successful tactics.
+
+Return ONLY a JSON object:
+{
+  "question": "<hypothetical candidate question/objection>",
+  "answer": "<AI response template incorporating learnings from these cases>"
+}
+
+RULES:
+- The answer should be actionable and directly usable
+- Include specific phrases that worked
+- Keep it concise but comprehensive
+- Make it generalizable, not tied to specific candidates
+
+Return ONLY the JSON, no other text.
+`;
+
+        const aiResponse = callAI(consolidationPrompt);
+        const cleanResponse = aiResponse.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+        const faqEntry = JSON.parse(cleanResponse);
+
+        // Add to FAQs with source reference
+        const sourceRef = `[AI Learning: ${category}, ${cases.length} cases consolidated on ${new Date().toLocaleDateString()}]`;
+        faqSheet.appendRow([
+          faqEntry.question,
+          faqEntry.answer + '\n\n' + sourceRef
+        ]);
+
+        // Mark cases as consolidated
+        cases.forEach(c => {
+          learningSheet.getRange(c.rowIndex, 12).setValue(true); // Consolidated column
+        });
+
+        results.consolidated += cases.length;
+        results.log.push({
+          type: 'success',
+          message: `Consolidated ${cases.length} ${category} cases into FAQ`
+        });
+
+      } catch (catError) {
+        console.error(`Failed to consolidate ${category}:`, catError);
+        results.errors++;
+        results.log.push({
+          type: 'error',
+          message: `Failed to consolidate ${category}: ${catError.message}`
+        });
+      }
+    }
+
+    // Invalidate caches
+    invalidateSheetCache('AI_Learning_Cases');
+    invalidateSheetCache('Negotiation_FAQs');
+
+  } catch (e) {
+    console.error('Consolidation error:', e);
+    results.log.push({ type: 'error', message: `Fatal error: ${e.message}` });
+  }
+
+  return results;
+}
+
+/**
+ * Get learning statistics for dashboard
+ * @returns {Object} Learning stats
+ */
+function getLearningStats() {
+  const url = getStoredSheetUrl();
+  if (!url) return { pending: 0, approved: 0, consolidated: 0, total: 0 };
+
+  try {
+    const ss = SpreadsheetApp.openByUrl(url);
+    const sheet = ss.getSheetByName('AI_Learning_Cases');
+    if (!sheet || sheet.getLastRow() <= 1) return { pending: 0, approved: 0, consolidated: 0, total: 0 };
+
+    const data = sheet.getDataRange().getValues();
+    let pending = 0, approved = 0, consolidated = 0;
+
+    for (let i = 1; i < data.length; i++) {
+      const isApproved = data[i][8] === true || data[i][8] === 'TRUE';
+      const isConsolidated = data[i][11] === true || data[i][11] === 'TRUE';
+
+      if (isConsolidated) {
+        consolidated++;
+      } else if (isApproved) {
+        approved++;
+      } else {
+        pending++;
+      }
+    }
+
+    return {
+      pending,
+      approved,
+      consolidated,
+      total: data.length - 1
+    };
+  } catch (e) {
+    console.error('Failed to get learning stats:', e);
+    return { pending: 0, approved: 0, consolidated: 0, total: 0 };
+  }
+}
+
+/**
+ * Setup weekly trigger for consolidating approved learnings
+ * Runs every Sunday at 2 AM
+ */
+function setupWeeklyLearningConsolidation() {
+  // Remove any existing triggers
+  const triggers = ScriptApp.getProjectTriggers();
+  triggers.forEach(trigger => {
+    if (trigger.getHandlerFunction() === 'consolidateApprovedLearnings') {
+      ScriptApp.deleteTrigger(trigger);
+    }
+  });
+
+  // Create new weekly trigger (every Sunday at 2 AM)
+  ScriptApp.newTrigger('consolidateApprovedLearnings')
+    .timeBased()
+    .onWeekDay(ScriptApp.WeekDay.SUNDAY)
+    .atHour(2)
+    .create();
+
+  return { success: true, message: 'Weekly learning consolidation trigger set for Sundays at 2 AM' };
+}
+
+/**
+ * Remove the weekly learning consolidation trigger
+ */
+function removeWeeklyLearningConsolidation() {
+  const triggers = ScriptApp.getProjectTriggers();
+  let removed = 0;
+  triggers.forEach(trigger => {
+    if (trigger.getHandlerFunction() === 'consolidateApprovedLearnings') {
+      ScriptApp.deleteTrigger(trigger);
+      removed++;
+    }
+  });
+  return { success: true, message: `Removed ${removed} learning consolidation trigger(s)` };
 }
 
 function callAI(prompt) {
