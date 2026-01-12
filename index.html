@@ -1991,20 +1991,21 @@
                                 <i class="fa-solid fa-edit text-blue-500"></i> Test Scenario
                             </h4>
 
-                            <!-- Test Type Selection -->
+                            <!-- Test Type Selection (Multi-Select) -->
                             <div class="mb-4">
-                                <label class="block text-xs font-bold uppercase text-slate-500 mb-2">Test Type</label>
+                                <label class="block text-xs font-bold uppercase text-slate-500 mb-2">Test Functions <span class="text-slate-400 font-normal">(select one or more)</span></label>
                                 <div class="flex flex-wrap gap-2">
-                                    <button onclick="selectAiTestType('negotiation')" id="testTypeNegotiation" class="smart-chip active" data-test-type="negotiation">
+                                    <button onclick="toggleAiTestType('negotiation')" id="testTypeNegotiation" class="smart-chip active" data-test-type="negotiation">
                                         <i class="fa-solid fa-hand-holding-dollar mr-1"></i> Negotiation
                                     </button>
-                                    <button onclick="selectAiTestType('followup')" id="testTypeFollowup" class="smart-chip" data-test-type="followup">
+                                    <button onclick="toggleAiTestType('followup')" id="testTypeFollowup" class="smart-chip" data-test-type="followup">
                                         <i class="fa-solid fa-clock-rotate-left mr-1"></i> Follow-Up
                                     </button>
-                                    <button onclick="selectAiTestType('datagathering')" id="testTypeDatagathering" class="smart-chip" data-test-type="datagathering">
+                                    <button onclick="toggleAiTestType('datagathering')" id="testTypeDatagathering" class="smart-chip" data-test-type="datagathering">
                                         <i class="fa-solid fa-clipboard-question mr-1"></i> Data Gathering
                                     </button>
                                 </div>
+                                <p id="aiTestFunctionsHint" class="text-xs text-slate-400 mt-2 italic">Negotiation enabled. AI will negotiate rates with candidates.</p>
                             </div>
 
                             <!-- Developer Details -->
@@ -2117,32 +2118,81 @@
 
                             <!-- Test Button -->
                             <button onclick="runAiTest()" id="runAiTestBtn" class="w-full bg-green-600 hover:bg-green-700 text-white font-medium py-3 px-4 rounded-lg shadow-md flex items-center justify-center gap-2">
-                                <i class="fa-solid fa-play"></i> <span id="runAiTestBtnText">Generate AI Response</span>
+                                <i class="fa-solid fa-paper-plane"></i> <span id="runAiTestBtnText">Send & Generate Response</span>
                             </button>
                         </div>
 
-                        <!-- Right Panel: AI Response & History -->
+                        <!-- Right Panel: Conversation Thread & Data Extraction -->
                         <div class="space-y-6">
-                            <!-- AI Response Output -->
-                            <div class="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 p-6">
-                                <h4 class="font-bold text-slate-800 dark:text-white mb-4 flex items-center gap-2">
-                                    <i class="fa-solid fa-robot text-green-500"></i> AI Response
-                                </h4>
-                                <div id="aiTestResponseContainer" class="min-h-[200px] bg-slate-50 dark:bg-slate-900 rounded-lg border border-slate-200 dark:border-slate-700 p-4">
-                                    <div id="aiTestResponseEmpty" class="text-center py-10 text-slate-400">
-                                        <i class="fa-solid fa-comment-dots text-4xl mb-3 block"></i>
-                                        <p class="text-sm">Configure a scenario and click "Generate AI Response" to see how the AI would reply.</p>
-                                    </div>
-                                    <div id="aiTestResponseContent" class="hidden">
-                                        <div class="flex items-center gap-2 mb-3">
-                                            <span id="aiTestResponseType" class="text-xs font-bold uppercase px-2 py-1 rounded bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300">NEGOTIATION</span>
-                                            <span id="aiTestResponseTime" class="text-xs text-slate-500"></span>
+                            <!-- Conversation Thread (WhatsApp-style Chat) -->
+                            <div class="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden">
+                                <!-- Chat Header -->
+                                <div class="bg-gradient-to-r from-green-600 to-green-700 px-4 py-3 flex items-center justify-between">
+                                    <div class="flex items-center gap-3">
+                                        <div class="w-10 h-10 rounded-full bg-white/20 flex items-center justify-center">
+                                            <i class="fa-solid fa-comments text-white"></i>
                                         </div>
-                                        <div id="aiTestResponseText" class="text-sm text-slate-700 dark:text-slate-300 whitespace-pre-wrap leading-relaxed"></div>
+                                        <div>
+                                            <h4 class="font-bold text-white text-sm">Conversation Thread</h4>
+                                            <p class="text-xs text-green-100" id="chatThreadStatus">Test the full email conversation flow</p>
+                                        </div>
                                     </div>
-                                    <div id="aiTestResponseLoading" class="hidden text-center py-10">
-                                        <i class="fa-solid fa-spinner fa-spin text-3xl text-blue-500 mb-3 block"></i>
-                                        <p class="text-sm text-slate-500">Generating AI response...</p>
+                                    <div class="flex items-center gap-2">
+                                        <span id="chatActiveFunctions" class="text-xs bg-white/20 text-white px-2 py-1 rounded-full">Negotiation</span>
+                                        <button onclick="clearConversationThread()" class="text-white/70 hover:text-white p-2" title="Clear conversation">
+                                            <i class="fa-solid fa-trash-can text-sm"></i>
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <!-- Chat Messages Container -->
+                                <div id="conversationThread" class="h-[400px] overflow-y-auto p-4 bg-slate-100 dark:bg-slate-900 space-y-4" style="background-image: url('data:image/svg+xml,%3Csvg width=\"60\" height=\"60\" viewBox=\"0 0 60 60\" xmlns=\"http://www.w3.org/2000/svg\"%3E%3Cg fill=\"none\" fill-rule=\"evenodd\"%3E%3Cg fill=\"%239C92AC\" fill-opacity=\"0.05\"%3E%3Cpath d=\"M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z\"/%3E%3C/g%3E%3C/g%3E%3C/svg%3E');">
+
+                                    <!-- Empty State -->
+                                    <div id="chatEmptyState" class="text-center py-16">
+                                        <div class="w-16 h-16 rounded-full bg-slate-200 dark:bg-slate-700 mx-auto flex items-center justify-center mb-4">
+                                            <i class="fa-solid fa-message text-2xl text-slate-400"></i>
+                                        </div>
+                                        <p class="text-sm text-slate-500 dark:text-slate-400 mb-2">No conversation yet</p>
+                                        <p class="text-xs text-slate-400">Enter a candidate reply and click "Send & Generate Response" to start testing</p>
+                                    </div>
+
+                                    <!-- Chat messages will be inserted here by JS -->
+                                </div>
+
+                                <!-- Quick Reply Input (for continued conversation) -->
+                                <div id="quickReplySection" class="hidden border-t border-slate-200 dark:border-slate-700 p-3 bg-white dark:bg-slate-800">
+                                    <div class="flex gap-2">
+                                        <input type="text" id="quickReplyInput" class="input-field flex-1" placeholder="Type candidate's next reply..." onkeypress="if(event.key==='Enter') sendQuickReply()">
+                                        <button onclick="sendQuickReply()" class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2">
+                                            <i class="fa-solid fa-paper-plane"></i> Send
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Legacy AI Response Output (hidden, for compatibility) -->
+                            <div id="legacyAiResponseSection" class="hidden">
+                                <div class="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 p-6">
+                                    <h4 class="font-bold text-slate-800 dark:text-white mb-4 flex items-center gap-2">
+                                        <i class="fa-solid fa-robot text-green-500"></i> AI Response
+                                    </h4>
+                                    <div id="aiTestResponseContainer" class="min-h-[200px] bg-slate-50 dark:bg-slate-900 rounded-lg border border-slate-200 dark:border-slate-700 p-4">
+                                        <div id="aiTestResponseEmpty" class="text-center py-10 text-slate-400">
+                                            <i class="fa-solid fa-comment-dots text-4xl mb-3 block"></i>
+                                            <p class="text-sm">Configure a scenario and click "Generate AI Response" to see how the AI would reply.</p>
+                                        </div>
+                                        <div id="aiTestResponseContent" class="hidden">
+                                            <div class="flex items-center gap-2 mb-3">
+                                                <span id="aiTestResponseType" class="text-xs font-bold uppercase px-2 py-1 rounded bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300">NEGOTIATION</span>
+                                                <span id="aiTestResponseTime" class="text-xs text-slate-500"></span>
+                                            </div>
+                                            <div id="aiTestResponseText" class="text-sm text-slate-700 dark:text-slate-300 whitespace-pre-wrap leading-relaxed"></div>
+                                        </div>
+                                        <div id="aiTestResponseLoading" class="hidden text-center py-10">
+                                            <i class="fa-solid fa-spinner fa-spin text-3xl text-blue-500 mb-3 block"></i>
+                                            <p class="text-sm text-slate-500">Generating AI response...</p>
+                                        </div>
                                     </div>
                                 </div>
                             </div>
@@ -6941,28 +6991,97 @@
         }
 
         // ===== AI TESTING FEATURE - DELETE FOR PRODUCTION (START JAVASCRIPT) =====
-        // AI Testing state
-        let aiTestCurrentType = 'negotiation';
+        // AI Testing state - now supports multi-function selection
+        let aiTestSelectedFunctions = {
+            negotiation: true,
+            followup: false,
+            datagathering: false
+        };
         let aiTestHistory = [];
         let aiTestLoadedRateTiers = []; // Cached rate tiers for current job
+        let conversationThread = []; // Stores the conversation messages
+        let conversationContext = {}; // Stores context like extracted data, negotiation state
 
-        // Select test type and show/hide relevant fields
+        // Toggle test type (multi-select mode)
+        function toggleAiTestType(type) {
+            // Toggle the selected state
+            aiTestSelectedFunctions[type] = !aiTestSelectedFunctions[type];
+
+            // Ensure at least one function is selected
+            const anySelected = Object.values(aiTestSelectedFunctions).some(v => v);
+            if (!anySelected) {
+                aiTestSelectedFunctions[type] = true; // Re-enable if all were off
+                showToast('At least one function must be selected', 'warning');
+            }
+
+            // Update chip visual state
+            const chip = document.getElementById('testType' + type.charAt(0).toUpperCase() + type.slice(1));
+            chip.classList.toggle('active', aiTestSelectedFunctions[type]);
+
+            // Show/hide relevant settings panels
+            updateAiTestSettingsPanels();
+
+            // Update function hint text
+            updateAiTestFunctionsHint();
+
+            // Update chat header badge
+            updateChatActiveFunctions();
+        }
+
+        // Update which settings panels are visible
+        function updateAiTestSettingsPanels() {
+            document.getElementById('negotiationFields').classList.toggle('hidden', !aiTestSelectedFunctions.negotiation);
+            document.getElementById('followupFields').classList.toggle('hidden', !aiTestSelectedFunctions.followup);
+            document.getElementById('dataGatheringFields').classList.toggle('hidden', !aiTestSelectedFunctions.datagathering);
+        }
+
+        // Update the hint text based on selected functions
+        function updateAiTestFunctionsHint() {
+            const hints = [];
+            if (aiTestSelectedFunctions.negotiation) hints.push('negotiate rates');
+            if (aiTestSelectedFunctions.followup) hints.push('send follow-ups');
+            if (aiTestSelectedFunctions.datagathering) hints.push('extract data');
+
+            let hintText = '';
+            if (hints.length === 1) {
+                hintText = `AI will ${hints[0]} with candidates.`;
+            } else if (hints.length === 2) {
+                hintText = `AI will ${hints[0]} and ${hints[1]}.`;
+            } else if (hints.length === 3) {
+                hintText = `AI will ${hints[0]}, ${hints[1]}, and ${hints[2]}.`;
+            }
+
+            document.getElementById('aiTestFunctionsHint').textContent = hintText;
+        }
+
+        // Update the chat header badge
+        function updateChatActiveFunctions() {
+            const active = [];
+            if (aiTestSelectedFunctions.negotiation) active.push('Neg');
+            if (aiTestSelectedFunctions.followup) active.push('F/U');
+            if (aiTestSelectedFunctions.datagathering) active.push('Data');
+
+            document.getElementById('chatActiveFunctions').textContent = active.join(' + ') || 'None';
+        }
+
+        // Legacy function for backwards compatibility
         function selectAiTestType(type) {
-            aiTestCurrentType = type;
+            // Clear all and select only this one (single-select mode)
+            aiTestSelectedFunctions = {
+                negotiation: type === 'negotiation',
+                followup: type === 'followup',
+                datagathering: type === 'datagathering'
+            };
 
-            // Update chip selection
+            // Update all chips
             document.querySelectorAll('[data-test-type]').forEach(chip => {
                 chip.classList.remove('active');
             });
             document.getElementById('testType' + type.charAt(0).toUpperCase() + type.slice(1)).classList.add('active');
 
-            // Show/hide relevant fields
-            document.getElementById('negotiationFields').classList.toggle('hidden', type !== 'negotiation');
-            document.getElementById('followupFields').classList.toggle('hidden', type !== 'followup');
-            document.getElementById('dataGatheringFields').classList.toggle('hidden', type !== 'datagathering');
-
-            // Hide data extraction results when not in data gathering mode
-            document.getElementById('dataExtractionResults').classList.toggle('hidden', type !== 'datagathering');
+            updateAiTestSettingsPanels();
+            updateAiTestFunctionsHint();
+            updateChatActiveFunctions();
         }
 
         // Load rate tiers for a job
@@ -7058,21 +7177,170 @@
             document.getElementById('aiTestRateTierInfo').classList.add('hidden');
             aiTestLoadedRateTiers = [];
 
-            // Reset type to negotiation
-            selectAiTestType('negotiation');
+            // Reset to default function selection (negotiation only)
+            aiTestSelectedFunctions = {
+                negotiation: true,
+                followup: false,
+                datagathering: false
+            };
 
-            // Clear response
+            // Update UI for function selection
+            document.querySelectorAll('[data-test-type]').forEach(chip => {
+                const type = chip.dataset.testType;
+                chip.classList.toggle('active', aiTestSelectedFunctions[type]);
+            });
+            updateAiTestSettingsPanels();
+            updateAiTestFunctionsHint();
+            updateChatActiveFunctions();
+
+            // Clear legacy response panel
             document.getElementById('aiTestResponseEmpty').classList.remove('hidden');
             document.getElementById('aiTestResponseContent').classList.add('hidden');
 
             // Clear data extraction results
             document.getElementById('dataExtractionResults').classList.add('hidden');
 
+            // Clear conversation thread
+            conversationThread = [];
+            conversationContext = {};
+            renderConversationThread();
+
+            // Hide quick reply section
+            document.getElementById('quickReplySection').classList.add('hidden');
+
             // Clear history
             aiTestHistory = [];
             renderAiTestHistory();
 
             showToast('New testing session started', 'info');
+        }
+
+        // Render the conversation thread (WhatsApp-style)
+        function renderConversationThread() {
+            const container = document.getElementById('conversationThread');
+            const emptyState = document.getElementById('chatEmptyState');
+
+            if (conversationThread.length === 0) {
+                // Show empty state
+                emptyState.classList.remove('hidden');
+                container.querySelectorAll('.chat-message').forEach(el => el.remove());
+                return;
+            }
+
+            // Hide empty state
+            emptyState.classList.add('hidden');
+
+            // Clear existing messages (except empty state)
+            container.querySelectorAll('.chat-message').forEach(el => el.remove());
+
+            // Render each message
+            conversationThread.forEach((msg, idx) => {
+                const messageEl = createChatMessageElement(msg, idx);
+                container.appendChild(messageEl);
+            });
+
+            // Scroll to bottom
+            container.scrollTop = container.scrollHeight;
+
+            // Show quick reply section after first exchange
+            if (conversationThread.length > 0) {
+                document.getElementById('quickReplySection').classList.remove('hidden');
+            }
+        }
+
+        // Create a chat message element
+        function createChatMessageElement(msg, idx) {
+            const div = document.createElement('div');
+            div.className = 'chat-message';
+
+            const isCandidate = msg.sender === 'candidate';
+            const bubbleClass = isCandidate
+                ? 'bg-white dark:bg-slate-700 rounded-lg rounded-tl-none shadow-sm'
+                : 'bg-green-500 text-white rounded-lg rounded-tr-none shadow-sm';
+            const alignClass = isCandidate ? 'justify-start' : 'justify-end';
+
+            // Build type badges for AI messages
+            let typeBadges = '';
+            if (!isCandidate && msg.types && msg.types.length > 0) {
+                typeBadges = msg.types.map(t => {
+                    const colors = {
+                        negotiation: 'bg-blue-400/30 text-blue-100',
+                        followup: 'bg-orange-400/30 text-orange-100',
+                        datagathering: 'bg-purple-400/30 text-purple-100'
+                    };
+                    const icons = {
+                        negotiation: 'fa-hand-holding-dollar',
+                        followup: 'fa-clock-rotate-left',
+                        datagathering: 'fa-clipboard-question'
+                    };
+                    return `<span class="text-xs px-2 py-0.5 rounded ${colors[t]}"><i class="fa-solid ${icons[t]} mr-1"></i>${t}</span>`;
+                }).join(' ');
+            }
+
+            // Build data extraction summary if present
+            let dataExtractHtml = '';
+            if (msg.extractedData && Object.keys(msg.extractedData).length > 0) {
+                const extractedEntries = Object.entries(msg.extractedData)
+                    .filter(([k, v]) => k !== 'is_negotiating' && k !== 'negotiation_notes' && v && v !== 'NOT_PROVIDED');
+                if (extractedEntries.length > 0) {
+                    dataExtractHtml = `
+                        <div class="mt-2 pt-2 border-t border-green-400/30">
+                            <div class="text-xs font-semibold mb-1 opacity-80"><i class="fa-solid fa-table-cells mr-1"></i>Data Extracted:</div>
+                            <div class="grid grid-cols-2 gap-1 text-xs">
+                                ${extractedEntries.map(([k, v]) => `
+                                    <div class="bg-green-400/20 rounded px-2 py-1">
+                                        <span class="opacity-70">${k}:</span> <span class="font-medium">${v}</span>
+                                    </div>
+                                `).join('')}
+                            </div>
+                        </div>
+                    `;
+                }
+            }
+
+            div.innerHTML = `
+                <div class="flex ${alignClass} mb-1">
+                    <div class="max-w-[85%]">
+                        ${!isCandidate && typeBadges ? `<div class="flex gap-1 mb-1 justify-end">${typeBadges}</div>` : ''}
+                        <div class="${bubbleClass} px-3 py-2">
+                            <div class="text-sm whitespace-pre-wrap leading-relaxed ${isCandidate ? 'text-slate-700 dark:text-slate-200' : ''}">${msg.text}</div>
+                            ${dataExtractHtml}
+                            <div class="text-xs ${isCandidate ? 'text-slate-400' : 'text-green-100'} mt-1 text-right">${msg.time}</div>
+                        </div>
+                        <div class="text-xs ${isCandidate ? 'text-slate-500' : 'text-slate-500 text-right'} mt-0.5">
+                            ${isCandidate ? '<i class="fa-solid fa-user mr-1"></i>' + (msg.senderName || 'Candidate') : '<i class="fa-solid fa-robot mr-1"></i>AI Response'}
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            return div;
+        }
+
+        // Clear conversation thread
+        function clearConversationThread() {
+            conversationThread = [];
+            conversationContext = {};
+            renderConversationThread();
+            document.getElementById('quickReplySection').classList.add('hidden');
+            document.getElementById('dataExtractionResults').classList.add('hidden');
+            showToast('Conversation cleared', 'info');
+        }
+
+        // Send quick reply (for continued conversation)
+        function sendQuickReply() {
+            const input = document.getElementById('quickReplyInput');
+            const reply = input.value.trim();
+            if (!reply) {
+                showToast('Please enter a reply', 'warning');
+                return;
+            }
+
+            // Update the main reply field and trigger test
+            document.getElementById('aiTestCandidateReply').value = reply;
+            input.value = '';
+
+            runAiTest();
         }
 
         // Update data extraction results panel from AI test response
@@ -7156,7 +7424,7 @@
             }
         }
 
-        // Run the AI test
+        // Run the AI test (with multi-function support)
         function runAiTest() {
             const devName = document.getElementById('aiTestDevName').value.trim();
             const devEmail = document.getElementById('aiTestDevEmail').value.trim();
@@ -7175,67 +7443,129 @@
                 return;
             }
 
-            // Collect type-specific data
+            // Determine which functions are active
+            const activeFunctions = Object.entries(aiTestSelectedFunctions)
+                .filter(([k, v]) => v)
+                .map(([k, v]) => k);
+
+            // Build test data with multi-function support
             let testData = {
-                type: aiTestCurrentType,
+                type: 'multifunction', // New type for multi-function testing
+                functions: aiTestSelectedFunctions, // Pass the full selection object
                 devName: devName,
                 devEmail: devEmail || 'test@example.com',
                 devCountry: devCountry || '',
                 jobId: jobId || '',
                 jobDesc: jobDesc || 'General software development position',
-                candidateReply: candidateReply
+                candidateReply: candidateReply,
+                conversationHistory: conversationThread, // Pass conversation context
+                conversationContext: conversationContext // Pass accumulated context
             };
 
-            if (aiTestCurrentType === 'negotiation') {
+            // Add negotiation-specific data if negotiation is enabled
+            if (aiTestSelectedFunctions.negotiation) {
                 testData.targetRate = document.getElementById('aiTestTargetRate').value || '45';
                 testData.maxRate = document.getElementById('aiTestMaxRate').value || '';
                 testData.attempt = document.getElementById('aiTestAttempt').value || '1';
 
-                // Include selected rate tier info if any
                 const rateTierSelect = document.getElementById('aiTestRateTier');
                 if (rateTierSelect.value !== '' && aiTestLoadedRateTiers[parseInt(rateTierSelect.value)]) {
                     testData.rateTier = aiTestLoadedRateTiers[parseInt(rateTierSelect.value)];
                 }
-            } else if (aiTestCurrentType === 'followup') {
+            }
+
+            // Add followup-specific data if followup is enabled
+            if (aiTestSelectedFunctions.followup) {
                 testData.followUpNumber = document.getElementById('aiTestFollowUpNum').value || '1';
-            } else if (aiTestCurrentType === 'datagathering') {
+            }
+
+            // Add data gathering-specific data if data gathering is enabled
+            if (aiTestSelectedFunctions.datagathering) {
                 testData.pendingQuestions = document.getElementById('aiTestPendingQuestions').value || 'What is your expected rate?';
             }
 
-            // Show loading
-            document.getElementById('aiTestResponseEmpty').classList.add('hidden');
-            document.getElementById('aiTestResponseContent').classList.add('hidden');
-            document.getElementById('aiTestResponseLoading').classList.remove('hidden');
+            // Add candidate message to conversation thread immediately
+            const candidateMsg = {
+                sender: 'candidate',
+                senderName: devName,
+                text: candidateReply,
+                time: new Date().toLocaleTimeString()
+            };
+            conversationThread.push(candidateMsg);
+            renderConversationThread();
+
+            // Show loading state
             document.getElementById('runAiTestBtn').disabled = true;
             document.getElementById('runAiTestBtnText').textContent = 'Generating...';
+
+            // Add loading indicator to chat
+            const loadingDiv = document.createElement('div');
+            loadingDiv.id = 'chatLoadingIndicator';
+            loadingDiv.className = 'chat-message flex justify-end';
+            loadingDiv.innerHTML = `
+                <div class="bg-green-400/50 text-white rounded-lg px-4 py-2 animate-pulse">
+                    <i class="fa-solid fa-spinner fa-spin mr-2"></i>AI is typing...
+                </div>
+            `;
+            document.getElementById('conversationThread').appendChild(loadingDiv);
+            document.getElementById('conversationThread').scrollTop = document.getElementById('conversationThread').scrollHeight;
 
             // Call backend
             google.script.run
                 .withSuccessHandler(response => {
-                    document.getElementById('aiTestResponseLoading').classList.add('hidden');
+                    // Remove loading indicator
+                    const loadingEl = document.getElementById('chatLoadingIndicator');
+                    if (loadingEl) loadingEl.remove();
+
                     document.getElementById('runAiTestBtn').disabled = false;
-                    document.getElementById('runAiTestBtnText').textContent = 'Generate AI Response';
+                    document.getElementById('runAiTestBtnText').textContent = 'Send & Generate Response';
 
                     if (response.error) {
                         showToast(response.error, 'error');
-                        document.getElementById('aiTestResponseEmpty').classList.remove('hidden');
+                        // Remove the candidate message on error
+                        conversationThread.pop();
+                        renderConversationThread();
                         return;
                     }
 
-                    // Show response
-                    document.getElementById('aiTestResponseContent').classList.remove('hidden');
-                    document.getElementById('aiTestResponseType').textContent = aiTestCurrentType.toUpperCase();
-                    document.getElementById('aiTestResponseTime').textContent = new Date().toLocaleTimeString();
-                    document.getElementById('aiTestResponseText').textContent = response.aiResponse;
+                    // Add AI response to conversation thread
+                    const aiMsg = {
+                        sender: 'ai',
+                        text: response.aiResponse,
+                        time: new Date().toLocaleTimeString(),
+                        types: response.activeTypes || activeFunctions,
+                        extractedData: response.extractedData || null
+                    };
+                    conversationThread.push(aiMsg);
+                    renderConversationThread();
 
-                    // For data gathering, also show extraction results
-                    if (aiTestCurrentType === 'datagathering' && response.extractedData) {
+                    // Update conversation context with any extracted data
+                    if (response.extractedData) {
+                        conversationContext.extractedData = {
+                            ...(conversationContext.extractedData || {}),
+                            ...response.extractedData
+                        };
+                        conversationContext.answeredCount = response.answeredCount;
+                        conversationContext.totalQuestions = response.totalQuestions;
+                        conversationContext.pendingQuestions = response.pendingQuestions;
+                    }
+
+                    // Update negotiation attempt context
+                    if (response.negotiationState) {
+                        conversationContext.negotiationState = response.negotiationState;
+                    }
+
+                    // Show data extraction panel if data gathering is active
+                    if (aiTestSelectedFunctions.datagathering && response.extractedData) {
                         updateDataExtractionResults(response);
                     }
 
+                    // Clear the reply input for next message
+                    document.getElementById('aiTestCandidateReply').value = '';
+
                     // Add to history
                     aiTestHistory.unshift({
-                        type: aiTestCurrentType,
+                        type: activeFunctions.join('+'),
                         devName: devName,
                         candidateReply: candidateReply.substring(0, 50) + (candidateReply.length > 50 ? '...' : ''),
                         aiResponse: response.aiResponse.substring(0, 100) + (response.aiResponse.length > 100 ? '...' : ''),
@@ -7250,10 +7580,17 @@
                     showToast('AI response generated successfully', 'success');
                 })
                 .withFailureHandler(err => {
-                    document.getElementById('aiTestResponseLoading').classList.add('hidden');
-                    document.getElementById('aiTestResponseEmpty').classList.remove('hidden');
+                    // Remove loading indicator
+                    const loadingEl = document.getElementById('chatLoadingIndicator');
+                    if (loadingEl) loadingEl.remove();
+
                     document.getElementById('runAiTestBtn').disabled = false;
-                    document.getElementById('runAiTestBtnText').textContent = 'Generate AI Response';
+                    document.getElementById('runAiTestBtnText').textContent = 'Send & Generate Response';
+
+                    // Remove the candidate message on error
+                    conversationThread.pop();
+                    renderConversationThread();
+
                     showToast('Failed to generate AI response: ' + err.message, 'error');
                 })
                 .testAiEmailResponse(testData);
