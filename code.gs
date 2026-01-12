@@ -5721,13 +5721,33 @@ function callAI(prompt) {
       muteHttpExceptions: true
     };
     const response = UrlFetchApp.fetch(url, options);
-    const json = JSON.parse(response.getContentText());
-    
+    const responseText = response.getContentText();
+
+    // Check for HTTP errors
+    const responseCode = response.getResponseCode();
+    if (responseCode < 200 || responseCode >= 300) {
+      console.error("OpenAI HTTP Error:", responseCode, responseText);
+      return "ACTION: ESCALATE (AI Error - HTTP " + responseCode + ")";
+    }
+
+    const json = JSON.parse(responseText);
+
     if(json.error) {
       console.error("OpenAI Error:", json.error);
       return "ACTION: ESCALATE (AI Error)";
     }
-    
+
+    // Validate response structure before accessing
+    if (!json.choices || !Array.isArray(json.choices) || json.choices.length === 0) {
+      console.error("OpenAI returned empty choices:", json);
+      return "ACTION: ESCALATE (AI Error - Empty response)";
+    }
+
+    if (!json.choices[0].message || !json.choices[0].message.content) {
+      console.error("OpenAI returned malformed choice:", json.choices[0]);
+      return "ACTION: ESCALATE (AI Error - Malformed response)";
+    }
+
     return json.choices[0].message.content.trim();
   } catch (e) {
     console.error("AI call failed:", e);
@@ -8856,7 +8876,7 @@ function testAiEmailResponse(testData) {
 
       // Step 2: Negotiation - If negotiation is enabled and candidate mentioned rates
       if (functions.negotiation) {
-        const candidateMentionsRate = /\$?\d+|\brate\b|\bhourly\b|\bsalary\b|\bcompensation\b|\bpay\b|\bbudget\b/i.test(candidateReply);
+        const candidateMentionsRate = candidateReply && /\$?\d+|\brate\b|\bhourly\b|\bsalary\b|\bcompensation\b|\bpay\b|\bbudget\b/i.test(candidateReply);
 
         if (candidateMentionsRate || (ctx && ctx.negotiationState)) {
           // Prepare negotiation parameters (same as single-function mode)
@@ -8936,8 +8956,10 @@ function testAiEmailResponse(testData) {
             startDates
           );
 
-          // Create a combined prompt to merge both responses naturally
-          const mergePrompt = `You are an AI assistant helping with candidate communication. Below are two separate responses that need to be merged into ONE cohesive, professional email response.
+          // Only merge if dataFollowUp was generated successfully
+          if (dataFollowUp) {
+            // Create a combined prompt to merge both responses naturally
+            const mergePrompt = `You are an AI assistant helping with candidate communication. Below are two separate responses that need to be merged into ONE cohesive, professional email response.
 
 NEGOTIATION RESPONSE:
 ${combinedResponse}
@@ -8954,7 +8976,9 @@ Please merge these into a single, natural email that:
 
 Write ONLY the merged email body (no subject line, no "Subject:", just the message):`;
 
-          combinedResponse = callAI(mergePrompt);
+            combinedResponse = callAI(mergePrompt);
+          }
+          // If dataFollowUp is null, just keep the negotiation response as-is
         } else {
           // Only data gathering needed
           combinedResponse = generateMissingInfoFollowUp(
@@ -8985,7 +9009,16 @@ Write ONLY the merged email body (no subject line, no "Subject:", just the messa
 
       // If still no response, generate a generic acknowledgment
       if (!combinedResponse) {
-        combinedResponse = `Hi ${devName},\n\nThank you for your response. We'll review your message and get back to you shortly.\n\nBest regards`;
+        const firstName = devName ? devName.split(' ')[0] : 'there';
+        combinedResponse = `Hi ${firstName},\n\nThank you for your response. We'll review your message and get back to you shortly.\n\nBest regards`;
+      }
+
+      // Check for API errors in the combined response
+      if (combinedResponse.includes('API Key missing')) {
+        return { error: 'AI API key not configured. Please set up the OpenAI API key in Script Properties.' };
+      }
+      if (combinedResponse.includes('ACTION: ESCALATE')) {
+        return { error: 'AI service temporarily unavailable. Please try again in a moment.' };
       }
 
       return {
@@ -9010,7 +9043,9 @@ Write ONLY the merged email body (no subject line, no "Subject:", just the messa
 
   } catch (e) {
     console.error('Error in testAiEmailResponse:', e);
-    return { error: 'Failed to generate AI response: ' + e.message };
+    // Handle cases where e.message might be undefined
+    const errorMsg = e && e.message ? e.message : (typeof e === 'string' ? e : JSON.stringify(e) || 'Unknown error');
+    return { error: 'Failed to generate AI response: ' + errorMsg };
   }
 }
 
