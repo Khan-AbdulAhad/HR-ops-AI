@@ -2268,6 +2268,14 @@ EXAMPLE C2 - With extra context:
 "Thanks for reaching out! I have about 6 years of exp in backend development. Looking for around $50/hr. I'm based out of Noida and can join in 2 weeks after serving notice."
 → Experience=6 years, Rate=$50/hr, Location=Noida, Notice Period=2 weeks, Start Date=2 weeks
 
+EXAMPLE C3 - With profile links:
+"Here's my info: LinkedIn - https://linkedin.com/in/johndoe, GitHub: github.com/johndoe-dev. Currently in Bangalore, 5 years experience."
+→ LinkedIn=https://linkedin.com/in/johndoe, GitHub=github.com/johndoe-dev, Location=Bangalore, Experience=5 years
+
+EXAMPLE C4 - Profile links in casual response:
+"check out my profile https://www.linkedin.com/in/jane-smith-123 and my portfolio at janesmith.dev"
+→ LinkedIn=https://www.linkedin.com/in/jane-smith-123, Portfolio=janesmith.dev
+
 === VALUE TYPE RECOGNITION RULES ===
 
 Use these patterns to identify what type of data a value represents:
@@ -2297,6 +2305,14 @@ EDUCATION:
 YES/NO:
 - "Yes", "No", "yeah", "nope", "sure", "definitely", "not really"
 
+URLS/PROFILE LINKS:
+- LinkedIn: URLs containing "linkedin.com/in/" - e.g., "https://linkedin.com/in/johndoe", "linkedin.com/in/johndoe"
+- GitHub: URLs containing "github.com/" - e.g., "https://github.com/johndoe", "github.com/johndoe"
+- Portfolio/Website: Any URL with http/https - e.g., "https://johndoe.com", "www.myportfolio.com"
+- Other profiles: URLs from dribbble.com, behance.net, stackoverflow.com, medium.com, etc.
+- IMPORTANT: Preserve the COMPLETE URL exactly as provided - do not truncate or modify it
+- May be preceded by: "here's my", "my profile:", "check out", "link:", or just the raw URL
+
 === EXTRACTION STRATEGY ===
 
 1. First, identify ALL distinct values in the candidate's message
@@ -2318,6 +2334,8 @@ YES/NO:
 - Hours / Availability: "X hours", "full-time", "part-time", "40hrs/week"
 - Language: Language names, "speak X", "fluent in X", "native X"
 - Notice Period: "X weeks notice", "X days", "serving notice", "immediately available"
+- LinkedIn / Profile: URLs with linkedin.com, "my linkedin", "profile link", "here's my linkedin"
+- GitHub / Portfolio: URLs with github.com, "my github", "portfolio", "my website", "check out my work"
 
 === OUTPUT FORMAT ===
 
@@ -2349,6 +2367,8 @@ Special values:
 7. ALWAYS include "is_negotiating" (true/false) and "negotiation_notes"
 8. Extract the ACTUAL value given, not what was asked for
 9. If in doubt, extract the value rather than marking NOT_PROVIDED
+10. URLs and profile links MUST be preserved EXACTLY as provided - copy the full URL including https://, www., and all path segments
+11. For LinkedIn/GitHub/Portfolio questions, extract the complete URL without any truncation or modification
 
 Return ONLY the JSON object, no other text.
 `;
