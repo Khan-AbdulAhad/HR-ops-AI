@@ -8803,6 +8803,201 @@ function testAiEmailResponse(testData) {
         pendingQuestions: actuallyPendingQuestions.map(q => q.question)
       };
 
+    } else if (type === 'multifunction') {
+      // MULTI-FUNCTION TESTING MODE
+      // Handles combined negotiation + data gathering + follow-up scenarios
+      // This simulates how production emails work when multiple features are enabled
+
+      const {
+        functions, conversationHistory, conversationContext: ctx
+      } = testData;
+
+      // Track which functions were actually used in the response
+      const activeTypes = [];
+      let combinedResponse = '';
+      let extractedData = null;
+      let negotiationState = null;
+      let answeredCount = 0;
+      let totalQuestions = 0;
+      let remainingPendingQuestions = [];
+
+      // Step 1: Data Gathering - Extract any data from the candidate's reply
+      if (functions.datagathering && pendingQuestions) {
+        const parsedQuestions = parseQuestionsWithAI(pendingQuestions);
+        const allQuestions = parsedQuestions.map(q => ({
+          header: q,
+          question: q
+        }));
+        totalQuestions = allQuestions.length;
+
+        // Merge with any previously extracted data from conversation context
+        extractedData = ctx && ctx.extractedData ? { ...ctx.extractedData } : {};
+
+        if (candidateReply && candidateReply.trim()) {
+          const newExtracted = extractAnswersFromResponse(candidateReply, allQuestions, devName);
+
+          // Merge new extractions with existing ones
+          for (const [key, value] of Object.entries(newExtracted)) {
+            if (value && value !== 'NOT_PROVIDED' && value !== 'PARSE_ERROR') {
+              extractedData[key] = value;
+            }
+          }
+        }
+
+        // Determine which questions are still pending
+        remainingPendingQuestions = allQuestions.filter(q => {
+          const answer = extractedData[q.header];
+          return !answer || answer === 'NOT_PROVIDED' || answer === 'PARSE_ERROR';
+        });
+
+        answeredCount = totalQuestions - remainingPendingQuestions.length;
+        activeTypes.push('datagathering');
+      }
+
+      // Step 2: Negotiation - If negotiation is enabled and candidate mentioned rates
+      if (functions.negotiation) {
+        const candidateMentionsRate = /\$?\d+|\brate\b|\bhourly\b|\bsalary\b|\bcompensation\b|\bpay\b|\bbudget\b/i.test(candidateReply);
+
+        if (candidateMentionsRate || (ctx && ctx.negotiationState)) {
+          // Prepare negotiation parameters (same as single-function mode)
+          let effectiveTargetRate = Number(targetRate) || 45;
+          let effectiveMaxRate = Number(maxRate) || effectiveTargetRate;
+          let regionName = devCountry || '';
+
+          // Auto-lookup regional rates
+          if (devCountry && jobId) {
+            const regionRates = getRateForRegion(jobId, devCountry, null);
+            if (regionRates && regionRates.targetRate) {
+              effectiveTargetRate = regionRates.targetRate;
+              effectiveMaxRate = regionRates.maxRate || effectiveTargetRate;
+              regionName = regionRates.region || devCountry;
+            }
+          }
+
+          // Get start dates and JD link
+          let startDates = [];
+          let jdLink = '';
+          if (jobId) {
+            const jobConfig = getNegotiationConfig(jobId);
+            if (jobConfig) {
+              startDates = jobConfig.startDates || [];
+              jdLink = jobConfig.jdLink || '';
+            }
+          }
+
+          // Determine current attempt based on conversation history
+          let currentAttempt = ctx && ctx.negotiationState ? ctx.negotiationState.attempt : (parseInt(attempt) || 1);
+
+          // Build negotiation prompt
+          const negotiationPrompt = buildNegotiationReplyPrompt({
+            candidateName: devName,
+            jobDescription: jobDesc,
+            targetRate: effectiveTargetRate,
+            maxRate: effectiveMaxRate,
+            attempt: currentAttempt.toString(),
+            candidateMessage: candidateReply,
+            style: 'professional',
+            faqContent: '',
+            conversationContext: `Latest candidate message: "${candidateReply}"`,
+            specialRules: '',
+            region: regionName,
+            startDates: startDates,
+            jdLink: jdLink
+          });
+
+          combinedResponse = callAI(negotiationPrompt);
+          negotiationState = {
+            attempt: currentAttempt + 1,
+            lastRate: effectiveTargetRate,
+            maxOffered: effectiveMaxRate
+          };
+          activeTypes.push('negotiation');
+        }
+      }
+
+      // Step 3: If data gathering is enabled and there are pending questions, append them
+      if (functions.datagathering && remainingPendingQuestions.length > 0) {
+        // Get start dates for data gathering prompt
+        let startDates = [];
+        if (jobId) {
+          const jobConfig = getNegotiationConfig(jobId);
+          if (jobConfig && jobConfig.startDates) {
+            startDates = jobConfig.startDates;
+          }
+        }
+
+        if (combinedResponse) {
+          // Already have negotiation response, append data gathering
+          const dataFollowUp = generateMissingInfoFollowUp(
+            devName,
+            remainingPendingQuestions,
+            candidateReply,
+            jobDesc,
+            startDates
+          );
+
+          // Create a combined prompt to merge both responses naturally
+          const mergePrompt = `You are an AI assistant helping with candidate communication. Below are two separate responses that need to be merged into ONE cohesive, professional email response.
+
+NEGOTIATION RESPONSE:
+${combinedResponse}
+
+DATA GATHERING FOLLOW-UP:
+${dataFollowUp}
+
+Please merge these into a single, natural email that:
+1. Addresses the rate negotiation smoothly
+2. Asks for the missing information in a natural way
+3. Maintains a friendly, professional tone
+4. Does NOT repeat information or sound robotic
+5. Should be 3-5 sentences total
+
+Write ONLY the merged email body (no subject line, no "Subject:", just the message):`;
+
+          combinedResponse = callAI(mergePrompt);
+        } else {
+          // Only data gathering needed
+          combinedResponse = generateMissingInfoFollowUp(
+            devName,
+            remainingPendingQuestions,
+            candidateReply,
+            jobDesc,
+            startDates
+          );
+        }
+      }
+
+      // Step 4: If no response generated yet but data is complete, send completion message
+      if (!combinedResponse && functions.datagathering && remainingPendingQuestions.length === 0 && answeredCount > 0) {
+        combinedResponse = generateDataCompleteEmail(devName, jobDesc);
+      }
+
+      // Step 5: Fallback - if still no response and only follow-up is active
+      if (!combinedResponse && functions.followup) {
+        const followUpPrompt = buildFollowUpEmailPrompt({
+          name: devName,
+          jobDescription: jobDesc,
+          followUpNumber: parseInt(followUpNumber) || 1
+        });
+        combinedResponse = callAI(followUpPrompt);
+        activeTypes.push('followup');
+      }
+
+      // If still no response, generate a generic acknowledgment
+      if (!combinedResponse) {
+        combinedResponse = `Hi ${devName},\n\nThank you for your response. We'll review your message and get back to you shortly.\n\nBest regards`;
+      }
+
+      return {
+        aiResponse: combinedResponse.trim(),
+        activeTypes: activeTypes,
+        extractedData: extractedData,
+        answeredCount: answeredCount,
+        totalQuestions: totalQuestions,
+        pendingQuestions: remainingPendingQuestions.map(q => q.question),
+        negotiationState: negotiationState
+      };
+
     } else {
       return { error: 'Unknown test type: ' + type };
     }
