@@ -1520,7 +1520,60 @@
                             </button>
                         </div>
                     </div>
-                    
+
+                    <!-- Job AI Settings Panel (Quick access to turn features on/off) -->
+                    <div class="mb-6 bg-amber-50 dark:bg-amber-900/20 rounded-xl border border-amber-200 dark:border-amber-700 overflow-hidden">
+                        <div class="p-4 flex items-center justify-between cursor-pointer" onclick="toggleJobSettingsPanel()">
+                            <div class="flex items-center gap-3">
+                                <i class="fa-solid fa-sliders text-amber-600"></i>
+                                <span class="font-bold text-amber-800 dark:text-amber-300">Job AI Settings</span>
+                                <span class="text-xs text-amber-600 dark:text-amber-400">(Turn features ON/OFF for any job)</span>
+                            </div>
+                            <i class="fa-solid fa-chevron-down text-amber-600 transition-transform" id="jobSettingsPanelIcon"></i>
+                        </div>
+                        <div id="jobSettingsPanelContent" class="hidden border-t border-amber-200 dark:border-amber-700 p-4 bg-white dark:bg-slate-800">
+                            <div class="flex flex-wrap items-end gap-4">
+                                <!-- Job Selection -->
+                                <div class="flex-1 min-w-[200px]">
+                                    <label class="block text-xs font-bold text-slate-600 dark:text-slate-400 uppercase mb-1">Select Job</label>
+                                    <select id="taskJobSettingsDropdown" onchange="loadTaskJobSettings(this.value)" class="input-field w-full">
+                                        <option value="">-- Select a Job --</option>
+                                    </select>
+                                </div>
+
+                                <!-- Negotiation Toggle -->
+                                <div class="flex items-center gap-3 px-4 py-2 bg-slate-50 dark:bg-slate-700 rounded-lg">
+                                    <div>
+                                        <span class="text-sm font-medium text-slate-700 dark:text-slate-300">Negotiation</span>
+                                    </div>
+                                    <div class="toggle-switch" id="taskToggleNegotiation" onclick="toggleTaskJobSetting('negotiation')"></div>
+                                </div>
+
+                                <!-- Follow-up Toggle -->
+                                <div class="flex items-center gap-3 px-4 py-2 bg-slate-50 dark:bg-slate-700 rounded-lg">
+                                    <div>
+                                        <span class="text-sm font-medium text-slate-700 dark:text-slate-300">Follow-up</span>
+                                    </div>
+                                    <div class="toggle-switch" id="taskToggleFollowUp" onclick="toggleTaskJobSetting('followUp')"></div>
+                                </div>
+
+                                <!-- Data Gathering Toggle -->
+                                <div class="flex items-center gap-3 px-4 py-2 bg-slate-50 dark:bg-slate-700 rounded-lg">
+                                    <div>
+                                        <span class="text-sm font-medium text-slate-700 dark:text-slate-300">Data Gathering</span>
+                                    </div>
+                                    <div class="toggle-switch" id="taskToggleDataGathering" onclick="toggleTaskJobSetting('dataGathering')"></div>
+                                </div>
+                            </div>
+
+                            <!-- Status Hint -->
+                            <p id="taskJobSettingsHint" class="text-xs text-amber-600 dark:text-amber-400 mt-3">
+                                <i class="fa-solid fa-info-circle mr-1"></i>
+                                <span id="taskJobSettingsHintText">Select a job to view/modify its AI settings</span>
+                            </p>
+                        </div>
+                    </div>
+
                     <!-- Bulk Actions -->
                     <div id="bulkActionsBar" class="hidden mb-4 bg-blue-50 p-3 rounded-lg border border-blue-200 flex justify-between items-center">
                         <span class="text-sm font-bold text-blue-800"><span id="taskSelectedCount">0</span> selected</span>
@@ -4943,6 +4996,129 @@
                     showToast('Error saving settings: ' + err.message, 'error');
                 })
                 .updateJobSettings(currentConfigJobId, configSettings);
+        }
+
+        // ============================================================
+        // TASKS TAB - JOB AI SETTINGS PANEL
+        // ============================================================
+        let taskJobSettings = { negotiation: false, followUp: false, dataGathering: false };
+        let currentTaskJobId = null;
+
+        function toggleJobSettingsPanel() {
+            const content = document.getElementById('jobSettingsPanelContent');
+            const icon = document.getElementById('jobSettingsPanelIcon');
+            content.classList.toggle('hidden');
+            icon.style.transform = content.classList.contains('hidden') ? '' : 'rotate(180deg)';
+
+            // Populate job dropdown when opening
+            if (!content.classList.contains('hidden')) {
+                populateTaskJobDropdown();
+            }
+        }
+
+        function populateTaskJobDropdown() {
+            google.script.run
+                .withSuccessHandler(jobs => {
+                    const dropdown = document.getElementById('taskJobSettingsDropdown');
+                    const currentVal = dropdown.value;
+                    dropdown.innerHTML = '<option value="">-- Select a Job --</option>';
+                    jobs.forEach(j => {
+                        dropdown.innerHTML += `<option value="${j}">Job ${j}</option>`;
+                    });
+                    // Restore selection if it still exists
+                    if (currentVal && jobs.includes(currentVal)) {
+                        dropdown.value = currentVal;
+                    }
+                })
+                .getJobConfigList();
+        }
+
+        function loadTaskJobSettings(jobId) {
+            currentTaskJobId = jobId;
+            if (!jobId) {
+                taskJobSettings = { negotiation: false, followUp: false, dataGathering: false };
+                updateTaskJobTogglesUI();
+                updateTaskJobSettingsHint();
+                return;
+            }
+
+            google.script.run
+                .withSuccessHandler(settings => {
+                    if (settings) {
+                        taskJobSettings = {
+                            negotiation: settings.negotiation === true,
+                            followUp: settings.followUp === true,
+                            dataGathering: settings.dataGathering === true
+                        };
+                    } else {
+                        taskJobSettings = { negotiation: false, followUp: false, dataGathering: false };
+                    }
+                    updateTaskJobTogglesUI();
+                    updateTaskJobSettingsHint();
+                })
+                .withFailureHandler(err => {
+                    console.error('Failed to load job settings:', err);
+                    taskJobSettings = { negotiation: false, followUp: false, dataGathering: false };
+                    updateTaskJobTogglesUI();
+                    updateTaskJobSettingsHint();
+                })
+                .getJobSettings(jobId);
+        }
+
+        function toggleTaskJobSetting(setting) {
+            if (!currentTaskJobId) {
+                showToast('Select a job first', 'warning');
+                return;
+            }
+
+            taskJobSettings[setting] = !taskJobSettings[setting];
+            updateTaskJobTogglesUI();
+            updateTaskJobSettingsHint();
+
+            // Save immediately
+            google.script.run
+                .withSuccessHandler(result => {
+                    if (result.success) {
+                        showToast(result.message, 'success');
+                    } else {
+                        showToast('Failed to save: ' + result.error, 'error');
+                    }
+                })
+                .withFailureHandler(err => {
+                    showToast('Error saving settings: ' + err.message, 'error');
+                })
+                .updateJobSettings(currentTaskJobId, taskJobSettings);
+        }
+
+        function updateTaskJobTogglesUI() {
+            const toggleNeg = document.getElementById('taskToggleNegotiation');
+            const toggleFollow = document.getElementById('taskToggleFollowUp');
+            const toggleData = document.getElementById('taskToggleDataGathering');
+
+            if (toggleNeg) toggleNeg.classList.toggle('active', taskJobSettings.negotiation);
+            if (toggleFollow) toggleFollow.classList.toggle('active', taskJobSettings.followUp);
+            if (toggleData) toggleData.classList.toggle('active', taskJobSettings.dataGathering);
+        }
+
+        function updateTaskJobSettingsHint() {
+            const hintText = document.getElementById('taskJobSettingsHintText');
+            if (!hintText) return;
+
+            if (!currentTaskJobId) {
+                hintText.textContent = 'Select a job to view/modify its AI settings';
+                return;
+            }
+
+            const parts = [];
+            if (taskJobSettings.negotiation) parts.push('Negotiation');
+            if (taskJobSettings.followUp) parts.push('Follow-up');
+            if (taskJobSettings.dataGathering) parts.push('Data Gathering');
+
+            if (parts.length === 0) {
+                hintText.textContent = `Job ${currentTaskJobId}: All AI features are OFF. AI will not process this job.`;
+            } else {
+                hintText.textContent = `Job ${currentTaskJobId}: ${parts.join(' + ')} enabled.`;
+            }
         }
 
         // Rich text editor formatting functions
