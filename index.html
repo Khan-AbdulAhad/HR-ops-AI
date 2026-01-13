@@ -3651,11 +3651,12 @@
         }
 
         // --- Status Badge Helper (N=Negotiation, F=Follow-up, D=Data Gathering) ---
-        function getStatusBadges(tags, status, type, isFollowUp = false) {
+        // jobSettings: { negotiation: bool, followUp: bool, dataGathering: bool } - controls which badges to show
+        function getStatusBadges(tags, status, type, isFollowUp = false, jobSettings = null) {
             let badges = [];
 
             if (isFollowUp) {
-                // Follow-up items always get F badge
+                // Follow-up items always get F badge (they only appear if follow-up is enabled)
                 badges.push('<span class="inline-flex items-center justify-center w-6 h-6 rounded-full text-[10px] font-bold bg-amber-100 text-amber-700 border border-amber-200" title="Follow-up">F</span>');
                 // If still pending, also gathering data
                 if (status === 'Pending') {
@@ -3667,23 +3668,28 @@
                 const statusLower = (status || '').toLowerCase();
                 const typeLower = (type || '').toLowerCase();
 
-                // Data Gathering: Initial outreach or gathering info
-                if (tagsLower.includes('initial') || tagsLower.includes('outreach')) {
+                // Use job settings to determine which badges to show
+                const showDataGathering = !jobSettings || jobSettings.dataGathering !== false;
+                const showNegotiation = !jobSettings || jobSettings.negotiation === true;
+                const showFollowUp = !jobSettings || jobSettings.followUp !== false;
+
+                // Data Gathering: Initial outreach or gathering info (only if enabled)
+                if (showDataGathering && (tagsLower.includes('initial') || tagsLower.includes('outreach'))) {
                     badges.push('<span class="inline-flex items-center justify-center w-6 h-6 rounded-full text-[10px] font-bold bg-blue-100 text-blue-700 border border-blue-200" title="Data Gathering">D</span>');
                 }
 
-                // Negotiation: AI attempts or human negotiation or actively negotiating
-                if (tagsLower.includes('attempt') || tagsLower.includes('negotiat') ||
-                    statusLower.includes('negotiat') || typeLower === 'negotiating') {
+                // Negotiation: AI attempts or human negotiation or actively negotiating (only if enabled)
+                if (showNegotiation && (tagsLower.includes('attempt') || tagsLower.includes('negotiat') ||
+                    statusLower.includes('negotiat') || typeLower === 'negotiating')) {
                     badges.push('<span class="inline-flex items-center justify-center w-6 h-6 rounded-full text-[10px] font-bold bg-purple-100 text-purple-700 border border-purple-200" title="Negotiation">N</span>');
                 }
 
-                // Follow-up: If it's a follow-up type task
-                if (tagsLower.includes('follow') || statusLower.includes('follow')) {
+                // Follow-up: If it's a follow-up type task (only if enabled)
+                if (showFollowUp && (tagsLower.includes('follow') || statusLower.includes('follow'))) {
                     badges.push('<span class="inline-flex items-center justify-center w-6 h-6 rounded-full text-[10px] font-bold bg-amber-100 text-amber-700 border border-amber-200" title="Follow-up">F</span>');
                 }
 
-                // If accepted, show a checkmark badge
+                // If accepted, show a checkmark badge (always show - this is a completion status)
                 if (statusLower.includes('accepted') || tagsLower.includes('completed')) {
                     badges.push('<span class="inline-flex items-center justify-center w-6 h-6 rounded-full text-[10px] font-bold bg-green-100 text-green-700 border border-green-200" title="Completed"><i class="fa-solid fa-check text-[8px]"></i></span>');
                 }
@@ -4569,6 +4575,8 @@
                     document.getElementById('statHuman').textContent = res.stats.human;
                     document.getElementById('statAccepted').textContent = res.stats.accepted;
                 }
+                // Store job settings for badge rendering
+                const jobSettingsMap = res.jobSettings || {};
                 // Populate Job Filter dropdown with job IDs from sent emails
                 if(res.jobIds && res.jobIds.length > 0) {
                     const jobFilter = document.getElementById('taskJobFilter');
@@ -4605,8 +4613,9 @@
                         if(t.tags.includes('Human')) badgeClass = 'bg-amber-100 text-amber-700';
                         else if(t.status === 'Offer Accepted') badgeClass = 'bg-green-100 text-green-700';
 
-                        // Status initials badges (N/F/D)
-                        const statusBadges = getStatusBadges(t.tags, t.status, t.type, false);
+                        // Status initials badges (N/F/D) - use job settings to show only enabled features
+                        const taskJobSettings = jobSettingsMap[t.jobId] || null;
+                        const statusBadges = getStatusBadges(t.tags, t.status, t.type, false, taskJobSettings);
 
                         const isChecked = selectedTasks.has(t.email) ? 'checked' : '';
                         if(selectedTasks.has(t.email)) tr.classList.add('selected');

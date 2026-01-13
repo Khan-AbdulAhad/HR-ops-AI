@@ -2804,7 +2804,7 @@ function getJobOutreachEmail(ss, jobId) {
 
 function getAllTasks(filters) {
   const url = getStoredSheetUrl();
-  if(!url) return { tasks: [], jobIds: [], stats: { total: 0, active: 0, human: 0, accepted: 0 } };
+  if(!url) return { tasks: [], jobIds: [], stats: { total: 0, active: 0, human: 0, accepted: 0 }, jobSettings: {} };
 
   // If forceRefresh is true, invalidate caches first
   if (filters?.forceRefresh) {
@@ -2815,6 +2815,7 @@ function getAllTasks(filters) {
   // Use caching for faster loading
   const tasks = [];
   const jobIdSet = new Set();
+  const jobSettingsMap = {}; // Cache job settings to avoid repeated lookups
 
   // Stats counters
   let statActive = 0, statHuman = 0, statAccepted = 0;
@@ -2823,24 +2824,35 @@ function getAllTasks(filters) {
   const jobFilter = filters?.jobId || 'all';
   const statusFilter = filters?.status || 'all';
 
+  // Helper to get cached job settings
+  function getJobSettingsCached(jobId) {
+    if (!jobSettingsMap[jobId]) {
+      jobSettingsMap[jobId] = getJobSettings(jobId);
+    }
+    return jobSettingsMap[jobId];
+  }
+
   // 1. Get Active Negotiations (State) - with caching
   const stateData = getCachedSheetData('Negotiation_State', 30); // 30 second cache
-  if(!stateData || stateData.length === 0) return { tasks: [], jobIds: [], stats: { total: 0, active: 0, human: 0, accepted: 0 } };
-  
+  if(!stateData || stateData.length === 0) return { tasks: [], jobIds: [], stats: { total: 0, active: 0, human: 0, accepted: 0 }, jobSettings: {} };
+
   for(let i=1; i<stateData.length; i++) {
     if(!stateData[i][0]) continue;
 
     const jobId = String(stateData[i][1]);
     const status = stateData[i][4] || 'Active';
     const attempts = Number(stateData[i][2]) || 0;
+    const settings = getJobSettingsCached(jobId);
 
     // Collect all job IDs for filter dropdown
     jobIdSet.add(jobId);
 
-    // Count stats (always, regardless of filters)
+    // Count stats only if the corresponding feature is enabled for this job
     if(status === 'Human-Negotiation') {
+      // Human negotiation items are always counted (needs human attention)
       statHuman++;
-    } else {
+    } else if(settings.negotiation) {
+      // Only count as "AI Negotiating" if negotiation is enabled for this job
       statActive++;
     }
 
@@ -2926,7 +2938,8 @@ function getAllTasks(filters) {
       active: statActive,
       human: statHuman,
       accepted: statAccepted
-    }
+    },
+    jobSettings: jobSettingsMap
   };
 }
 
