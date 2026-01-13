@@ -136,9 +136,14 @@ function buildNegotiationReplyPrompt(params) {
     jdLink = ''
   } = params;
 
+  // SAFETY: Validate that rates are explicitly provided - no silent defaults
+  const rate = parseFloat(targetRate);
+  if (!rate || rate <= 0) {
+    throw new Error('Target rate must be explicitly configured. Cannot negotiate without a valid rate.');
+  }
+
   const attempts = parseInt(attempt) - 1; // Convert to 0-indexed like production
-  const rate = parseFloat(targetRate) || 25;
-  const max = parseFloat(maxRate) || rate; // Max rate for reference (used in production for escalation decisions)
+  const max = parseFloat(maxRate) || Math.round(rate * 1.2); // Default max to 120% of target if not set
   const firstOfferRate = Math.round(rate * 0.8); // 80% of target for first offer (matches production)
   const secondOfferRate = rate; // 100% of target for second offer
   const isFirstResponse = attempts === 0;
@@ -1841,11 +1846,13 @@ function getJobSettings(jobId) {
 /**
  * Get the job type for a specific job
  * @param {string} jobId - The job ID
- * @returns {string} The job type (defaults to 'negotiation' if not set)
+ * @returns {string} The job type (defaults to 'informing' if not set - safer default)
  */
 function getJobType(jobId) {
   const key = `JOB_${jobId}_TYPE`;
-  return PropertiesService.getScriptProperties().getProperty(key) || 'negotiation';
+  // SAFETY: Default to 'informing' (no AI actions) instead of 'negotiation'
+  // This ensures AI won't take actions on unconfigured jobs
+  return PropertiesService.getScriptProperties().getProperty(key) || 'informing';
 }
 
 /**
@@ -3918,9 +3925,10 @@ function processJobNegotiations(jobId, rules, ss, faqContent) {
 
     if (candidateRegion) {
       const regionRates = getRateForRegion(jobId, candidateRegion, ss);
-      if (regionRates) {
-        targetRate = regionRates.targetRate || targetRate;
-        maxRate = regionRates.maxRate || maxRate;
+      // SAFETY: Use explicit > 0 check to avoid falsy value bugs (0 would be treated as missing)
+      if (regionRates && regionRates.targetRate > 0) {
+        targetRate = regionRates.targetRate;
+        maxRate = regionRates.maxRate > 0 ? regionRates.maxRate : Math.round(targetRate * 1.2);
         jobStats.log.push({type: 'info', message: `${candidateEmail} - Using ${regionRates.region || candidateRegion} region rates: target=$${targetRate}, max=$${maxRate}`});
       }
     }
@@ -6442,6 +6450,18 @@ function moveToUnresponsive(ss, email, jobId, name, devId, threadId, initialSend
  */
 function sendFollowUpEmail(email, jobId, threadId, name, followUpNumber) {
   try {
+    // SAFETY: Validate that follow-ups are enabled for this job
+    if (!jobRequiresFollowUp(jobId)) {
+      console.log(`Follow-up to ${email} blocked: Follow-ups disabled for Job ${jobId}`);
+      return { success: false, error: 'Follow-ups are disabled for this job' };
+    }
+
+    // SAFETY: Validate required parameters
+    if (!email || !threadId) {
+      console.error(`Follow-up blocked: Missing required parameters (email: ${!!email}, threadId: ${!!threadId})`);
+      return { success: false, error: 'Missing required email or thread ID' };
+    }
+
     // Get job config for context
     const jobConfig = getNegotiationConfig(jobId);
     const jobDescription = jobConfig ? jobConfig.jobDescription : '';
@@ -8801,19 +8821,23 @@ function testAiEmailResponse(testData) {
       // 3. If regional tier exists for that country → use tier rates
       // 4. If no matching tier → use manual default rates
 
-      // Start with manual defaults (like production uses job config rates as defaults)
-      let effectiveTargetRate = Number(targetRate) || 45;
-      let effectiveMaxRate = Number(maxRate) || effectiveTargetRate;
+      // SAFETY: Validate that rates are provided - no silent defaults
+      let effectiveTargetRate = Number(targetRate);
+      if (!effectiveTargetRate || effectiveTargetRate <= 0) {
+        return { success: false, error: 'Target rate is required for negotiation testing. Please enter a target rate.' };
+      }
+      let effectiveMaxRate = Number(maxRate) || Math.round(effectiveTargetRate * 1.2);
       let regionName = devCountry || '';
 
       // Auto-lookup regional rates based on Developer Country (matches production behavior)
       // This ignores the dropdown selection and does real lookup like production does
       if (devCountry && jobId) {
         const regionRates = getRateForRegion(jobId, devCountry, null);
-        if (regionRates && regionRates.targetRate) {
+        // SAFETY: Use explicit > 0 check to avoid falsy value bugs (0 would be treated as missing)
+        if (regionRates && regionRates.targetRate > 0) {
           // Regional tier found for this country - use tier rates (overrides defaults)
           effectiveTargetRate = regionRates.targetRate;
-          effectiveMaxRate = regionRates.maxRate || effectiveTargetRate;
+          effectiveMaxRate = regionRates.maxRate > 0 ? regionRates.maxRate : Math.round(effectiveTargetRate * 1.2);
           regionName = regionRates.region || devCountry;
           console.log(`AI Test: Using ${regionRates.region} rates for ${devCountry}: target=$${effectiveTargetRate}, max=$${effectiveMaxRate}`);
         } else {
@@ -8986,16 +9010,21 @@ function testAiEmailResponse(testData) {
 
         if (candidateMentionsRate || (ctx && ctx.negotiationState)) {
           // Prepare negotiation parameters (same as single-function mode)
-          let effectiveTargetRate = Number(targetRate) || 45;
-          let effectiveMaxRate = Number(maxRate) || effectiveTargetRate;
+          // SAFETY: Validate that rates are provided - no silent defaults
+          let effectiveTargetRate = Number(targetRate);
+          if (!effectiveTargetRate || effectiveTargetRate <= 0) {
+            return { success: false, error: 'Target rate is required when negotiation is enabled. Please enter a target rate.' };
+          }
+          let effectiveMaxRate = Number(maxRate) || Math.round(effectiveTargetRate * 1.2);
           let regionName = devCountry || '';
 
           // Auto-lookup regional rates
           if (devCountry && jobId) {
             const regionRates = getRateForRegion(jobId, devCountry, null);
-            if (regionRates && regionRates.targetRate) {
+            // SAFETY: Use explicit > 0 check to avoid falsy value bugs
+            if (regionRates && regionRates.targetRate > 0) {
               effectiveTargetRate = regionRates.targetRate;
-              effectiveMaxRate = regionRates.maxRate || effectiveTargetRate;
+              effectiveMaxRate = regionRates.maxRate > 0 ? regionRates.maxRate : Math.round(effectiveTargetRate * 1.2);
               regionName = regionRates.region || devCountry;
             }
           }
