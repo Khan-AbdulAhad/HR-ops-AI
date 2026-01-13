@@ -1885,6 +1885,59 @@ function jobHasDataGathering(jobId) {
 }
 
 /**
+ * Update job settings after emails have been sent
+ * This allows users to modify AI behavior for existing jobs (e.g., disable negotiation)
+ * @param {string} jobId - The job ID to update
+ * @param {object} newSettings - The new settings to apply (partial update supported)
+ * @returns {object} Result with success status and updated settings
+ */
+function updateJobSettings(jobId, newSettings) {
+  try {
+    if (!jobId) {
+      return { success: false, error: 'Job ID is required' };
+    }
+
+    // Get current settings
+    const currentSettings = getJobSettings(jobId);
+
+    // Merge with new settings (only override provided values)
+    const updatedSettings = {
+      negotiation: newSettings.hasOwnProperty('negotiation') ? newSettings.negotiation : currentSettings.negotiation,
+      followUp: newSettings.hasOwnProperty('followUp') ? newSettings.followUp : currentSettings.followUp,
+      dataGathering: newSettings.hasOwnProperty('dataGathering') ? newSettings.dataGathering : currentSettings.dataGathering
+    };
+
+    // Save the updated settings
+    const key = `JOB_${jobId}_SETTINGS`;
+    PropertiesService.getScriptProperties().setProperty(key, JSON.stringify(updatedSettings));
+
+    // Update legacy job type for backward compatibility
+    let legacyType = 'negotiation';
+    if (updatedSettings.dataGathering && updatedSettings.followUp && !updatedSettings.negotiation) {
+      legacyType = 'data_gathering';
+    } else if (!updatedSettings.followUp) {
+      legacyType = 'informing';
+    } else if (!updatedSettings.negotiation) {
+      legacyType = 'informing'; // No negotiation = informing mode
+    }
+    saveJobType(jobId, legacyType);
+
+    // Log the settings change
+    console.log(`Job ${jobId} settings updated:`, updatedSettings);
+
+    return {
+      success: true,
+      jobId: jobId,
+      settings: updatedSettings,
+      message: `Job settings updated successfully. Negotiation: ${updatedSettings.negotiation ? 'ON' : 'OFF'}, Follow-up: ${updatedSettings.followUp ? 'ON' : 'OFF'}, Data Gathering: ${updatedSettings.dataGathering ? 'ON' : 'OFF'}`
+    };
+  } catch (e) {
+    console.error('Error updating job settings:', e);
+    return { success: false, error: e.message };
+  }
+}
+
+/**
  * Generate a targeted follow-up email asking for specific missing information
  * @param {string} candidateName - The candidate's name
  * @param {Array} pendingQuestions - Array of {header, question} objects for missing info
