@@ -16,6 +16,14 @@
 const EMAIL_SENDER_NAME = 'Turing Recruitment Team';  // Default sender name
 const EMAIL_SIGNATURE = 'Turing | Talent Operations';  // Default signature
 
+// ============================================================
+// AI SAFETY LABEL - Critical safeguard to prevent AI from processing personal emails
+// ============================================================
+// This label is automatically added to all emails sent through this app.
+// The AI will ONLY process email threads that have this label.
+// This prevents the AI from interfering with manually sent emails or personal correspondence.
+const AI_MANAGED_LABEL = 'AI-Managed';
+
 const CONFIG = {
   PROJECT_ID: 'turing-230020',
   DATASET_ID: 'turing-230020',
@@ -1877,6 +1885,59 @@ function jobHasDataGathering(jobId) {
 }
 
 /**
+ * Update job settings after emails have been sent
+ * This allows users to modify AI behavior for existing jobs (e.g., disable negotiation)
+ * @param {string} jobId - The job ID to update
+ * @param {object} newSettings - The new settings to apply (partial update supported)
+ * @returns {object} Result with success status and updated settings
+ */
+function updateJobSettings(jobId, newSettings) {
+  try {
+    if (!jobId) {
+      return { success: false, error: 'Job ID is required' };
+    }
+
+    // Get current settings
+    const currentSettings = getJobSettings(jobId);
+
+    // Merge with new settings (only override provided values)
+    const updatedSettings = {
+      negotiation: newSettings.hasOwnProperty('negotiation') ? newSettings.negotiation : currentSettings.negotiation,
+      followUp: newSettings.hasOwnProperty('followUp') ? newSettings.followUp : currentSettings.followUp,
+      dataGathering: newSettings.hasOwnProperty('dataGathering') ? newSettings.dataGathering : currentSettings.dataGathering
+    };
+
+    // Save the updated settings
+    const key = `JOB_${jobId}_SETTINGS`;
+    PropertiesService.getScriptProperties().setProperty(key, JSON.stringify(updatedSettings));
+
+    // Update legacy job type for backward compatibility
+    let legacyType = 'negotiation';
+    if (updatedSettings.dataGathering && updatedSettings.followUp && !updatedSettings.negotiation) {
+      legacyType = 'data_gathering';
+    } else if (!updatedSettings.followUp) {
+      legacyType = 'informing';
+    } else if (!updatedSettings.negotiation) {
+      legacyType = 'informing'; // No negotiation = informing mode
+    }
+    saveJobType(jobId, legacyType);
+
+    // Log the settings change
+    console.log(`Job ${jobId} settings updated:`, updatedSettings);
+
+    return {
+      success: true,
+      jobId: jobId,
+      settings: updatedSettings,
+      message: `Job settings updated successfully. Negotiation: ${updatedSettings.negotiation ? 'ON' : 'OFF'}, Follow-up: ${updatedSettings.followUp ? 'ON' : 'OFF'}, Data Gathering: ${updatedSettings.dataGathering ? 'ON' : 'OFF'}`
+    };
+  } catch (e) {
+    console.error('Error updating job settings:', e);
+    return { success: false, error: e.message };
+  }
+}
+
+/**
  * Generate a targeted follow-up email asking for specific missing information
  * @param {string} candidateName - The candidate's name
  * @param {Array} pendingQuestions - Array of {header, question} objects for missing info
@@ -3258,6 +3319,10 @@ function sendBulkEmails(recipients, senderName, subject, htmlBody, jobId, opts) 
   const labelName = `Job-${jobId}`;
   const labelId = getOrCreateLabelId(labelName);
 
+  // Get or create the AI-Managed label for safety filtering
+  // This label ensures AI only processes emails sent through this app
+  const aiLabelId = getOrCreateLabelId(AI_MANAGED_LABEL);
+
   let count = 0;
   let errors = [];
   let skipped = 0;
@@ -3280,8 +3345,13 @@ function sendBulkEmails(recipients, senderName, subject, htmlBody, jobId, opts) 
       const message = Gmail.Users.Messages.send({ raw: rawMessage }, 'me');
       const threadId = message.threadId;
 
-      if (labelId) {
-        Gmail.Users.Threads.modify({ addLabelIds: [labelId] }, 'me', threadId);
+      // Apply labels: Job-specific label and AI-Managed safety label
+      const labelsToAdd = [];
+      if (labelId) labelsToAdd.push(labelId);
+      if (aiLabelId) labelsToAdd.push(aiLabelId);
+
+      if (labelsToAdd.length > 0) {
+        Gmail.Users.Threads.modify({ addLabelIds: labelsToAdd }, 'me', threadId);
       }
 
       // Add to state with thread ID and Region (column 11)
@@ -3602,6 +3672,14 @@ function processJobNegotiations(jobId, rules, ss, faqContent) {
 
     const labels = thread.getLabels().map(l => l.getName());
 
+    // CRITICAL SAFETY CHECK: Only process threads that have the AI-Managed label
+    // This ensures AI doesn't interfere with manually sent emails or personal correspondence
+    if (!labels.includes(AI_MANAGED_LABEL)) {
+      jobStats.skipped++;
+      jobStats.log.push({type: 'warning', message: `Skipped thread: Missing "${AI_MANAGED_LABEL}" label - not sent via app`});
+      return;
+    }
+
     if (labels.includes("Completed")) {
       jobStats.skipped++;
       jobStats.log.push({type: 'info', message: `Skipped thread: Already completed`});
@@ -3817,12 +3895,26 @@ function processJobNegotiations(jobId, rules, ss, faqContent) {
       return;
     }
 
+    // SAFETY CHECK: Do not negotiate if rates are not explicitly configured
+    // This prevents AI from using hardcoded defaults ($25/$20) when user didn't set up negotiation
+    const hasConfiguredRates = rules.target && Number(rules.target) > 0;
+    if (!hasConfiguredRates) {
+      jobStats.skipped++;
+      jobStats.log.push({type: 'warning', message: `${candidateEmail} - SKIPPED: No rate configured for Job ${jobId}. Configure target/max rates in Configuration tab to enable negotiation.`});
+
+      // Update status to indicate missing configuration
+      if(stateRowIndex > -1) {
+        stateSheet.getRange(stateRowIndex, 5).setValue("Missing Rate Config");
+      }
+      return;
+    }
+
     const isFirstResponse = attempts === 0;
 
     // Calculate offer amounts based on attempt
     // Use region-specific rates if available, otherwise fall back to job config rates
-    let targetRate = Number(rules.target) || 25;
-    let maxRate = Number(rules.max) || 30;
+    let targetRate = Number(rules.target);
+    let maxRate = Number(rules.max) || Math.round(targetRate * 1.2); // Default max to 120% of target if not set
 
     if (candidateRegion) {
       const regionRates = getRateForRegion(jobId, candidateRegion, ss);
@@ -6073,6 +6165,13 @@ function processFollowUpQueue() {
         try {
           const thread = GmailApp.getThreadById(threadId);
           if(thread) {
+            // CRITICAL SAFETY CHECK: Only process threads with AI-Managed label
+            const threadLabels = thread.getLabels().map(l => l.getName());
+            if (!threadLabels.includes(AI_MANAGED_LABEL)) {
+              log.push({ type: 'warning', message: `${email} - Skipped: Thread missing "${AI_MANAGED_LABEL}" label` });
+              continue;
+            }
+
             const messages = thread.getMessages();
             let candidateHasResponded = false;
             let respondedFromDifferentEmail = false;
@@ -6371,6 +6470,13 @@ function sendFollowUpEmail(email, jobId, threadId, name, followUpNumber) {
     if(threadId) {
       const thread = GmailApp.getThreadById(threadId);
       if(thread) {
+        // CRITICAL SAFETY CHECK: Only send follow-ups to AI-Managed threads
+        const threadLabels = thread.getLabels().map(l => l.getName());
+        if (!threadLabels.includes(AI_MANAGED_LABEL)) {
+          console.error(`BLOCKED: Follow-up to ${email} - thread missing "${AI_MANAGED_LABEL}" label`);
+          return { success: false, error: `Thread missing ${AI_MANAGED_LABEL} label - not sent via app` };
+        }
+
         // Use the custom sender reply function
         sendReplyWithSenderName(thread, emailBody, EMAIL_SENDER_NAME);
 

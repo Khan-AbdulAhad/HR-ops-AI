@@ -1340,6 +1340,48 @@
                                     </select>
                                 </div>
 
+                                <!-- AI Behavior Settings (Can be modified after emails sent) -->
+                                <div class="bg-amber-50 dark:bg-amber-900/20 p-4 rounded-lg border border-amber-200 dark:border-amber-700">
+                                    <label class="block text-xs font-bold uppercase text-amber-700 dark:text-amber-400 mb-3">
+                                        <i class="fa-solid fa-robot mr-1"></i>AI Behavior Settings
+                                        <span class="text-xs font-normal text-amber-600 dark:text-amber-500 ml-1">(Can modify after sending emails)</span>
+                                    </label>
+
+                                    <div class="space-y-2">
+                                        <!-- Negotiation Toggle -->
+                                        <div class="flex items-center justify-between py-2 border-b border-amber-200 dark:border-amber-700">
+                                            <div>
+                                                <span class="text-sm font-medium text-slate-700 dark:text-slate-300">Negotiation</span>
+                                                <p class="text-xs text-slate-500">AI actively negotiates rates</p>
+                                            </div>
+                                            <div class="toggle-switch" id="configToggleNegotiation" onclick="toggleConfigSetting('negotiation')"></div>
+                                        </div>
+
+                                        <!-- Follow-up Toggle -->
+                                        <div class="flex items-center justify-between py-2 border-b border-amber-200 dark:border-amber-700">
+                                            <div>
+                                                <span class="text-sm font-medium text-slate-700 dark:text-slate-300">Follow-up</span>
+                                                <p class="text-xs text-slate-500">Send automated follow-up reminders</p>
+                                            </div>
+                                            <div class="toggle-switch" id="configToggleFollowUp" onclick="toggleConfigSetting('followUp')"></div>
+                                        </div>
+
+                                        <!-- Data Gathering Toggle -->
+                                        <div class="flex items-center justify-between py-2">
+                                            <div>
+                                                <span class="text-sm font-medium text-slate-700 dark:text-slate-300">Data Gathering</span>
+                                                <p class="text-xs text-slate-500">AI asks for missing information</p>
+                                            </div>
+                                            <div class="toggle-switch" id="configToggleDataGathering" onclick="toggleConfigSetting('dataGathering')"></div>
+                                        </div>
+                                    </div>
+
+                                    <p id="configSettingsHint" class="text-xs text-amber-600 dark:text-amber-400 mt-3 pt-2 border-t border-amber-200 dark:border-amber-700">
+                                        <i class="fa-solid fa-info-circle mr-1"></i>
+                                        <span id="configSettingsHintText">Select a job to view/modify settings</span>
+                                    </p>
+                                </div>
+
                                 <div>
                                     <label class="block text-xs font-bold uppercase text-slate-500 mb-1">
                                         <i class="fa-solid fa-shield-halved text-amber-500 mr-1"></i>Internal AI Rules
@@ -3022,7 +3064,15 @@
 
                 <!-- Job Type Toggles -->
                 <div class="job-toggles-container mb-4">
-                    <label class="block text-xs font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-3">Campaign Settings</label>
+                    <label class="block text-xs font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-2">Campaign Settings</label>
+
+                    <!-- Warning: All toggles ON by default -->
+                    <div class="bg-amber-50 dark:bg-amber-900/30 border border-amber-200 dark:border-amber-700 rounded-lg p-2 mb-3">
+                        <p class="text-xs text-amber-700 dark:text-amber-400 flex items-center gap-1">
+                            <i class="fa-solid fa-triangle-exclamation"></i>
+                            <strong>All features are ON by default.</strong> Click any toggle to turn OFF features you don't need.
+                        </p>
+                    </div>
 
                     <!-- Negotiation Toggle -->
                     <div class="job-toggle-row" id="negotiationRow">
@@ -4837,6 +4887,108 @@
             }
         }
 
+        // ============================================================
+        // CONFIG PAGE - AI BEHAVIOR SETTINGS (for existing jobs)
+        // ============================================================
+        let configSettings = { negotiation: false, followUp: false, dataGathering: false };
+        let currentConfigJobId = null;
+
+        // Toggle a config setting and save immediately
+        function toggleConfigSetting(setting) {
+            if (!currentConfigJobId) {
+                showToast('Select a job first', 'warning');
+                return;
+            }
+
+            configSettings[setting] = !configSettings[setting];
+            updateConfigTogglesUI();
+            updateConfigSettingsHint();
+
+            // Save immediately to backend
+            saveConfigSettings();
+        }
+
+        function updateConfigTogglesUI() {
+            const toggleNeg = document.getElementById('configToggleNegotiation');
+            const toggleFollow = document.getElementById('configToggleFollowUp');
+            const toggleData = document.getElementById('configToggleDataGathering');
+
+            if (toggleNeg) toggleNeg.classList.toggle('active', configSettings.negotiation);
+            if (toggleFollow) toggleFollow.classList.toggle('active', configSettings.followUp);
+            if (toggleData) toggleData.classList.toggle('active', configSettings.dataGathering);
+        }
+
+        function updateConfigSettingsHint() {
+            const hintText = document.getElementById('configSettingsHintText');
+            if (!hintText) return;
+
+            if (!currentConfigJobId) {
+                hintText.textContent = 'Select a job to view/modify settings';
+                return;
+            }
+
+            const parts = [];
+            if (configSettings.negotiation) parts.push('Negotiation');
+            if (configSettings.followUp) parts.push('Follow-up');
+            if (configSettings.dataGathering) parts.push('Data Gathering');
+
+            if (parts.length === 0) {
+                hintText.textContent = `Job ${currentConfigJobId}: All AI features disabled.`;
+            } else {
+                hintText.textContent = `Job ${currentConfigJobId}: ${parts.join(' + ')} enabled.`;
+            }
+        }
+
+        function loadConfigSettings(jobId) {
+            currentConfigJobId = jobId;
+            if (!jobId) {
+                configSettings = { negotiation: false, followUp: false, dataGathering: false };
+                updateConfigTogglesUI();
+                updateConfigSettingsHint();
+                return;
+            }
+
+            google.script.run
+                .withSuccessHandler(settings => {
+                    if (settings) {
+                        configSettings = {
+                            negotiation: settings.negotiation === true,
+                            followUp: settings.followUp === true,
+                            dataGathering: settings.dataGathering === true
+                        };
+                    } else {
+                        // Default to all enabled for new jobs
+                        configSettings = { negotiation: true, followUp: true, dataGathering: true };
+                    }
+                    updateConfigTogglesUI();
+                    updateConfigSettingsHint();
+                })
+                .withFailureHandler(err => {
+                    console.error('Failed to load job settings:', err);
+                    configSettings = { negotiation: true, followUp: true, dataGathering: true };
+                    updateConfigTogglesUI();
+                    updateConfigSettingsHint();
+                })
+                .getJobSettings(jobId);
+        }
+
+        function saveConfigSettings() {
+            if (!currentConfigJobId) return;
+
+            google.script.run
+                .withSuccessHandler(result => {
+                    if (result.success) {
+                        showToast(result.message, 'success');
+                    } else {
+                        showToast('Failed to save: ' + result.error, 'error');
+                    }
+                })
+                .withFailureHandler(err => {
+                    showToast('Error saving settings: ' + err.message, 'error');
+                })
+                .updateJobSettings(currentConfigJobId, configSettings);
+        }
+
         // Rich text editor formatting functions
         function formatText(cmd, value = null) {
             document.getElementById('emailBody').focus();
@@ -4941,7 +5093,10 @@
         // --- Negotiation Config ---
         function loadNegotiationConfig() {
             const jId = document.getElementById('negJobId').value;
-            if(!jId) return;
+            if(!jId) {
+                loadConfigSettings(null); // Clear config settings
+                return;
+            }
             google.script.run.withSuccessHandler(cfg => {
                 if(cfg) {
                     document.getElementById('targetRate').value = cfg.targetRate || '';
@@ -4960,6 +5115,9 @@
                 }
             }).getNegotiationConfig(jId);
             refreshRateTiers();
+
+            // Load AI behavior settings for this job
+            loadConfigSettings(jId);
         }
 
         // --- Start Dates Management ---
