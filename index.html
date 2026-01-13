@@ -4516,6 +4516,22 @@
                     document.getElementById('statHuman').textContent = res.stats.human;
                     document.getElementById('statAccepted').textContent = res.stats.accepted;
                 }
+                // Populate Job Filter dropdown with job IDs from sent emails
+                if(res.jobIds && res.jobIds.length > 0) {
+                    const jobFilter = document.getElementById('taskJobFilter');
+                    const currentValue = jobFilter.value;
+                    jobFilter.innerHTML = '<option value="all">All Jobs</option>';
+                    res.jobIds.forEach(jobId => {
+                        const option = document.createElement('option');
+                        option.value = jobId;
+                        option.textContent = jobId;
+                        jobFilter.appendChild(option);
+                    });
+                    // Restore previous selection if still valid
+                    if(currentValue !== 'all' && res.jobIds.includes(currentValue)) {
+                        jobFilter.value = currentValue;
+                    }
+                }
                 // Render Table
                 const tasks = res.tasks || [];
                 tbody.innerHTML = '';

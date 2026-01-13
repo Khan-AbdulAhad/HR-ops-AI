@@ -2905,6 +2905,19 @@ function getAllTasks(filters) {
     }
   }
 
+  // 3. Get Job IDs from Email_Logs (sent emails) - ensures all emailed jobs appear in filter
+  const emailLogsData = getCachedSheetData('Email_Logs', 30); // 30 second cache
+  if(emailLogsData && emailLogsData.length > 1) {
+    for(let i=1; i<emailLogsData.length; i++) {
+      if(emailLogsData[i][1]) {
+        const jobId = String(emailLogsData[i][1]);
+        if(jobId && jobId !== 'undefined' && jobId !== 'null') {
+          jobIdSet.add(jobId);
+        }
+      }
+    }
+  }
+
   return {
     tasks: tasks,
     jobIds: Array.from(jobIdSet).sort(),
