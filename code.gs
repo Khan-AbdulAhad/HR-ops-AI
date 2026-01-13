@@ -3895,12 +3895,26 @@ function processJobNegotiations(jobId, rules, ss, faqContent) {
       return;
     }
 
+    // SAFETY CHECK: Do not negotiate if rates are not explicitly configured
+    // This prevents AI from using hardcoded defaults ($25/$20) when user didn't set up negotiation
+    const hasConfiguredRates = rules.target && Number(rules.target) > 0;
+    if (!hasConfiguredRates) {
+      jobStats.skipped++;
+      jobStats.log.push({type: 'warning', message: `${candidateEmail} - SKIPPED: No rate configured for Job ${jobId}. Configure target/max rates in Configuration tab to enable negotiation.`});
+
+      // Update status to indicate missing configuration
+      if(stateRowIndex > -1) {
+        stateSheet.getRange(stateRowIndex, 5).setValue("Missing Rate Config");
+      }
+      return;
+    }
+
     const isFirstResponse = attempts === 0;
 
     // Calculate offer amounts based on attempt
     // Use region-specific rates if available, otherwise fall back to job config rates
-    let targetRate = Number(rules.target) || 25;
-    let maxRate = Number(rules.max) || 30;
+    let targetRate = Number(rules.target);
+    let maxRate = Number(rules.max) || Math.round(targetRate * 1.2); // Default max to 120% of target if not set
 
     if (candidateRegion) {
       const regionRates = getRateForRegion(jobId, candidateRegion, ss);
