@@ -3585,6 +3585,14 @@
             return badges.length > 0 ? '<div class="flex gap-1">' + badges.join('') + '</div>' : '';
         }
 
+        // --- HTML Escape Helper ---
+        function escapeHtml(text) {
+            if (text === null || text === undefined) return '';
+            const div = document.createElement('div');
+            div.textContent = String(text);
+            return div.innerHTML;
+        }
+
         // --- Toast ---
         function showToast(message, type = 'info', duration = 4000) {
             const container = document.getElementById('toastContainer');
@@ -7115,7 +7123,8 @@
                     }
                 })
                 .withFailureHandler(err => {
-                    showToast('Failed to load rate tiers: ' + err.message, 'error');
+                    const errorMsg = err && err.message ? err.message : 'Unknown error';
+                    showToast('Failed to load rate tiers: ' + errorMsg, 'error');
                 })
                 .getRateTiersForJob(jobId);
         }
@@ -7289,7 +7298,7 @@
                             <div class="grid grid-cols-2 gap-1 text-xs">
                                 ${extractedEntries.map(([k, v]) => `
                                     <div class="bg-green-400/20 rounded px-2 py-1">
-                                        <span class="opacity-70">${k}:</span> <span class="font-medium">${v}</span>
+                                        <span class="opacity-70">${escapeHtml(k)}:</span> <span class="font-medium">${escapeHtml(v)}</span>
                                     </div>
                                 `).join('')}
                             </div>
@@ -7303,12 +7312,12 @@
                     <div class="max-w-[85%]">
                         ${!isCandidate && typeBadges ? `<div class="flex gap-1 mb-1 justify-end">${typeBadges}</div>` : ''}
                         <div class="${bubbleClass} px-3 py-2">
-                            <div class="text-sm whitespace-pre-wrap leading-relaxed ${isCandidate ? 'text-slate-700 dark:text-slate-200' : ''}">${msg.text}</div>
+                            <div class="text-sm whitespace-pre-wrap leading-relaxed ${isCandidate ? 'text-slate-700 dark:text-slate-200' : ''}">${escapeHtml(msg.text)}</div>
                             ${dataExtractHtml}
-                            <div class="text-xs ${isCandidate ? 'text-slate-400' : 'text-green-100'} mt-1 text-right">${msg.time}</div>
+                            <div class="text-xs ${isCandidate ? 'text-slate-400' : 'text-green-100'} mt-1 text-right">${escapeHtml(msg.time)}</div>
                         </div>
                         <div class="text-xs ${isCandidate ? 'text-slate-500' : 'text-slate-500 text-right'} mt-0.5">
-                            ${isCandidate ? '<i class="fa-solid fa-user mr-1"></i>' + (msg.senderName || 'Candidate') : '<i class="fa-solid fa-robot mr-1"></i>AI Response'}
+                            ${isCandidate ? '<i class="fa-solid fa-user mr-1"></i>' + escapeHtml(msg.senderName || 'Candidate') : '<i class="fa-solid fa-robot mr-1"></i>AI Response'}
                         </div>
                     </div>
                 </div>
@@ -7591,7 +7600,10 @@
                     conversationThread.pop();
                     renderConversationThread();
 
-                    showToast('Failed to generate AI response: ' + err.message, 'error');
+                    // Handle cases where err.message might be undefined
+                    const errorMsg = err && err.message ? err.message : (typeof err === 'string' ? err : 'Unknown error - check console');
+                    showToast('Failed to generate AI response: ' + errorMsg, 'error');
+                    console.error('AI Test Error:', err);
                 })
                 .testAiEmailResponse(testData);
         }
@@ -7692,7 +7704,9 @@
                 .withFailureHandler(err => {
                     btn.innerHTML = originalText;
                     btn.disabled = false;
-                    showToast('Failed to extract data: ' + err.message, 'error');
+                    const errorMsg = err && err.message ? err.message : (typeof err === 'string' ? err : 'Unknown error');
+                    showToast('Failed to extract data: ' + errorMsg, 'error');
+                    console.error('Data extraction error:', err);
                 })
                 .testDataExtraction({
                     candidateReply: candidateReply,
