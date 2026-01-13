@@ -16,6 +16,14 @@
 const EMAIL_SENDER_NAME = 'Turing Recruitment Team';  // Default sender name
 const EMAIL_SIGNATURE = 'Turing | Talent Operations';  // Default signature
 
+// ============================================================
+// AI SAFETY LABEL - Critical safeguard to prevent AI from processing personal emails
+// ============================================================
+// This label is automatically added to all emails sent through this app.
+// The AI will ONLY process email threads that have this label.
+// This prevents the AI from interfering with manually sent emails or personal correspondence.
+const AI_MANAGED_LABEL = 'AI-Managed';
+
 const CONFIG = {
   PROJECT_ID: 'turing-230020',
   DATASET_ID: 'turing-230020',
@@ -3258,6 +3266,10 @@ function sendBulkEmails(recipients, senderName, subject, htmlBody, jobId, opts) 
   const labelName = `Job-${jobId}`;
   const labelId = getOrCreateLabelId(labelName);
 
+  // Get or create the AI-Managed label for safety filtering
+  // This label ensures AI only processes emails sent through this app
+  const aiLabelId = getOrCreateLabelId(AI_MANAGED_LABEL);
+
   let count = 0;
   let errors = [];
   let skipped = 0;
@@ -3280,8 +3292,13 @@ function sendBulkEmails(recipients, senderName, subject, htmlBody, jobId, opts) 
       const message = Gmail.Users.Messages.send({ raw: rawMessage }, 'me');
       const threadId = message.threadId;
 
-      if (labelId) {
-        Gmail.Users.Threads.modify({ addLabelIds: [labelId] }, 'me', threadId);
+      // Apply labels: Job-specific label and AI-Managed safety label
+      const labelsToAdd = [];
+      if (labelId) labelsToAdd.push(labelId);
+      if (aiLabelId) labelsToAdd.push(aiLabelId);
+
+      if (labelsToAdd.length > 0) {
+        Gmail.Users.Threads.modify({ addLabelIds: labelsToAdd }, 'me', threadId);
       }
 
       // Add to state with thread ID and Region (column 11)
@@ -3601,6 +3618,14 @@ function processJobNegotiations(jobId, rules, ss, faqContent) {
     jobStats.processed++;
 
     const labels = thread.getLabels().map(l => l.getName());
+
+    // CRITICAL SAFETY CHECK: Only process threads that have the AI-Managed label
+    // This ensures AI doesn't interfere with manually sent emails or personal correspondence
+    if (!labels.includes(AI_MANAGED_LABEL)) {
+      jobStats.skipped++;
+      jobStats.log.push({type: 'warning', message: `Skipped thread: Missing "${AI_MANAGED_LABEL}" label - not sent via app`});
+      return;
+    }
 
     if (labels.includes("Completed")) {
       jobStats.skipped++;
@@ -6073,6 +6098,13 @@ function processFollowUpQueue() {
         try {
           const thread = GmailApp.getThreadById(threadId);
           if(thread) {
+            // CRITICAL SAFETY CHECK: Only process threads with AI-Managed label
+            const threadLabels = thread.getLabels().map(l => l.getName());
+            if (!threadLabels.includes(AI_MANAGED_LABEL)) {
+              log.push({ type: 'warning', message: `${email} - Skipped: Thread missing "${AI_MANAGED_LABEL}" label` });
+              continue;
+            }
+
             const messages = thread.getMessages();
             let candidateHasResponded = false;
             let respondedFromDifferentEmail = false;
@@ -6371,6 +6403,13 @@ function sendFollowUpEmail(email, jobId, threadId, name, followUpNumber) {
     if(threadId) {
       const thread = GmailApp.getThreadById(threadId);
       if(thread) {
+        // CRITICAL SAFETY CHECK: Only send follow-ups to AI-Managed threads
+        const threadLabels = thread.getLabels().map(l => l.getName());
+        if (!threadLabels.includes(AI_MANAGED_LABEL)) {
+          console.error(`BLOCKED: Follow-up to ${email} - thread missing "${AI_MANAGED_LABEL}" label`);
+          return { success: false, error: `Thread missing ${AI_MANAGED_LABEL} label - not sent via app` };
+        }
+
         // Use the custom sender reply function
         sendReplyWithSenderName(thread, emailBody, EMAIL_SENDER_NAME);
 
