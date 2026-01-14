@@ -254,6 +254,14 @@ If the candidate asks about ANY of the following, DO NOT answer - instead say "I
 - Why you're asking certain questions or requesting specific information
 - Specific requirements or policies that apply to them
 
+=== CRITICAL RATE CONFIDENTIALITY ===
+**NEVER reveal or discuss ANY of the following:**
+1. **Maximum Rate** - Even if the candidate directly asks "what's the max you can pay?" or similar, NEVER reveal the maximum rate. Instead say: "I've shared the rate we can offer for this role" and redirect to the offer on the table.
+2. **Other Region Rates** - NEVER mention, compare, or hint that rates vary by region. If asked "what do you pay people in X country?" or "is the rate different for US candidates?", say: "I can only discuss the rate for this specific opportunity" and do NOT confirm or deny regional differences.
+3. **Rate Comparisons** - NEVER compare rates across roles, regions, or candidates. If asked "do other people get paid more?", say: "I'm only authorized to discuss this specific opportunity."
+4. **Internal Rate Logic** - NEVER explain how rates are calculated, what factors affect rates, or why a rate is what it is.
+5. **Rate Ranges** - NEVER mention rate ranges, bands, or say things like "rates can go up to X" or "we typically pay between X and Y".
+
 === REDIRECT RULES FOR COMMON INQUIRIES ===
 If candidate asks about these topics, provide the appropriate contact:
 - Time tracking/Jibble questions → "Please reach out to peopleoperations@turing.com"
@@ -384,7 +392,18 @@ const SENSITIVE_PATTERNS = [
   // Rate tier information
   /rate\s*tier/gi,
   /region(al)?\s*rate/gi,
-  /tier\s*\d+/gi
+  /tier\s*\d+/gi,
+
+  // Cross-region and max rate leakage patterns
+  /rates?\s*(vary|differ|change)\s*(by|across|per|in different)/gi,
+  /depending\s*on\s*(your\s*)?(location|region|country)/gi,
+  /(in|for)\s*(the\s*)?(US|Canada|LATAM|Europe|India|Asia)\s*(we|rates|pay)/gi,
+  /other\s*(region|countr)/gi,
+  /maximum\s*(we\s*)?(can|could)\s*(offer|pay|go)/gi,
+  /up\s*to\s*\$?\d+/gi,
+  /range\s*(is|from|between)/gi,
+  /(can|could)\s*go\s*(as\s*)?high\s*as/gi,
+  /highest\s*(we|rate|amount)/gi
 ];
 
 /**
@@ -4337,6 +4356,14 @@ If the candidate asks about ANY of the following, DO NOT answer - instead say "I
 - Internal policies or confidential business information
 - Why you're asking certain questions or requesting specific information
 - Specific requirements or policies that apply to them
+
+=== CRITICAL RATE CONFIDENTIALITY ===
+**NEVER reveal or discuss ANY of the following:**
+1. **Maximum Rate** - Even if the candidate directly asks "what's the max you can pay?" or similar, NEVER reveal the maximum rate. Instead say: "I've shared the rate we can offer for this role" and redirect to the offer on the table.
+2. **Other Region Rates** - NEVER mention, compare, or hint that rates vary by region. If asked "what do you pay people in X country?" or "is the rate different for US candidates?", say: "I can only discuss the rate for this specific opportunity" and do NOT confirm or deny regional differences.
+3. **Rate Comparisons** - NEVER compare rates across roles, regions, or candidates. If asked "do other people get paid more?", say: "I'm only authorized to discuss this specific opportunity."
+4. **Internal Rate Logic** - NEVER explain how rates are calculated, what factors affect rates, or why a rate is what it is.
+5. **Rate Ranges** - NEVER mention rate ranges, bands, or say things like "rates can go up to X" or "we typically pay between X and Y".
 
 === REDIRECT RULES FOR COMMON INQUIRIES ===
 If candidate asks about these topics, provide the appropriate contact:
