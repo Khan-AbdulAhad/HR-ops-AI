@@ -1467,13 +1467,13 @@
                                 <option value="Human-Negotiation">Human Required</option>
                                 <option value="Offer Accepted">Accepted</option>
                             </select>
-                            <button id="runAiBtn" onclick="manualTriggerAI()" class="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg font-medium text-sm flex items-center gap-2 shadow-sm">
+                            <button id="runAiBtn" onclick="manualTriggerAI()" class="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg font-medium text-sm flex items-center gap-2 shadow-sm" title="Run AI negotiation: Process candidates, generate responses, and escalate complex cases to humans">
                                 <i class="fa-solid fa-wand-magic-sparkles"></i> Run AI
                             </button>
-                            <button id="processHumanBtn" onclick="processCompletedHumanEscalations()" class="bg-amber-500 hover:bg-amber-600 text-white px-4 py-2 rounded-lg font-medium text-sm flex items-center gap-2 shadow-sm" title="Process human escalations marked as Completed in Gmail">
+                            <button id="processHumanBtn" onclick="processCompletedHumanEscalations()" class="bg-amber-500 hover:bg-amber-600 text-white px-4 py-2 rounded-lg font-medium text-sm flex items-center gap-2 shadow-sm" title="Import human-completed negotiations: Scans Gmail for threads with 'Completed' + 'Human-Negotiation' labels">
                                 <i class="fa-solid fa-user-check"></i> Sync Human
                             </button>
-                            <button onclick="loadTasks()" class="bg-white border border-slate-300 hover:bg-slate-50 text-slate-600 px-3 py-2 rounded-lg transition">
+                            <button onclick="loadTasks()" class="bg-white border border-slate-300 hover:bg-slate-50 text-slate-600 px-3 py-2 rounded-lg transition" title="Refresh task list">
                                 <i class="fa-solid fa-rotate"></i>
                             </button>
                         </div>
@@ -1500,7 +1500,7 @@
                                 </div>
 
                                 <!-- Negotiation Toggle -->
-                                <div class="flex items-center gap-3 px-4 py-2 bg-slate-50 dark:bg-slate-700 rounded-lg">
+                                <div class="flex items-center gap-3 px-4 py-2 bg-slate-50 dark:bg-slate-700 rounded-lg" title="Enable AI to handle candidate rate negotiations for this job">
                                     <div>
                                         <span class="text-sm font-medium text-slate-700 dark:text-slate-300">Negotiation</span>
                                     </div>
@@ -1508,7 +1508,7 @@
                                 </div>
 
                                 <!-- Follow-up Toggle -->
-                                <div class="flex items-center gap-3 px-4 py-2 bg-slate-50 dark:bg-slate-700 rounded-lg">
+                                <div class="flex items-center gap-3 px-4 py-2 bg-slate-50 dark:bg-slate-700 rounded-lg" title="Enable automatic follow-up emails for candidates who don't respond">
                                     <div>
                                         <span class="text-sm font-medium text-slate-700 dark:text-slate-300">Follow-up</span>
                                     </div>
@@ -1516,7 +1516,7 @@
                                 </div>
 
                                 <!-- Data Gathering Toggle -->
-                                <div class="flex items-center gap-3 px-4 py-2 bg-slate-50 dark:bg-slate-700 rounded-lg">
+                                <div class="flex items-center gap-3 px-4 py-2 bg-slate-50 dark:bg-slate-700 rounded-lg" title="Enable automatic data gathering follow-ups to collect missing candidate information">
                                     <div>
                                         <span class="text-sm font-medium text-slate-700 dark:text-slate-300">Data Gathering</span>
                                     </div>
@@ -1624,13 +1624,13 @@
                                 <option value="Follow-Up-1-Sent">1st Sent</option>
                                 <option value="Follow-Up-2-Sent">2nd Sent</option>
                             </select>
-                            <button id="runFollowUpBtn" onclick="manualTriggerFollowUps()" class="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 shadow-sm">
+                            <button id="runFollowUpBtn" onclick="manualTriggerFollowUps()" class="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 shadow-sm" title="Send scheduled follow-ups: 1st email after ~12hrs, 2nd after ~28hrs, then mark as unresponsive">
                                 <i class="fa-solid fa-paper-plane mr-1"></i> Process Queue
                             </button>
-                            <button id="resetStatusBtn" onclick="resetFollowUpStatuses()" class="bg-white border border-slate-300 text-slate-600 px-4 py-2 rounded-lg text-sm font-medium hover:bg-slate-50">
+                            <button id="resetStatusBtn" onclick="resetFollowUpStatuses()" class="bg-white border border-slate-300 text-slate-600 px-4 py-2 rounded-lg text-sm font-medium hover:bg-slate-50" title="Reset all follow-up statuses and re-check Gmail for responses. Use for debugging only.">
                                 Reset Statuses
                             </button>
-                            <button onclick="loadFollowUpStats()" class="bg-white border border-slate-300 text-slate-600 px-3 py-2 rounded-lg hover:bg-slate-50"><i class="fa-solid fa-rotate"></i></button>
+                            <button onclick="loadFollowUpStats()" class="bg-white border border-slate-300 text-slate-600 px-3 py-2 rounded-lg hover:bg-slate-50" title="Refresh follow-up queue data"><i class="fa-solid fa-rotate"></i></button>
                         </div>
                     </div>
 
