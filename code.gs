@@ -1963,6 +1963,428 @@ function updateJobSettings(jobId, newSettings) {
   }
 }
 
+// --- DYNAMIC EMAIL COLUMNS SYSTEM ---
+// This system auto-detects email types and adds relevant columns to job sheets
+
+/**
+ * Email type to column mapping
+ * Defines what columns should be created based on the type of email sent
+ */
+const EMAIL_TYPE_COLUMNS = {
+  'availability': {
+    columns: [
+      { header: 'Preferred Date', question: 'What date did the candidate prefer for the interview?' },
+      { header: 'Preferred Time', question: 'What time did the candidate prefer for the interview?' },
+      { header: 'Time Zone', question: 'What timezone did the candidate mention?' },
+      { header: 'Availability Notes', question: 'Any additional availability notes from the candidate?' }
+    ],
+    description: 'Email asking candidate for available dates/times for interview'
+  },
+  'negotiation': {
+    columns: [
+      { header: 'Counter Offer', question: 'What rate did the candidate counter-propose?' },
+      { header: 'Negotiation Response', question: 'What was the candidate response to negotiation?' },
+      { header: 'Final Agreed Rate', question: 'What is the final agreed rate?' }
+    ],
+    description: 'Email negotiating rate or terms with candidate'
+  },
+  'offer': {
+    columns: [
+      { header: 'Offer Response', question: 'Did the candidate accept/reject/counter the offer?' },
+      { header: 'Offer Notes', question: 'Any notes from the candidate about the offer?' },
+      { header: 'Start Date Confirmed', question: 'What start date did the candidate confirm?' }
+    ],
+    description: 'Email extending a job offer to candidate'
+  },
+  'document_request': {
+    columns: [
+      { header: 'Documents Submitted', question: 'Which documents has the candidate submitted?' },
+      { header: 'Documents Pending', question: 'Which documents are still pending?' }
+    ],
+    description: 'Email requesting documents from candidate'
+  },
+  'follow_up': {
+    columns: [
+      { header: 'Follow Up Response', question: 'What did the candidate respond to the follow-up?' },
+      { header: 'Follow Up Date', question: 'When did the candidate respond to follow-up?' }
+    ],
+    description: 'General follow-up email to candidate'
+  },
+  'rejection': {
+    columns: [
+      { header: 'Rejection Acknowledged', question: 'Did the candidate acknowledge the rejection?' }
+    ],
+    description: 'Email informing candidate of rejection'
+  },
+  'onboarding': {
+    columns: [
+      { header: 'Onboarding Status', question: 'What is the candidate onboarding status?' },
+      { header: 'Onboarding Notes', question: 'Any onboarding notes from candidate?' }
+    ],
+    description: 'Email about onboarding process'
+  }
+};
+
+/**
+ * Detect email type from email content using AI
+ * @param {string} emailSubject - The email subject
+ * @param {string} emailBody - The email body content
+ * @returns {Object} Detected email type and confidence
+ */
+function detectEmailType(emailSubject, emailBody) {
+  const emailTypes = Object.keys(EMAIL_TYPE_COLUMNS).map(type => ({
+    type: type,
+    description: EMAIL_TYPE_COLUMNS[type].description
+  }));
+
+  const prompt = `
+You are analyzing a recruitment email to determine its type/purpose.
+
+EMAIL SUBJECT: "${emailSubject}"
+
+EMAIL CONTENT:
+"${emailBody}"
+
+AVAILABLE EMAIL TYPES:
+${emailTypes.map(t => `- ${t.type}: ${t.description}`).join('\n')}
+
+TASK:
+Determine the PRIMARY type of this email from the list above.
+
+DETECTION RULES:
+1. "availability" - Email asks about interview scheduling, available dates, time slots, calendar availability
+   Keywords: "schedule", "interview", "available", "time slot", "calendar", "when can you", "date", "time"
+
+2. "negotiation" - Email discusses rate, salary, compensation negotiation
+   Keywords: "rate", "compensation", "salary", "offer", "negotiate", "hourly", "per hour"
+
+3. "offer" - Email presents a formal job offer
+   Keywords: "offer letter", "formal offer", "pleased to offer", "job offer", "congratulations"
+
+4. "document_request" - Email requests documents like ID, certificates, resume
+   Keywords: "documents", "ID proof", "certificate", "resume", "portfolio", "please send", "submit"
+
+5. "follow_up" - General follow-up or reminder email
+   Keywords: "follow up", "reminder", "checking in", "haven't heard", "still interested"
+
+6. "rejection" - Email informing of rejection or not moving forward
+   Keywords: "unfortunately", "not moving forward", "other candidates", "rejected"
+
+7. "onboarding" - Email about joining process, first day, orientation
+   Keywords: "onboarding", "first day", "orientation", "welcome", "joining"
+
+Return a JSON object:
+{
+  "type": "detected_email_type",
+  "confidence": 0.9,
+  "reason": "brief explanation why this type was detected"
+}
+
+Return ONLY the JSON object, no other text.
+`;
+
+  try {
+    const response = callAI(prompt);
+    let cleanResponse = response.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+    const result = JSON.parse(cleanResponse);
+
+    // Validate the type exists
+    if (!EMAIL_TYPE_COLUMNS[result.type]) {
+      console.warn(`Unknown email type detected: ${result.type}, defaulting to follow_up`);
+      result.type = 'follow_up';
+    }
+
+    return result;
+  } catch (e) {
+    console.error('Failed to detect email type:', e);
+    return { type: 'follow_up', confidence: 0.5, reason: 'Default fallback due to detection error' };
+  }
+}
+
+/**
+ * Get columns for a specific email type
+ * @param {string} emailType - The email type
+ * @returns {Array} Array of column definitions
+ */
+function getColumnsForEmailType(emailType) {
+  const typeConfig = EMAIL_TYPE_COLUMNS[emailType];
+  if (!typeConfig) {
+    console.warn(`Unknown email type: ${emailType}`);
+    return [];
+  }
+  return typeConfig.columns;
+}
+
+/**
+ * Add dynamic columns to an existing job details sheet based on email type
+ * This ensures columns exist for tracking responses to specific email types
+ * @param {string} jobId - The job ID
+ * @param {string} emailType - The detected email type
+ * @returns {Object} Result with added columns info
+ */
+function addEmailTypeColumns(jobId, emailType) {
+  const jobsSs = getCachedJobsSpreadsheet();
+  if (!jobsSs) {
+    console.warn('Jobs Sheet URL not configured. Cannot add email type columns.');
+    return { success: false, message: 'Jobs Sheet not configured' };
+  }
+
+  const sheetName = `Job_${jobId}_Details`;
+  const sheet = jobsSs.getSheetByName(sheetName);
+
+  if (!sheet) {
+    console.error(`Job details sheet not found: ${sheetName}`);
+    return { success: false, message: 'Job details sheet not found' };
+  }
+
+  const columnsToAdd = getColumnsForEmailType(emailType);
+  if (columnsToAdd.length === 0) {
+    return { success: true, message: 'No columns to add for this email type', added: [] };
+  }
+
+  // Get existing headers
+  const lastCol = sheet.getLastColumn();
+  const existingHeaders = lastCol > 0 ? sheet.getRange(1, 1, 1, lastCol).getValues()[0] : [];
+
+  // Find columns that don't exist yet
+  const newColumns = columnsToAdd.filter(col => !existingHeaders.includes(col.header));
+
+  if (newColumns.length === 0) {
+    return { success: true, message: 'All columns already exist', added: [] };
+  }
+
+  // Find where to insert (before status columns: 'Negotiation Notes', 'Status', 'Agreed Rate')
+  const statusColumns = ['Negotiation Notes', 'Status', 'Agreed Rate'];
+  let insertPosition = lastCol + 1;
+
+  for (let i = 0; i < existingHeaders.length; i++) {
+    if (statusColumns.includes(existingHeaders[i])) {
+      insertPosition = i + 1; // 1-indexed
+      break;
+    }
+  }
+
+  // Insert new columns
+  const addedHeaders = [];
+  newColumns.forEach((col, index) => {
+    const colPosition = insertPosition + index;
+    sheet.insertColumnBefore(colPosition);
+    sheet.getRange(1, colPosition).setValue(col.header);
+    addedHeaders.push(col.header);
+  });
+
+  // Format new headers
+  const headerRange = sheet.getRange(1, insertPosition, 1, newColumns.length);
+  headerRange.setFontWeight('bold');
+  headerRange.setBackground('#34a853'); // Green to indicate email-type columns
+  headerRange.setFontColor('#ffffff');
+
+  // Update stored questions to include new columns
+  const questionsKey = `JOB_${jobId}_QUESTIONS`;
+  const existingQuestions = getJobQuestions(jobId);
+  const updatedQuestions = [...existingQuestions, ...newColumns];
+  PropertiesService.getScriptProperties().setProperty(questionsKey, JSON.stringify(updatedQuestions));
+
+  // Track which email types have been used for this job
+  trackEmailTypeSent(jobId, emailType);
+
+  console.log(`Added ${newColumns.length} columns for email type '${emailType}' to Job_${jobId}_Details`);
+  return { success: true, message: `Added ${newColumns.length} columns`, added: addedHeaders };
+}
+
+/**
+ * Track which email types have been sent for a job
+ * @param {string} jobId - The job ID
+ * @param {string} emailType - The email type
+ */
+function trackEmailTypeSent(jobId, emailType) {
+  const key = `JOB_${jobId}_EMAIL_TYPES`;
+  const existing = PropertiesService.getScriptProperties().getProperty(key);
+  const types = existing ? JSON.parse(existing) : [];
+
+  if (!types.includes(emailType)) {
+    types.push(emailType);
+    PropertiesService.getScriptProperties().setProperty(key, JSON.stringify(types));
+  }
+}
+
+/**
+ * Get all email types that have been sent for a job
+ * @param {string} jobId - The job ID
+ * @returns {Array} Array of email type strings
+ */
+function getEmailTypesSent(jobId) {
+  const key = `JOB_${jobId}_EMAIL_TYPES`;
+  const stored = PropertiesService.getScriptProperties().getProperty(key);
+  return stored ? JSON.parse(stored) : [];
+}
+
+/**
+ * Process email for dynamic columns
+ * Call this when sending any email to detect type and add columns
+ * @param {string} jobId - The job ID
+ * @param {string} emailSubject - The email subject
+ * @param {string} emailBody - The email body
+ * @returns {Object} Result with email type and columns added
+ */
+function processEmailForDynamicColumns(jobId, emailSubject, emailBody) {
+  try {
+    // Detect email type
+    const detection = detectEmailType(emailSubject, emailBody);
+    console.log(`Detected email type: ${detection.type} (confidence: ${detection.confidence})`);
+
+    // Add columns for this email type if needed
+    const columnsResult = addEmailTypeColumns(jobId, detection.type);
+
+    return {
+      success: true,
+      emailType: detection.type,
+      confidence: detection.confidence,
+      reason: detection.reason,
+      columnsAdded: columnsResult.added || []
+    };
+  } catch (e) {
+    console.error('Error processing email for dynamic columns:', e);
+    return { success: false, error: e.message };
+  }
+}
+
+/**
+ * Extract email-type specific answers from candidate response
+ * This supplements the regular answer extraction with email-type aware extraction
+ * @param {string} emailContent - The candidate's email response
+ * @param {string} emailType - The type of email being responded to
+ * @param {Array} questions - The questions/columns for this email type
+ * @returns {Object} Extracted answers
+ */
+function extractEmailTypeAnswers(emailContent, emailType, questions) {
+  if (!questions || questions.length === 0) {
+    return {};
+  }
+
+  const prompt = `
+You are extracting specific information from a candidate's email response.
+
+The candidate is responding to a "${emailType}" type email.
+
+CANDIDATE'S RESPONSE:
+"${emailContent}"
+
+INFORMATION TO EXTRACT:
+${questions.map(q => `- ${q.header}: ${q.question}`).join('\n')}
+
+${emailType === 'availability' ? `
+SPECIAL RULES FOR AVAILABILITY EXTRACTION:
+- Look for specific times like "6:30 AM", "2 PM", "14:00"
+- Look for dates like "January 21", "Jan 22", "21st"
+- Look for time zones like "PST", "EST", "IST", "GMT"
+- "comfortable at X" means they prefer X time
+- Extract the EXACT time/date mentioned
+` : ''}
+
+${emailType === 'negotiation' ? `
+SPECIAL RULES FOR NEGOTIATION EXTRACTION:
+- Look for rate mentions like "$50/hr", "60 per hour", "55 USD"
+- "I was expecting" or "looking for" indicates their counter offer
+- "I can accept" or "agreed" indicates acceptance
+` : ''}
+
+Return a JSON object with the extracted values:
+{
+  "header1": "extracted value or NOT_PROVIDED",
+  "header2": "extracted value or NOT_PROVIDED"
+}
+
+Return ONLY the JSON object.
+`;
+
+  try {
+    const response = callAI(prompt);
+    let cleanResponse = response.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+    return JSON.parse(cleanResponse);
+  } catch (e) {
+    console.error('Failed to extract email type answers:', e);
+    const result = {};
+    questions.forEach(q => {
+      result[q.header] = 'PARSE_ERROR';
+    });
+    return result;
+  }
+}
+
+/**
+ * Get all dynamic columns for a job (base + email-type columns)
+ * @param {string} jobId - The job ID
+ * @returns {Array} Array of all question/column definitions
+ */
+function getAllJobColumns(jobId) {
+  const baseQuestions = getJobQuestions(jobId);
+  const emailTypes = getEmailTypesSent(jobId);
+
+  let allColumns = [...baseQuestions];
+
+  emailTypes.forEach(type => {
+    const typeColumns = getColumnsForEmailType(type);
+    typeColumns.forEach(col => {
+      // Add if not already present
+      if (!allColumns.some(q => q.header === col.header)) {
+        allColumns.push(col);
+      }
+    });
+  });
+
+  return allColumns;
+}
+
+/**
+ * Get email type columns info for a job (for UI display)
+ * Returns details about which email types have been sent and their columns
+ * @param {string} jobId - The job ID
+ * @returns {Object} Email types info with columns
+ */
+function getEmailTypeColumnsInfo(jobId) {
+  const emailTypesSent = getEmailTypesSent(jobId);
+  const baseQuestions = getJobQuestions(jobId);
+
+  const typeDetails = emailTypesSent.map(type => ({
+    type: type,
+    description: EMAIL_TYPE_COLUMNS[type]?.description || 'Unknown type',
+    columns: getColumnsForEmailType(type).map(c => c.header)
+  }));
+
+  return {
+    success: true,
+    jobId: jobId,
+    baseColumnsCount: baseQuestions.length,
+    emailTypesSent: emailTypesSent,
+    typeDetails: typeDetails,
+    totalDynamicColumns: typeDetails.reduce((sum, t) => sum + t.columns.length, 0),
+    allAvailableTypes: Object.keys(EMAIL_TYPE_COLUMNS).map(type => ({
+      type: type,
+      description: EMAIL_TYPE_COLUMNS[type].description,
+      columns: EMAIL_TYPE_COLUMNS[type].columns.map(c => c.header)
+    }))
+  };
+}
+
+/**
+ * Manually add columns for a specific email type to a job
+ * Useful for adding columns before sending an email or for manual setup
+ * @param {string} jobId - The job ID
+ * @param {string} emailType - The email type to add columns for
+ * @returns {Object} Result with added columns info
+ */
+function addColumnsForEmailType(jobId, emailType) {
+  if (!EMAIL_TYPE_COLUMNS[emailType]) {
+    return {
+      success: false,
+      error: `Unknown email type: ${emailType}. Available types: ${Object.keys(EMAIL_TYPE_COLUMNS).join(', ')}`
+    };
+  }
+
+  return addEmailTypeColumns(jobId, emailType);
+}
+
 /**
  * Generate a targeted follow-up email asking for specific missing information
  * @param {string} candidateName - The candidate's name
@@ -2507,7 +2929,8 @@ function saveJobCandidateDetails(ss, jobId, candidateEmail, candidateName, devId
   }
 
   const cleanEmail = String(candidateEmail).toLowerCase().trim();
-  const questions = getJobQuestions(jobId);
+  // Use getAllJobColumns to include both base questions AND email-type specific columns
+  const questions = getAllJobColumns(jobId);
 
   // Get headers from sheet first
   const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
@@ -3351,6 +3774,18 @@ function sendBulkEmails(recipients, senderName, subject, htmlBody, jobId, opts) 
       if(sheetResult.isNew) {
         console.log(`Created new job details sheet: Job_${jobId}_Details with ${sheetResult.questions?.length || 0} question columns`);
       }
+
+      // DYNAMIC EMAIL COLUMNS: Detect email type and add relevant columns
+      // This allows tracking responses specific to the type of email sent
+      try {
+        const dynamicResult = processEmailForDynamicColumns(jobId, subject, htmlBody);
+        if (dynamicResult.success && dynamicResult.columnsAdded.length > 0) {
+          console.log(`Added dynamic columns for email type '${dynamicResult.emailType}': ${dynamicResult.columnsAdded.join(', ')}`);
+        }
+      } catch (dynamicError) {
+        console.error("Failed to process email for dynamic columns:", dynamicError);
+        // Don't fail the whole operation
+      }
     } else {
       console.warn("Jobs Sheet URL not configured. Job details sheet not created.");
     }
@@ -3835,8 +4270,8 @@ function processJobNegotiations(jobId, rules, ss, faqContent) {
     // This ensures we capture candidate data even during ongoing negotiation or escalation
     const candidateLatestMessage = lastMsg.getPlainBody();
     try {
-      // Get the questions configured for this job
-      const questions = getJobQuestions(jobId);
+      // Get ALL questions configured for this job (including email-type specific columns)
+      const questions = getAllJobColumns(jobId);
 
       // Extract answers from candidate's message based on the questions
       const answers = extractAnswersFromResponse(candidateLatestMessage, questions, candidateName);
