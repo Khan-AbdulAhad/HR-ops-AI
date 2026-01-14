@@ -1856,7 +1856,7 @@
                                 <tr>
                                     <th class="px-6 py-3">User Email</th>
                                     <th class="px-6 py-3 text-center">Emails Sent</th>
-                                    <th class="px-6 py-3 text-center">Data Fetches</th>
+                                    <th class="px-6 py-3 text-center">Data Gathering</th>
                                     <th class="px-6 py-3 text-center">Negotiations</th>
                                     <th class="px-6 py-3 text-center">Follow-Ups</th>
                                     <th class="px-6 py-3">Last Active</th>
@@ -6897,7 +6897,14 @@
                 refreshAnalyticsSearchCache();
             }
 
+            // Add loading animation to refresh button
+            const refreshBtn = document.querySelector('#analyticsTab .fa-rotate');
+            if (refreshBtn) refreshBtn.classList.add('fa-spin');
+
             google.script.run.withSuccessHandler(data => {
+                // Remove loading animation
+                if (refreshBtn) refreshBtn.classList.remove('fa-spin');
+
                 if(data.error) { console.error('Analytics error:', data.error); return; }
 
                 // Update RBAC permissions from returned data
@@ -6923,6 +6930,7 @@
 
                 const tbody = document.getElementById('userStatsTableBody');
                 tbody.innerHTML = '';
+                const pendingDataGathering = data.pendingDataGathering || 0;
                 if(data.userStats && data.userStats.length > 0) {
                     data.userStats.forEach(u => {
                         const tr = document.createElement('tr');
@@ -6930,7 +6938,7 @@
                         tr.innerHTML = `
                             <td class="px-6 py-3 font-medium">${u.email}</td>
                             <td class="px-6 py-3 text-center text-emerald-600 font-bold">${u.emailsSent || 0}</td>
-                            <td class="px-6 py-3 text-center text-blue-600">${u.dataFetches || 0}</td>
+                            <td class="px-6 py-3 text-center text-cyan-600">${pendingDataGathering}</td>
                             <td class="px-6 py-3 text-center text-purple-600">${u.negotiations || 0}</td>
                             <td class="px-6 py-3 text-center text-amber-600">${u.followUps || 0}</td>
                             <td class="px-6 py-3 text-slate-500 text-xs">${u.lastActive ? new Date(u.lastActive).toLocaleDateString() : '-'}</td>

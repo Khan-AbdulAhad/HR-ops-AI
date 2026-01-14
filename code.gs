@@ -6428,7 +6428,9 @@ function updateFollowUpLabels(threadId, newStatus) {
         thread.addLabel(unresponsiveLabel);
         break;
       case 'responded':
-        // No label needed for responded - all labels removed
+        // Add Completed label for responded candidates
+        const completedLabel = GmailApp.getUserLabelByName("Completed") || GmailApp.createLabel("Completed");
+        thread.addLabel(completedLabel);
         break;
     }
   } catch(e) {
