@@ -5283,6 +5283,53 @@ function getJobCandidateData(jobId, candidateEmail) {
 }
 
 /**
+ * Generate conversation summary from Gmail messages
+ * Converts Gmail message objects to a conversation history string and generates AI summary
+ * @param {Array} messages - Array of Gmail message objects
+ * @param {string} candidateEmail - Candidate's email
+ * @param {string} myEmail - The recruiter's email
+ * @returns {string} AI-generated conversation summary
+ */
+function generateConversationSummary(messages, candidateEmail, myEmail) {
+  if (!messages || messages.length === 0) {
+    return 'No messages in thread';
+  }
+
+  try {
+    // Build conversation history from messages
+    let conversationHistory = '';
+    messages.forEach((msg, idx) => {
+      const from = msg.getFrom();
+      const isFromCandidate = from.toLowerCase().indexOf(myEmail.toLowerCase()) === -1;
+      const sender = isFromCandidate ? 'CANDIDATE' : 'RECRUITER';
+      const body = msg.getPlainBody().substring(0, 500); // Limit each message
+      const date = msg.getDate().toLocaleString();
+
+      conversationHistory += `\n[${idx + 1}] ${sender} (${date}):\n${body}\n---\n`;
+    });
+
+    // Generate a brief summary using AI
+    const prompt = `
+Summarize this email conversation for a recruiter. Focus on:
+1. What the candidate said/provided (key info like times, rates, availability)
+2. Any pending questions or concerns
+3. Overall status
+
+CONVERSATION:
+${conversationHistory}
+
+Write a brief 2-4 sentence summary. Include specific details (exact times, dates, rates) mentioned by the candidate.
+`;
+
+    const response = callAI(prompt);
+    return response.replace(/^["']|["']$/g, '').trim();
+  } catch (e) {
+    console.error("Failed to generate conversation summary:", e);
+    return 'Summary generation failed - please review thread manually';
+  }
+}
+
+/**
  * Generate comprehensive AI summary including email, data gathering, and negotiation status
  * This is called after EVERY email exchange to keep the summary up-to-date
  * @param {string} conversationHistory - Full conversation history
@@ -5500,8 +5547,55 @@ function syncCompletedFromGmail() {
           const devId = stateData[r][6] || 'N/A';
           const name = stateData[r][7] || candidateName || 'Unknown';
           const lastStatus = stateData[r][4] || 'Completed via Gmail';
-          const aiNotes = stateData[r][8] || '';
-          
+          const threadId = stateData[r][9] || thread.getId();
+          const region = stateData[r][10] || '';
+          let aiNotes = stateData[r][8] || '';
+
+          // EXTRACT DATA FROM CANDIDATE'S RESPONSE before marking complete
+          try {
+            // Get candidate's messages from thread
+            const candidateMessages = msgs.filter(m => {
+              const from = m.getFrom().toLowerCase();
+              return from.indexOf(myEmail) === -1;
+            });
+
+            if (candidateMessages.length > 0) {
+              // Get the latest candidate message
+              const latestMessage = candidateMessages[candidateMessages.length - 1];
+              const candidateResponse = latestMessage.getPlainBody();
+
+              // Get all questions for this job (including email-type specific columns)
+              const questions = getAllJobColumns(jobId);
+
+              // Extract answers from the candidate's response
+              const extractedAnswers = extractAnswersFromResponse(candidateResponse, questions, name);
+
+              // Generate AI summary of the conversation
+              const conversationSummary = generateConversationSummary(msgs, candidateEmail, myEmail);
+              aiNotes = conversationSummary || aiNotes;
+
+              // Determine proper status based on extracted data
+              let finalStatus = 'Completed';
+              const answeredCount = Object.keys(extractedAnswers).filter(k =>
+                k !== 'is_negotiating' && k !== 'negotiation_notes' &&
+                extractedAnswers[k] && extractedAnswers[k] !== 'NOT_PROVIDED'
+              ).length;
+
+              if (answeredCount > 0 && answeredCount >= questions.length) {
+                finalStatus = 'Data Complete';
+              } else if (answeredCount > 0) {
+                finalStatus = 'Completed (Partial Data)';
+              }
+
+              // Save extracted data to job details sheet
+              saveJobCandidateDetails(ss, jobId, candidateEmail, name, devId, threadId, extractedAnswers, finalStatus, region);
+
+              console.log(`Gmail Sync: Extracted ${answeredCount} answers for ${candidateEmail}, status: ${finalStatus}`);
+            }
+          } catch(extractErr) {
+            console.error("Gmail Sync - Failed to extract candidate data:", extractErr);
+          }
+
           // Add to completed sheet
           compSheet.appendRow([
             new Date(),
@@ -5513,12 +5607,8 @@ function syncCompletedFromGmail() {
             devId
           ]);
 
-          // Update job-specific details sheet
-          try {
-            updateJobCandidateStatus(ss, jobId, candidateEmail, 'Completed (Gmail Sync)', null);
-          } catch(detailsErr) {
-            console.error("Failed to update job details sheet:", detailsErr);
-          }
+          // Note: Job details sheet status is already updated by saveJobCandidateDetails above
+          // with proper status like 'Data Complete' or 'Completed (Partial Data)'
 
           // Remove from state sheet
           stateSheet.deleteRow(r+1);
