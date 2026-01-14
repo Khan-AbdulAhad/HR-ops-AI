@@ -8059,8 +8059,11 @@ function getUserAnalytics(filterEmail, filterJobId, startDate, endDate) {
         // Track last active
         if (timestamp) {
           const ts = new Date(timestamp);
-          if (!userStats.lastActive || ts > userStats.lastActive) {
-            userStats.lastActive = ts;
+          // Validate that the date is valid before using it
+          if (!isNaN(ts.getTime())) {
+            if (!userStats.lastActive || ts > userStats.lastActive) {
+              userStats.lastActive = ts;
+            }
           }
         }
       }
@@ -8076,7 +8079,11 @@ function getUserAnalytics(filterEmail, filterJobId, startDate, endDate) {
 
     // Convert user map to sorted array
     analytics.userStats = Array.from(userMap.values())
-      .sort((a, b) => (b.lastActive || 0) - (a.lastActive || 0))
+      .sort((a, b) => {
+        const bTime = b.lastActive && !isNaN(b.lastActive.getTime()) ? b.lastActive.getTime() : 0;
+        const aTime = a.lastActive && !isNaN(a.lastActive.getTime()) ? a.lastActive.getTime() : 0;
+        return bTime - aTime;
+      })
       .map(u => ({
         email: u.email,
         emailsSent: u.emailsSent,
@@ -8084,23 +8091,27 @@ function getUserAnalytics(filterEmail, filterJobId, startDate, endDate) {
         negotiations: u.negotiations,
         followUps: u.followUps,
         totalActions: u.emailsSent + u.dataFetches + u.negotiations + u.followUps,
-        lastActive: u.lastActive ? u.lastActive.toISOString() : null
+        lastActive: u.lastActive && !isNaN(u.lastActive.getTime()) ? u.lastActive.toISOString() : null
       }));
 
     analytics.totalUsers = analytics.userStats.length;
 
-    // Get recent activity (last 50 entries)
-    const recentData = data.slice(-51).reverse();
-    for (let i = 0; i < Math.min(50, recentData.length); i++) {
+    // Get recent activity (last 50 entries, excluding header row)
+    const recentData = data.slice(1).slice(-50).reverse(); // Skip header, take last 50
+    for (let i = 0; i < recentData.length; i++) {
       if (recentData[i][0]) {
-        analytics.recentActivity.push({
-          timestamp: new Date(recentData[i][0]).toISOString(),
-          user: recentData[i][1],
-          action: recentData[i][2],
-          jobId: recentData[i][3],
-          count: recentData[i][4],
-          details: recentData[i][5]
-        });
+        const activityDate = new Date(recentData[i][0]);
+        // Only add if the date is valid
+        if (!isNaN(activityDate.getTime())) {
+          analytics.recentActivity.push({
+            timestamp: activityDate.toISOString(),
+            user: recentData[i][1],
+            action: recentData[i][2],
+            jobId: recentData[i][3],
+            count: recentData[i][4],
+            details: recentData[i][5]
+          });
+        }
       }
     }
 
