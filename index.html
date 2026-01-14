@@ -1414,7 +1414,7 @@
                 <div id="tab-tasks" class="tab-content hidden-tab">
                     
                     <!-- Stats Cards (New Design) -->
-                    <div class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+                    <div class="grid grid-cols-1 md:grid-cols-5 gap-6 mb-8">
                         <div class="stat-card border-slate-500">
                             <p class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Total Active</p>
                             <h2 class="text-3xl font-extrabold text-slate-800" id="statTotal">-</h2>
@@ -1446,6 +1446,34 @@
                                 <div class="p-2 bg-green-50 rounded-lg text-green-600"><i class="fa-solid fa-check"></i></div>
                             </div>
                         </div>
+                        <div class="stat-card border-teal-500">
+                            <div class="flex justify-between items-start">
+                                <div>
+                                    <p class="text-xs font-bold text-teal-500 uppercase tracking-wider mb-1">Completed</p>
+                                    <h2 class="text-3xl font-extrabold text-slate-800" id="statCompleted">-</h2>
+                                </div>
+                                <div class="p-2 bg-teal-50 rounded-lg text-teal-600"><i class="fa-solid fa-flag-checkered"></i></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Search Bar for Task List -->
+                    <div class="flex flex-wrap items-center gap-3 bg-white p-3 rounded-lg border border-slate-200 shadow-sm mb-4">
+                        <div class="flex-1 min-w-[300px] relative">
+                            <i class="fa-solid fa-search absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"></i>
+                            <input type="text" id="taskSearchInput"
+                                placeholder="Search by email or Dev ID (comma-separated for bulk)"
+                                class="w-full pl-10 pr-10 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
+                                onkeyup="handleTaskSearchKeyup(event)"
+                                oninput="handleTaskSearchInput()"
+                                autocomplete="off">
+                            <button id="clearTaskSearch" onclick="clearTaskSearch()" class="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 hidden">
+                                <i class="fa-solid fa-times"></i>
+                            </button>
+                        </div>
+                        <button onclick="applyTaskSearch()" class="bg-purple-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-purple-700">
+                            <i class="fa-solid fa-filter mr-1"></i> Search
+                        </button>
                     </div>
 
                     <!-- Action Bar -->
@@ -1466,6 +1494,7 @@
                                 <option value="Active">AI Active</option>
                                 <option value="Human-Negotiation">Human Required</option>
                                 <option value="Offer Accepted">Accepted</option>
+                                <option value="Completed">Completed</option>
                             </select>
                             <button id="runAiBtn" onclick="manualTriggerAI()" class="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg font-medium text-sm flex items-center gap-2 shadow-sm" title="Run AI negotiation: Process candidates, generate responses, and escalate complex cases to humans">
                                 <i class="fa-solid fa-wand-magic-sparkles"></i> Run AI
@@ -1549,6 +1578,7 @@
                                     <tr>
                                         <th class="px-6 py-4 w-10 text-center"><input type="checkbox" onchange="toggleAllTasks(this)" class="task-master-check rounded"></th>
                                         <th class="px-6 py-4">Job ID</th>
+                                        <th class="px-6 py-4">Dev ID</th>
                                         <th class="px-6 py-4">Candidate</th>
                                         <th class="px-6 py-4">Status Tag</th>
                                         <th class="px-6 py-4">AI Summary</th>
@@ -1607,6 +1637,25 @@
                         </div>
                     </div>
 
+                    <!-- Search Bar for Follow-Ups -->
+                    <div class="flex flex-wrap items-center gap-3 bg-white p-3 rounded-lg border border-slate-200 shadow-sm mb-4">
+                        <div class="flex-1 min-w-[300px] relative">
+                            <i class="fa-solid fa-search absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"></i>
+                            <input type="text" id="followUpSearchInput"
+                                placeholder="Search by email or Dev ID (comma-separated for bulk)"
+                                class="w-full pl-10 pr-10 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                onkeyup="handleFollowUpSearchKeyup(event)"
+                                oninput="handleFollowUpSearchInput()"
+                                autocomplete="off">
+                            <button id="clearFollowUpSearch" onclick="clearFollowUpSearch()" class="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 hidden">
+                                <i class="fa-solid fa-times"></i>
+                            </button>
+                        </div>
+                        <button onclick="applyFollowUpSearch()" class="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700">
+                            <i class="fa-solid fa-filter mr-1"></i> Search
+                        </button>
+                    </div>
+
                     <!-- Action Bar -->
                     <div class="flex flex-wrap justify-between items-center gap-4 mb-6">
                         <div class="flex items-center gap-4">
@@ -1640,6 +1689,7 @@
                             <thead class="bg-slate-50 border-b border-slate-100 text-xs font-bold text-slate-500 uppercase">
                                 <tr>
                                     <th class="px-6 py-4">Job ID</th>
+                                    <th class="px-6 py-4">Dev ID</th>
                                     <th class="px-6 py-4">Name</th>
                                     <th class="px-6 py-4">Email</th>
                                     <th class="px-6 py-4">Status</th>
@@ -4527,7 +4577,7 @@
 
             // Only show spinner if explicitly requested or if table is empty
             if (showSpinner || tbody.children.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="7" class="p-4 text-center"><i class="fa-solid fa-spinner fa-spin"></i></td></tr>';
+                tbody.innerHTML = '<tr><td colspan="8" class="p-4 text-center"><i class="fa-solid fa-spinner fa-spin"></i></td></tr>';
             } else {
                 // Add a subtle loading indicator without clearing the table
                 const refreshBtn = document.querySelector('#tasksTab .fa-rotate');
@@ -4550,6 +4600,7 @@
                     document.getElementById('statActive').textContent = res.stats.active;
                     document.getElementById('statHuman').textContent = res.stats.human;
                     document.getElementById('statAccepted').textContent = res.stats.accepted;
+                    document.getElementById('statCompleted').textContent = res.stats.completed || 0;
                 }
                 // Store job settings for badge rendering
                 const jobSettingsMap = res.jobSettings || {};
@@ -4588,6 +4639,7 @@
                         let badgeClass = 'bg-blue-100 text-blue-700';
                         if(t.tags.includes('Human')) badgeClass = 'bg-amber-100 text-amber-700';
                         else if(t.status === 'Offer Accepted') badgeClass = 'bg-green-100 text-green-700';
+                        else if(t.status === 'Completed' || t.type === 'Completed') badgeClass = 'bg-teal-100 text-teal-700';
 
                         // Status initials badges (N/F/D) - use job settings to show only enabled features
                         const taskJobSettings = jobSettingsMap[t.jobId] || null;
@@ -4599,6 +4651,7 @@
                         tr.innerHTML = `
                             <td class="px-6 py-4 text-center"><input type="checkbox" class="task-check rounded" onchange="toggleTaskSelection('${t.email}')" ${isChecked}></td>
                             <td class="px-6 py-4 font-mono text-xs">${t.jobId}</td>
+                            <td class="px-6 py-4 font-mono text-xs text-slate-600">${t.devId || 'N/A'}</td>
                             <td class="px-6 py-4">
                                 <div class="flex items-center gap-2">
                                     <span class="font-bold text-slate-800">${t.name}</span>
@@ -4606,7 +4659,7 @@
                                 </div>
                             </td>
                             <td class="px-6 py-4"><span class="px-2 py-1 rounded text-xs font-bold ${badgeClass}">${t.tags}</span></td>
-                            <td class="px-6 py-4 text-xs text-slate-500 max-w-sm cursor-pointer hover:text-blue-600" onclick="showNotes(\`${encodeURIComponent(t.aiNotes)}\`)">
+                            <td class="px-6 py-4 text-xs text-slate-500 max-w-sm cursor-pointer hover:text-blue-600" onclick="showNotes(\`${encodeURIComponent(t.aiNotes || '')}\`)">
                                 ${t.aiNotes && t.aiNotes.length > 0 ?
                                     '<div class="truncate" title="Click to view full summary">' + t.aiNotes.split('\\n')[0].substring(0,60) + (t.aiNotes.length > 60 ? '...' : '') + '</div>' +
                                     (t.aiNotes.includes('📝') || t.aiNotes.includes('💰') ? '<span class="text-purple-500 text-xs">📊 View full summary</span>' : '')
@@ -4628,6 +4681,78 @@
         }
 
         function filterTasks() { loadTasks(); }
+
+        // Task List Search Functions
+        let taskSearchTerms = [];
+
+        function handleTaskSearchKeyup(event) {
+            if (event.key === 'Enter') {
+                applyTaskSearch();
+            }
+        }
+
+        function handleTaskSearchInput() {
+            const input = document.getElementById('taskSearchInput');
+            const clearBtn = document.getElementById('clearTaskSearch');
+            if (input.value.trim()) {
+                clearBtn.classList.remove('hidden');
+            } else {
+                clearBtn.classList.add('hidden');
+                taskSearchTerms = [];
+                filterTaskTable();
+            }
+        }
+
+        function clearTaskSearch() {
+            document.getElementById('taskSearchInput').value = '';
+            document.getElementById('clearTaskSearch').classList.add('hidden');
+            taskSearchTerms = [];
+            filterTaskTable();
+        }
+
+        function applyTaskSearch() {
+            const input = document.getElementById('taskSearchInput').value.trim();
+            if (!input) {
+                taskSearchTerms = [];
+            } else {
+                // Split by comma for bulk search
+                taskSearchTerms = input.split(',').map(t => t.trim().toLowerCase()).filter(t => t);
+            }
+            filterTaskTable();
+        }
+
+        function filterTaskTable() {
+            const rows = document.querySelectorAll('#taskListBody .task-row');
+            let visibleCount = 0;
+
+            rows.forEach(row => {
+                if (taskSearchTerms.length === 0) {
+                    row.style.display = '';
+                    visibleCount++;
+                } else {
+                    const email = (row.dataset.email || '').toLowerCase();
+                    const devId = (row.querySelector('td:nth-child(3)')?.textContent || '').toLowerCase();
+
+                    const matches = taskSearchTerms.some(term =>
+                        email.includes(term) || devId.includes(term)
+                    );
+
+                    row.style.display = matches ? '' : 'none';
+                    if (matches) visibleCount++;
+                }
+            });
+
+            // Show/hide empty state
+            const emptyState = document.getElementById('emptyTaskState');
+            const table = document.querySelector('#taskListBody').parentElement;
+            if (visibleCount === 0 && rows.length > 0) {
+                emptyState.classList.remove('hidden');
+                emptyState.querySelector('h3').textContent = 'No matching tasks';
+                emptyState.querySelector('p').textContent = 'Try adjusting your search criteria.';
+            } else if (visibleCount > 0) {
+                emptyState.classList.add('hidden');
+            }
+        }
 
         function toggleAllTasks(master) {
             const checks = document.querySelectorAll('.task-check');
@@ -4699,7 +4824,7 @@
 
             // Only show spinner if explicitly requested or if table is empty
             if (showSpinner || tbody.children.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="6" class="p-4 text-center"><i class="fa-solid fa-spinner fa-spin"></i></td></tr>';
+                tbody.innerHTML = '<tr><td colspan="7" class="p-4 text-center"><i class="fa-solid fa-spinner fa-spin"></i></td></tr>';
             } else {
                 // Add a subtle loading indicator without clearing the table
                 const refreshBtn = document.querySelector('#followupsTab .fa-rotate');
@@ -4753,6 +4878,7 @@
 
                         tr.innerHTML = `
                             <td class="px-6 py-4 font-mono text-xs">${item.jobId}</td>
+                            <td class="px-6 py-4 font-mono text-xs text-slate-600">${item.devId || 'N/A'}</td>
                             <td class="px-6 py-4">
                                 <div class="flex items-center gap-2">
                                     <span class="font-bold">${item.name}</span>
@@ -4777,6 +4903,76 @@
         }
 
         function loadFollowUpData() { loadFollowUpStats(); }
+
+        // Follow-Up Search Functions
+        let followUpSearchTerms = [];
+
+        function handleFollowUpSearchKeyup(event) {
+            if (event.key === 'Enter') {
+                applyFollowUpSearch();
+            }
+        }
+
+        function handleFollowUpSearchInput() {
+            const input = document.getElementById('followUpSearchInput');
+            const clearBtn = document.getElementById('clearFollowUpSearch');
+            if (input.value.trim()) {
+                clearBtn.classList.remove('hidden');
+            } else {
+                clearBtn.classList.add('hidden');
+                followUpSearchTerms = [];
+                filterFollowUpTable();
+            }
+        }
+
+        function clearFollowUpSearch() {
+            document.getElementById('followUpSearchInput').value = '';
+            document.getElementById('clearFollowUpSearch').classList.add('hidden');
+            followUpSearchTerms = [];
+            filterFollowUpTable();
+        }
+
+        function applyFollowUpSearch() {
+            const input = document.getElementById('followUpSearchInput').value.trim();
+            if (!input) {
+                followUpSearchTerms = [];
+            } else {
+                // Split by comma for bulk search
+                followUpSearchTerms = input.split(',').map(t => t.trim().toLowerCase()).filter(t => t);
+            }
+            filterFollowUpTable();
+        }
+
+        function filterFollowUpTable() {
+            const rows = document.querySelectorAll('#followUpTableBody tr');
+            let visibleCount = 0;
+
+            rows.forEach(row => {
+                if (followUpSearchTerms.length === 0) {
+                    row.style.display = '';
+                    visibleCount++;
+                } else {
+                    const email = (row.querySelector('td:nth-child(4)')?.textContent || '').toLowerCase();
+                    const devId = (row.querySelector('td:nth-child(2)')?.textContent || '').toLowerCase();
+
+                    const matches = followUpSearchTerms.some(term =>
+                        email.includes(term) || devId.includes(term)
+                    );
+
+                    row.style.display = matches ? '' : 'none';
+                    if (matches) visibleCount++;
+                }
+            });
+
+            // Show/hide empty state
+            const emptyState = document.getElementById('emptyFollowUpState');
+            if (visibleCount === 0 && rows.length > 0) {
+                emptyState.classList.remove('hidden');
+                emptyState.innerHTML = '<i class="fa-solid fa-search text-4xl text-slate-200 mb-3 block"></i>No matching follow-ups found.';
+            } else if (visibleCount > 0) {
+                emptyState.classList.add('hidden');
+            }
+        }
 
         // --- Settings / Config Logic Wrapper ---
         function openConfigLogic() {
@@ -5325,12 +5521,15 @@
                     
                     if(res.status === 'Success') {
                         statusEl.textContent = 'Completed!';
-                        
+
                         if(res.log && res.log.length > 0) {
                             res.log.forEach(l => addLog(l.type, l.message));
                         }
-                        
+
                         let summary = `✓ Complete! Replied: ${res.stats.replied}, Escalated: ${res.stats.escalated}, Accepted: ${res.stats.accepted}`;
+                        if(res.stats.summariesGenerated > 0) {
+                            summary += `, Summaries: ${res.stats.summariesGenerated}`;
+                        }
                         addLog('success', summary);
                         showToast(summary, "success");
                         loadTasks();

@@ -2837,7 +2837,7 @@ function getAllTasks(filters) {
   const jobSettingsMap = {}; // Cache job settings to avoid repeated lookups
 
   // Stats counters
-  let statActive = 0, statHuman = 0, statAccepted = 0;
+  let statActive = 0, statHuman = 0, statAccepted = 0, statInitialOutreach = 0;
 
   // Apply filters if provided
   const jobFilter = filters?.jobId || 'all';
@@ -2853,7 +2853,7 @@ function getAllTasks(filters) {
 
   // 1. Get Active Negotiations (State) - with caching
   const stateData = getCachedSheetData('Negotiation_State', 30); // 30 second cache
-  if(!stateData || stateData.length === 0) return { tasks: [], jobIds: [], stats: { total: 0, active: 0, human: 0, accepted: 0 }, jobSettings: {} };
+  if(!stateData || stateData.length === 0) return { tasks: [], jobIds: [], stats: { total: 0, active: 0, human: 0, accepted: 0, initialOutreach: 0 }, jobSettings: {} };
 
   for(let i=1; i<stateData.length; i++) {
     if(!stateData[i][0]) continue;
@@ -2866,12 +2866,15 @@ function getAllTasks(filters) {
     // Collect all job IDs for filter dropdown
     jobIdSet.add(jobId);
 
-    // Count stats only if the corresponding feature is enabled for this job
+    // Count stats - count ALL candidates
     if(status === 'Human-Negotiation') {
       // Human negotiation items are always counted (needs human attention)
       statHuman++;
-    } else if(settings.negotiation) {
-      // Only count as "AI Negotiating" if negotiation is enabled for this job
+    } else if(status === 'Initial Outreach' || attempts === 0) {
+      // Count Initial Outreach candidates
+      statInitialOutreach++;
+    } else {
+      // AI Negotiating (active candidates with attempts > 0)
       statActive++;
     }
 
@@ -2936,7 +2939,47 @@ function getAllTasks(filters) {
     }
   }
 
-  // 3. Get Job IDs from Email_Logs (sent emails) - ensures all emailed jobs appear in filter
+  // 3. Get Completed Negotiations - show completed candidates in Task List
+  let statCompleted = 0;
+  const completedData = getCachedSheetData('Negotiation_Completed', 30); // 30 second cache
+  if(completedData && completedData.length > 1) {
+    for(let i=1; i<completedData.length; i++) {
+      if(!completedData[i][2]) continue; // Skip if no email
+
+      const jobId = String(completedData[i][1] || '');
+      const email = completedData[i][2];
+      const name = completedData[i][3] || 'Unknown';
+      const finalStatus = completedData[i][4] || 'Completed';
+      const notes = completedData[i][5] || '';
+      const devId = completedData[i][6] || 'N/A';
+      const timestamp = completedData[i][0];
+
+      if(jobId) jobIdSet.add(jobId);
+
+      // Count completed
+      statCompleted++;
+
+      // Apply filters for display
+      if(statusFilter !== 'all' && statusFilter !== 'Completed') continue;
+      if(jobFilter !== 'all' && jobId !== jobFilter) continue;
+
+      tasks.push({
+        email: email,
+        jobId: jobId,
+        devId: devId,
+        name: name,
+        status: 'Completed',
+        attempts: 'N/A',
+        tags: 'Completed',
+        type: 'Completed',
+        aiNotes: notes,
+        lastReply: timestamp ? new Date(timestamp).toLocaleString() : 'N/A',
+        threadId: ''
+      });
+    }
+  }
+
+  // 4. Get Job IDs from Email_Logs (sent emails) - ensures all emailed jobs appear in filter
   const emailLogsData = getCachedSheetData('Email_Logs', 30); // 30 second cache
   if(emailLogsData && emailLogsData.length > 1) {
     for(let i=1; i<emailLogsData.length; i++) {
@@ -2953,10 +2996,12 @@ function getAllTasks(filters) {
     tasks: tasks,
     jobIds: Array.from(jobIdSet).sort(),
     stats: {
-      total: statActive + statHuman + statAccepted,
+      total: statActive + statHuman + statAccepted + statInitialOutreach,
       active: statActive,
       human: statHuman,
-      accepted: statAccepted
+      accepted: statAccepted,
+      initialOutreach: statInitialOutreach,
+      completed: statCompleted
     },
     jobSettings: jobSettingsMap
   };
@@ -3591,12 +3636,25 @@ function runAutoNegotiator() {
   } catch(e) {
     log.push({type: 'warning', message: 'Human escalation processing skipped: ' + e.message});
   }
-  
+
+  // STEP 3: Generate AI summaries for candidates missing them
+  log.push({type: 'info', message: 'Generating AI summaries for candidates missing them...'});
+  try {
+    const summaryResult = generateMissingSummaries(ss);
+    stats.summariesGenerated = summaryResult.generated;
+    if(summaryResult.generated > 0) {
+      log.push({type: 'success', message: `Generated ${summaryResult.generated} AI summaries`});
+      summaryResult.log.forEach(l => log.push(l));
+    }
+  } catch(e) {
+    log.push({type: 'warning', message: 'Summary generation skipped: ' + e.message});
+  }
+
   if(configs.length <= 1) {
     return {status: "Error", message: "No job configurations found. Please configure at least one job.", stats: stats, log: log};
   }
-  
-  // STEP 3: Process negotiations for each job
+
+  // STEP 4: Process negotiations for each job
   for(let i=1; i<configs.length; i++) {
     const jobId = configs[i][0];
     if(!jobId) continue;
@@ -4925,6 +4983,240 @@ Write ONLY the summary, nothing else.
     console.error("Failed to generate comprehensive summary:", e);
     // Fallback to basic summary
     let fallback = `Status: ${currentStatus || 'Active'}. Attempts: ${attempts}.`;
+    if (dataGathering) {
+      fallback += ` Data: ${dataGathering.answered.length}/${dataGathering.answered.length + dataGathering.pending.length} collected.`;
+    }
+    return fallback;
+  }
+}
+
+/**
+ * Generate AI summaries for candidates that don't have them yet
+ * Called during Run AI to ensure all candidates have summaries
+ * Cross-references Follow_Up_Queue to include follow-up status in summary
+ */
+function generateMissingSummaries(ss) {
+  const result = { generated: 0, log: [] };
+  const MAX_TO_PROCESS = 10; // Limit to avoid timeout
+
+  try {
+    const stateSheet = ss.getSheetByName('Negotiation_State');
+    if (!stateSheet || stateSheet.getLastRow() <= 1) {
+      return result;
+    }
+
+    // Load Follow_Up_Queue data to cross-reference follow-up status
+    const followUpMap = new Map();
+    const followUpSheet = ss.getSheetByName('Follow_Up_Queue');
+    if (followUpSheet && followUpSheet.getLastRow() > 1) {
+      const followUpData = followUpSheet.getDataRange().getValues();
+      for (let i = 1; i < followUpData.length; i++) {
+        const email = String(followUpData[i][0]).toLowerCase();
+        const jobId = String(followUpData[i][1]);
+        const f1Done = followUpData[i][6] === true || followUpData[i][6] === 'TRUE';
+        const f2Done = followUpData[i][7] === true || followUpData[i][7] === 'TRUE';
+        const status = followUpData[i][8] || '';
+        const lastUpdated = followUpData[i][9];
+
+        followUpMap.set(email + '_' + jobId, {
+          f1Done: f1Done,
+          f2Done: f2Done,
+          status: status,
+          lastUpdated: lastUpdated
+        });
+      }
+    }
+
+    const data = stateSheet.getDataRange().getValues();
+
+    // Find candidates missing AI notes (column 9, index 8)
+    const candidatesToProcess = [];
+    for (let i = 1; i < data.length && candidatesToProcess.length < MAX_TO_PROCESS; i++) {
+      const email = data[i][0];
+      const jobId = data[i][1];
+      const aiNotes = data[i][8];
+      const threadId = data[i][9];
+
+      // Skip if no email or already has notes
+      if (!email || (aiNotes && aiNotes.toString().trim().length > 10)) continue;
+
+      // Get follow-up status for this candidate
+      const followUpKey = String(email).toLowerCase() + '_' + String(jobId);
+      const followUpInfo = followUpMap.get(followUpKey) || null;
+
+      candidatesToProcess.push({
+        rowIndex: i + 1,
+        email: email,
+        jobId: String(jobId),
+        attempts: Number(data[i][2]) || 0,
+        status: data[i][4] || 'Active',
+        threadId: threadId || '',
+        followUpInfo: followUpInfo
+      });
+    }
+
+    // Process each candidate
+    for (const candidate of candidatesToProcess) {
+      try {
+        // Find Gmail thread
+        let thread = null;
+        if (candidate.threadId) {
+          try {
+            thread = GmailApp.getThreadById(candidate.threadId);
+          } catch (e) {
+            // Thread ID might be invalid
+          }
+        }
+
+        // Fallback: search by email and job label
+        if (!thread) {
+          const searchQuery = `from:${candidate.email} label:Job-${candidate.jobId}`;
+          const threads = GmailApp.search(searchQuery, 0, 1);
+          if (threads.length > 0) {
+            thread = threads[0];
+          }
+        }
+
+        if (!thread) {
+          result.log.push({ type: 'info', message: `No thread found for ${candidate.email}` });
+          continue;
+        }
+
+        // Build conversation history
+        const messages = thread.getMessages();
+        let conversationHistory = '';
+        for (const msg of messages) {
+          const from = msg.getFrom();
+          const body = msg.getPlainBody().substring(0, 1000); // Limit size
+          conversationHistory += `FROM: ${from}\n${body}\n---\n`;
+        }
+
+        // Build follow-up context
+        let followUpContext = '';
+        if (candidate.followUpInfo) {
+          const fu = candidate.followUpInfo;
+          if (fu.status === 'Responded') {
+            followUpContext = 'FOLLOW-UP STATUS: Candidate has responded to follow-ups.';
+          } else if (fu.status === 'Unresponsive') {
+            followUpContext = 'FOLLOW-UP STATUS: Candidate marked as unresponsive after multiple follow-ups.';
+          } else if (fu.f2Done) {
+            followUpContext = 'FOLLOW-UP STATUS: 2nd follow-up sent, still awaiting response.';
+          } else if (fu.f1Done) {
+            followUpContext = 'FOLLOW-UP STATUS: 1st follow-up sent, awaiting response.';
+          } else {
+            followUpContext = 'FOLLOW-UP STATUS: In follow-up queue, initial outreach sent.';
+          }
+        }
+
+        // Generate summary with follow-up context
+        const summary = generateComprehensiveAISummaryWithFollowUp(
+          conversationHistory,
+          candidate.email,
+          candidate.jobId,
+          candidate.attempts,
+          candidate.status,
+          null,
+          followUpContext
+        );
+
+        // Update the sheet
+        stateSheet.getRange(candidate.rowIndex, 9).setValue(summary); // Column 9 = AI Notes
+
+        result.generated++;
+        result.log.push({ type: 'success', message: `Generated summary for ${candidate.email}` });
+
+      } catch (e) {
+        result.log.push({ type: 'warning', message: `Failed for ${candidate.email}: ${e.message}` });
+      }
+    }
+
+  } catch (e) {
+    result.log.push({ type: 'error', message: `Summary generation error: ${e.message}` });
+  }
+
+  return result;
+}
+
+/**
+ * Extended version of generateComprehensiveAISummary that includes follow-up status
+ */
+function generateComprehensiveAISummaryWithFollowUp(conversationHistory, candidateEmail, jobId, attempts, currentStatus, dataGathering, followUpContext) {
+  // Fetch data gathering info if not provided
+  if (!dataGathering) {
+    dataGathering = getJobCandidateData(jobId, candidateEmail);
+  }
+
+  // Build data gathering summary
+  let dataGatheringSummary = '';
+  if (dataGathering) {
+    const answeredList = dataGathering.answered.map(a => `✓ ${a.question}: ${a.answer}`).join('\n');
+    const pendingList = dataGathering.pending.map(p => `○ ${p}: pending`).join('\n');
+
+    if (dataGathering.answered.length > 0 || dataGathering.pending.length > 0) {
+      dataGatheringSummary = `
+DATA GATHERED (${dataGathering.answered.length}/${dataGathering.answered.length + dataGathering.pending.length} complete):
+${answeredList}
+${pendingList ? '\nSTILL NEEDED:\n' + pendingList : ''}`;
+    }
+  }
+
+  const prompt = `
+You are creating a COMPREHENSIVE summary for a recruiter so they don't need to read the emails.
+
+CONVERSATION HISTORY:
+${conversationHistory}
+
+${followUpContext ? followUpContext + '\n' : ''}
+${dataGatheringSummary ? 'CANDIDATE DATA STATUS:\n' + dataGatheringSummary : ''}
+
+CONTEXT:
+- Candidate Email: ${candidateEmail}
+- Job ID: ${jobId}
+- AI Attempts: ${attempts}
+- Current Status: ${currentStatus || 'Active'}
+
+TASK:
+Create a brief but COMPLETE summary with these sections:
+
+📧 EMAIL SUMMARY (2-3 sentences max):
+- What did the candidate say in their last message?
+- Any specific requests, concerns, or questions they raised?
+- What's the overall tone (positive, hesitant, firm)?
+
+${followUpContext ? `
+📬 FOLLOW-UP STATUS:
+- Include the current follow-up status (e.g., "Following up - no response after 1st follow-up")
+- Note if candidate is unresponsive or has responded
+` : ''}
+
+${dataGatheringSummary ? `
+📝 DATA STATUS:
+- List what info we have (with values)
+- List what's still missing
+` : ''}
+
+💰 NEGOTIATION (if applicable):
+- What rate are they asking for? (exact $ amount if mentioned)
+- What offers have we made?
+- Are they flexible or firm?
+
+Keep the TOTAL summary under 120 words. Be SPECIFIC with numbers and details.
+DO NOT use generic phrases like "discussed rate" - say the exact rate.
+Format with emojis as section headers for easy scanning.
+
+Write ONLY the summary, nothing else.
+`;
+
+  try {
+    const response = callAI(prompt);
+    return response.replace(/^["']|["']$/g, '').trim();
+  } catch (e) {
+    console.error("Failed to generate comprehensive summary:", e);
+    // Fallback to basic summary
+    let fallback = `Status: ${currentStatus || 'Active'}. Attempts: ${attempts}.`;
+    if (followUpContext) {
+      fallback += ` ${followUpContext}`;
+    }
     if (dataGathering) {
       fallback += ` Data: ${dataGathering.answered.length}/${dataGathering.answered.length + dataGathering.pending.length} collected.`;
     }
