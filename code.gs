@@ -6714,6 +6714,63 @@ function resetFollowUpStatus(emailToReset) {
 }
 
 /**
+ * Get data gathering statistics - counts pending candidates across all Job_*_Details sheets
+ * @returns {Object} { pending: number, dataComplete: number, negotiating: number, total: number }
+ */
+function getDataGatheringStats() {
+  const jobsUrl = getStoredJobsSheetUrl();
+  if (!jobsUrl) return { pending: 0, dataComplete: 0, negotiating: 0, total: 0 };
+
+  try {
+    const jobsSs = SpreadsheetApp.openByUrl(jobsUrl);
+    const sheets = jobsSs.getSheets();
+
+    let pending = 0;
+    let dataComplete = 0;
+    let negotiating = 0;
+    let total = 0;
+
+    // Iterate through all sheets that match Job_*_Details pattern
+    for (const sheet of sheets) {
+      const sheetName = sheet.getName();
+      if (!sheetName.match(/^Job_\d+_Details$/)) continue;
+
+      const lastRow = sheet.getLastRow();
+      if (lastRow <= 1) continue; // Skip if only header row
+
+      const data = sheet.getDataRange().getValues();
+      const headers = data[0];
+      const statusColIdx = headers.indexOf('Status');
+
+      if (statusColIdx === -1) continue; // Skip if no Status column
+
+      // Count candidates by status
+      for (let i = 1; i < data.length; i++) {
+        const status = String(data[i][statusColIdx] || '').trim();
+        if (!status) continue;
+
+        total++;
+
+        // Count pending data gathering (awaiting candidate data)
+        if (status === 'Pending' || status === 'Outreach Sent') {
+          pending++;
+        } else if (status === 'Data Complete') {
+          dataComplete++;
+        } else if (status === 'Negotiating' || status.includes('Negotiat')) {
+          negotiating++;
+        }
+      }
+    }
+
+    return { pending, dataComplete, negotiating, total };
+
+  } catch (e) {
+    console.error("Error getting data gathering stats:", e);
+    return { pending: 0, dataComplete: 0, negotiating: 0, total: 0 };
+  }
+}
+
+/**
  * Get follow-up queue statistics
  */
 function getFollowUpStats() {
@@ -8114,6 +8171,11 @@ function getUserAnalytics(filterEmail, filterJobId, startDate, endDate) {
         }
       }
     }
+
+    // Get pending data gathering count (candidates awaiting data)
+    const dataGatheringStats = getDataGatheringStats();
+    analytics.pendingDataGathering = dataGatheringStats.pending;
+    analytics.dataGatheringStats = dataGatheringStats;
 
     return analytics;
   } catch (e) {
