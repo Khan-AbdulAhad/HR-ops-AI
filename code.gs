@@ -5440,20 +5440,21 @@ Create a brief but COMPLETE summary with these sections:
 - Any specific requests, concerns, or questions they raised?
 - What's the overall tone (positive, hesitant, firm)?
 
-${dataGatheringSummary ? `
 📝 DATA STATUS:
-- List what info we have (with values)
-- List what's still missing
-` : ''}
+- IMPORTANT: Only mention fields that were ACTUALLY ASKED FOR in the recruiter's emails
+- List what specific info was requested vs. what the candidate provided
+- If the recruiter only asked for date/time availability, do NOT list rate, start date, or other fields as "still needed"
+- If the candidate provided the requested info (e.g., preferred date/time), mark it as received, not pending
+- Ignore system default fields that weren't explicitly asked about in this conversation
 
-💰 NEGOTIATION (if applicable):
-- What rate are they asking for? (exact $ amount if mentioned)
-- What offers have we made?
-- Are they flexible or firm?
+💰 NEGOTIATION (ONLY if rate/compensation was discussed):
+- SKIP this section entirely if no rate, salary, or compensation was mentioned in the conversation
+- If rate was discussed: What rate are they asking for? What offers were made? Are they flexible or firm?
 
 Keep the TOTAL summary under 120 words. Be SPECIFIC with numbers and details.
 DO NOT use generic phrases like "discussed rate" - say the exact rate.
 Format with emojis as section headers for easy scanning.
+If the conversation is purely about scheduling (dates/times), DO NOT include negotiation status.
 
 Write ONLY the summary, nothing else.
 `;
@@ -5671,20 +5672,21 @@ ${followUpContext ? `
 - Note if candidate is unresponsive or has responded
 ` : ''}
 
-${dataGatheringSummary ? `
 📝 DATA STATUS:
-- List what info we have (with values)
-- List what's still missing
-` : ''}
+- IMPORTANT: Only mention fields that were ACTUALLY ASKED FOR in the recruiter's emails
+- List what specific info was requested vs. what the candidate provided
+- If the recruiter only asked for date/time availability, do NOT list rate, start date, or other fields as "still needed"
+- If the candidate provided the requested info (e.g., preferred date/time), mark it as received, not pending
+- Ignore system default fields that weren't explicitly asked about in this conversation
 
-💰 NEGOTIATION (if applicable):
-- What rate are they asking for? (exact $ amount if mentioned)
-- What offers have we made?
-- Are they flexible or firm?
+💰 NEGOTIATION (ONLY if rate/compensation was discussed):
+- SKIP this section entirely if no rate, salary, or compensation was mentioned in the conversation
+- If rate was discussed: What rate are they asking for? What offers were made? Are they flexible or firm?
 
 Keep the TOTAL summary under 120 words. Be SPECIFIC with numbers and details.
 DO NOT use generic phrases like "discussed rate" - say the exact rate.
 Format with emojis as section headers for easy scanning.
+If the conversation is purely about scheduling (dates/times), DO NOT include negotiation status.
 
 Write ONLY the summary, nothing else.
 `;
