@@ -4530,9 +4530,37 @@
                 showToast("Please select at least one candidate", "warning");
                 return;
             }
-            const emails = tableData.filter(d => selectedDevs.has(d.developer_id)).map(d => d.email).join(', ');
-            navigator.clipboard.writeText(emails).then(() => {
-                showToast(`Copied ${selectedDevs.size} emails to clipboard`, "success");
+
+            const dataToExport = tableData.filter(d => selectedDevs.has(d.developer_id));
+
+            // Create tab-separated values (TSV) for proper Excel/Google Sheets paste
+            // Header row
+            let tsv = "Developer ID\tName\tEmail\tCountry\tPhone\tStatus\tType\tAgency Name\tHistory\n";
+
+            dataToExport.forEach(d => {
+                // Format phone with country code
+                const phoneDisplay = d.phone_number ?
+                    (d.phone_country_code ? `+${d.phone_country_code} ${d.phone_number}` : d.phone_number) :
+                    '';
+
+                // Type display
+                let typeDisplay = 'Direct';
+                if (d.candidate_status === 'Agency Sub-Contractor') typeDisplay = 'Sub-Contractor';
+                else if (d.candidate_status === 'Agency Contractor') typeDisplay = 'Agency';
+
+                // History display
+                let historyDisplay = 'New';
+                if (d.is_sent && !d.is_manual_sent) historyDisplay = `Sent (${d.sent_count || 1})`;
+                else if (d.is_manual_sent) historyDisplay = `M.Sent (${d.manual_sent_count || 1})`;
+
+                // Clean values to prevent tab/newline issues
+                const cleanValue = (val) => (val || '').toString().replace(/[\t\n\r]/g, ' ');
+
+                tsv += `${cleanValue(d.developer_id)}\t${cleanValue(d.full_name)}\t${cleanValue(d.email)}\t${cleanValue(d.developer_country)}\t${cleanValue(phoneDisplay)}\t${cleanValue(d.status)}\t${cleanValue(typeDisplay)}\t${cleanValue(d.agency_name)}\t${cleanValue(historyDisplay)}\n`;
+            });
+
+            navigator.clipboard.writeText(tsv).then(() => {
+                showToast(`Copied ${selectedDevs.size} candidates to clipboard - paste into Excel/Sheets`, "success");
             }).catch(err => {
                 showToast("Failed to copy to clipboard", "error");
             });
@@ -4548,17 +4576,31 @@
                 ? tableData.filter(d => selectedDevs.has(d.developer_id))
                 : tableData;
 
-            let csv = "Developer ID,Candidate Name,Email,Pipeline Status,Type,Agency Name,Outreach History\n";
+            // Helper function to escape CSV values (handle quotes and commas)
+            const escapeCSV = (val) => {
+                const str = (val || '').toString();
+                if (str.includes(',') || str.includes('"') || str.includes('\n')) {
+                    return '"' + str.replace(/"/g, '""') + '"';
+                }
+                return '"' + str + '"';
+            };
+
+            let csv = "Developer ID,Candidate Name,Email,Country,Phone,Pipeline Status,Type,Agency Name,Outreach History\n";
             dataToExport.forEach(d => {
+                // Format phone with country code
+                const phoneDisplay = d.phone_number ?
+                    (d.phone_country_code ? `+${d.phone_country_code} ${d.phone_number}` : d.phone_number) :
+                    '';
+
                 let typeDisplay = 'Direct';
                 if (d.candidate_status === 'Agency Sub-Contractor') typeDisplay = 'Sub-Contractor';
                 else if (d.candidate_status === 'Agency Contractor') typeDisplay = 'Agency';
 
                 let historyDisplay = 'New';
-                if (d.is_sent) historyDisplay = `Sent (${d.sent_count || 1})`;
+                if (d.is_sent && !d.is_manual_sent) historyDisplay = `Sent (${d.sent_count || 1})`;
                 else if (d.is_manual_sent) historyDisplay = `M.Sent (${d.manual_sent_count || 1})`;
 
-                csv += `"${d.developer_id}","${d.full_name}","${d.email}","${d.status}","${typeDisplay}","${d.agency_name || ''}","${historyDisplay}"\n`;
+                csv += `${escapeCSV(d.developer_id)},${escapeCSV(d.full_name)},${escapeCSV(d.email)},${escapeCSV(d.developer_country)},${escapeCSV(phoneDisplay)},${escapeCSV(d.status)},${escapeCSV(typeDisplay)},${escapeCSV(d.agency_name)},${escapeCSV(historyDisplay)}\n`;
             });
 
             const blob = new Blob([csv], { type: 'text/csv' });
