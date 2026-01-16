@@ -7407,11 +7407,19 @@ function sendFollowUpEmail(email, jobId, threadId, name, followUpNumber) {
     }
 
     // If no thread ID, send new email (fallback)
+    // CRITICAL: This fallback path must also verify AI-Managed label
     const messages = GmailApp.search(`to:${email}`);
     if(messages && messages.length > 0) {
       const thread = messages[0];
 
-      // SECURITY: Also validate for fallback path
+      // SECURITY: Verify thread has AI-Managed label before sending
+      const threadLabels = thread.getLabels().map(l => l.getName());
+      if (!threadLabels.includes(AI_MANAGED_LABEL)) {
+        console.warn(`BLOCKED: Fallback follow-up to ${email} - thread missing AI-Managed label`);
+        return { success: false, error: "Thread not AI-managed - email blocked for safety" };
+      }
+
+      // SECURITY: Also validate content for fallback path
       if (!isContentSafe) {
         return { success: false, error: "Email blocked due to sensitive content" };
       }
