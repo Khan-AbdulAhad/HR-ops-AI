@@ -1389,7 +1389,7 @@
                                 <label class="text-xs text-slate-500">Note</label>
                                 <input id="tierNotes" class="input-field" placeholder="Optional">
                             </div>
-                            <button onclick="addRateTier()" class="bg-blue-600 text-white p-2.5 rounded-lg hover:bg-blue-700"><i class="fa-solid fa-plus"></i></button>
+                            <button id="addRateTierBtn" onclick="addRateTier()" class="bg-blue-600 text-white p-2.5 rounded-lg hover:bg-blue-700 disabled:opacity-50"><i class="fa-solid fa-plus"></i></button>
                         </div>
                         <!-- Tier Table -->
                         <div class="bg-white rounded-lg border border-slate-200 overflow-hidden">
@@ -6200,17 +6200,43 @@
 
         function addRateTier() {
             const jobId = document.getElementById('negJobId').value;
-            const region = document.getElementById('tierRegion').value;
-            const target = document.getElementById('tierTargetRate').value;
-            const max = document.getElementById('tierMaxRate').value;
-            const notes = document.getElementById('tierNotes').value;
-            
+            const regionInput = document.getElementById('tierRegion');
+            const targetInput = document.getElementById('tierTargetRate');
+            const maxInput = document.getElementById('tierMaxRate');
+            const notesInput = document.getElementById('tierNotes');
+            const btn = document.getElementById('addRateTierBtn');
+
+            const region = regionInput.value;
+            const target = targetInput.value;
+            const max = maxInput.value;
+            const notes = notesInput.value;
+
             if(!jobId || !region || !target || !max) { showToast("Fill all fields", "warning"); return; }
-            
-            google.script.run.withSuccessHandler(() => {
-                showToast("Rate tier added", "success");
-                refreshRateTiers();
-            }).saveRateTier(jobId, region, target, max, notes);
+
+            // Show loading state
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>';
+
+            google.script.run
+                .withSuccessHandler(() => {
+                    showToast("Rate tier added", "success");
+                    // Clear the form
+                    regionInput.value = '';
+                    targetInput.value = '';
+                    maxInput.value = '';
+                    notesInput.value = '';
+                    // Reset button
+                    btn.disabled = false;
+                    btn.innerHTML = '<i class="fa-solid fa-plus"></i>';
+                    refreshRateTiers();
+                })
+                .withFailureHandler((error) => {
+                    showToast("Failed to add rate tier", "error");
+                    // Reset button
+                    btn.disabled = false;
+                    btn.innerHTML = '<i class="fa-solid fa-plus"></i>';
+                })
+                .saveRateTier(jobId, region, target, max, notes);
         }
 
         function deleteRateTier(region) {
