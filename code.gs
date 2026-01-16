@@ -39,6 +39,7 @@ const ANALYTICS_SHEET_ID = '11oCuNjsW5psdhiZk5TGHWfNwvjsARYyhjZdrKOddlqc';
 const STAGE_CONFIG = {
   'Interested': { type: 'flag', table: 'ms2_job_match_pre_shortlist', condition: 'main.is_interested = 1' },
   'Passed VetSmith': { type: 'flag', table: 'near_term_fulfillment_funnel', condition: 'main.vetsmith_passed = 1' },
+  'Passed Internal Interviews': { type: 'status', table: 'ms2_job_match', system_name: 'passed-internal-interviews' },
   'Pending Review': { type: 'status', table: 'ms2_job_match_pre_shortlist', system_name: 'pending-review' },
   'Completed Testing': { type: 'status', table: 'ms2_job_match', system_name: 'completed-testing' },
   'Developer Backout': { type: 'status', table: 'ms2_job_match', system_name: 'developer-backout' },
@@ -3616,8 +3617,9 @@ function getDevelopers(jobId, selectedStages) {
               WHEN 'Completed Testing' THEN 5
               WHEN 'Pending Onboarding' THEN 6
               WHEN 'Pending Review' THEN 7
-              WHEN 'Passed VetSmith' THEN 8
-              WHEN 'Interested' THEN 9
+              WHEN 'Passed Internal Interviews' THEN 8
+              WHEN 'Passed VetSmith' THEN 9
+              WHEN 'Interested' THEN 10
               ELSE 99 END
             SEPARATOR ','
           ),
