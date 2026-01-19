@@ -94,6 +94,31 @@
         .dark .input-field { background: #1e293b; border-color: #334155; color: white; }
         .input-field:focus { outline: none; border-color: #3b82f6; ring: 2px; box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1); }
 
+        /* JD Editor - Rich Text */
+        .jd-editor {
+            min-height: 200px;
+            max-height: 400px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            line-height: 1.5;
+        }
+        .jd-editor:empty:before {
+            content: attr(data-placeholder);
+            color: #94a3b8;
+            pointer-events: none;
+        }
+        .jd-editor ul, .jd-editor ol { margin-left: 1.5rem; margin-top: 0.5rem; margin-bottom: 0.5rem; }
+        .jd-editor ul { list-style-type: disc; }
+        .jd-editor ol { list-style-type: decimal; }
+        .jd-editor li { margin-bottom: 0.25rem; }
+        .jd-editor h1, .jd-editor h2, .jd-editor h3, .jd-editor h4 { font-weight: bold; margin-top: 0.75rem; margin-bottom: 0.5rem; }
+        .jd-editor h1 { font-size: 1.25rem; }
+        .jd-editor h2 { font-size: 1.1rem; }
+        .jd-editor h3 { font-size: 1rem; }
+        .jd-editor p { margin-bottom: 0.5rem; }
+        .jd-editor b, .jd-editor strong { font-weight: bold; }
+
         /* Chips */
         .smart-chip {
             display: inline-flex; align-items: center; padding: 0.375rem 0.75rem;
@@ -1394,7 +1419,7 @@
                                 <h3 class="font-bold text-slate-800 dark:text-slate-300 text-sm mb-2 flex items-center gap-2">
                                     <i class="fa-solid fa-file-lines text-blue-500"></i> Job Description Context
                                 </h3>
-                                <textarea id="jobDescription" class="input-field flex-1 text-xs font-mono" placeholder="Paste JD here..."></textarea>
+                                <div id="jobDescription" class="input-field flex-1 text-xs jd-editor" contenteditable="true" data-placeholder="Paste JD here..."></div>
                             </div>
                             <button id="saveConfigBtn" onclick="saveNegotiationSettings()" class="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-3 rounded-xl shadow-lg transition flex items-center justify-center gap-2">
                                 <i class="fa-solid fa-save"></i> <span>Save Configuration</span>
@@ -5508,7 +5533,7 @@
                     document.getElementById('maxRate').value = cfg.maxRate || '';
                     document.getElementById('negStyle').value = cfg.style || 'Friendly but firm';
                     document.getElementById('specialRules').value = cfg.specialRules || '';
-                    document.getElementById('jobDescription').value = cfg.jobDescription || '';
+                    document.getElementById('jobDescription').innerHTML = cfg.jobDescription || '';
                     document.getElementById('jdLink').value = cfg.jdLink || '';
 
                     // Load start dates
@@ -6221,7 +6246,7 @@
                 maxRate: document.getElementById('maxRate').value,
                 style: document.getElementById('negStyle').value,
                 specialRules: document.getElementById('specialRules').value,
-                jobDescription: document.getElementById('jobDescription').value,
+                jobDescription: document.getElementById('jobDescription').innerHTML,
                 jdLink: document.getElementById('jdLink').value.trim(),
                 startDates: getStartDates()
             };
