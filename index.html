@@ -1359,7 +1359,7 @@
                                 </h3>
                                 <textarea id="jobDescription" class="input-field flex-1 text-xs font-mono" placeholder="Paste JD here..."></textarea>
                             </div>
-                            <button onclick="saveNegotiationSettings()" class="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-3 rounded-xl shadow-lg transition flex items-center justify-center gap-2">
+                            <button id="saveConfigBtn" onclick="saveNegotiationSettings()" class="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-3 rounded-xl shadow-lg transition flex items-center justify-center gap-2">
                                 <i class="fa-solid fa-save"></i> <span>Save Configuration</span>
                             </button>
                         </div>
@@ -6119,10 +6119,27 @@
                 startDates: getStartDates()
             };
 
-            google.script.run.withSuccessHandler(() => {
-                showToast("Configuration saved!", "success");
-                refreshJobDropdown();
-            }).saveNegotiationConfig(jobId, config);
+            // Show loading state on button
+            const btn = document.getElementById('saveConfigBtn');
+            const originalContent = btn.innerHTML;
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> <span>Saving...</span>';
+
+            google.script.run
+                .withSuccessHandler(() => {
+                    showToast("Configuration saved!", "success");
+                    refreshJobDropdown();
+                    // Restore button state
+                    btn.disabled = false;
+                    btn.innerHTML = originalContent;
+                })
+                .withFailureHandler((err) => {
+                    showToast("Error saving configuration: " + (err.message || err), "error");
+                    // Restore button state
+                    btn.disabled = false;
+                    btn.innerHTML = originalContent;
+                })
+                .saveNegotiationConfig(jobId, config);
         }
 
         function loadManualData() {
