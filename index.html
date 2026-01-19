@@ -158,6 +158,43 @@
         @keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
         .toast.hiding { opacity: 0; transition: opacity 0.3s; }
 
+        /* Refresh Button Animation */
+        .refresh-btn {
+            position: relative;
+            overflow: hidden;
+            transition: all 0.2s ease;
+        }
+        .refresh-btn:active {
+            transform: scale(0.95);
+        }
+        .refresh-btn.loading {
+            pointer-events: none;
+            opacity: 0.8;
+        }
+        .refresh-btn.loading .fa-rotate {
+            animation: spin 0.8s linear infinite;
+        }
+        .refresh-btn.success {
+            background: #10b981 !important;
+            border-color: #10b981 !important;
+            color: white !important;
+        }
+        .refresh-btn.success .fa-rotate::before {
+            content: "\f00c"; /* FontAwesome check icon */
+        }
+        @keyframes spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+        @keyframes successPulse {
+            0% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); }
+            70% { box-shadow: 0 0 0 10px rgba(16, 185, 129, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+        }
+        .refresh-btn.success {
+            animation: successPulse 0.6s ease-out;
+        }
+
         /* Collapsible & Slide Panel */
         .collapsible-content { transition: max-height 0.3s ease, opacity 0.3s ease; overflow: hidden; }
         .collapsible-content.collapsed { max-height: 0 !important; opacity: 0; padding-top: 0 !important; padding-bottom: 0 !important; }
@@ -1369,7 +1406,7 @@
                     <div class="mt-8">
                         <div class="flex justify-between items-center mb-4">
                             <h3 class="font-bold text-slate-800">Regional Rate Tiers</h3>
-                            <button onclick="refreshRateTiers()" class="text-sm text-blue-600 hover:underline">Refresh</button>
+                            <button id="rateTiersRefreshBtn" onclick="refreshRateTiersWithAnimation()" class="refresh-btn text-sm text-blue-600 hover:underline"><i class="fa-solid fa-rotate mr-1 text-xs"></i>Refresh</button>
                         </div>
                         <!-- Add Tier Form -->
                         <div class="bg-white p-4 rounded-lg border border-slate-200 mb-4 flex gap-2 items-end">
@@ -1503,7 +1540,7 @@
                             <button id="processHumanBtn" onclick="processCompletedHumanEscalations()" class="bg-amber-500 hover:bg-amber-600 text-white px-4 py-2 rounded-lg font-medium text-sm flex items-center gap-2 shadow-sm" title="Import human-completed negotiations: Scans Gmail for threads with 'Completed' + 'Human-Negotiation' labels">
                                 <i class="fa-solid fa-user-check"></i> Sync Human
                             </button>
-                            <button onclick="loadTasks()" class="bg-white border border-slate-300 hover:bg-slate-50 text-slate-600 px-3 py-2 rounded-lg transition" title="Refresh task list">
+                            <button id="taskRefreshBtn" onclick="refreshTasksWithAnimation()" class="refresh-btn bg-white border border-slate-300 hover:bg-slate-50 text-slate-600 px-3 py-2 rounded-lg transition" title="Refresh task list">
                                 <i class="fa-solid fa-rotate"></i>
                             </button>
                         </div>
@@ -1680,7 +1717,7 @@
                             <button id="resetStatusBtn" onclick="resetFollowUpStatuses()" class="bg-white border border-slate-300 text-slate-600 px-4 py-2 rounded-lg text-sm font-medium hover:bg-slate-50" title="Reset all follow-up statuses and re-check Gmail for responses. Use for debugging only.">
                                 Reset Statuses
                             </button>
-                            <button onclick="loadFollowUpStats()" class="bg-white border border-slate-300 text-slate-600 px-3 py-2 rounded-lg hover:bg-slate-50" title="Refresh follow-up queue data"><i class="fa-solid fa-rotate"></i></button>
+                            <button id="followUpRefreshBtn" onclick="refreshFollowUpsWithAnimation()" class="refresh-btn bg-white border border-slate-300 text-slate-600 px-3 py-2 rounded-lg hover:bg-slate-50" title="Refresh follow-up queue data"><i class="fa-solid fa-rotate"></i></button>
                         </div>
                     </div>
 
@@ -1726,7 +1763,7 @@
                         <div class="flex justify-between items-center">
                             <h3 class="text-xl font-bold text-slate-800 dark:text-white">Usage Analytics</h3>
                             <div class="flex gap-2">
-                                <button onclick="loadAnalytics()" class="bg-white border border-slate-300 px-3 py-2 rounded-lg text-sm hover:bg-slate-50">
+                                <button id="analyticsRefreshBtn" onclick="refreshAnalyticsWithAnimation()" class="refresh-btn bg-white border border-slate-300 px-3 py-2 rounded-lg text-sm hover:bg-slate-50">
                                     <i class="fa-solid fa-rotate mr-1"></i> Refresh
                                 </button>
                                 <button id="manageViewersBtn" onclick="openViewersModal()" class="bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-indigo-700">
@@ -1975,7 +2012,7 @@
                                 <p class="text-sm text-slate-500">Review and approve learnings from successful human escalations to improve AI negotiations.</p>
                             </div>
                             <div class="flex gap-2">
-                                <button onclick="loadLearningCases()" class="bg-white border border-slate-300 px-3 py-2 rounded-lg text-sm hover:bg-slate-50">
+                                <button id="learningRefreshBtn" onclick="refreshLearningCasesWithAnimation()" class="refresh-btn bg-white border border-slate-300 px-3 py-2 rounded-lg text-sm hover:bg-slate-50">
                                     <i class="fa-solid fa-rotate mr-1"></i> Refresh
                                 </button>
                                 <button onclick="consolidateLearnings()" class="bg-green-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-green-700">
@@ -4615,7 +4652,7 @@
         }
 
         // --- Tasks Logic ---
-        function loadTasks(showSpinner = false) {
+        function loadTasks(showSpinner = false, onComplete = null) {
             const tbody = document.getElementById('taskListBody');
 
             // Only show spinner if explicitly requested or if table is empty
@@ -4720,10 +4757,32 @@
                 }
                 // Update cache
                 dataCache.tasks = { data: res, lastLoaded: Date.now() };
+                // Call completion callback if provided
+                if (onComplete) onComplete(res);
             }).getAllTasks(filters);
         }
 
         function filterTasks() { loadTasks(); }
+
+        // Refresh Tasks with animation and success message
+        function refreshTasksWithAnimation() {
+            const btn = document.getElementById('taskRefreshBtn');
+            if (!btn || btn.classList.contains('loading')) return;
+
+            btn.classList.add('loading');
+
+            loadTasks(false, (res) => {
+                btn.classList.remove('loading');
+                btn.classList.add('success');
+                const taskCount = res.tasks ? res.tasks.length : 0;
+                showToast(`Task list refreshed (${taskCount} tasks)`, 'success');
+
+                // Reset button state after animation
+                setTimeout(() => {
+                    btn.classList.remove('success');
+                }, 1500);
+            });
+        }
 
         // Task List Search Functions
         let taskSearchTerms = [];
@@ -4862,7 +4921,7 @@
         }
 
         // --- Follow Up Logic ---
-        function loadFollowUpStats(showSpinner = false) {
+        function loadFollowUpStats(showSpinner = false, onComplete = null) {
             const tbody = document.getElementById('followUpTableBody');
 
             // Only show spinner if explicitly requested or if table is empty
@@ -4942,10 +5001,32 @@
                 }
                 // Update cache
                 dataCache.followups = { data: res, lastLoaded: Date.now() };
+                // Call completion callback if provided
+                if (onComplete) onComplete(res);
             }).getFollowUpDataCombined(filters);
         }
 
         function loadFollowUpData() { loadFollowUpStats(); }
+
+        // Refresh Follow-Ups with animation and success message
+        function refreshFollowUpsWithAnimation() {
+            const btn = document.getElementById('followUpRefreshBtn');
+            if (!btn || btn.classList.contains('loading')) return;
+
+            btn.classList.add('loading');
+
+            loadFollowUpStats(false, (res) => {
+                btn.classList.remove('loading');
+                btn.classList.add('success');
+                const itemCount = res.data ? res.data.length : 0;
+                showToast(`Follow-up queue refreshed (${itemCount} items)`, 'success');
+
+                // Reset button state after animation
+                setTimeout(() => {
+                    btn.classList.remove('success');
+                }, 1500);
+            });
+        }
 
         // Follow-Up Search Functions
         let followUpSearchTerms = [];
@@ -5632,7 +5713,7 @@
         // AI LEARNING CENTER FUNCTIONS
         // ==========================================
 
-        function loadLearningCases() {
+        function loadLearningCases(onComplete = null) {
             // Load stats
             google.script.run
                 .withSuccessHandler(stats => {
@@ -5648,12 +5729,36 @@
             google.script.run
                 .withSuccessHandler(cases => {
                     renderLearningCases(cases);
+                    // Call completion callback if provided
+                    if (onComplete) onComplete(cases);
                 })
                 .withFailureHandler(err => {
                     console.error('Failed to load learning cases:', err);
                     showToast('Failed to load learning cases', 'error');
+                    // Still call callback on failure
+                    if (onComplete) onComplete([]);
                 })
                 .getPendingLearningCases();
+        }
+
+        // Refresh Learning Cases with animation and success message
+        function refreshLearningCasesWithAnimation() {
+            const btn = document.getElementById('learningRefreshBtn');
+            if (!btn || btn.classList.contains('loading')) return;
+
+            btn.classList.add('loading');
+
+            loadLearningCases((cases) => {
+                btn.classList.remove('loading');
+                btn.classList.add('success');
+                const caseCount = cases ? cases.length : 0;
+                showToast(`Learning cases refreshed (${caseCount} pending)`, 'success');
+
+                // Reset button state after animation
+                setTimeout(() => {
+                    btn.classList.remove('success');
+                }, 1500);
+            });
         }
 
         function renderLearningCases(cases) {
@@ -6188,16 +6293,20 @@
         }
 
         // Rate Tier Functions
-        function refreshRateTiers() {
+        function refreshRateTiers(onComplete = null) {
             const jobId = document.getElementById('negJobId').value;
             const tbody = document.getElementById('rateTiersBody');
-            if(!jobId) return;
-            
+            if(!jobId) {
+                if (onComplete) onComplete([]);
+                return;
+            }
+
             tbody.innerHTML = '<tr><td colspan="5" class="p-4 text-center">Loading...</td></tr>';
-            
+
             google.script.run.withSuccessHandler(tiers => {
                 if(!tiers || tiers.length === 0) {
                     tbody.innerHTML = '<tr><td colspan="5" class="p-4 text-center text-slate-400">No tiers loaded.</td></tr>';
+                    if (onComplete) onComplete([]);
                     return;
                 }
                 tbody.innerHTML = '';
@@ -6215,7 +6324,34 @@
                     `;
                     tbody.appendChild(row);
                 });
+                if (onComplete) onComplete(tiers);
             }).getRateTiersForJob(jobId);
+        }
+
+        // Refresh Rate Tiers with animation and success message
+        function refreshRateTiersWithAnimation() {
+            const btn = document.getElementById('rateTiersRefreshBtn');
+            const jobId = document.getElementById('negJobId').value;
+
+            if (!btn || btn.classList.contains('loading')) return;
+            if (!jobId) {
+                showToast('Please select a job first', 'warning');
+                return;
+            }
+
+            btn.classList.add('loading');
+
+            refreshRateTiers((tiers) => {
+                btn.classList.remove('loading');
+                btn.classList.add('success');
+                const tierCount = tiers ? tiers.length : 0;
+                showToast(`Rate tiers refreshed (${tierCount} tiers)`, 'success');
+
+                // Reset button state after animation
+                setTimeout(() => {
+                    btn.classList.remove('success');
+                }, 1500);
+            });
         }
 
         function addRateTier() {
@@ -7173,7 +7309,7 @@
             loadAnalytics();
         }
 
-        function loadAnalytics() {
+        function loadAnalytics(onComplete = null) {
             const filterEmail = currentAnalyticsFilter || '';
             const filterJobId = currentAnalyticsJobFilter || '';
             const startDate = currentAnalyticsStartDate || '';
@@ -7241,6 +7377,8 @@
                 }
                 // Update cache
                 dataCache.analytics = { data: data, lastLoaded: Date.now() };
+                // Call completion callback if provided
+                if (onComplete) onComplete(data);
             }).getUserAnalytics(filterEmail, filterJobId, startDate, endDate);
 
             google.script.run.withSuccessHandler(stats => {
@@ -7277,6 +7415,26 @@
                     </div>`;
                 }
             }).getDetailedEmailStats(filterEmail, filterJobId, startDate, endDate);
+        }
+
+        // Refresh Analytics with animation and success message
+        function refreshAnalyticsWithAnimation() {
+            const btn = document.getElementById('analyticsRefreshBtn');
+            if (!btn || btn.classList.contains('loading')) return;
+
+            btn.classList.add('loading');
+
+            loadAnalytics((data) => {
+                btn.classList.remove('loading');
+                btn.classList.add('success');
+                const userCount = data.userStats ? data.userStats.length : 0;
+                showToast(`Analytics refreshed (${userCount} users)`, 'success');
+
+                // Reset button state after animation
+                setTimeout(() => {
+                    btn.classList.remove('success');
+                }, 1500);
+            });
         }
 
         function showAnalyticsAccessDenied() {
