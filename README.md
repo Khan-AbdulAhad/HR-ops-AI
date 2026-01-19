@@ -83,7 +83,6 @@ A Google Apps Script-based recruitment automation platform for managing develope
 - **Automated Daily Reports**: Get activity summaries emailed to you
 - **Per-Job Statistics**: AI replies, human negotiations, data gathering, follow-ups per Job ID
 - **HTML Table Format**: Beautiful email reports with stats cards and tables
-- **Historical Tracking**: All reports saved to Daily_Reports sheet for reference
 
 ### User Management
 - **Role-Based Access Control**: Admin, TL, TM, TA, Manager, Other roles
@@ -205,7 +204,7 @@ const CONFIG = {
 
 ### Step 4: Set Up Triggers (Automatic)
 
-Triggers automate the follow-up emails, AI negotiation, and daily reports. **The app can now automatically create these triggers for you!**
+Triggers automate the follow-up emails and AI negotiation. **The app can now automatically create these triggers for you!**
 
 #### Automatic Setup (Recommended)
 1. Open your deployed Web App URL
@@ -215,7 +214,6 @@ Triggers automate the follow-up emails, AI negotiation, and daily reports. **The
 5. The app will automatically create:
    - **AI Negotiation Processor** - Runs every hour to process negotiations
    - **Follow-Up Processor** - Runs every hour to send follow-up emails
-   - **Daily Report** - Runs daily at 8 AM to send activity reports
    - **Weekly Learning Consolidation** - Optional weekly trigger for learning system
 
 #### Manual Setup (Alternative)
@@ -228,7 +226,6 @@ If you prefer to set up triggers manually:
 |---------|----------|------|----------|
 | AI Processor | `runHourlyAITrigger` | Time-driven (Hour) | Every hour |
 | Follow-Up Processor | `runFollowUpProcessor` | Time-driven (Hour) | Every hour |
-| Daily Report | `runDailyReportTrigger` | Time-driven (Day) | 8 AM |
 | Learning Consolidation | `runWeeklyLearningConsolidation` | Time-driven (Week) | Weekly |
 
 3. Click **Save** for each trigger
@@ -485,7 +482,6 @@ The app automatically creates these sheets:
 | `Manual_Sent_Logs` | Candidates marked as manually contacted |
 | `Data_Fetch_Logs` | API usage and data consumption tracking |
 | `Follow_Up_Queue` | Automated follow-up status tracking |
-| `Daily_Reports` | Historical daily activity reports per Job ID |
 | `Unresponsive_Devs` | Candidates marked as unresponsive |
 | `Learning_Cases` | AI learning cases from human escalations |
 | `Analytics_Viewers` | Role-based analytics access control |
