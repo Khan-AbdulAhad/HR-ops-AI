@@ -3188,8 +3188,8 @@
                         <label class="block text-xs font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider">Email Body</label>
                         <div class="text-xs text-slate-500 dark:text-slate-400 flex items-center gap-2">
                             <span>Placeholders:</span>
-                            <span class="name-placeholder cursor-pointer" onclick="insertPlaceholder('{{name}}')" title="Click to insert">{{name}}</span>
-                            <span class="name-placeholder cursor-pointer bg-blue-100 text-blue-700" onclick="insertPlaceholder('{{job_link}}')" title="Click to insert - JD link from job config">{{job_link}}</span>
+                            <span class="name-placeholder cursor-pointer" onclick="insertPlaceholder('{{name}}')" onmousedown="event.preventDefault()" title="Click to insert">{{name}}</span>
+                            <span class="name-placeholder cursor-pointer bg-blue-100 text-blue-700" onclick="insertPlaceholder('{{job_link}}')" onmousedown="event.preventDefault()" title="Click to insert - JD link from job config">{{job_link}}</span>
                         </div>
                     </div>
 
@@ -5498,9 +5498,11 @@
 
             // Use saved range if available (cursor position before clicking placeholder button)
             if (savedEditorRange) {
+                // Save the range before focus, as focus event can overwrite savedEditorRange
+                const rangeToUse = savedEditorRange.cloneRange();
                 editor.focus();
                 selection.removeAllRanges();
-                selection.addRange(savedEditorRange);
+                selection.addRange(rangeToUse);
 
                 const range = selection.getRangeAt(0);
                 range.deleteContents();
