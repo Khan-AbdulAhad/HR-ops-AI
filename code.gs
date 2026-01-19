@@ -6022,16 +6022,17 @@ function syncCompletedFromGmail() {
     const jobId = configs[i][0];
     if(!jobId) continue;
     
-    // Search for threads with both Job label AND Completed label
-    const query = `label:Job-${jobId} label:Completed`;
+    // Search for threads with Job label, AI-Managed label, AND Completed label
+    // OPTIMIZATION: Filter at Gmail level to only process app-managed emails
+    const query = `label:Job-${jobId} label:${AI_MANAGED_LABEL} label:Completed`;
     let threads = [];
-    
+
     try {
       threads = GmailApp.search(query, 0, 100);
     } catch(e) {
       continue;
     }
-    
+
     threads.forEach(thread => {
       const msgs = thread.getMessages();
       if(msgs.length === 0) return;
@@ -7282,7 +7283,8 @@ function processFollowUpQueue() {
             let actualReplyEmail = null;
 
             // Get our email and common system sender names to exclude
-            const ourSenderNames = ['recruiter', 'turing recruitment', 'turing team', EMAIL_SENDER_NAME.toLowerCase()];
+            const effectiveSender = getEffectiveSenderName().toLowerCase();
+            const ourSenderNames = ['recruiter', 'turing recruitment', 'turing team', EMAIL_SENDER_NAME.toLowerCase(), effectiveSender];
 
             // Check ALL messages to see if candidate has replied at any point
             // We need to verify the message is FROM the candidate's email, not just "not from us"

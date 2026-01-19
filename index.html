@@ -5998,7 +5998,8 @@
                 name: d.full_name,
                 email: d.email,
                 devId: d.developer_id,
-                region: d.developer_country || ''
+                // FIX: Check both developer_country (from pipeline data) and region (from manual entry)
+                region: d.developer_country || d.region || ''
             }));
             const jobId = document.getElementById('jobId').value;
 
