@@ -111,7 +111,7 @@ NEVER include any of the following in your email:
 Write ONLY the email body (no subject line). Start with "Hi ${firstName}," and end with:
 
 Best regards,
-${EMAIL_SIGNATURE}
+${getEffectiveSignature()}
 `;
 }
 
@@ -290,7 +290,7 @@ ${conversationHistory}
 5. ALWAYS end your email EXACTLY like this (copy this signature verbatim):
 
 Best regards,
-${EMAIL_SIGNATURE}
+${getEffectiveSignature()}
 
 6. **This is FREELANCE**: Never mention full-time benefits, team culture, or long-term employment
 
@@ -4148,7 +4148,12 @@ function runAutoNegotiator() {
 }
 
 function processJobNegotiations(jobId, rules, ss, faqContent) {
-  const query = `label:Job-${jobId}`;
+  // OPTIMIZATION: Filter at Gmail search level to reduce API calls and processing time
+  // Only fetch threads that are:
+  // 1. Tagged with the job label
+  // 2. Tagged with AI-Managed label (sent via app, not manual)
+  // 3. NOT already marked as Completed
+  const query = `label:Job-${jobId} label:${AI_MANAGED_LABEL} -label:Completed`;
   let threads = [];
 
   try {
@@ -4157,11 +4162,11 @@ function processJobNegotiations(jobId, rules, ss, faqContent) {
     return {replied:0, escalated:0, accepted:0, skipped:0, processed:0, log:[{type:'error', message:`Gmail search failed for Job ${jobId}: ${e.message}`}]};
   }
 
-  // Warn if no threads found - may indicate job ID mismatch
+  // Warn if no threads found - may indicate job ID mismatch or all threads are complete
   if (threads.length === 0) {
     return {
       replied:0, escalated:0, accepted:0, skipped:0, processed:0, detailsExtracted:0,
-      log:[{type:'warning', message:`No email threads found with label "Job-${jobId}". Check that the Job ID in Negotiation_Config matches the Gmail labels.`}]
+      log:[{type:'info', message:`No pending threads for Job ${jobId}. All may be completed or no AI-Managed threads exist.`}]
     };
   }
 
@@ -4244,7 +4249,8 @@ function processJobNegotiations(jobId, rules, ss, faqContent) {
     }
 
     // Also check for common sender names used by our system (includes configured sender name)
-    const ourSenderNames = ['recruiter', 'turing recruitment', 'turing team', EMAIL_SENDER_NAME.toLowerCase()];
+    const effectiveSender = getEffectiveSenderName().toLowerCase();
+    const ourSenderNames = ['recruiter', 'turing recruitment', 'turing team', EMAIL_SENDER_NAME.toLowerCase(), effectiveSender];
     const isSentByUs = ourSenderNames.some(name => lastSender.includes(name));
     if (isSentByUs) {
       jobStats.skipped++;
@@ -4329,6 +4335,13 @@ function processJobNegotiations(jobId, rules, ss, faqContent) {
     // ALWAYS extract and save candidate details BEFORE any early returns
     // This ensures we capture candidate data even during ongoing negotiation or escalation
     const candidateLatestMessage = lastMsg.getPlainBody();
+
+    // Track data gathering status - used to prevent premature completion
+    // FIX: If data gathering is enabled but incomplete, we should NOT mark thread as Completed
+    let isDataGatheringComplete = true; // Default to true (no data gathering questions)
+    let hasDataGatheringEnabled = false;
+    let pendingDataQuestions = [];
+
     try {
       // Get ALL questions configured for this job (including email-type specific columns)
       const questions = getAllJobColumns(jobId);
@@ -4352,7 +4365,14 @@ function processJobNegotiations(jobId, rules, ss, faqContent) {
         jobStats.detailsExtracted++;
         jobStats.log.push({type: 'info', message: `${candidateEmail} - Details extracted: ${answers.is_negotiating ? 'Negotiating' : 'Provided'} (${saveResult.answeredCount}/${saveResult.totalQuestions} answered)`});
 
+        // FIX: Track data gathering status for later use in completion logic
+        hasDataGatheringEnabled = saveResult.totalQuestions > 0;
+        isDataGatheringComplete = saveResult.dataComplete || saveResult.totalQuestions === 0;
+        pendingDataQuestions = saveResult.pendingQuestions || [];
+
         // Check if we need to send a missing info follow-up (Data Gathering mode)
+        // IMPORTANT: If data gathering is pending, we should NOT send a separate negotiation email
+        // This prevents duplicate emails (one for data gathering, one for negotiation)
         if (saveResult.pendingQuestions && saveResult.pendingQuestions.length > 0 && !saveResult.dataComplete) {
           // Only send if data gathering is enabled and we haven't sent one recently
           if (shouldSendMissingInfoFollowUp(jobId, candidateEmail)) {
@@ -4366,14 +4386,20 @@ function processJobNegotiations(jobId, rules, ss, faqContent) {
               );
 
               if (missingInfoEmail) {
-                // Send the follow-up email in the same thread
-                thread.replyAll(missingInfoEmail);
+                // Send the follow-up email in the same thread using proper sender name
+                // FIX: Use sendReplyWithSenderName instead of thread.replyAll to respect sender settings
+                sendReplyWithSenderName(thread, missingInfoEmail, getEffectiveSenderName());
                 recordMissingInfoFollowUp(jobId, candidateEmail);
                 jobStats.missingInfoFollowUps++;
                 jobStats.log.push({type: 'info', message: `${candidateEmail} - Sent missing info follow-up for ${saveResult.pendingQuestions.length} missing items`});
 
                 // Update follow-up labels
                 updateFollowUpLabels(thread.getId(), 'responded');
+
+                // FIX: Return early to prevent sending a separate negotiation email
+                // Data gathering and negotiation should NOT be sent as separate emails
+                // Once all data is gathered, the next candidate response will trigger negotiation
+                return;
               }
             } catch (missingInfoError) {
               console.error("Failed to send missing info follow-up:", missingInfoError);
@@ -4557,6 +4583,83 @@ Return ONLY the JSON object, no other text.
       const rate = rateAnalysis.proposed_rate || targetRate;
       jobStats.log.push({type: 'success', message: `${candidateEmail} - AI recommends AUTO-ACCEPT at $${rate}/hr (target: $${targetRate}/hr)`});
 
+      // FIX: Check if data gathering is enabled but incomplete
+      // If so, record the rate but DON'T mark as Completed - send combined email instead
+      if (hasDataGatheringEnabled && !isDataGatheringComplete && pendingDataQuestions.length > 0) {
+        jobStats.log.push({type: 'info', message: `${candidateEmail} - Rate agreed but data gathering incomplete (${pendingDataQuestions.length} items pending). Will NOT mark as Completed.`});
+
+        // Update status to indicate rate is agreed but data is pending
+        try {
+          updateJobCandidateStatus(ss, jobId, candidateEmail, 'Rate Agreed - Data Pending', `$${rate}/hr`);
+        } catch(detailsErr) {
+          console.error("Failed to update job details sheet:", detailsErr);
+        }
+
+        // Send a combined email that acknowledges rate AND asks for remaining data
+        const combinedPrompt = `
+You are a professional recruiter at Turing. Write an email to ${candidateName.split(' ')[0]} that accomplishes TWO things:
+
+1. ACKNOWLEDGE their rate: Confirm you've noted their rate of $${rate}/hr
+2. REQUEST missing information: Politely ask for the following details we still need:
+${pendingDataQuestions.map((q, i) => `   ${i+1}. ${q.question}`).join('\n')}
+
+CANDIDATE NAME: ${candidateName.split(' ')[0]}
+
+JOB CONTEXT:
+${rules.jobDescription || 'Freelance opportunity at Turing'}
+
+EMAIL FORMAT:
+Hi ${candidateName.split(' ')[0]},
+
+Thank you for confirming the rate! I've noted your alignment at $${rate}/hr.
+
+To proceed with sharing your details with the team, could you please provide:
+[List the missing information naturally]
+
+Once we have these details, our team will review everything and follow up with next steps.
+
+Best regards,
+
+IMPORTANT:
+- Do NOT say "welcome to the team" or imply they are selected
+- Do NOT mention any internal processes
+- Keep it brief and professional
+- End with just "Best regards," - no name after it
+
+Write ONLY the email, nothing else.
+`;
+
+        try {
+          const combinedEmail = callAI(combinedPrompt);
+
+          // SECURITY: Validate email content before sending
+          if (!validateEmailForSending(combinedEmail, { jobId: jobId })) {
+            console.error(`BLOCKED: Combined rate+data email to ${candidateEmail} contained sensitive data.`);
+            return;
+          }
+
+          sendReplyWithSenderName(thread, combinedEmail, getEffectiveSenderName());
+          recordMissingInfoFollowUp(jobId, candidateEmail);
+
+          // Update follow-up labels
+          updateFollowUpLabels(thread.getId(), 'responded');
+
+          // Update state to reflect rate agreed but NOT completed
+          if(stateRowIndex > -1) {
+            stateSheet.getRange(stateRowIndex, 3).setValue(attempts + 1); // Increment attempts
+            stateSheet.getRange(stateRowIndex, 4).setValue(`Rate Agreed $${rate}/hr - Data Pending`);
+            stateSheet.getRange(stateRowIndex, 5).setValue("Active - Data Pending");
+            stateSheet.getRange(stateRowIndex, 6).setValue(new Date());
+          }
+
+          jobStats.log.push({type: 'info', message: `${candidateEmail} - Sent combined rate acknowledgment + data request email. NOT marked as Completed.`});
+          return; // Don't mark as completed yet
+        } catch(emailErr) {
+          console.error("Failed to send combined email:", emailErr);
+        }
+      }
+
+      // Data gathering is complete OR not enabled - proceed with full acceptance
       // Update job-specific details sheet with accepted status and rate
       try {
         updateJobCandidateStatus(ss, jobId, candidateEmail, 'Offer Accepted', `$${rate}/hr`);
@@ -4601,7 +4704,7 @@ Please acknowledge that the project your profile is being considered for is [ext
 Please be aware that your profile is currently under client review. If approved and selected, we will reach out to confirm the onboarding date and provide further details along with contract specifics.
 
 Best regards,
-${EMAIL_SIGNATURE}
+${getEffectiveSignature()}
 
 Write ONLY the email, nothing else.
 `;
@@ -4613,7 +4716,7 @@ Write ONLY the email, nothing else.
         return;
       }
 
-      sendReplyWithSenderName(thread, acceptEmail, EMAIL_SENDER_NAME);
+      sendReplyWithSenderName(thread, acceptEmail, getEffectiveSenderName());
       markCompleted(thread);
 
       // Remove Awaiting-Response label since offer is accepted and completed
@@ -4694,6 +4797,66 @@ Write ONLY the email, nothing else.
       jobStats.log.push({type: 'success', message: `${candidateEmail} - Candidate asking $${candidateProposedRate}/hr which is LESS than our offer of $${currentOfferRate}/hr - accepting their lower rate!`});
 
       const rate = candidateProposedRate;
+
+      // FIX: Check if data gathering is enabled but incomplete before completing
+      if (hasDataGatheringEnabled && !isDataGatheringComplete && pendingDataQuestions.length > 0) {
+        jobStats.log.push({type: 'info', message: `${candidateEmail} - Rate agreed at $${rate}/hr but data gathering incomplete. Will NOT mark as Completed.`});
+
+        // Update status to indicate rate is agreed but data is pending
+        try {
+          updateJobCandidateStatus(ss, jobId, candidateEmail, 'Rate Agreed - Data Pending', `$${rate}/hr`);
+        } catch(detailsErr) {
+          console.error("Failed to update job details sheet:", detailsErr);
+        }
+
+        // Send combined email acknowledging rate and asking for remaining data
+        const combinedPrompt = `
+You are a professional recruiter at Turing. Write an email to ${candidateName.split(' ')[0]} that accomplishes TWO things:
+
+1. ACKNOWLEDGE their rate: Confirm you've noted their rate of $${rate}/hr
+2. REQUEST missing information: Politely ask for the following details we still need:
+${pendingDataQuestions.map((q, i) => `   ${i+1}. ${q.question}`).join('\n')}
+
+CANDIDATE NAME: ${candidateName.split(' ')[0]}
+
+JOB CONTEXT:
+${rules.jobDescription || 'Freelance opportunity at Turing'}
+
+IMPORTANT:
+- Do NOT say "welcome to the team" or imply they are selected
+- Keep it brief and professional
+- End with just "Best regards," - no name after it
+
+Write ONLY the email, nothing else.
+`;
+
+        try {
+          const combinedEmail = callAI(combinedPrompt);
+
+          if (!validateEmailForSending(combinedEmail, { jobId: jobId })) {
+            console.error(`BLOCKED: Combined rate+data email to ${candidateEmail} contained sensitive data.`);
+            return;
+          }
+
+          sendReplyWithSenderName(thread, combinedEmail, getEffectiveSenderName());
+          recordMissingInfoFollowUp(jobId, candidateEmail);
+          updateFollowUpLabels(thread.getId(), 'responded');
+
+          if(stateRowIndex > -1) {
+            stateSheet.getRange(stateRowIndex, 3).setValue(attempts + 1);
+            stateSheet.getRange(stateRowIndex, 4).setValue(`Rate Agreed $${rate}/hr - Data Pending`);
+            stateSheet.getRange(stateRowIndex, 5).setValue("Active - Data Pending");
+            stateSheet.getRange(stateRowIndex, 6).setValue(new Date());
+          }
+
+          jobStats.log.push({type: 'info', message: `${candidateEmail} - Sent combined rate acknowledgment + data request. NOT marked as Completed.`});
+          return;
+        } catch(emailErr) {
+          console.error("Failed to send combined email:", emailErr);
+        }
+      }
+
+      // Data gathering is complete OR not enabled - proceed with full acceptance
       taskSheet.appendRow([new Date(), jobId, candidateName, candidateEmail, rate, "Pending Archive", devId, thread.getId()]);
 
       try {
@@ -4730,7 +4893,7 @@ Please acknowledge that the project your profile is being considered for is [ext
 Please be aware that your profile is currently under client review. If approved and selected, we will reach out to confirm the onboarding date and provide further details along with contract specifics.
 
 Best regards,
-${EMAIL_SIGNATURE}
+${getEffectiveSignature()}
 
 Write ONLY the email, nothing else.
 `;
@@ -4743,7 +4906,7 @@ Write ONLY the email, nothing else.
         return;
       }
 
-      sendReplyWithSenderName(thread, acceptEmail, EMAIL_SENDER_NAME);
+      sendReplyWithSenderName(thread, acceptEmail, getEffectiveSenderName());
       markCompleted(thread);
 
       // Remove Awaiting-Response label since offer is accepted and completed
@@ -4887,7 +5050,7 @@ ${conversationHistory}
 5. ALWAYS end your email EXACTLY like this (copy this signature verbatim):
 
 Best regards,
-${EMAIL_SIGNATURE}
+${getEffectiveSignature()}
 
 6. **This is FREELANCE**: Never mention full-time benefits, team culture, or long-term employment
 
@@ -4999,7 +5162,7 @@ Hi [First Name],
 [Call to action - ask if they can proceed]
 
 Best regards,
-${EMAIL_SIGNATURE}
+${getEffectiveSignature()}
 
 Write ONLY the email, nothing else.
 `;
@@ -5013,7 +5176,7 @@ Write ONLY the email, nothing else.
           return;
         }
 
-        sendReplyWithSenderName(thread, retryResponse, EMAIL_SENDER_NAME);
+        sendReplyWithSenderName(thread, retryResponse, getEffectiveSenderName());
         
         const newAttemptCount = attempts + 1;
 
@@ -5080,6 +5243,65 @@ Write ONLY the email, nothing else.
       const rateMatch = aiResponse.match(/\[([^\]]+)\]/);
       const rate = rateMatch ? rateMatch[1].replace('$','').replace('/hr','').trim() : rules.target;
 
+      // FIX: Check if data gathering is enabled but incomplete before completing
+      if (hasDataGatheringEnabled && !isDataGatheringComplete && pendingDataQuestions.length > 0) {
+        jobStats.log.push({type: 'info', message: `${candidateEmail} - Rate agreed at $${rate}/hr (ACTION: ACCEPT) but data gathering incomplete. Will NOT mark as Completed.`});
+
+        // Update status to indicate rate is agreed but data is pending
+        try {
+          updateJobCandidateStatus(ss, jobId, candidateEmail, 'Rate Agreed - Data Pending', `$${rate}/hr`);
+        } catch(detailsErr) {
+          console.error("Failed to update job details sheet:", detailsErr);
+        }
+
+        // Send combined email acknowledging rate and asking for remaining data
+        const combinedPrompt = `
+You are a professional recruiter at Turing. Write an email to ${candidateName.split(' ')[0]} that accomplishes TWO things:
+
+1. ACKNOWLEDGE their rate: Confirm you've noted their rate of $${rate}/hr
+2. REQUEST missing information: Politely ask for the following details we still need:
+${pendingDataQuestions.map((q, i) => `   ${i+1}. ${q.question}`).join('\n')}
+
+CANDIDATE NAME: ${candidateName.split(' ')[0]}
+
+JOB CONTEXT:
+${rules.jobDescription || 'Freelance opportunity at Turing'}
+
+IMPORTANT:
+- Do NOT say "welcome to the team" or imply they are selected
+- Keep it brief and professional
+- End with just "Best regards," - no name after it
+
+Write ONLY the email, nothing else.
+`;
+
+        try {
+          const combinedEmail = callAI(combinedPrompt);
+
+          if (!validateEmailForSending(combinedEmail, { jobId: jobId })) {
+            console.error(`BLOCKED: Combined rate+data email to ${candidateEmail} contained sensitive data.`);
+            return;
+          }
+
+          sendReplyWithSenderName(thread, combinedEmail, getEffectiveSenderName());
+          recordMissingInfoFollowUp(jobId, candidateEmail);
+          updateFollowUpLabels(thread.getId(), 'responded');
+
+          if(stateRowIndex > -1) {
+            stateSheet.getRange(stateRowIndex, 3).setValue(attempts + 1);
+            stateSheet.getRange(stateRowIndex, 4).setValue(`Rate Agreed $${rate}/hr - Data Pending`);
+            stateSheet.getRange(stateRowIndex, 5).setValue("Active - Data Pending");
+            stateSheet.getRange(stateRowIndex, 6).setValue(new Date());
+          }
+
+          jobStats.log.push({type: 'info', message: `${candidateEmail} - Sent combined rate acknowledgment + data request. NOT marked as Completed.`});
+          return;
+        } catch(emailErr) {
+          console.error("Failed to send combined email:", emailErr);
+        }
+      }
+
+      // Data gathering is complete OR not enabled - proceed with full acceptance
       // Update job-specific details sheet with accepted status and rate
       try {
         updateJobCandidateStatus(ss, jobId, candidateEmail, 'Offer Accepted', `$${rate}/hr`);
@@ -5124,7 +5346,7 @@ Please acknowledge that the project your profile is being considered for is [ext
 Please be aware that your profile is currently under client review. If approved and selected, we will reach out to confirm the onboarding date and provide further details along with contract specifics.
 
 Best regards,
-${EMAIL_SIGNATURE}
+${getEffectiveSignature()}
 
 Write ONLY the email, nothing else.
 `;
@@ -5137,7 +5359,7 @@ Write ONLY the email, nothing else.
         return;
       }
 
-      sendReplyWithSenderName(thread, acceptEmail, EMAIL_SENDER_NAME);
+      sendReplyWithSenderName(thread, acceptEmail, getEffectiveSenderName());
       markCompleted(thread);
 
       // Remove Awaiting-Response label since offer is accepted and completed
@@ -5179,7 +5401,7 @@ Write ONLY the email, nothing else.
         return;
       }
 
-      sendReplyWithSenderName(thread, aiResponse, EMAIL_SENDER_NAME);
+      sendReplyWithSenderName(thread, aiResponse, getEffectiveSenderName());
 
       const newAttemptCount = attempts + 1;
 
@@ -5254,7 +5476,7 @@ Thank you for sharing your rate expectation. I have shared your message with a m
 We appreciate your patience and interest in this opportunity.
 
 Best regards,
-${EMAIL_SIGNATURE}
+${getEffectiveSignature()}
 
 Write ONLY the email, nothing else. Keep it concise (3-4 sentences).
 `;
@@ -5265,19 +5487,19 @@ Write ONLY the email, nothing else. Keep it concise (3-4 sentences).
     if (!validateEmailForSending(handoffMessage, {})) {
       console.error(`BLOCKED: Handoff message contained sensitive data.`);
       // Use safe fallback instead
-      const safeHandoff = `Hi ${firstName},\n\nThank you for sharing your rate expectation. I have shared your message with a member of our Talent Operations team, and they will get back to you shortly with an update on the rates.\n\nWe appreciate your patience and interest in this opportunity.\n\nBest regards,\n${EMAIL_SIGNATURE}`;
-      sendReplyWithSenderName(thread, safeHandoff, EMAIL_SENDER_NAME);
+      const safeHandoff = `Hi ${firstName},\n\nThank you for sharing your rate expectation. I have shared your message with a member of our Talent Operations team, and they will get back to you shortly with an update on the rates.\n\nWe appreciate your patience and interest in this opportunity.\n\nBest regards,\n${getEffectiveSignature()}`;
+      sendReplyWithSenderName(thread, safeHandoff, getEffectiveSenderName());
       return;
     }
 
-    sendReplyWithSenderName(thread, handoffMessage, EMAIL_SENDER_NAME);
+    sendReplyWithSenderName(thread, handoffMessage, getEffectiveSenderName());
 
   } catch(e) {
     console.error("Failed to escalate to human:", e);
     // Fallback to simple reply if AI fails
     try {
-      const fallbackMsg = `Hi ${candidateName ? candidateName.split(' ')[0] : 'there'},\n\nThank you for sharing your rate expectation. I have shared your message with a member of our Talent Operations team, and they will get back to you shortly with an update on the rates.\n\nWe appreciate your patience and interest in this opportunity.\n\nBest regards,\n${EMAIL_SIGNATURE}`;
-      sendReplyWithSenderName(thread, fallbackMsg, EMAIL_SENDER_NAME);
+      const fallbackMsg = `Hi ${candidateName ? candidateName.split(' ')[0] : 'there'},\n\nThank you for sharing your rate expectation. I have shared your message with a member of our Talent Operations team, and they will get back to you shortly with an update on the rates.\n\nWe appreciate your patience and interest in this opportunity.\n\nBest regards,\n${getEffectiveSignature()}`;
+      sendReplyWithSenderName(thread, fallbackMsg, getEffectiveSenderName());
     } catch(e2) {}
   }
 }
@@ -7373,8 +7595,8 @@ function sendFollowUpEmail(email, jobId, threadId, name, followUpNumber) {
           return { success: false, error: `Thread missing ${AI_MANAGED_LABEL} label - not sent via app` };
         }
 
-        // Use the custom sender reply function
-        sendReplyWithSenderName(thread, emailBody, EMAIL_SENDER_NAME);
+        // Use the custom sender reply function with effective sender name
+        sendReplyWithSenderName(thread, emailBody, getEffectiveSenderName());
 
         // Log the follow-up with region data from state
         const url = getStoredSheetUrl();
@@ -7424,7 +7646,8 @@ function sendFollowUpEmail(email, jobId, threadId, name, followUpNumber) {
         return { success: false, error: "Email blocked due to sensitive content" };
       }
 
-      thread.reply(emailBody);
+      // FIX: Use sendReplyWithSenderName for consistent sender settings
+      sendReplyWithSenderName(thread, emailBody, getEffectiveSenderName());
       return { success: true };
     }
 
