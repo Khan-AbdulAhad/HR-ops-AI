@@ -4542,6 +4542,9 @@ function processJobNegotiations(jobId, rules, ss, faqContent) {
       }
     }
 
+    // Log the final rate configuration being used for this candidate
+    jobStats.log.push({type: 'info', message: `${candidateEmail} - Rate config: target=$${targetRate}, max=$${maxRate}, region=${candidateRegion || 'none'}, regionRatesFound=${regionRatesFound}, regionLimit=${regionMaxRateLimit || 'none'}`});
+
     // Progressive offer strategy:
     // Attempt 1 (attempts=0): 80% of target rate
     // Attempt 2 (attempts=1): 100% of target rate
@@ -4558,9 +4561,11 @@ CANDIDATE'S MESSAGE:
 "${candidateLatestMessage}"
 
 OUR RATE PARAMETERS:
-- Target Rate: $${targetRate}/hr (maximum we want to pay)
+- Target Rate: $${targetRate}/hr (ideal rate we want to pay)
+- Max Rate: $${maxRate}/hr (absolute maximum we can pay)
 - First Offer Rate: $${firstOfferRate}/hr (80% of target - for first attempt)
 - Current Attempt: ${attempts + 1}
+${candidateRegion ? `- Candidate Region: ${candidateRegion}` : ''}
 
 TASK:
 Analyze the candidate's message and determine:
@@ -4568,42 +4573,49 @@ Analyze the candidate's message and determine:
 2. Are they accepting a previous offer we made?
 3. What action should we take?
 
+CRITICAL - PROPOSAL vs ACCEPTANCE DISTINCTION:
+- If candidate STATES their expected/desired rate (e.g., "my expected rate is $X", "I expect $X", "my rate is $X"), this is a PROPOSAL, NOT acceptance
+- "I am ready to start" or "ready to begin" WITHOUT agreeing to OUR rate is NOT acceptance - it's just expressing availability
+- Acceptance REQUIRES the candidate to AGREE TO A RATE WE OFFERED, not just state their own rate
+- If this is the first message in negotiation and candidate states "$X/hr", they are PROPOSING, not accepting
+
 IMPORTANT INTERPRETATION RULES:
 - "Can I get $X?" = They are asking for $X (treat as a rate proposal of $X)
 - "I would like $X" = They are proposing $X
-- "I expect $X" = They are proposing $X
+- "I expect $X" = They are proposing $X (NOT accepting!)
+- "My expected rate is $X" = They are proposing $X (NOT accepting!)
 - "I want $X" = They are proposing $X
 - "How about $X?" = They are counter-proposing $X
 - ANY mention of a specific dollar amount by the candidate = Their proposed/expected rate
-- Questions about rate ("can I get...?", "is $X possible?") should be treated as rate proposals
+- "I am ready to start" WITHOUT agreeing to our rate = Just expressing availability, NOT acceptance
 
 ACCEPTANCE DETECTION RULES - CRITICAL:
-- "sure", "ok", "okay", "yes", "I agree", "works for me", "that works", "sounds good" = ACCEPTING our offer
-- "$X works for me" or "sure $X" = ACCEPTING at rate $X (set is_accepting_offer: true)
-- "I accept $X" or "I can do $X" = ACCEPTING at rate $X
-- "fine with me", "I'm good with that", "let's proceed", "let's do it" = ACCEPTING our offer
-- ANY positive affirmation about a rate we proposed = is_accepting_offer: true
-- When candidate says "sure $X works" where $X matches or is close to what we offered = AUTO_ACCEPT
+- Acceptance ONLY applies when candidate agrees to a rate WE proposed
+- "sure", "ok", "okay", "yes", "I agree", "works for me", "that works", "sounds good" IN RESPONSE TO OUR OFFER = ACCEPTING
+- "$X works for me" where $X was OUR offer = ACCEPTING at rate $X
+- "I accept $X" or "I can do $X" where $X is what WE offered = ACCEPTING at rate $X
+- If candidate states THEIR OWN rate and says "ready to start", they are proposing, NOT accepting
 
 DECISION RULES (in priority order):
-1. If candidate explicitly ACCEPTS our offer (using acceptance phrases like "sure", "works for me", "I agree", "okay", "yes") → ACTION: AUTO_ACCEPT, is_accepting_offer: true
-2. If candidate mentions/agrees to a rate AT OR BELOW $${targetRate}/hr → ACTION: AUTO_ACCEPT (accept their rate!)
-3. If candidate mentions/asks for a rate ABOVE $${targetRate}/hr → ACTION: COUNTER (we will counter with target rate)
-4. If candidate is very firm on a rate ABOVE $${targetRate}/hr after multiple attempts → ACTION: ESCALATE
-5. If no clear rate mentioned but message is positive → ACTION: COUNTER
-- PRIORITY: Acceptance detection takes precedence! If they say "sure $X works" - that's an acceptance, NOT a counter!
+1. If candidate explicitly ACCEPTS a rate WE previously offered → ACTION: AUTO_ACCEPT, is_accepting_offer: true
+2. If candidate PROPOSES a rate AT OR BELOW $${targetRate}/hr → ACTION: AUTO_ACCEPT (accept their proposal!)
+3. If candidate PROPOSES a rate BETWEEN $${targetRate} and $${maxRate}/hr → ACTION: COUNTER (try to negotiate down)
+4. If candidate PROPOSES a rate ABOVE $${maxRate}/hr → ACTION: ESCALATE (exceeds our max budget)
+5. If candidate is very firm on a rate ABOVE $${maxRate}/hr → ACTION: ESCALATE
+6. If no clear rate mentioned but message is positive → ACTION: COUNTER
 
-CRITICAL:
-- If they ask "can I get $41?" and our target is $50, that means $41 <= $50, so AUTO_ACCEPT at $41
-- If they ask "can I get $41?" and our target is $40, that means $41 > $40, so COUNTER
+CRITICAL RULES:
+- If proposed rate > $${maxRate}, ALWAYS escalate - NEVER auto-accept
+- If they state "my expected rate is $56/hr" and our max is $20, that's a PROPOSAL of $56 which exceeds max → ESCALATE
+- "I am ready" + stating their own rate = PROPOSAL, not acceptance
 - Always extract the EXACT rate number they mentioned
 
 RESPONSE FORMAT (JSON only):
 {
   "proposed_rate": <number - the rate they mentioned/asked for, or null if none>,
-  "is_accepting_offer": <true/false>,
+  "is_accepting_offer": <true/false - ONLY true if they accepted OUR offer>,
   "action": "<AUTO_ACCEPT|COUNTER|ESCALATE>",
-  "reason": "<brief explanation including the comparison: their rate vs our target>",
+  "reason": "<brief explanation including: their rate ($X) vs our target ($${targetRate}) and max ($${maxRate})>",
   "candidate_flexibility": "<flexible|firm|unclear>"
 }
 
@@ -4667,6 +4679,49 @@ Return ONLY the JSON object, no other text.
 
         jobStats.escalated++;
         jobStats.log.push({type: 'warning', message: `${candidateEmail} - Escalated due to regional rate safety check`});
+        return;
+      }
+
+      // SECOND SAFETY CHECK: Ensure rate doesn't exceed configured maxRate (regardless of region)
+      // This catches cases where AI incorrectly recommends AUTO_ACCEPT for rates above our budget
+      if (rate > maxRate) {
+        jobStats.log.push({type: 'warning', message: `${candidateEmail} - SAFETY BLOCK: Rate $${rate}/hr exceeds configured max rate of $${maxRate}/hr. Escalating instead of auto-accepting.`});
+
+        const escalationReason = `Rate $${rate}/hr exceeds job's max rate of $${maxRate}/hr. AI incorrectly recommended auto-accept.`;
+
+        try {
+          updateJobCandidateStatus(ss, jobId, candidateEmail, 'Escalated - Rate Exceeds Max', `$${rate}/hr (max: $${maxRate})`);
+        } catch(detailsErr) {
+          console.error("Failed to update job details sheet:", detailsErr);
+        }
+
+        // Record in completed sheet as escalated for review
+        const completedSheetMax = ss.getSheetByName('Negotiation_Completed');
+        completedSheetMax.appendRow([
+          new Date(),
+          jobId,
+          candidateEmail,
+          candidateName,
+          devId,
+          "Escalated",
+          escalationReason,
+          thread.getId(),
+          `Rate: $${rate}/hr | Max: $${maxRate}/hr | Target: $${targetRate}/hr${candidateRegion ? ' | Region: ' + candidateRegion : ''}`
+        ]);
+
+        // Send escalation notification
+        sendEscalationEmail(jobId, candidateName, candidateEmail, thread, escalationReason, rules.escalationEmail);
+
+        // Update follow-up labels
+        updateFollowUpLabels(thread.getId(), 'responded');
+
+        // Remove from active negotiation state
+        if(stateRowIndex > -1) {
+          stateSheet.deleteRow(stateRowIndex);
+        }
+
+        jobStats.escalated++;
+        jobStats.log.push({type: 'warning', message: `${candidateEmail} - Escalated: rate $${rate}/hr exceeds max $${maxRate}/hr`});
         return;
       }
 
