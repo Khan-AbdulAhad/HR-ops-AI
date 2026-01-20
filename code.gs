@@ -7917,9 +7917,10 @@ function updateFollowUpLabels(threadId, newStatus) {
         thread.addLabel(unresponsiveLabel);
         break;
       case 'responded':
-        // Add Completed label for responded candidates
-        const completedLabel = GmailApp.getUserLabelByName("Completed") || GmailApp.createLabel("Completed");
-        thread.addLabel(completedLabel);
+        // FIX: Do NOT add Completed label here - 'responded' just means we've replied to the candidate
+        // The Completed label should only be added when negotiation is truly complete (offer accepted, etc.)
+        // Those paths already call markCompleted(thread) separately
+        // This prevents the bug where every AI attempt was marking the thread as "Completed"
         break;
     }
   } catch(e) {
@@ -10756,8 +10757,28 @@ Write ONLY the merged email body (no subject line, no "Subject:", just the messa
       }
 
       // Step 4: If no response generated yet but data is complete, send completion message
+      // FIX: Only send data complete email if negotiation is NOT enabled or if negotiation already happened
+      // If negotiation is enabled but hasn't started yet, we should NOT mark as complete - need to negotiate first!
+      const negotiationNotRequired = !functions.negotiation;
+      const negotiationAlreadyHappened = activeTypes.includes('negotiation');
+
       if (!combinedResponse && functions.datagathering && remainingPendingQuestions.length === 0 && answeredCount > 0) {
-        combinedResponse = generateDataCompleteEmail(devName, jobDesc);
+        if (negotiationNotRequired || negotiationAlreadyHappened) {
+          // Safe to send completion email - either negotiation isn't needed or it already happened
+          combinedResponse = generateDataCompleteEmail(devName, jobDesc);
+        } else {
+          // Negotiation is enabled but hasn't happened yet - candidate didn't mention rates
+          // Don't send completion email - generate a response that prompts for rate expectations
+          const firstName = devName ? devName.split(' ')[0] : 'there';
+          combinedResponse = `Hi ${firstName},
+
+Thank you for sharing those details with us!
+
+To move forward with your application, could you please let us know your expected hourly rate for this opportunity?
+
+Best regards`;
+          activeTypes.push('negotiation');
+        }
       }
 
       // Step 5: Fallback - if still no response and only follow-up is active
