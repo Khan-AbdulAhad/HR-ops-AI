@@ -3501,6 +3501,7 @@ function moveToCompleted(email, finalStatus, jobIdFilter) {
         agreedRate: rate ? `$${rate}/hr` : null
       };
       compSheet.appendRow([new Date(), taskData[i][1], email, taskData[i][2], finalStatus || "Accepted", "Moved from Task List", taskData[i][6] || 'N/A']);
+      logAnalytics('task_completed', taskData[i][1], 1, finalStatus || "Accepted - Moved from Task List");
       taskSheet.deleteRow(i+1);
       moved = true;
       break;
@@ -3522,6 +3523,7 @@ function moveToCompleted(email, finalStatus, jobIdFilter) {
           threadId: stateData[i][9] || ''
         };
         compSheet.appendRow([new Date(), stateData[i][1], email, stateData[i][7] || 'Unknown', finalStatus || stateData[i][4], "Moved from State List", stateData[i][6] || 'N/A']);
+        logAnalytics('task_completed', stateData[i][1], 1, finalStatus || "Moved from State List");
         moved = true;
       }
       // Capture threadId if not already captured
@@ -4201,6 +4203,7 @@ function processJobNegotiations(jobId, rules, ss, faqContent) {
       status: stateData[r][4],
       name: stateData[r][7] || 'Unknown',
       devId: stateData[r][6] || 'N/A',
+      aiNotes: stateData[r][8] || '', // Column 9 = AI Notes (preserve summary)
       region: stateData[r][10] || '', // Column 11 = Region
       originalEmail: String(stateData[r][0]).toLowerCase() // Store original email for mismatch tracking
     };
@@ -4944,6 +4947,12 @@ Write ONLY the email, nothing else.
       updateFollowUpLabels(thread.getId(), 'responded');
 
       // Record directly in Negotiation_Completed (auto-completed, not pending)
+      // Preserve the existing AI Notes/Summary from negotiation process
+      const existingAiNotes = state?.aiNotes || '';
+      const finalNotes = existingAiNotes
+        ? existingAiNotes + ' | AI Auto-Accepted'
+        : `Offer Accepted at $${rate}/hr - AI Auto-Accepted`;
+
       const compSheet = ss.getSheetByName('Negotiation_Completed');
       if (compSheet) {
         compSheet.appendRow([
@@ -4952,7 +4961,7 @@ Write ONLY the email, nothing else.
           candidateEmail,
           candidateName,
           `Offer Accepted at $${rate}/hr`,
-          'AI Auto-Accepted - Email sent',
+          finalNotes,
           devId,
           candidateRegion || ''
         ]);
@@ -4967,6 +4976,9 @@ Write ONLY the email, nothing else.
       // Invalidate caches so UI reflects the change immediately
       invalidateSheetCache('Negotiation_State');
       invalidateSheetCache('Negotiation_Completed');
+
+      // Log completion to analytics
+      logAnalytics('task_completed', jobId, 1, `Offer accepted at $${rate}/hr`);
 
       jobStats.accepted++;
       jobStats.log.push({type: 'success', message: `${candidateEmail} AUTO-ACCEPTED at $${rate}/hr - Completed`});
@@ -5771,6 +5783,12 @@ Write ONLY the email, nothing else.
       updateFollowUpLabels(thread.getId(), 'responded');
 
       // Record directly in Negotiation_Completed (auto-completed, not pending)
+      // Preserve the existing AI Notes/Summary from negotiation process
+      const existingAiNotes = state?.aiNotes || '';
+      const finalNotes = existingAiNotes
+        ? existingAiNotes + ' | AI Accepted'
+        : `Offer Accepted at $${rate}/hr - AI Accepted`;
+
       const compSheet = ss.getSheetByName('Negotiation_Completed');
       if (compSheet) {
         compSheet.appendRow([
@@ -5779,7 +5797,7 @@ Write ONLY the email, nothing else.
           candidateEmail,
           candidateName,
           `Offer Accepted at $${rate}/hr`,
-          'AI Accepted - Email sent',
+          finalNotes,
           devId,
           candidateRegion || ''
         ]);
@@ -5794,6 +5812,9 @@ Write ONLY the email, nothing else.
       // Invalidate caches so UI reflects the change immediately
       invalidateSheetCache('Negotiation_State');
       invalidateSheetCache('Negotiation_Completed');
+
+      // Log completion to analytics
+      logAnalytics('task_completed', jobId, 1, `Offer accepted at $${rate}/hr`);
 
       jobStats.accepted++;
       jobStats.log.push({type: 'success', message: `${candidateEmail} ACCEPTED at $${rate}/hr - Completed`});
@@ -6582,6 +6603,9 @@ function syncCompletedFromGmail() {
             devId
           ]);
 
+          // Log completion to analytics
+          logAnalytics('task_completed', jobId, 1, completionStatus);
+
           // If escalated, also send notification
           if (shouldEscalate) {
             try {
@@ -6626,6 +6650,9 @@ function syncCompletedFromGmail() {
             'Marked complete directly in Gmail',
             devId
           ]);
+
+          // Log completion to analytics
+          logAnalytics('task_completed', jobId, 1, `Accepted at $${agreedRate}/hr (Gmail Sync)`);
 
           // Update job-specific details sheet
           try {
@@ -8241,6 +8268,52 @@ function resetFollowUpStatus(emailToReset) {
 }
 
 /**
+ * Get active negotiation count from Negotiation_State sheet
+ * Counts unique candidates in active negotiation (excluding Initial Outreach)
+ * @returns {Object} { active: number, humanEscalated: number, initialOutreach: number, total: number }
+ */
+function getActiveNegotiationStats() {
+  const url = getStoredSheetUrl();
+  if (!url) return { active: 0, humanEscalated: 0, initialOutreach: 0, total: 0 };
+
+  try {
+    const ss = SpreadsheetApp.openByUrl(url);
+    const stateSheet = ss.getSheetByName('Negotiation_State');
+    if (!stateSheet || stateSheet.getLastRow() <= 1) {
+      return { active: 0, humanEscalated: 0, initialOutreach: 0, total: 0 };
+    }
+
+    const data = stateSheet.getDataRange().getValues();
+    let active = 0;
+    let humanEscalated = 0;
+    let initialOutreach = 0;
+    let total = 0;
+
+    // Count unique candidates by status (each row is a unique email+jobId)
+    for (let i = 1; i < data.length; i++) {
+      if (!data[i][0]) continue; // Skip empty rows
+
+      const status = String(data[i][4] || '').toLowerCase();
+      total++;
+
+      if (status.includes('initial outreach') || status.includes('initial sent')) {
+        initialOutreach++;
+      } else if (status.includes('human') || status.includes('escalat')) {
+        humanEscalated++;
+      } else {
+        active++; // Active AI negotiation
+      }
+    }
+
+    return { active, humanEscalated, initialOutreach, total };
+
+  } catch (e) {
+    console.error("Error getting negotiation stats:", e);
+    return { active: 0, humanEscalated: 0, initialOutreach: 0, total: 0 };
+  }
+}
+
+/**
  * Get data gathering statistics - counts pending candidates across all Job_*_Details sheets
  * @returns {Object} { pending: number, dataComplete: number, negotiating: number, total: number }
  */
@@ -9559,6 +9632,7 @@ function getUserAnalytics(filterEmail, filterJobId, startDate, endDate) {
       totalDataFetches: 0,
       totalNegotiations: 0,
       totalFollowUps: 0,
+      totalCompleted: 0,
       userStats: [],
       recentActivity: [],
       actionsByType: {},
@@ -9620,6 +9694,7 @@ function getUserAnalytics(filterEmail, filterJobId, startDate, endDate) {
             dataFetches: 0,
             negotiations: 0,
             followUps: 0,
+            completed: 0,
             lastActive: null
           });
         }
@@ -9638,6 +9713,9 @@ function getUserAnalytics(filterEmail, filterJobId, startDate, endDate) {
         } else if (action === 'follow_up_sent') {
           userStats.followUps += count;
           analytics.totalFollowUps += count;
+        } else if (action === 'task_completed') {
+          userStats.completed += count;
+          analytics.totalCompleted += count;
         }
 
         // Track last active
@@ -9703,6 +9781,11 @@ function getUserAnalytics(filterEmail, filterJobId, startDate, endDate) {
     const dataGatheringStats = getDataGatheringStats();
     analytics.pendingDataGathering = dataGatheringStats.pending;
     analytics.dataGatheringStats = dataGatheringStats;
+
+    // Get active negotiation stats (unique candidates in negotiation)
+    const negotiationStats = getActiveNegotiationStats();
+    analytics.activeNegotiations = negotiationStats.active + negotiationStats.humanEscalated;
+    analytics.negotiationStats = negotiationStats;
 
     return analytics;
   } catch (e) {

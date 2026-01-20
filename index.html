@@ -1903,7 +1903,7 @@
                     </div>
 
                     <!-- Analytics Cards -->
-                    <div class="grid grid-cols-1 md:grid-cols-5 gap-6 mb-8">
+                    <div class="grid grid-cols-1 md:grid-cols-6 gap-6 mb-8">
                         <div class="stat-card border-indigo-500">
                             <div class="flex justify-between">
                                 <div>
@@ -1947,6 +1947,15 @@
                                     <h2 class="text-3xl font-extrabold text-slate-800" id="statTotalNegotiations">-</h2>
                                 </div>
                                 <div class="bg-purple-50 p-2 rounded-lg text-purple-600"><i class="fa-solid fa-handshake"></i></div>
+                            </div>
+                        </div>
+                        <div class="stat-card border-green-500">
+                            <div class="flex justify-between">
+                                <div>
+                                    <p class="text-xs font-bold text-green-500 uppercase tracking-wider mb-1">Completed</p>
+                                    <h2 class="text-3xl font-extrabold text-slate-800" id="statTotalCompleted">-</h2>
+                                </div>
+                                <div class="bg-green-50 p-2 rounded-lg text-green-600"><i class="fa-solid fa-check-circle"></i></div>
                             </div>
                         </div>
                     </div>
@@ -7436,6 +7445,11 @@
                 document.getElementById('statTotalUsers').textContent = data.totalUsers || 0;
                 document.getElementById('statTotalEmails').textContent = data.totalEmailsSent || 0;
                 document.getElementById('statTotalDataFetches').textContent = data.pendingDataGathering || 0;
+                document.getElementById('statTotalCompleted').textContent = data.totalCompleted || 0;
+                // Use activeNegotiations for accurate unique candidate count
+                if (data.activeNegotiations !== undefined) {
+                    document.getElementById('statTotalNegotiations').textContent = data.activeNegotiations || 0;
+                }
 
                 const tbody = document.getElementById('userStatsTableBody');
                 tbody.innerHTML = '';
