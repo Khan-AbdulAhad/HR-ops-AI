@@ -3663,11 +3663,19 @@
             document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden-tab'));
             // Show selected
             document.getElementById('tab-' + tabName).classList.remove('hidden-tab');
-            
+
             // Update Sidebar Active State
             document.querySelectorAll('.nav-tab').forEach(el => el.classList.remove('active'));
             if(btn) btn.classList.add('active');
-            
+
+            // Hide bulk action bar on non-outreach tabs, show it on outreach if there's a selection
+            const bulkBar = document.getElementById('bulkActionBar');
+            if (tabName !== 'outreach') {
+                bulkBar.classList.add('hidden');
+            } else if (selectedDevs.size > 0) {
+                bulkBar.classList.remove('hidden');
+            }
+
             // Update Header Title
             const titles = {
                 'outreach': 'Outreach Manager',
@@ -6210,6 +6218,7 @@
                     if(totalSent > 0) {
                         showToast(`Sent ${totalSent} emails!`, "success");
                         closeEmailPanel();
+                        deselectAll(); // Clear selection after successful email send
                         fetchData();
                         // Clear form
                         document.getElementById('emailSubject').value = '';
