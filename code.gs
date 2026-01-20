@@ -4455,37 +4455,9 @@ function processJobNegotiations(jobId, rules, ss, faqContent) {
       return;
     }
 
-    // Check attempt limit (2 AI attempts max)
-    if (attempts >= 2) {
-      // Generate COMPREHENSIVE AI summary before escalating
-      const comprehensiveSummary = generateComprehensiveAISummary(
-        conversationHistory,
-        candidateEmail,
-        jobId,
-        attempts,
-        'Human-Negotiation'
-      );
-
-      escalateToHuman(thread, "Max AI attempts reached", candidateName, `We've had ${attempts} negotiation rounds. ${comprehensiveSummary}`);
-      if(stateRowIndex > -1) {
-        stateSheet.getRange(stateRowIndex, 5).setValue("Human-Negotiation");
-        stateSheet.getRange(stateRowIndex, 9).setValue(comprehensiveSummary);
-      }
-
-      // Remove Awaiting-Response label since we've responded and escalated
-      updateFollowUpLabels(thread.getId(), 'responded');
-
-      // Update job details sheet with escalation status (data already saved above)
-      try {
-        updateJobCandidateStatus(ss, jobId, candidateEmail, 'Escalated: Max AI attempts', null);
-      } catch(detailsErr) {
-        console.error("Failed to update job details sheet:", detailsErr);
-      }
-
-      jobStats.escalated++;
-      jobStats.log.push({type: 'warning', message: `${candidateEmail} escalated: Max attempts reached (data was extracted)`});
-      return;
-    }
+    // NOTE: Attempt limit check (2 AI attempts max) has been moved AFTER rate analysis
+    // This ensures we detect and process offer acceptance even when attempts >= 2
+    // The check is now at line ~4668 after rate analysis completes
 
     // SAFETY CHECK: Do not negotiate if rates are not explicitly configured
     // This prevents AI from using hardcoded defaults ($25/$20) when user didn't set up negotiation
@@ -4664,6 +4636,40 @@ Return ONLY the JSON object, no other text.
     } catch(e) {
       console.error("Failed to parse rate analysis:", e);
       // Continue with normal negotiation if analysis fails
+    }
+
+    // FIX: Check attempt limit (2 AI attempts max) AFTER rate analysis
+    // This ensures we can detect and process offer acceptance even when attempts >= 2
+    // Only escalate if candidate did NOT accept the offer
+    if (attempts >= 2 && (!rateAnalysis || rateAnalysis.action !== 'AUTO_ACCEPT')) {
+      // Generate COMPREHENSIVE AI summary before escalating
+      const comprehensiveSummary = generateComprehensiveAISummary(
+        conversationHistory,
+        candidateEmail,
+        jobId,
+        attempts,
+        'Human-Negotiation'
+      );
+
+      escalateToHuman(thread, "Max AI attempts reached", candidateName, `We've had ${attempts} negotiation rounds. ${comprehensiveSummary}`);
+      if(stateRowIndex > -1) {
+        stateSheet.getRange(stateRowIndex, 5).setValue("Human-Negotiation");
+        stateSheet.getRange(stateRowIndex, 9).setValue(comprehensiveSummary);
+      }
+
+      // Remove Awaiting-Response label since we've responded and escalated
+      updateFollowUpLabels(thread.getId(), 'responded');
+
+      // Update job details sheet with escalation status (data already saved above)
+      try {
+        updateJobCandidateStatus(ss, jobId, candidateEmail, 'Escalated: Max AI attempts', null);
+      } catch(detailsErr) {
+        console.error("Failed to update job details sheet:", detailsErr);
+      }
+
+      jobStats.escalated++;
+      jobStats.log.push({type: 'warning', message: `${candidateEmail} escalated: Max attempts reached (data was extracted)`});
+      return;
     }
 
     // If AI recommends AUTO_ACCEPT (rate at or below target, or accepting our offer)
