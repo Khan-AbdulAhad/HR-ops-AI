@@ -7918,9 +7918,10 @@ function updateFollowUpLabels(threadId, newStatus) {
         thread.addLabel(unresponsiveLabel);
         break;
       case 'responded':
-        // Add Completed label for responded candidates
-        const completedLabel = GmailApp.getUserLabelByName("Completed") || GmailApp.createLabel("Completed");
-        thread.addLabel(completedLabel);
+        // FIX: Do NOT add Completed label here - 'responded' just means we've replied to the candidate
+        // The Completed label should only be added when negotiation is truly complete (offer accepted, etc.)
+        // Those paths already call markCompleted(thread) separately
+        // This prevents the bug where every AI attempt was marking the thread as "Completed"
         break;
     }
   } catch(e) {
