@@ -4895,40 +4895,48 @@ Write ONLY the email, nothing else.
     }
 
     // If AI recommends ESCALATE (candidate firm on rate above target)
-    if (rateAnalysis && rateAnalysis.action === 'ESCALATE' && attempts >= 1) {
-      const escalationReason = rateAnalysis.reason || 'Candidate firm on rate above target';
-      jobStats.log.push({type: 'warning', message: `${candidateEmail} - AI recommends ESCALATE: ${escalationReason}`});
+    // Only escalate after 2 negotiation attempts (attempts 0 and 1), so escalate when attempts >= 2
+    if (rateAnalysis && rateAnalysis.action === 'ESCALATE') {
+      if (attempts < 2) {
+        // Force negotiation on early attempts - don't escalate yet
+        jobStats.log.push({type: 'info', message: `${candidateEmail} - Attempt ${attempts + 1}/2: AI wanted to escalate but forcing negotiation first`});
+        // Continue to negotiation logic below
+      } else {
+        // Escalate after 2 attempts
+        const escalationReason = rateAnalysis.reason || 'Candidate firm on rate above target';
+        jobStats.log.push({type: 'warning', message: `${candidateEmail} - AI recommends ESCALATE: ${escalationReason}`});
 
-      // Generate COMPREHENSIVE summary for human handoff
-      const comprehensiveSummary = generateComprehensiveAISummary(
-        conversationHistory,
-        candidateEmail,
-        jobId,
-        attempts,
-        'Human-Negotiation'
-      );
+        // Generate COMPREHENSIVE summary for human handoff
+        const comprehensiveSummary = generateComprehensiveAISummary(
+          conversationHistory,
+          candidateEmail,
+          jobId,
+          attempts,
+          'Human-Negotiation'
+        );
 
-      // Escalate to human with detailed handoff
-      escalateToHuman(thread, escalationReason, candidateName, comprehensiveSummary);
+        // Escalate to human with detailed handoff
+        escalateToHuman(thread, escalationReason, candidateName, comprehensiveSummary);
 
-      if(stateRowIndex > -1) {
-        stateSheet.getRange(stateRowIndex, 5).setValue("Human-Negotiation");
-        stateSheet.getRange(stateRowIndex, 9).setValue(comprehensiveSummary);
+        if(stateRowIndex > -1) {
+          stateSheet.getRange(stateRowIndex, 5).setValue("Human-Negotiation");
+          stateSheet.getRange(stateRowIndex, 9).setValue(comprehensiveSummary);
+        }
+
+        // Remove Awaiting-Response label since we've responded and escalated
+        updateFollowUpLabels(thread.getId(), 'responded');
+
+        // Update job-specific details sheet with escalation status
+        try {
+          updateJobCandidateStatus(ss, jobId, candidateEmail, `Escalated: ${escalationReason}`, null);
+        } catch(detailsErr) {
+          console.error("Failed to update job details sheet:", detailsErr);
+        }
+
+        jobStats.escalated++;
+        jobStats.log.push({type: 'warning', message: `${candidateEmail} escalated: ${escalationReason}`});
+        return; // Skip the rest of negotiation logic
       }
-
-      // Remove Awaiting-Response label since we've responded and escalated
-      updateFollowUpLabels(thread.getId(), 'responded');
-
-      // Update job-specific details sheet with escalation status
-      try {
-        updateJobCandidateStatus(ss, jobId, candidateEmail, `Escalated: ${escalationReason}`, null);
-      } catch(detailsErr) {
-        console.error("Failed to update job details sheet:", detailsErr);
-      }
-
-      jobStats.escalated++;
-      jobStats.log.push({type: 'warning', message: `${candidateEmail} escalated: ${escalationReason}`});
-      return; // Skip the rest of negotiation logic
     }
 
     // CRITICAL SAFEGUARD: Never offer more than what the candidate is asking for
