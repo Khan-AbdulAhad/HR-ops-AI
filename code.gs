@@ -4392,6 +4392,30 @@ function processJobNegotiations(jobId, rules, ss, faqContent) {
                 // Update follow-up labels
                 updateFollowUpLabels(thread.getId(), 'responded');
 
+                // FIX: Update AI Summary when data gathering email is sent
+                // This ensures the summary reflects the current state including pending questions
+                try {
+                  const dataGatheringSummary = generateComprehensiveAISummary(
+                    conversationHistory,
+                    candidateEmail,
+                    jobId,
+                    attempts || 0,
+                    'Active - Data Gathering',
+                    {
+                      totalQuestions: saveResult.totalQuestions,
+                      answeredCount: saveResult.answeredCount,
+                      pendingQuestions: saveResult.pendingQuestions.map(q => q.question),
+                      extractedData: saveResult.extractedData || {}
+                    }
+                  );
+                  if (stateRowIndex > -1 && dataGatheringSummary) {
+                    stateSheet.getRange(stateRowIndex, 9).setValue(dataGatheringSummary);
+                    stateSheet.getRange(stateRowIndex, 6).setValue(new Date());
+                  }
+                } catch (summaryError) {
+                  console.error("Failed to update AI summary for data gathering:", summaryError);
+                }
+
                 // FIX: Return early to prevent sending a separate negotiation email
                 // Data gathering and negotiation should NOT be sent as separate emails
                 // Once all data is gathered, the next candidate response will trigger negotiation
@@ -4796,12 +4820,35 @@ Write ONLY the email, nothing else.
           // Update follow-up labels
           updateFollowUpLabels(thread.getId(), 'responded');
 
+          // FIX: Generate AI Summary when combined rate+data email is sent
+          let combinedSummary = null;
+          try {
+            combinedSummary = generateComprehensiveAISummary(
+              conversationHistory,
+              candidateEmail,
+              jobId,
+              attempts + 1,
+              'Active - Data Pending',
+              {
+                totalQuestions: pendingDataQuestions.length + (saveResult ? saveResult.answeredCount : 0),
+                answeredCount: saveResult ? saveResult.answeredCount : 0,
+                pendingQuestions: pendingDataQuestions.map(q => q.question),
+                extractedData: saveResult ? saveResult.extractedData : {}
+              }
+            );
+          } catch (summaryError) {
+            console.error("Failed to generate AI summary for rate+data email:", summaryError);
+          }
+
           // Update state to reflect rate agreed but NOT completed
           if(stateRowIndex > -1) {
             stateSheet.getRange(stateRowIndex, 3).setValue(attempts + 1); // Increment attempts
             stateSheet.getRange(stateRowIndex, 4).setValue(`Rate Agreed $${rate}/hr - Data Pending`);
             stateSheet.getRange(stateRowIndex, 5).setValue("Active - Data Pending");
             stateSheet.getRange(stateRowIndex, 6).setValue(new Date());
+            if (combinedSummary) {
+              stateSheet.getRange(stateRowIndex, 9).setValue(combinedSummary);
+            }
           }
 
           jobStats.log.push({type: 'info', message: `${candidateEmail} - Sent combined rate acknowledgment + data request email. NOT marked as Completed.`});
@@ -5075,11 +5122,34 @@ Write ONLY the email, nothing else.
           recordMissingInfoFollowUp(jobId, candidateEmail);
           updateFollowUpLabels(thread.getId(), 'responded');
 
+          // FIX: Generate AI Summary when combined rate+data email is sent
+          let combinedSummary = null;
+          try {
+            combinedSummary = generateComprehensiveAISummary(
+              conversationHistory,
+              candidateEmail,
+              jobId,
+              attempts + 1,
+              'Active - Data Pending',
+              {
+                totalQuestions: pendingDataQuestions.length + (saveResult ? saveResult.answeredCount : 0),
+                answeredCount: saveResult ? saveResult.answeredCount : 0,
+                pendingQuestions: pendingDataQuestions.map(q => q.question),
+                extractedData: saveResult ? saveResult.extractedData : {}
+              }
+            );
+          } catch (summaryError) {
+            console.error("Failed to generate AI summary for rate+data email:", summaryError);
+          }
+
           if(stateRowIndex > -1) {
             stateSheet.getRange(stateRowIndex, 3).setValue(attempts + 1);
             stateSheet.getRange(stateRowIndex, 4).setValue(`Rate Agreed $${rate}/hr - Data Pending`);
             stateSheet.getRange(stateRowIndex, 5).setValue("Active - Data Pending");
             stateSheet.getRange(stateRowIndex, 6).setValue(new Date());
+            if (combinedSummary) {
+              stateSheet.getRange(stateRowIndex, 9).setValue(combinedSummary);
+            }
           }
 
           jobStats.log.push({type: 'info', message: `${candidateEmail} - Sent combined rate acknowledgment + data request. NOT marked as Completed.`});
@@ -10651,6 +10721,7 @@ function testAiEmailResponse(testData) {
           // Only merge if dataFollowUp was generated successfully
           if (dataFollowUp) {
             // Create a combined prompt to merge both responses naturally
+            // IMPORTANT: Do NOT restrict sentence count - must include ALL data gathering questions
             const mergePrompt = `You are an AI assistant helping with candidate communication. Below are two separate responses that need to be merged into ONE cohesive, professional email response.
 
 NEGOTIATION RESPONSE:
@@ -10661,10 +10732,12 @@ ${dataFollowUp}
 
 Please merge these into a single, natural email that:
 1. Addresses the rate negotiation smoothly
-2. Asks for the missing information in a natural way
+2. MUST ask for ALL the missing information listed in the data gathering section - do not skip any questions
 3. Maintains a friendly, professional tone
 4. Does NOT repeat information or sound robotic
-5. Should be 3-5 sentences total
+5. Keep the email concise but complete - include every data gathering question
+
+CRITICAL: The data gathering questions are important and must ALL be included in the final email. If the data gathering section asks for profile links (LinkedIn, Google Scholar, etc.), availability, or other details, these MUST appear in the merged email.
 
 Write ONLY the merged email body (no subject line, no "Subject:", just the message):`;
 
@@ -10713,6 +10786,37 @@ Write ONLY the merged email body (no subject line, no "Subject:", just the messa
         return { error: 'AI service temporarily unavailable. Please try again in a moment.' };
       }
 
+      // Generate fresh AI summary for the test response
+      let aiSummary = null;
+      try {
+        // Build conversation history for summary
+        const fullConversation = candidateReply ? `Candidate: ${candidateReply}\n\nAI Response: ${combinedResponse}` : combinedResponse;
+
+        // Prepare data gathering info for summary
+        const dataGatheringInfo = {
+          totalQuestions: totalQuestions,
+          answeredCount: answeredCount,
+          pendingQuestions: remainingPendingQuestions.map(q => q.question),
+          extractedData: extractedData
+        };
+
+        // Determine current attempt
+        const currentAttempt = negotiationState ? negotiationState.attempt : (parseInt(attempt) || 1);
+
+        // Generate comprehensive summary
+        aiSummary = generateComprehensiveAISummary(
+          fullConversation,
+          devEmail || 'test@example.com',
+          jobId || 'TEST',
+          currentAttempt,
+          'AI Active',
+          dataGatheringInfo
+        );
+      } catch (summaryError) {
+        console.error('Failed to generate AI summary for test:', summaryError);
+        // Don't fail the whole request if summary generation fails
+      }
+
       return {
         aiResponse: combinedResponse.trim(),
         activeTypes: activeTypes,
@@ -10720,7 +10824,8 @@ Write ONLY the merged email body (no subject line, no "Subject:", just the messa
         answeredCount: answeredCount,
         totalQuestions: totalQuestions,
         pendingQuestions: remainingPendingQuestions.map(q => q.question),
-        negotiationState: negotiationState
+        negotiationState: negotiationState,
+        aiSummary: aiSummary
       };
 
     } else {

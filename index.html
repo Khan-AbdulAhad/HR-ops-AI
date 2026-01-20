@@ -2427,6 +2427,15 @@
                                 </div>
                             </div>
 
+                            <!-- AI Summary Panel (generated with each test) -->
+                            <div id="aiTestSummaryPanel" class="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 p-6 hidden">
+                                <h4 class="font-bold text-slate-800 dark:text-white mb-4 flex items-center gap-2">
+                                    <i class="fa-solid fa-robot text-purple-500"></i> AI Summary
+                                    <span class="text-xs font-normal text-slate-400">(Email + Data + Negotiation)</span>
+                                </h4>
+                                <div id="aiTestSummaryContent" class="bg-slate-50 dark:bg-slate-900 p-4 rounded-lg text-sm text-slate-700 dark:text-slate-300 whitespace-pre-wrap leading-relaxed max-h-96 overflow-y-auto"></div>
+                            </div>
+
                             <!-- Session History -->
                             <div class="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 p-6">
                                 <div class="flex justify-between items-center mb-4">
@@ -8027,6 +8036,9 @@
             // Clear data extraction results
             document.getElementById('dataExtractionResults').classList.add('hidden');
 
+            // Clear AI Summary panel
+            document.getElementById('aiTestSummaryPanel').classList.add('hidden');
+
             // Clear conversation thread
             conversationThread = [];
             conversationContext = {};
@@ -8151,6 +8163,7 @@
             renderConversationThread();
             document.getElementById('quickReplySection').classList.add('hidden');
             document.getElementById('dataExtractionResults').classList.add('hidden');
+            document.getElementById('aiTestSummaryPanel').classList.add('hidden');
             showToast('Conversation cleared', 'info');
         }
 
@@ -8385,6 +8398,14 @@
                     // Show data extraction panel if data gathering is active
                     if (aiTestSelectedFunctions.datagathering && response.extractedData) {
                         updateDataExtractionResults(response);
+                    }
+
+                    // Show AI Summary panel if summary was generated
+                    if (response.aiSummary) {
+                        const summaryPanel = document.getElementById('aiTestSummaryPanel');
+                        const summaryContent = document.getElementById('aiTestSummaryContent');
+                        summaryPanel.classList.remove('hidden');
+                        summaryContent.textContent = response.aiSummary;
                     }
 
                     // Clear the reply input for next message
