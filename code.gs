@@ -4567,7 +4567,8 @@ TASK:
 Analyze the candidate's message and determine:
 1. What hourly rate are they proposing, expecting, or asking for? (extract the exact number)
 2. Are they accepting a previous offer we made?
-3. What action should we take?
+3. Are they asking sensitive questions we cannot answer?
+4. What action should we take?
 
 CRITICAL - PROPOSAL vs ACCEPTANCE DISTINCTION:
 - If candidate STATES their expected/desired rate (e.g., "my expected rate is $X", "I expect $X", "my rate is $X"), this is a PROPOSAL, NOT acceptance
@@ -4592,26 +4593,39 @@ ACCEPTANCE DETECTION RULES - CRITICAL:
 - "I accept $X" or "I can do $X" where $X is what WE offered = ACCEPTING at rate $X
 - If candidate states THEIR OWN rate and says "ready to start", they are proposing, NOT accepting
 
+SENSITIVE QUESTIONS (require immediate escalation):
+- Questions about internal company policies, hiring process details
+- Questions about other candidates or competition
+- Legal questions about contracts, IP, NDAs
+- Questions about specific client names or project details we haven't shared
+- Complaints or threats
+- Requests for information we don't have in our FAQ
+
 DECISION RULES (in priority order):
-1. If candidate explicitly ACCEPTS a rate WE previously offered → ACTION: AUTO_ACCEPT, is_accepting_offer: true
-2. If candidate PROPOSES a rate AT OR BELOW $${targetRate}/hr → ACTION: AUTO_ACCEPT (accept their proposal!)
-3. If candidate PROPOSES a rate BETWEEN $${targetRate} and $${maxRate}/hr → ACTION: COUNTER (try to negotiate down)
-4. If candidate PROPOSES a rate ABOVE $${maxRate}/hr → ACTION: ESCALATE (exceeds our max budget)
-5. If candidate is very firm on a rate ABOVE $${maxRate}/hr → ACTION: ESCALATE
-6. If no clear rate mentioned but message is positive → ACTION: COUNTER
+1. If candidate asks SENSITIVE QUESTIONS (see above) → ACTION: ESCALATE, escalation_type: "sensitive_question"
+2. If candidate explicitly ACCEPTS a rate WE previously offered → ACTION: AUTO_ACCEPT, is_accepting_offer: true
+3. If candidate PROPOSES a rate AT OR BELOW $${targetRate}/hr → ACTION: AUTO_ACCEPT (accept their proposal!)
+4. If candidate PROPOSES a rate ABOVE $${targetRate}/hr (even above max) → ACTION: COUNTER (we will negotiate)
+5. If no clear rate mentioned but message is positive → ACTION: COUNTER
+
+IMPORTANT - RATE NEGOTIATION:
+- Even if rate is above our max ($${maxRate}), recommend COUNTER - we will try to negotiate
+- Do NOT escalate just because rate is high - we want to try negotiating first
+- Only use ESCALATE for sensitive questions, NOT for rate-related issues
 
 CRITICAL RULES:
-- If proposed rate > $${maxRate}, ALWAYS escalate - NEVER auto-accept
-- If they state "my expected rate is $56/hr" and our max is $20, that's a PROPOSAL of $56 which exceeds max → ESCALATE
 - "I am ready" + stating their own rate = PROPOSAL, not acceptance
 - Always extract the EXACT rate number they mentioned
+- For rate issues: always COUNTER, never ESCALATE
+- For sensitive questions: always ESCALATE with escalation_type: "sensitive_question"
 
 RESPONSE FORMAT (JSON only):
 {
   "proposed_rate": <number - the rate they mentioned/asked for, or null if none>,
   "is_accepting_offer": <true/false - ONLY true if they accepted OUR offer>,
   "action": "<AUTO_ACCEPT|COUNTER|ESCALATE>",
-  "reason": "<brief explanation including: their rate ($X) vs our target ($${targetRate}) and max ($${maxRate})>",
+  "escalation_type": "<sensitive_question|null>",
+  "reason": "<brief explanation>",
   "candidate_flexibility": "<flexible|firm|unclear>"
 }
 
@@ -4890,51 +4904,132 @@ Write ONLY the email, nothing else.
       return; // Skip the rest of negotiation logic
     }
 
-    // If AI recommends ESCALATE (candidate firm on rate above target)
-    if (rateAnalysis && rateAnalysis.action === 'ESCALATE' && attempts >= 1) {
-      const escalationReason = rateAnalysis.reason || 'Candidate firm on rate above target';
-      jobStats.log.push({type: 'warning', message: `${candidateEmail} - AI recommends ESCALATE: ${escalationReason}`});
+    // If AI recommends ESCALATE
+    // - For sensitive questions: Escalate IMMEDIATELY (no waiting)
+    // - For other reasons: Only escalate after 2 negotiation attempts
+    if (rateAnalysis && rateAnalysis.action === 'ESCALATE') {
+      const isSensitiveQuestion = rateAnalysis.escalation_type === 'sensitive_question';
+      const shouldEscalateNow = isSensitiveQuestion || attempts >= 2;
 
-      // Generate COMPREHENSIVE summary for human handoff
-      const comprehensiveSummary = generateComprehensiveAISummary(
-        conversationHistory,
-        candidateEmail,
-        jobId,
-        attempts,
-        'Human-Negotiation'
-      );
+      if (!shouldEscalateNow) {
+        // For non-sensitive issues on early attempts, continue negotiation
+        // Log a helpful summary instead of technical message
+        const proposedRate = rateAnalysis.proposed_rate;
+        const summaryMsg = proposedRate
+          ? `Candidate proposed $${proposedRate}/hr (our target: $${targetRate}, max: $${maxRate}). Attempt ${attempts + 1}/2 - sending counter-offer.`
+          : `Attempt ${attempts + 1}/2 - continuing negotiation. ${rateAnalysis.reason || ''}`;
+        jobStats.log.push({type: 'info', message: `${candidateEmail} - ${summaryMsg}`});
+        // Continue to negotiation logic below - don't escalate yet
+      } else {
+        // Escalate now - either sensitive question OR attempts >= 2
+        const escalationReason = isSensitiveQuestion
+          ? (rateAnalysis.reason || 'Candidate asked sensitive question requiring human response')
+          : (rateAnalysis.reason || 'Candidate did not agree after negotiation attempts');
 
-      // Escalate to human with detailed handoff
-      escalateToHuman(thread, escalationReason, candidateName, comprehensiveSummary);
+        jobStats.log.push({type: 'warning', message: `${candidateEmail} - ${isSensitiveQuestion ? 'IMMEDIATE ESCALATION (sensitive question)' : 'Escalating after ' + attempts + ' attempts'}: ${escalationReason}`});
 
-      if(stateRowIndex > -1) {
-        stateSheet.getRange(stateRowIndex, 5).setValue("Human-Negotiation");
-        stateSheet.getRange(stateRowIndex, 9).setValue(comprehensiveSummary);
+        // Generate COMPREHENSIVE summary for human handoff
+        const comprehensiveSummary = generateComprehensiveAISummary(
+          conversationHistory,
+          candidateEmail,
+          jobId,
+          attempts,
+          'Human-Negotiation'
+        );
+
+        // Escalate to human with detailed handoff
+        escalateToHuman(thread, escalationReason, candidateName, comprehensiveSummary);
+
+        if(stateRowIndex > -1) {
+          stateSheet.getRange(stateRowIndex, 5).setValue("Human-Negotiation");
+          stateSheet.getRange(stateRowIndex, 9).setValue(comprehensiveSummary);
+        }
+
+        // Remove Awaiting-Response label since we've responded and escalated
+        updateFollowUpLabels(thread.getId(), 'responded');
+
+        // Update job-specific details sheet with escalation status
+        try {
+          updateJobCandidateStatus(ss, jobId, candidateEmail, `Escalated: ${escalationReason}`, null);
+        } catch(detailsErr) {
+          console.error("Failed to update job details sheet:", detailsErr);
+        }
+
+        jobStats.escalated++;
+        jobStats.log.push({type: 'warning', message: `${candidateEmail} escalated: ${escalationReason}`});
+        return; // Skip the rest of negotiation logic
       }
-
-      // Remove Awaiting-Response label since we've responded and escalated
-      updateFollowUpLabels(thread.getId(), 'responded');
-
-      // Update job-specific details sheet with escalation status
-      try {
-        updateJobCandidateStatus(ss, jobId, candidateEmail, `Escalated: ${escalationReason}`, null);
-      } catch(detailsErr) {
-        console.error("Failed to update job details sheet:", detailsErr);
-      }
-
-      jobStats.escalated++;
-      jobStats.log.push({type: 'warning', message: `${candidateEmail} escalated: ${escalationReason}`});
-      return; // Skip the rest of negotiation logic
     }
 
     // CRITICAL SAFEGUARD: Never offer more than what the candidate is asking for
     // If candidate asks for $41 and our scheduled offer is $50, we should accept $41 (not offer $50!)
     const candidateProposedRate = rateAnalysis ? rateAnalysis.proposed_rate : null;
     if (candidateProposedRate !== null && candidateProposedRate < currentOfferRate) {
-      // Candidate is asking for LESS than what we were going to offer - accept their rate!
-      jobStats.log.push({type: 'success', message: `${candidateEmail} - Candidate asking $${candidateProposedRate}/hr which is LESS than our offer of $${currentOfferRate}/hr - accepting their lower rate!`});
-
       const rate = candidateProposedRate;
+
+      // SAFETY CHECK: Even if candidate asks less than our offer, still validate against limits
+      // This prevents accepting $40/hr from India when their limit is $25
+      if (rate > maxRate) {
+        jobStats.log.push({type: 'warning', message: `${candidateEmail} - SAFETY BLOCK: Candidate proposed $${rate}/hr (less than our $${currentOfferRate} offer) but exceeds max $${maxRate}/hr. Escalating.`});
+
+        const escalationReason = `Candidate proposed $${rate}/hr which exceeds job max of $${maxRate}/hr`;
+
+        try {
+          updateJobCandidateStatus(ss, jobId, candidateEmail, 'Escalated - Rate Exceeds Max', `$${rate}/hr (max: $${maxRate})`);
+        } catch(detailsErr) {
+          console.error("Failed to update job details sheet:", detailsErr);
+        }
+
+        const completedSheetLower = ss.getSheetByName('Negotiation_Completed');
+        completedSheetLower.appendRow([
+          new Date(), jobId, candidateEmail, candidateName, devId, "Escalated",
+          escalationReason, thread.getId(),
+          `Rate: $${rate}/hr | Max: $${maxRate}/hr${candidateRegion ? ' | Region: ' + candidateRegion : ''}`
+        ]);
+
+        sendEscalationEmail(jobId, candidateName, candidateEmail, thread, escalationReason, rules.escalationEmail);
+        updateFollowUpLabels(thread.getId(), 'responded');
+
+        if(stateRowIndex > -1) {
+          stateSheet.deleteRow(stateRowIndex);
+        }
+
+        jobStats.escalated++;
+        return;
+      }
+
+      // SAFETY CHECK: Validate against regional limits
+      if (candidateRegion && regionMaxRateLimit && rate > regionMaxRateLimit) {
+        jobStats.log.push({type: 'warning', message: `${candidateEmail} - SAFETY BLOCK: Candidate proposed $${rate}/hr but exceeds ${candidateRegion} limit of $${regionMaxRateLimit}/hr. Escalating.`});
+
+        const escalationReason = `Rate $${rate}/hr from ${candidateRegion} exceeds regional max of $${regionMaxRateLimit}/hr`;
+
+        try {
+          updateJobCandidateStatus(ss, jobId, candidateEmail, 'Escalated - Rate Review', `$${rate}/hr (exceeds ${candidateRegion} limit)`);
+        } catch(detailsErr) {
+          console.error("Failed to update job details sheet:", detailsErr);
+        }
+
+        const completedSheetRegionLower = ss.getSheetByName('Negotiation_Completed');
+        completedSheetRegionLower.appendRow([
+          new Date(), jobId, candidateEmail, candidateName, devId, "Escalated",
+          escalationReason, thread.getId(),
+          `Rate: $${rate}/hr | Region: ${candidateRegion} | Max Expected: $${regionMaxRateLimit}/hr`
+        ]);
+
+        sendEscalationEmail(jobId, candidateName, candidateEmail, thread, escalationReason, rules.escalationEmail);
+        updateFollowUpLabels(thread.getId(), 'responded');
+
+        if(stateRowIndex > -1) {
+          stateSheet.deleteRow(stateRowIndex);
+        }
+
+        jobStats.escalated++;
+        return;
+      }
+
+      // Rate is valid - proceed with acceptance
+      jobStats.log.push({type: 'success', message: `${candidateEmail} - Candidate asking $${rate}/hr which is LESS than our offer of $${currentOfferRate}/hr - accepting their lower rate!`});
 
       // FIX: Check if data gathering is enabled but incomplete before completing
       if (hasDataGatheringEnabled && !isDataGatheringComplete && pendingDataQuestions.length > 0) {
@@ -5243,10 +5338,17 @@ Respond with ONLY the email text OR the ACTION code. No other explanations.
     // Handle AI response
     if (aiResponse.includes("ACTION: ESCALATE")) {
       if(attempts < 2) {
-        // Force negotiation on early attempts
-        jobStats.log.push({type: 'warning', message: `${candidateEmail} - Attempt ${attempts + 1}/2: AI wanted to escalate, forcing negotiation`});
-
+        // Continue negotiation on early attempts - log helpful summary
         const candidateMessage = lastMsg.getPlainBody().substring(0, 500);
+
+        // Extract rate from candidate message for logging
+        const rateInMessage = candidateMessage.match(/\$\s*(\d+(?:\.\d+)?)/);
+        const extractedRate = rateInMessage ? rateInMessage[1] : null;
+
+        const summaryMsg = extractedRate
+          ? `Candidate proposed $${extractedRate}/hr (our target: $${targetRate}, max: $${maxRate}). Attempt ${attempts + 1}/2 - sending counter-offer of $${targetRate}/hr.`
+          : `Attempt ${attempts + 1}/2 - continuing negotiation with offer of $${targetRate}/hr.`;
+        jobStats.log.push({type: 'info', message: `${candidateEmail} - ${summaryMsg}`});
 
         // Use already-calculated region-specific rates (targetRate and maxRate are set above)
         // Always use target rate - don't start lower
