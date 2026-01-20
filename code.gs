@@ -4571,7 +4571,8 @@ TASK:
 Analyze the candidate's message and determine:
 1. What hourly rate are they proposing, expecting, or asking for? (extract the exact number)
 2. Are they accepting a previous offer we made?
-3. What action should we take?
+3. Are they asking sensitive questions we cannot answer?
+4. What action should we take?
 
 CRITICAL - PROPOSAL vs ACCEPTANCE DISTINCTION:
 - If candidate STATES their expected/desired rate (e.g., "my expected rate is $X", "I expect $X", "my rate is $X"), this is a PROPOSAL, NOT acceptance
@@ -4596,26 +4597,39 @@ ACCEPTANCE DETECTION RULES - CRITICAL:
 - "I accept $X" or "I can do $X" where $X is what WE offered = ACCEPTING at rate $X
 - If candidate states THEIR OWN rate and says "ready to start", they are proposing, NOT accepting
 
+SENSITIVE QUESTIONS (require immediate escalation):
+- Questions about internal company policies, hiring process details
+- Questions about other candidates or competition
+- Legal questions about contracts, IP, NDAs
+- Questions about specific client names or project details we haven't shared
+- Complaints or threats
+- Requests for information we don't have in our FAQ
+
 DECISION RULES (in priority order):
-1. If candidate explicitly ACCEPTS a rate WE previously offered → ACTION: AUTO_ACCEPT, is_accepting_offer: true
-2. If candidate PROPOSES a rate AT OR BELOW $${targetRate}/hr → ACTION: AUTO_ACCEPT (accept their proposal!)
-3. If candidate PROPOSES a rate BETWEEN $${targetRate} and $${maxRate}/hr → ACTION: COUNTER (try to negotiate down)
-4. If candidate PROPOSES a rate ABOVE $${maxRate}/hr → ACTION: ESCALATE (exceeds our max budget)
-5. If candidate is very firm on a rate ABOVE $${maxRate}/hr → ACTION: ESCALATE
-6. If no clear rate mentioned but message is positive → ACTION: COUNTER
+1. If candidate asks SENSITIVE QUESTIONS (see above) → ACTION: ESCALATE, escalation_type: "sensitive_question"
+2. If candidate explicitly ACCEPTS a rate WE previously offered → ACTION: AUTO_ACCEPT, is_accepting_offer: true
+3. If candidate PROPOSES a rate AT OR BELOW $${targetRate}/hr → ACTION: AUTO_ACCEPT (accept their proposal!)
+4. If candidate PROPOSES a rate ABOVE $${targetRate}/hr (even above max) → ACTION: COUNTER (we will negotiate)
+5. If no clear rate mentioned but message is positive → ACTION: COUNTER
+
+IMPORTANT - RATE NEGOTIATION:
+- Even if rate is above our max ($${maxRate}), recommend COUNTER - we will try to negotiate
+- Do NOT escalate just because rate is high - we want to try negotiating first
+- Only use ESCALATE for sensitive questions, NOT for rate-related issues
 
 CRITICAL RULES:
-- If proposed rate > $${maxRate}, ALWAYS escalate - NEVER auto-accept
-- If they state "my expected rate is $56/hr" and our max is $20, that's a PROPOSAL of $56 which exceeds max → ESCALATE
 - "I am ready" + stating their own rate = PROPOSAL, not acceptance
 - Always extract the EXACT rate number they mentioned
+- For rate issues: always COUNTER, never ESCALATE
+- For sensitive questions: always ESCALATE with escalation_type: "sensitive_question"
 
 RESPONSE FORMAT (JSON only):
 {
   "proposed_rate": <number - the rate they mentioned/asked for, or null if none>,
   "is_accepting_offer": <true/false - ONLY true if they accepted OUR offer>,
   "action": "<AUTO_ACCEPT|COUNTER|ESCALATE>",
-  "reason": "<brief explanation including: their rate ($X) vs our target ($${targetRate}) and max ($${maxRate})>",
+  "escalation_type": "<sensitive_question|null>",
+  "reason": "<brief explanation>",
   "candidate_flexibility": "<flexible|firm|unclear>"
 }
 
@@ -4894,17 +4908,24 @@ Write ONLY the email, nothing else.
       return; // Skip the rest of negotiation logic
     }
 
-    // If AI recommends ESCALATE (candidate firm on rate above target)
-    // Only escalate after 2 negotiation attempts (attempts 0 and 1), so escalate when attempts >= 2
+    // If AI recommends ESCALATE
+    // - For sensitive questions: Escalate IMMEDIATELY (no waiting)
+    // - For other reasons: Only escalate after 2 negotiation attempts
     if (rateAnalysis && rateAnalysis.action === 'ESCALATE') {
-      if (attempts < 2) {
-        // Force negotiation on early attempts - don't escalate yet
-        jobStats.log.push({type: 'info', message: `${candidateEmail} - Attempt ${attempts + 1}/2: AI wanted to escalate but forcing negotiation first`});
-        // Continue to negotiation logic below
+      const isSensitiveQuestion = rateAnalysis.escalation_type === 'sensitive_question';
+      const shouldEscalateNow = isSensitiveQuestion || attempts >= 2;
+
+      if (!shouldEscalateNow) {
+        // For non-sensitive issues on early attempts, continue negotiation
+        jobStats.log.push({type: 'info', message: `${candidateEmail} - Attempt ${attempts + 1}/2: Continuing negotiation`});
+        // Continue to negotiation logic below - don't escalate yet
       } else {
-        // Escalate after 2 attempts
-        const escalationReason = rateAnalysis.reason || 'Candidate firm on rate above target';
-        jobStats.log.push({type: 'warning', message: `${candidateEmail} - AI recommends ESCALATE: ${escalationReason}`});
+        // Escalate now - either sensitive question OR attempts >= 2
+        const escalationReason = isSensitiveQuestion
+          ? (rateAnalysis.reason || 'Candidate asked sensitive question requiring human response')
+          : (rateAnalysis.reason || 'Candidate did not agree after negotiation attempts');
+
+        jobStats.log.push({type: 'warning', message: `${candidateEmail} - ${isSensitiveQuestion ? 'IMMEDIATE ESCALATION (sensitive question)' : 'Escalating after ' + attempts + ' attempts'}: ${escalationReason}`});
 
         // Generate COMPREHENSIVE summary for human handoff
         const comprehensiveSummary = generateComprehensiveAISummary(
