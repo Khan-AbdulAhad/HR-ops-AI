@@ -4489,13 +4489,56 @@ function processJobNegotiations(jobId, rules, ss, faqContent) {
     let targetRate = Number(rules.target);
     let maxRate = Number(rules.max) || Math.round(targetRate * 1.2); // Default max to 120% of target if not set
 
+    // SAFETY: Track if we found region-specific rates - used to prevent false auto-accepts
+    let regionRatesFound = false;
+    let regionMaxRateLimit = null; // Safety limit for the region
+
+    // Default expected max rates by region - safety net when Rate_Tiers lookup fails
+    // These are conservative upper bounds to prevent accepting rates way above expected
+    const REGION_MAX_RATE_LIMITS = {
+      'india': 25,
+      'pakistan': 25,
+      'bangladesh': 25,
+      'philippines': 30,
+      'vietnam': 30,
+      'indonesia': 30,
+      'nigeria': 30,
+      'kenya': 30,
+      'egypt': 30,
+      'ukraine': 35,
+      'poland': 40,
+      'romania': 35,
+      'brazil': 35,
+      'mexico': 40,
+      'argentina': 35,
+      'colombia': 35,
+      'latam': 40,
+      'latin america': 40,
+      'eastern europe': 40,
+      'asia': 35,
+      'africa': 30
+    };
+
     if (candidateRegion) {
       const regionRates = getRateForRegion(jobId, candidateRegion, ss);
       // SAFETY: Use explicit > 0 check to avoid falsy value bugs (0 would be treated as missing)
       if (regionRates && regionRates.targetRate > 0) {
         targetRate = regionRates.targetRate;
         maxRate = regionRates.maxRate > 0 ? regionRates.maxRate : Math.round(targetRate * 1.2);
+        regionRatesFound = true;
+        regionMaxRateLimit = maxRate;
         jobStats.log.push({type: 'info', message: `${candidateEmail} - Using ${regionRates.region || candidateRegion} region rates: target=$${targetRate}, max=$${maxRate}`});
+      } else {
+        // CRITICAL: Region is specified but no rate tier found - log warning and use safety limit
+        jobStats.log.push({type: 'warning', message: `${candidateEmail} - WARNING: Region "${candidateRegion}" specified but no Rate_Tiers entry found for job ${jobId}. Using global rate $${targetRate}/hr as fallback.`});
+
+        // Look up safety limit from hardcoded map
+        const normalizedRegion = String(candidateRegion).toLowerCase().trim();
+        regionMaxRateLimit = REGION_MAX_RATE_LIMITS[normalizedRegion] || null;
+
+        if (regionMaxRateLimit) {
+          jobStats.log.push({type: 'info', message: `${candidateEmail} - Safety limit for ${candidateRegion}: $${regionMaxRateLimit}/hr max (will escalate if rate exceeds this)`});
+        }
       }
     }
 
@@ -4582,6 +4625,50 @@ Return ONLY the JSON object, no other text.
     if (rateAnalysis && rateAnalysis.action === 'AUTO_ACCEPT') {
       const rate = rateAnalysis.proposed_rate || targetRate;
       jobStats.log.push({type: 'success', message: `${candidateEmail} - AI recommends AUTO-ACCEPT at $${rate}/hr (target: $${targetRate}/hr)`});
+
+      // CRITICAL SAFETY CHECK: Prevent auto-accepting rates that exceed region safety limits
+      // This catches cases where Rate_Tiers lookup failed but candidate is from a low-cost region
+      if (candidateRegion && regionMaxRateLimit && rate > regionMaxRateLimit) {
+        jobStats.log.push({type: 'warning', message: `${candidateEmail} - SAFETY BLOCK: Rate $${rate}/hr exceeds ${candidateRegion} safety limit of $${regionMaxRateLimit}/hr. Escalating instead of auto-accepting.`});
+
+        // Escalate to human review instead of auto-accepting
+        const escalationReason = `Rate $${rate}/hr from ${candidateRegion} candidate exceeds expected regional max of $${regionMaxRateLimit}/hr. Possible Rate_Tiers misconfiguration.`;
+
+        try {
+          updateJobCandidateStatus(ss, jobId, candidateEmail, 'Escalated - Rate Review', `$${rate}/hr (exceeds ${candidateRegion} limit)`);
+        } catch(detailsErr) {
+          console.error("Failed to update job details sheet:", detailsErr);
+        }
+
+        // Record in completed sheet as escalated for review
+        const completedSheet = ss.getSheetByName('Negotiation_Completed');
+        completedSheet.appendRow([
+          new Date(),
+          jobId,
+          candidateEmail,
+          candidateName,
+          devId,
+          "Escalated",
+          escalationReason,
+          thread.getId(),
+          `Rate: $${rate}/hr | Region: ${candidateRegion} | Max Expected: $${regionMaxRateLimit}/hr`
+        ]);
+
+        // Send escalation notification
+        sendEscalationEmail(jobId, candidateName, candidateEmail, thread, escalationReason, rules.escalationEmail);
+
+        // Update follow-up labels
+        updateFollowUpLabels(thread.getId(), 'responded');
+
+        // Remove from active negotiation state
+        if(stateRowIndex > -1) {
+          stateSheet.deleteRow(stateRowIndex);
+        }
+
+        jobStats.escalated++;
+        jobStats.log.push({type: 'warning', message: `${candidateEmail} - Escalated due to regional rate safety check`});
+        return;
+      }
 
       // FIX: Check if data gathering is enabled but incomplete
       // If so, record the rate but DON'T mark as Completed - send combined email instead
