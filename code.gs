@@ -396,15 +396,14 @@ const SENSITIVE_PATTERNS = [
   /tier\s*\d+/gi,
 
   // Cross-region and max rate leakage patterns
+  // These patterns detect INTERNAL rate structure leakage, NOT legitimate negotiation offers
   /rates?\s*(vary|differ|change)\s*(by|across|per|in different)/gi,
   /depending\s*on\s*(your\s*)?(location|region|country)/gi,
   /(in|for)\s*(the\s*)?(US|Canada|LATAM|Europe|India|Asia)\s*(we|rates|pay)/gi,
   /other\s*(region|countr)/gi,
-  /maximum\s*(we\s*)?(can|could)\s*(offer|pay|go)/gi,
-  /up\s*to\s*\$?\d+/gi,
-  /range\s*(is|from|between)/gi,
-  /(can|could)\s*go\s*(as\s*)?high\s*as/gi,
-  /highest\s*(we|rate|amount)/gi
+  // Note: Patterns like "up to $X", "maximum we can offer", "range is" were removed
+  // because they blocked legitimate counter-offer language in negotiations.
+  // The AI saying "we can offer up to $50" is a valid negotiation tactic, not a leak.
 ];
 
 /**
