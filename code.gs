@@ -5383,7 +5383,80 @@ Write ONLY the email, nothing else.
     }
     else if (aiResponse.includes("ACTION: ACCEPT")) {
       const rateMatch = aiResponse.match(/\[([^\]]+)\]/);
-      const rate = rateMatch ? rateMatch[1].replace('$','').replace('/hr','').trim() : rules.target;
+      const rate = rateMatch ? Number(rateMatch[1].replace('$','').replace('/hr','').trim()) : Number(rules.target);
+
+      // SAFETY CHECK: Validate rate against maxRate before accepting
+      if (rate > maxRate) {
+        jobStats.log.push({type: 'warning', message: `${candidateEmail} - SAFETY BLOCK (ACTION:ACCEPT): Rate $${rate}/hr exceeds max $${maxRate}/hr. Escalating instead.`});
+
+        const escalationReason = `AI wanted to accept $${rate}/hr but this exceeds max rate of $${maxRate}/hr`;
+
+        try {
+          updateJobCandidateStatus(ss, jobId, candidateEmail, 'Escalated - Rate Exceeds Max', `$${rate}/hr (max: $${maxRate})`);
+        } catch(detailsErr) {
+          console.error("Failed to update job details sheet:", detailsErr);
+        }
+
+        // Record in completed sheet as escalated
+        const completedSheetAccept = ss.getSheetByName('Negotiation_Completed');
+        completedSheetAccept.appendRow([
+          new Date(),
+          jobId,
+          candidateEmail,
+          candidateName,
+          devId,
+          "Escalated",
+          escalationReason,
+          thread.getId(),
+          `Rate: $${rate}/hr | Max: $${maxRate}/hr${candidateRegion ? ' | Region: ' + candidateRegion : ''}`
+        ]);
+
+        sendEscalationEmail(jobId, candidateName, candidateEmail, thread, escalationReason, rules.escalationEmail);
+        updateFollowUpLabels(thread.getId(), 'responded');
+
+        if(stateRowIndex > -1) {
+          stateSheet.deleteRow(stateRowIndex);
+        }
+
+        jobStats.escalated++;
+        return;
+      }
+
+      // SAFETY CHECK: Validate rate against regional limits
+      if (candidateRegion && regionMaxRateLimit && rate > regionMaxRateLimit) {
+        jobStats.log.push({type: 'warning', message: `${candidateEmail} - SAFETY BLOCK (ACTION:ACCEPT): Rate $${rate}/hr exceeds ${candidateRegion} limit of $${regionMaxRateLimit}/hr. Escalating.`});
+
+        const escalationReason = `Rate $${rate}/hr from ${candidateRegion} exceeds regional max of $${regionMaxRateLimit}/hr`;
+
+        try {
+          updateJobCandidateStatus(ss, jobId, candidateEmail, 'Escalated - Rate Review', `$${rate}/hr (exceeds ${candidateRegion} limit)`);
+        } catch(detailsErr) {
+          console.error("Failed to update job details sheet:", detailsErr);
+        }
+
+        const completedSheetRegion = ss.getSheetByName('Negotiation_Completed');
+        completedSheetRegion.appendRow([
+          new Date(),
+          jobId,
+          candidateEmail,
+          candidateName,
+          devId,
+          "Escalated",
+          escalationReason,
+          thread.getId(),
+          `Rate: $${rate}/hr | Region: ${candidateRegion} | Max Expected: $${regionMaxRateLimit}/hr`
+        ]);
+
+        sendEscalationEmail(jobId, candidateName, candidateEmail, thread, escalationReason, rules.escalationEmail);
+        updateFollowUpLabels(thread.getId(), 'responded');
+
+        if(stateRowIndex > -1) {
+          stateSheet.deleteRow(stateRowIndex);
+        }
+
+        jobStats.escalated++;
+        return;
+      }
 
       // FIX: Check if data gathering is enabled but incomplete before completing
       if (hasDataGatheringEnabled && !isDataGatheringComplete && pendingDataQuestions.length > 0) {
@@ -6213,6 +6286,11 @@ function syncCompletedFromGmail() {
           let aiNotes = stateData[r][8] || '';
 
           // EXTRACT DATA FROM CANDIDATE'S RESPONSE before marking complete
+          // Also check rate against limits before allowing completion
+          let shouldEscalate = false;
+          let escalationReason = '';
+          let extractedRate = null;
+
           try {
             // Get candidate's messages from thread
             const candidateMessages = msgs.filter(m => {
@@ -6225,6 +6303,40 @@ function syncCompletedFromGmail() {
               const latestMessage = candidateMessages[candidateMessages.length - 1];
               const candidateResponse = latestMessage.getPlainBody();
 
+              // RATE VALIDATION: Extract rate from candidate's message and validate against limits
+              const rateMatch = candidateResponse.match(/\$\s*(\d+(?:\.\d+)?)\s*(?:\/\s*hr|\/\s*hour|per\s*hour)?/i);
+              if (rateMatch) {
+                extractedRate = Number(rateMatch[1]);
+
+                // Get job's rate configuration
+                const jobConfig = configs[i];
+                const jobMaxRate = Number(jobConfig[2]) || 0;
+
+                // Get regional safety limits
+                const REGION_MAX_RATE_LIMITS = {
+                  'india': 25, 'pakistan': 25, 'bangladesh': 25,
+                  'philippines': 30, 'vietnam': 30, 'indonesia': 30,
+                  'nigeria': 30, 'kenya': 30, 'egypt': 30,
+                  'ukraine': 35, 'poland': 40, 'romania': 35,
+                  'brazil': 35, 'mexico': 40, 'argentina': 35, 'colombia': 35,
+                  'latam': 40, 'latin america': 40, 'eastern europe': 40, 'asia': 35, 'africa': 30
+                };
+
+                const normalizedRegion = region ? String(region).toLowerCase().trim() : '';
+                const regionLimit = REGION_MAX_RATE_LIMITS[normalizedRegion] || null;
+
+                // Check against max rate
+                if (jobMaxRate > 0 && extractedRate > jobMaxRate) {
+                  shouldEscalate = true;
+                  escalationReason = `Gmail Sync: Rate $${extractedRate}/hr exceeds job max of $${jobMaxRate}/hr`;
+                }
+                // Check against regional limit
+                else if (regionLimit && extractedRate > regionLimit) {
+                  shouldEscalate = true;
+                  escalationReason = `Gmail Sync: Rate $${extractedRate}/hr from ${region} exceeds regional limit of $${regionLimit}/hr`;
+                }
+              }
+
               // Get all questions for this job (including email-type specific columns)
               const questions = getAllJobColumns(jobId);
 
@@ -6235,38 +6347,61 @@ function syncCompletedFromGmail() {
               const conversationSummary = generateConversationSummary(msgs, candidateEmail, myEmail);
               aiNotes = conversationSummary || aiNotes;
 
-              // Determine proper status based on extracted data
-              let finalStatus = 'Completed';
+              // Determine proper status based on extracted data and rate validation
+              let finalStatus = shouldEscalate ? 'Escalated - Rate Review' : 'Completed';
               const answeredCount = Object.keys(extractedAnswers).filter(k =>
                 k !== 'is_negotiating' && k !== 'negotiation_notes' &&
                 extractedAnswers[k] && extractedAnswers[k] !== 'NOT_PROVIDED'
               ).length;
 
-              if (answeredCount > 0 && answeredCount >= questions.length) {
-                finalStatus = 'Data Complete';
-              } else if (answeredCount > 0) {
-                finalStatus = 'Completed (Partial Data)';
+              if (!shouldEscalate) {
+                if (answeredCount > 0 && answeredCount >= questions.length) {
+                  finalStatus = 'Data Complete';
+                } else if (answeredCount > 0) {
+                  finalStatus = 'Completed (Partial Data)';
+                }
               }
 
               // Save extracted data to job details sheet
               saveJobCandidateDetails(ss, jobId, candidateEmail, name, devId, threadId, extractedAnswers, finalStatus, region);
 
-              console.log(`Gmail Sync: Extracted ${answeredCount} answers for ${candidateEmail}, status: ${finalStatus}`);
+              console.log(`Gmail Sync: ${candidateEmail} - ${finalStatus}${extractedRate ? ` (rate: $${extractedRate}/hr)` : ''}`);
             }
           } catch(extractErr) {
             console.error("Gmail Sync - Failed to extract candidate data:", extractErr);
           }
 
-          // Add to completed sheet
+          // Add to completed sheet with appropriate status
+          const completionStatus = shouldEscalate
+            ? `Escalated - Rate Review (Gmail Sync)${extractedRate ? ` - $${extractedRate}/hr` : ''}`
+            : 'Completed (Gmail Sync)';
+          const completionNotes = shouldEscalate
+            ? escalationReason
+            : (aiNotes || 'Marked complete directly in Gmail');
+
           compSheet.appendRow([
             new Date(),
             jobId,
             candidateEmail,
             name,
-            'Completed (Gmail Sync)',
-            aiNotes || 'Marked complete directly in Gmail',
+            completionStatus,
+            completionNotes,
             devId
           ]);
+
+          // If escalated, also send notification
+          if (shouldEscalate) {
+            try {
+              const jobConfig = configs[i];
+              const escalationEmail = jobConfig[6] || ''; // Escalation email column
+              if (escalationEmail) {
+                sendEscalationEmail(jobId, name, candidateEmail, thread, escalationReason, escalationEmail);
+              }
+              console.log(`Gmail Sync: Escalated ${candidateEmail} - ${escalationReason}`);
+            } catch(escErr) {
+              console.error("Gmail Sync - Failed to send escalation:", escErr);
+            }
+          }
 
           // Note: Job details sheet status is already updated by saveJobCandidateDetails above
           // with proper status like 'Data Complete' or 'Completed (Partial Data)'
