@@ -1745,7 +1745,7 @@ function getOrCreateJobDetailsSheet(ss, jobId, emailBody) {
   // Build headers: fixed columns + dynamic question columns + status columns
   const fixedHeaders = ['Timestamp', 'Email', 'Name', 'Dev ID', 'Thread ID', 'Region'];
   const questionHeaders = questions.map(q => q.header);
-  const statusHeaders = ['Negotiation Notes', 'Status', 'Agreed Rate'];
+  const statusHeaders = ['Candidate Offer', 'Counter Offer', 'Final Agreed Rate', 'Negotiation Notes', 'Status'];
 
   const allHeaders = [...fixedHeaders, ...questionHeaders, ...statusHeaders];
 
@@ -1756,11 +1756,24 @@ function getOrCreateJobDetailsSheet(ss, jobId, emailBody) {
   const questionsKey = `JOB_${jobId}_QUESTIONS`;
   PropertiesService.getScriptProperties().setProperty(questionsKey, JSON.stringify(questions));
 
-  // Format header row
+  // Format header row - different colors for different column types
   const headerRange = sheet.getRange(1, 1, 1, allHeaders.length);
   headerRange.setFontWeight('bold');
-  headerRange.setBackground('#4285f4');
   headerRange.setFontColor('#ffffff');
+
+  // Fixed columns (blue)
+  const fixedRange = sheet.getRange(1, 1, 1, fixedHeaders.length);
+  fixedRange.setBackground('#4285f4');
+
+  // Question columns (orange) - Email questions asked to candidate
+  if (questionHeaders.length > 0) {
+    const questionRange = sheet.getRange(1, fixedHeaders.length + 1, 1, questionHeaders.length);
+    questionRange.setBackground('#e69138');
+  }
+
+  // Status/Negotiation columns (green)
+  const statusRange = sheet.getRange(1, fixedHeaders.length + questionHeaders.length + 1, 1, statusHeaders.length);
+  statusRange.setBackground('#38761d');
 
   // Freeze header row
   sheet.setFrozenRows(1);
@@ -1978,9 +1991,8 @@ const EMAIL_TYPE_COLUMNS = {
   },
   'negotiation': {
     columns: [
-      { header: 'Counter Offer', question: 'What rate did the candidate counter-propose?' },
-      { header: 'Negotiation Response', question: 'What was the candidate response to negotiation?' },
-      { header: 'Final Agreed Rate', question: 'What is the final agreed rate?' }
+      // Note: Counter Offer and Final Agreed Rate are now base columns in the sheet
+      { header: 'Negotiation Response', question: 'What was the candidate response to negotiation?' }
     ],
     description: 'Email negotiating rate or terms with candidate'
   },
@@ -2149,8 +2161,8 @@ function addEmailTypeColumns(jobId, emailType) {
     return { success: true, message: 'All columns already exist', added: [] };
   }
 
-  // Find where to insert (before status columns: 'Negotiation Notes', 'Status', 'Agreed Rate')
-  const statusColumns = ['Negotiation Notes', 'Status', 'Agreed Rate'];
+  // Find where to insert (before status columns: 'Candidate Offer', 'Counter Offer', 'Final Agreed Rate', 'Negotiation Notes', 'Status')
+  const statusColumns = ['Candidate Offer', 'Counter Offer', 'Final Agreed Rate', 'Negotiation Notes', 'Status'];
   let insertPosition = lastCol + 1;
 
   for (let i = 0; i < existingHeaders.length; i++) {
@@ -2849,8 +2861,7 @@ Return a JSON object where:
 - Values are the extracted answers
 
 Special values:
-- "NOT_PROVIDED" - ONLY if truly no matching value exists
-- "NEGOTIATING" - if they want to discuss later
+- "NOT_PROVIDED" - ONLY if truly no matching value exists (do NOT use "NEGOTIATING" - always extract the actual value provided)
 
 {
   "Age": "23",
@@ -2932,7 +2943,7 @@ function saveJobCandidateDetails(ss, jobId, candidateEmail, candidateName, devId
   const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
 
   // Fixed column headers that are NOT question columns
-  const fixedHeaders = ['Timestamp', 'Email', 'Name', 'Dev ID', 'Thread ID', 'Region', 'Negotiation Notes', 'Status', 'Agreed Rate'];
+  const fixedHeaders = ['Timestamp', 'Email', 'Name', 'Dev ID', 'Thread ID', 'Region', 'Candidate Offer', 'Counter Offer', 'Final Agreed Rate', 'Negotiation Notes', 'Status'];
 
   // Log for debugging
   console.log(`saveJobCandidateDetails: jobId=${jobId}, email=${cleanEmail}, questions=${questions.length}, answers=${JSON.stringify(answers)}`);
@@ -2957,9 +2968,13 @@ function saveJobCandidateDetails(ss, jobId, candidateEmail, candidateName, devId
   const devIdColIdx = headers.indexOf('Dev ID');
   const threadIdColIdx = headers.indexOf('Thread ID');
   const regionColIdx = headers.indexOf('Region');
+  const candidateOfferColIdx = headers.indexOf('Candidate Offer');
+  const counterOfferColIdx = headers.indexOf('Counter Offer');
+  const finalAgreedRateColIdx = headers.indexOf('Final Agreed Rate');
   const notesColIdx = headers.indexOf('Negotiation Notes');
   const statusColIdx = headers.indexOf('Status');
-  const agreedRateColIdx = headers.indexOf('Agreed Rate');
+  // Legacy support - check for old 'Agreed Rate' column name
+  const agreedRateColIdx = headers.indexOf('Agreed Rate') !== -1 ? headers.indexOf('Agreed Rate') : finalAgreedRateColIdx;
 
   // Check if candidate already exists in sheet
   const data = sheet.getDataRange().getValues();
@@ -3131,7 +3146,9 @@ function updateJobCandidateStatus(ss, jobId, candidateEmail, status, agreedRate)
   const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
   const emailColIdx = headers.indexOf('Email');
   const statusColIdx = headers.indexOf('Status');
-  const agreedRateColIdx = headers.indexOf('Agreed Rate');
+  // Support both new 'Final Agreed Rate' and legacy 'Agreed Rate' column names
+  let agreedRateColIdx = headers.indexOf('Final Agreed Rate');
+  if (agreedRateColIdx === -1) agreedRateColIdx = headers.indexOf('Agreed Rate');
   const timestampColIdx = headers.indexOf('Timestamp');
 
   const data = sheet.getDataRange().getValues();
@@ -5912,7 +5929,7 @@ function getJobCandidateData(jobId, candidateEmail) {
     const cleanEmail = String(candidateEmail).toLowerCase().trim();
 
     // Fixed headers that are NOT data gathering questions
-    const fixedHeaders = ['Timestamp', 'Email', 'Name', 'Dev ID', 'Thread ID', 'Region', 'Negotiation Notes', 'Status', 'Agreed Rate'];
+    const fixedHeaders = ['Timestamp', 'Email', 'Name', 'Dev ID', 'Thread ID', 'Region', 'Candidate Offer', 'Counter Offer', 'Final Agreed Rate', 'Negotiation Notes', 'Status', 'Agreed Rate'];
 
     // Find candidate row
     const emailColIdx = headers.indexOf('Email');
@@ -5927,11 +5944,14 @@ function getJobCandidateData(jobId, candidateEmail) {
     if (!candidateRow) return null;
 
     // Extract question/answer pairs
+    // Support both new 'Final Agreed Rate' and legacy 'Agreed Rate' column names
+    let agreedRateIdx = headers.indexOf('Final Agreed Rate');
+    if (agreedRateIdx === -1) agreedRateIdx = headers.indexOf('Agreed Rate');
     const dataGathering = {
       answered: [],
       pending: [],
       status: candidateRow[headers.indexOf('Status')] || 'Unknown',
-      agreedRate: candidateRow[headers.indexOf('Agreed Rate')] || null
+      agreedRate: agreedRateIdx !== -1 ? (candidateRow[agreedRateIdx] || null) : null
     };
 
     headers.forEach((header, idx) => {
@@ -10940,14 +10960,17 @@ function testDataExtraction(testData) {
 
     // Build sheet preview - what a row would look like
     const sheetPreview = {
-      headers: ['Timestamp', 'Email', 'Name', ...questionsList.map(q => q.header), 'Status', 'Negotiation Notes'],
+      headers: ['Timestamp', 'Email', 'Name', ...questionsList.map(q => q.header), 'Candidate Offer', 'Counter Offer', 'Final Agreed Rate', 'Negotiation Notes', 'Status'],
       values: [
         new Date().toLocaleString(),
         'test@example.com',
         devName || 'Test Candidate',
         ...questionsList.map(q => extractedData[q.header] || ''),
-        answeredCount === questionsList.length ? 'Data Complete' : 'Pending',
-        extractedData.negotiation_notes || ''
+        '', // Candidate Offer
+        '', // Counter Offer
+        '', // Final Agreed Rate
+        extractedData.negotiation_notes || '',
+        answeredCount === questionsList.length ? 'Data Complete' : 'Pending'
       ]
     };
 
