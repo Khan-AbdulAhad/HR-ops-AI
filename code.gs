@@ -4485,15 +4485,61 @@ function processJobNegotiations(jobId, rules, ss, faqContent) {
     let targetRate = Number(rules.target);
     let maxRate = Number(rules.max) || Math.round(targetRate * 1.2); // Default max to 120% of target if not set
 
+    // SAFETY: Track if we found region-specific rates - used to prevent false auto-accepts
+    let regionRatesFound = false;
+    let regionMaxRateLimit = null; // Safety limit for the region
+
+    // Default expected max rates by region - safety net when Rate_Tiers lookup fails
+    // These are conservative upper bounds to prevent accepting rates way above expected
+    const REGION_MAX_RATE_LIMITS = {
+      'india': 25,
+      'pakistan': 25,
+      'bangladesh': 25,
+      'philippines': 30,
+      'vietnam': 30,
+      'indonesia': 30,
+      'nigeria': 30,
+      'kenya': 30,
+      'egypt': 30,
+      'ukraine': 35,
+      'poland': 40,
+      'romania': 35,
+      'brazil': 35,
+      'mexico': 40,
+      'argentina': 35,
+      'colombia': 35,
+      'latam': 40,
+      'latin america': 40,
+      'eastern europe': 40,
+      'asia': 35,
+      'africa': 30
+    };
+
     if (candidateRegion) {
       const regionRates = getRateForRegion(jobId, candidateRegion, ss);
       // SAFETY: Use explicit > 0 check to avoid falsy value bugs (0 would be treated as missing)
       if (regionRates && regionRates.targetRate > 0) {
         targetRate = regionRates.targetRate;
         maxRate = regionRates.maxRate > 0 ? regionRates.maxRate : Math.round(targetRate * 1.2);
+        regionRatesFound = true;
+        regionMaxRateLimit = maxRate;
         jobStats.log.push({type: 'info', message: `${candidateEmail} - Using ${regionRates.region || candidateRegion} region rates: target=$${targetRate}, max=$${maxRate}`});
+      } else {
+        // CRITICAL: Region is specified but no rate tier found - log warning and use safety limit
+        jobStats.log.push({type: 'warning', message: `${candidateEmail} - WARNING: Region "${candidateRegion}" specified but no Rate_Tiers entry found for job ${jobId}. Using global rate $${targetRate}/hr as fallback.`});
+
+        // Look up safety limit from hardcoded map
+        const normalizedRegion = String(candidateRegion).toLowerCase().trim();
+        regionMaxRateLimit = REGION_MAX_RATE_LIMITS[normalizedRegion] || null;
+
+        if (regionMaxRateLimit) {
+          jobStats.log.push({type: 'info', message: `${candidateEmail} - Safety limit for ${candidateRegion}: $${regionMaxRateLimit}/hr max (will escalate if rate exceeds this)`});
+        }
       }
     }
+
+    // Log the final rate configuration being used for this candidate
+    jobStats.log.push({type: 'info', message: `${candidateEmail} - Rate config: target=$${targetRate}, max=$${maxRate}, region=${candidateRegion || 'none'}, regionRatesFound=${regionRatesFound}, regionLimit=${regionMaxRateLimit || 'none'}`});
 
     // Progressive offer strategy:
     // Attempt 1 (attempts=0): 80% of target rate
@@ -4511,9 +4557,11 @@ CANDIDATE'S MESSAGE:
 "${candidateLatestMessage}"
 
 OUR RATE PARAMETERS:
-- Target Rate: $${targetRate}/hr (maximum we want to pay)
+- Target Rate: $${targetRate}/hr (ideal rate we want to pay)
+- Max Rate: $${maxRate}/hr (absolute maximum we can pay)
 - First Offer Rate: $${firstOfferRate}/hr (80% of target - for first attempt)
 - Current Attempt: ${attempts + 1}
+${candidateRegion ? `- Candidate Region: ${candidateRegion}` : ''}
 
 TASK:
 Analyze the candidate's message and determine:
@@ -4521,42 +4569,49 @@ Analyze the candidate's message and determine:
 2. Are they accepting a previous offer we made?
 3. What action should we take?
 
+CRITICAL - PROPOSAL vs ACCEPTANCE DISTINCTION:
+- If candidate STATES their expected/desired rate (e.g., "my expected rate is $X", "I expect $X", "my rate is $X"), this is a PROPOSAL, NOT acceptance
+- "I am ready to start" or "ready to begin" WITHOUT agreeing to OUR rate is NOT acceptance - it's just expressing availability
+- Acceptance REQUIRES the candidate to AGREE TO A RATE WE OFFERED, not just state their own rate
+- If this is the first message in negotiation and candidate states "$X/hr", they are PROPOSING, not accepting
+
 IMPORTANT INTERPRETATION RULES:
 - "Can I get $X?" = They are asking for $X (treat as a rate proposal of $X)
 - "I would like $X" = They are proposing $X
-- "I expect $X" = They are proposing $X
+- "I expect $X" = They are proposing $X (NOT accepting!)
+- "My expected rate is $X" = They are proposing $X (NOT accepting!)
 - "I want $X" = They are proposing $X
 - "How about $X?" = They are counter-proposing $X
 - ANY mention of a specific dollar amount by the candidate = Their proposed/expected rate
-- Questions about rate ("can I get...?", "is $X possible?") should be treated as rate proposals
+- "I am ready to start" WITHOUT agreeing to our rate = Just expressing availability, NOT acceptance
 
 ACCEPTANCE DETECTION RULES - CRITICAL:
-- "sure", "ok", "okay", "yes", "I agree", "works for me", "that works", "sounds good" = ACCEPTING our offer
-- "$X works for me" or "sure $X" = ACCEPTING at rate $X (set is_accepting_offer: true)
-- "I accept $X" or "I can do $X" = ACCEPTING at rate $X
-- "fine with me", "I'm good with that", "let's proceed", "let's do it" = ACCEPTING our offer
-- ANY positive affirmation about a rate we proposed = is_accepting_offer: true
-- When candidate says "sure $X works" where $X matches or is close to what we offered = AUTO_ACCEPT
+- Acceptance ONLY applies when candidate agrees to a rate WE proposed
+- "sure", "ok", "okay", "yes", "I agree", "works for me", "that works", "sounds good" IN RESPONSE TO OUR OFFER = ACCEPTING
+- "$X works for me" where $X was OUR offer = ACCEPTING at rate $X
+- "I accept $X" or "I can do $X" where $X is what WE offered = ACCEPTING at rate $X
+- If candidate states THEIR OWN rate and says "ready to start", they are proposing, NOT accepting
 
 DECISION RULES (in priority order):
-1. If candidate explicitly ACCEPTS our offer (using acceptance phrases like "sure", "works for me", "I agree", "okay", "yes") → ACTION: AUTO_ACCEPT, is_accepting_offer: true
-2. If candidate mentions/agrees to a rate AT OR BELOW $${targetRate}/hr → ACTION: AUTO_ACCEPT (accept their rate!)
-3. If candidate mentions/asks for a rate ABOVE $${targetRate}/hr → ACTION: COUNTER (we will counter with target rate)
-4. If candidate is very firm on a rate ABOVE $${targetRate}/hr after multiple attempts → ACTION: ESCALATE
-5. If no clear rate mentioned but message is positive → ACTION: COUNTER
-- PRIORITY: Acceptance detection takes precedence! If they say "sure $X works" - that's an acceptance, NOT a counter!
+1. If candidate explicitly ACCEPTS a rate WE previously offered → ACTION: AUTO_ACCEPT, is_accepting_offer: true
+2. If candidate PROPOSES a rate AT OR BELOW $${targetRate}/hr → ACTION: AUTO_ACCEPT (accept their proposal!)
+3. If candidate PROPOSES a rate BETWEEN $${targetRate} and $${maxRate}/hr → ACTION: COUNTER (try to negotiate down)
+4. If candidate PROPOSES a rate ABOVE $${maxRate}/hr → ACTION: ESCALATE (exceeds our max budget)
+5. If candidate is very firm on a rate ABOVE $${maxRate}/hr → ACTION: ESCALATE
+6. If no clear rate mentioned but message is positive → ACTION: COUNTER
 
-CRITICAL:
-- If they ask "can I get $41?" and our target is $50, that means $41 <= $50, so AUTO_ACCEPT at $41
-- If they ask "can I get $41?" and our target is $40, that means $41 > $40, so COUNTER
+CRITICAL RULES:
+- If proposed rate > $${maxRate}, ALWAYS escalate - NEVER auto-accept
+- If they state "my expected rate is $56/hr" and our max is $20, that's a PROPOSAL of $56 which exceeds max → ESCALATE
+- "I am ready" + stating their own rate = PROPOSAL, not acceptance
 - Always extract the EXACT rate number they mentioned
 
 RESPONSE FORMAT (JSON only):
 {
   "proposed_rate": <number - the rate they mentioned/asked for, or null if none>,
-  "is_accepting_offer": <true/false>,
+  "is_accepting_offer": <true/false - ONLY true if they accepted OUR offer>,
   "action": "<AUTO_ACCEPT|COUNTER|ESCALATE>",
-  "reason": "<brief explanation including the comparison: their rate vs our target>",
+  "reason": "<brief explanation including: their rate ($X) vs our target ($${targetRate}) and max ($${maxRate})>",
   "candidate_flexibility": "<flexible|firm|unclear>"
 }
 
@@ -4578,6 +4633,93 @@ Return ONLY the JSON object, no other text.
     if (rateAnalysis && rateAnalysis.action === 'AUTO_ACCEPT') {
       const rate = rateAnalysis.proposed_rate || targetRate;
       jobStats.log.push({type: 'success', message: `${candidateEmail} - AI recommends AUTO-ACCEPT at $${rate}/hr (target: $${targetRate}/hr)`});
+
+      // CRITICAL SAFETY CHECK: Prevent auto-accepting rates that exceed region safety limits
+      // This catches cases where Rate_Tiers lookup failed but candidate is from a low-cost region
+      if (candidateRegion && regionMaxRateLimit && rate > regionMaxRateLimit) {
+        jobStats.log.push({type: 'warning', message: `${candidateEmail} - SAFETY BLOCK: Rate $${rate}/hr exceeds ${candidateRegion} safety limit of $${regionMaxRateLimit}/hr. Escalating instead of auto-accepting.`});
+
+        // Escalate to human review instead of auto-accepting
+        const escalationReason = `Rate $${rate}/hr from ${candidateRegion} candidate exceeds expected regional max of $${regionMaxRateLimit}/hr. Possible Rate_Tiers misconfiguration.`;
+
+        try {
+          updateJobCandidateStatus(ss, jobId, candidateEmail, 'Escalated - Rate Review', `$${rate}/hr (exceeds ${candidateRegion} limit)`);
+        } catch(detailsErr) {
+          console.error("Failed to update job details sheet:", detailsErr);
+        }
+
+        // Record in completed sheet as escalated for review
+        const completedSheet = ss.getSheetByName('Negotiation_Completed');
+        completedSheet.appendRow([
+          new Date(),
+          jobId,
+          candidateEmail,
+          candidateName,
+          devId,
+          "Escalated",
+          escalationReason,
+          thread.getId(),
+          `Rate: $${rate}/hr | Region: ${candidateRegion} | Max Expected: $${regionMaxRateLimit}/hr`
+        ]);
+
+        // Send escalation notification
+        sendEscalationEmail(jobId, candidateName, candidateEmail, thread, escalationReason, rules.escalationEmail);
+
+        // Update follow-up labels
+        updateFollowUpLabels(thread.getId(), 'responded');
+
+        // Remove from active negotiation state
+        if(stateRowIndex > -1) {
+          stateSheet.deleteRow(stateRowIndex);
+        }
+
+        jobStats.escalated++;
+        jobStats.log.push({type: 'warning', message: `${candidateEmail} - Escalated due to regional rate safety check`});
+        return;
+      }
+
+      // SECOND SAFETY CHECK: Ensure rate doesn't exceed configured maxRate (regardless of region)
+      // This catches cases where AI incorrectly recommends AUTO_ACCEPT for rates above our budget
+      if (rate > maxRate) {
+        jobStats.log.push({type: 'warning', message: `${candidateEmail} - SAFETY BLOCK: Rate $${rate}/hr exceeds configured max rate of $${maxRate}/hr. Escalating instead of auto-accepting.`});
+
+        const escalationReason = `Rate $${rate}/hr exceeds job's max rate of $${maxRate}/hr. AI incorrectly recommended auto-accept.`;
+
+        try {
+          updateJobCandidateStatus(ss, jobId, candidateEmail, 'Escalated - Rate Exceeds Max', `$${rate}/hr (max: $${maxRate})`);
+        } catch(detailsErr) {
+          console.error("Failed to update job details sheet:", detailsErr);
+        }
+
+        // Record in completed sheet as escalated for review
+        const completedSheetMax = ss.getSheetByName('Negotiation_Completed');
+        completedSheetMax.appendRow([
+          new Date(),
+          jobId,
+          candidateEmail,
+          candidateName,
+          devId,
+          "Escalated",
+          escalationReason,
+          thread.getId(),
+          `Rate: $${rate}/hr | Max: $${maxRate}/hr | Target: $${targetRate}/hr${candidateRegion ? ' | Region: ' + candidateRegion : ''}`
+        ]);
+
+        // Send escalation notification
+        sendEscalationEmail(jobId, candidateName, candidateEmail, thread, escalationReason, rules.escalationEmail);
+
+        // Update follow-up labels
+        updateFollowUpLabels(thread.getId(), 'responded');
+
+        // Remove from active negotiation state
+        if(stateRowIndex > -1) {
+          stateSheet.deleteRow(stateRowIndex);
+        }
+
+        jobStats.escalated++;
+        jobStats.log.push({type: 'warning', message: `${candidateEmail} - Escalated: rate $${rate}/hr exceeds max $${maxRate}/hr`});
+        return;
+      }
 
       // FIX: Check if data gathering is enabled but incomplete
       // If so, record the rate but DON'T mark as Completed - send combined email instead
@@ -5237,7 +5379,80 @@ Write ONLY the email, nothing else.
     }
     else if (aiResponse.includes("ACTION: ACCEPT")) {
       const rateMatch = aiResponse.match(/\[([^\]]+)\]/);
-      const rate = rateMatch ? rateMatch[1].replace('$','').replace('/hr','').trim() : rules.target;
+      const rate = rateMatch ? Number(rateMatch[1].replace('$','').replace('/hr','').trim()) : Number(rules.target);
+
+      // SAFETY CHECK: Validate rate against maxRate before accepting
+      if (rate > maxRate) {
+        jobStats.log.push({type: 'warning', message: `${candidateEmail} - SAFETY BLOCK (ACTION:ACCEPT): Rate $${rate}/hr exceeds max $${maxRate}/hr. Escalating instead.`});
+
+        const escalationReason = `AI wanted to accept $${rate}/hr but this exceeds max rate of $${maxRate}/hr`;
+
+        try {
+          updateJobCandidateStatus(ss, jobId, candidateEmail, 'Escalated - Rate Exceeds Max', `$${rate}/hr (max: $${maxRate})`);
+        } catch(detailsErr) {
+          console.error("Failed to update job details sheet:", detailsErr);
+        }
+
+        // Record in completed sheet as escalated
+        const completedSheetAccept = ss.getSheetByName('Negotiation_Completed');
+        completedSheetAccept.appendRow([
+          new Date(),
+          jobId,
+          candidateEmail,
+          candidateName,
+          devId,
+          "Escalated",
+          escalationReason,
+          thread.getId(),
+          `Rate: $${rate}/hr | Max: $${maxRate}/hr${candidateRegion ? ' | Region: ' + candidateRegion : ''}`
+        ]);
+
+        sendEscalationEmail(jobId, candidateName, candidateEmail, thread, escalationReason, rules.escalationEmail);
+        updateFollowUpLabels(thread.getId(), 'responded');
+
+        if(stateRowIndex > -1) {
+          stateSheet.deleteRow(stateRowIndex);
+        }
+
+        jobStats.escalated++;
+        return;
+      }
+
+      // SAFETY CHECK: Validate rate against regional limits
+      if (candidateRegion && regionMaxRateLimit && rate > regionMaxRateLimit) {
+        jobStats.log.push({type: 'warning', message: `${candidateEmail} - SAFETY BLOCK (ACTION:ACCEPT): Rate $${rate}/hr exceeds ${candidateRegion} limit of $${regionMaxRateLimit}/hr. Escalating.`});
+
+        const escalationReason = `Rate $${rate}/hr from ${candidateRegion} exceeds regional max of $${regionMaxRateLimit}/hr`;
+
+        try {
+          updateJobCandidateStatus(ss, jobId, candidateEmail, 'Escalated - Rate Review', `$${rate}/hr (exceeds ${candidateRegion} limit)`);
+        } catch(detailsErr) {
+          console.error("Failed to update job details sheet:", detailsErr);
+        }
+
+        const completedSheetRegion = ss.getSheetByName('Negotiation_Completed');
+        completedSheetRegion.appendRow([
+          new Date(),
+          jobId,
+          candidateEmail,
+          candidateName,
+          devId,
+          "Escalated",
+          escalationReason,
+          thread.getId(),
+          `Rate: $${rate}/hr | Region: ${candidateRegion} | Max Expected: $${regionMaxRateLimit}/hr`
+        ]);
+
+        sendEscalationEmail(jobId, candidateName, candidateEmail, thread, escalationReason, rules.escalationEmail);
+        updateFollowUpLabels(thread.getId(), 'responded');
+
+        if(stateRowIndex > -1) {
+          stateSheet.deleteRow(stateRowIndex);
+        }
+
+        jobStats.escalated++;
+        return;
+      }
 
       // FIX: Check if data gathering is enabled but incomplete before completing
       if (hasDataGatheringEnabled && !isDataGatheringComplete && pendingDataQuestions.length > 0) {
@@ -6067,6 +6282,11 @@ function syncCompletedFromGmail() {
           let aiNotes = stateData[r][8] || '';
 
           // EXTRACT DATA FROM CANDIDATE'S RESPONSE before marking complete
+          // Also check rate against limits before allowing completion
+          let shouldEscalate = false;
+          let escalationReason = '';
+          let extractedRate = null;
+
           try {
             // Get candidate's messages from thread
             const candidateMessages = msgs.filter(m => {
@@ -6079,6 +6299,40 @@ function syncCompletedFromGmail() {
               const latestMessage = candidateMessages[candidateMessages.length - 1];
               const candidateResponse = latestMessage.getPlainBody();
 
+              // RATE VALIDATION: Extract rate from candidate's message and validate against limits
+              const rateMatch = candidateResponse.match(/\$\s*(\d+(?:\.\d+)?)\s*(?:\/\s*hr|\/\s*hour|per\s*hour)?/i);
+              if (rateMatch) {
+                extractedRate = Number(rateMatch[1]);
+
+                // Get job's rate configuration
+                const jobConfig = configs[i];
+                const jobMaxRate = Number(jobConfig[2]) || 0;
+
+                // Get regional safety limits
+                const REGION_MAX_RATE_LIMITS = {
+                  'india': 25, 'pakistan': 25, 'bangladesh': 25,
+                  'philippines': 30, 'vietnam': 30, 'indonesia': 30,
+                  'nigeria': 30, 'kenya': 30, 'egypt': 30,
+                  'ukraine': 35, 'poland': 40, 'romania': 35,
+                  'brazil': 35, 'mexico': 40, 'argentina': 35, 'colombia': 35,
+                  'latam': 40, 'latin america': 40, 'eastern europe': 40, 'asia': 35, 'africa': 30
+                };
+
+                const normalizedRegion = region ? String(region).toLowerCase().trim() : '';
+                const regionLimit = REGION_MAX_RATE_LIMITS[normalizedRegion] || null;
+
+                // Check against max rate
+                if (jobMaxRate > 0 && extractedRate > jobMaxRate) {
+                  shouldEscalate = true;
+                  escalationReason = `Gmail Sync: Rate $${extractedRate}/hr exceeds job max of $${jobMaxRate}/hr`;
+                }
+                // Check against regional limit
+                else if (regionLimit && extractedRate > regionLimit) {
+                  shouldEscalate = true;
+                  escalationReason = `Gmail Sync: Rate $${extractedRate}/hr from ${region} exceeds regional limit of $${regionLimit}/hr`;
+                }
+              }
+
               // Get all questions for this job (including email-type specific columns)
               const questions = getAllJobColumns(jobId);
 
@@ -6089,38 +6343,61 @@ function syncCompletedFromGmail() {
               const conversationSummary = generateConversationSummary(msgs, candidateEmail, myEmail);
               aiNotes = conversationSummary || aiNotes;
 
-              // Determine proper status based on extracted data
-              let finalStatus = 'Completed';
+              // Determine proper status based on extracted data and rate validation
+              let finalStatus = shouldEscalate ? 'Escalated - Rate Review' : 'Completed';
               const answeredCount = Object.keys(extractedAnswers).filter(k =>
                 k !== 'is_negotiating' && k !== 'negotiation_notes' &&
                 extractedAnswers[k] && extractedAnswers[k] !== 'NOT_PROVIDED'
               ).length;
 
-              if (answeredCount > 0 && answeredCount >= questions.length) {
-                finalStatus = 'Data Complete';
-              } else if (answeredCount > 0) {
-                finalStatus = 'Completed (Partial Data)';
+              if (!shouldEscalate) {
+                if (answeredCount > 0 && answeredCount >= questions.length) {
+                  finalStatus = 'Data Complete';
+                } else if (answeredCount > 0) {
+                  finalStatus = 'Completed (Partial Data)';
+                }
               }
 
               // Save extracted data to job details sheet
               saveJobCandidateDetails(ss, jobId, candidateEmail, name, devId, threadId, extractedAnswers, finalStatus, region);
 
-              console.log(`Gmail Sync: Extracted ${answeredCount} answers for ${candidateEmail}, status: ${finalStatus}`);
+              console.log(`Gmail Sync: ${candidateEmail} - ${finalStatus}${extractedRate ? ` (rate: $${extractedRate}/hr)` : ''}`);
             }
           } catch(extractErr) {
             console.error("Gmail Sync - Failed to extract candidate data:", extractErr);
           }
 
-          // Add to completed sheet
+          // Add to completed sheet with appropriate status
+          const completionStatus = shouldEscalate
+            ? `Escalated - Rate Review (Gmail Sync)${extractedRate ? ` - $${extractedRate}/hr` : ''}`
+            : 'Completed (Gmail Sync)';
+          const completionNotes = shouldEscalate
+            ? escalationReason
+            : (aiNotes || 'Marked complete directly in Gmail');
+
           compSheet.appendRow([
             new Date(),
             jobId,
             candidateEmail,
             name,
-            'Completed (Gmail Sync)',
-            aiNotes || 'Marked complete directly in Gmail',
+            completionStatus,
+            completionNotes,
             devId
           ]);
+
+          // If escalated, also send notification
+          if (shouldEscalate) {
+            try {
+              const jobConfig = configs[i];
+              const escalationEmail = jobConfig[6] || ''; // Escalation email column
+              if (escalationEmail) {
+                sendEscalationEmail(jobId, name, candidateEmail, thread, escalationReason, escalationEmail);
+              }
+              console.log(`Gmail Sync: Escalated ${candidateEmail} - ${escalationReason}`);
+            } catch(escErr) {
+              console.error("Gmail Sync - Failed to send escalation:", escErr);
+            }
+          }
 
           // Note: Job details sheet status is already updated by saveJobCandidateDetails above
           // with proper status like 'Data Complete' or 'Completed (Partial Data)'
