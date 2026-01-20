@@ -4917,7 +4917,12 @@ Write ONLY the email, nothing else.
 
       if (!shouldEscalateNow) {
         // For non-sensitive issues on early attempts, continue negotiation
-        jobStats.log.push({type: 'info', message: `${candidateEmail} - Attempt ${attempts + 1}/2: Continuing negotiation`});
+        // Log a helpful summary instead of technical message
+        const proposedRate = rateAnalysis.proposed_rate;
+        const summaryMsg = proposedRate
+          ? `Candidate proposed $${proposedRate}/hr (our target: $${targetRate}, max: $${maxRate}). Attempt ${attempts + 1}/2 - sending counter-offer.`
+          : `Attempt ${attempts + 1}/2 - continuing negotiation. ${rateAnalysis.reason || ''}`;
+        jobStats.log.push({type: 'info', message: `${candidateEmail} - ${summaryMsg}`});
         // Continue to negotiation logic below - don't escalate yet
       } else {
         // Escalate now - either sensitive question OR attempts >= 2
@@ -5337,10 +5342,17 @@ Respond with ONLY the email text OR the ACTION code. No other explanations.
     // Handle AI response
     if (aiResponse.includes("ACTION: ESCALATE")) {
       if(attempts < 2) {
-        // Force negotiation on early attempts
-        jobStats.log.push({type: 'warning', message: `${candidateEmail} - Attempt ${attempts + 1}/2: AI wanted to escalate, forcing negotiation`});
-
+        // Continue negotiation on early attempts - log helpful summary
         const candidateMessage = lastMsg.getPlainBody().substring(0, 500);
+
+        // Extract rate from candidate message for logging
+        const rateInMessage = candidateMessage.match(/\$\s*(\d+(?:\.\d+)?)/);
+        const extractedRate = rateInMessage ? rateInMessage[1] : null;
+
+        const summaryMsg = extractedRate
+          ? `Candidate proposed $${extractedRate}/hr (our target: $${targetRate}, max: $${maxRate}). Attempt ${attempts + 1}/2 - sending counter-offer of $${targetRate}/hr.`
+          : `Attempt ${attempts + 1}/2 - continuing negotiation with offer of $${targetRate}/hr.`;
+        jobStats.log.push({type: 'info', message: `${candidateEmail} - ${summaryMsg}`});
 
         // Use already-calculated region-specific rates (targetRate and maxRate are set above)
         // Always use target rate - don't start lower
