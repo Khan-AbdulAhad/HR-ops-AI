@@ -4935,10 +4935,71 @@ Write ONLY the email, nothing else.
     // If candidate asks for $41 and our scheduled offer is $50, we should accept $41 (not offer $50!)
     const candidateProposedRate = rateAnalysis ? rateAnalysis.proposed_rate : null;
     if (candidateProposedRate !== null && candidateProposedRate < currentOfferRate) {
-      // Candidate is asking for LESS than what we were going to offer - accept their rate!
-      jobStats.log.push({type: 'success', message: `${candidateEmail} - Candidate asking $${candidateProposedRate}/hr which is LESS than our offer of $${currentOfferRate}/hr - accepting their lower rate!`});
-
       const rate = candidateProposedRate;
+
+      // SAFETY CHECK: Even if candidate asks less than our offer, still validate against limits
+      // This prevents accepting $40/hr from India when their limit is $25
+      if (rate > maxRate) {
+        jobStats.log.push({type: 'warning', message: `${candidateEmail} - SAFETY BLOCK: Candidate proposed $${rate}/hr (less than our $${currentOfferRate} offer) but exceeds max $${maxRate}/hr. Escalating.`});
+
+        const escalationReason = `Candidate proposed $${rate}/hr which exceeds job max of $${maxRate}/hr`;
+
+        try {
+          updateJobCandidateStatus(ss, jobId, candidateEmail, 'Escalated - Rate Exceeds Max', `$${rate}/hr (max: $${maxRate})`);
+        } catch(detailsErr) {
+          console.error("Failed to update job details sheet:", detailsErr);
+        }
+
+        const completedSheetLower = ss.getSheetByName('Negotiation_Completed');
+        completedSheetLower.appendRow([
+          new Date(), jobId, candidateEmail, candidateName, devId, "Escalated",
+          escalationReason, thread.getId(),
+          `Rate: $${rate}/hr | Max: $${maxRate}/hr${candidateRegion ? ' | Region: ' + candidateRegion : ''}`
+        ]);
+
+        sendEscalationEmail(jobId, candidateName, candidateEmail, thread, escalationReason, rules.escalationEmail);
+        updateFollowUpLabels(thread.getId(), 'responded');
+
+        if(stateRowIndex > -1) {
+          stateSheet.deleteRow(stateRowIndex);
+        }
+
+        jobStats.escalated++;
+        return;
+      }
+
+      // SAFETY CHECK: Validate against regional limits
+      if (candidateRegion && regionMaxRateLimit && rate > regionMaxRateLimit) {
+        jobStats.log.push({type: 'warning', message: `${candidateEmail} - SAFETY BLOCK: Candidate proposed $${rate}/hr but exceeds ${candidateRegion} limit of $${regionMaxRateLimit}/hr. Escalating.`});
+
+        const escalationReason = `Rate $${rate}/hr from ${candidateRegion} exceeds regional max of $${regionMaxRateLimit}/hr`;
+
+        try {
+          updateJobCandidateStatus(ss, jobId, candidateEmail, 'Escalated - Rate Review', `$${rate}/hr (exceeds ${candidateRegion} limit)`);
+        } catch(detailsErr) {
+          console.error("Failed to update job details sheet:", detailsErr);
+        }
+
+        const completedSheetRegionLower = ss.getSheetByName('Negotiation_Completed');
+        completedSheetRegionLower.appendRow([
+          new Date(), jobId, candidateEmail, candidateName, devId, "Escalated",
+          escalationReason, thread.getId(),
+          `Rate: $${rate}/hr | Region: ${candidateRegion} | Max Expected: $${regionMaxRateLimit}/hr`
+        ]);
+
+        sendEscalationEmail(jobId, candidateName, candidateEmail, thread, escalationReason, rules.escalationEmail);
+        updateFollowUpLabels(thread.getId(), 'responded');
+
+        if(stateRowIndex > -1) {
+          stateSheet.deleteRow(stateRowIndex);
+        }
+
+        jobStats.escalated++;
+        return;
+      }
+
+      // Rate is valid - proceed with acceptance
+      jobStats.log.push({type: 'success', message: `${candidateEmail} - Candidate asking $${rate}/hr which is LESS than our offer of $${currentOfferRate}/hr - accepting their lower rate!`});
 
       // FIX: Check if data gathering is enabled but incomplete before completing
       if (hasDataGatheringEnabled && !isDataGatheringComplete && pendingDataQuestions.length > 0) {
