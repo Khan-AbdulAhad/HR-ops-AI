@@ -3297,8 +3297,13 @@
                         <span id="sendProgressText">Sending...</span>
                         <span id="sendProgressCount">0/0</span>
                     </div>
-                    <div class="w-full bg-slate-200 dark:bg-slate-600 rounded-full h-1.5">
-                        <div id="sendProgressBar" class="bg-blue-600 h-1.5 rounded-full w-0 transition-all"></div>
+                    <div class="flex items-center gap-2">
+                        <div class="flex-1 bg-slate-200 dark:bg-slate-600 rounded-full h-1.5">
+                            <div id="sendProgressBar" class="bg-blue-600 h-1.5 rounded-full w-0 transition-all"></div>
+                        </div>
+                        <button id="stopSendingBtn" onclick="stopEmailSending()" class="px-3 py-1 bg-red-500 hover:bg-red-600 text-white text-xs font-bold rounded-lg flex items-center gap-1" title="Stop sending remaining emails">
+                            <i class="fa-solid fa-stop"></i> STOP
+                        </button>
                     </div>
                 </div>
                 <div class="flex gap-3">
@@ -3527,6 +3532,7 @@
         let cachedJobIds = [];
         let cachedTemplates = [];
         let currentUserEmail = '';
+        let emailSendingAborted = false; // Flag to stop email sending mid-process
 
         // Data caching to prevent reloading on tab switch
         const dataCache = {
@@ -6125,6 +6131,14 @@
             });
         }
 
+        // Emergency stop function for email sending
+        function stopEmailSending() {
+            emailSendingAborted = true;
+            document.getElementById('sendProgressText').textContent = 'Stopping...';
+            document.getElementById('stopSendingBtn').disabled = true;
+            document.getElementById('stopSendingBtn').innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Stopping';
+        }
+
         async function sendEmails() {
             const subject = document.getElementById('emailSubject').value;
             const senderName = document.getElementById('senderName')?.value || '';
@@ -6179,22 +6193,35 @@
                 senderName: senderName
             };
 
-            // Batch sending logic - send 15 emails at a time
-            const BATCH_SIZE = 15;
+            // Batch sending logic - optimized for speed
+            const BATCH_SIZE = 25; // Increased from 15 for faster sending
             const total = recipients.length;
             let totalSent = 0;
             let errors = [];
 
+            // Reset abort flag at start
+            emailSendingAborted = false;
+            document.getElementById('sendProgressCount').textContent = `0/${total}`;
+
             try {
                 for (let i = 0; i < total; i += BATCH_SIZE) {
+                    // Check if user requested stop
+                    if (emailSendingAborted) {
+                        showToast(`Sending stopped! Sent ${totalSent} of ${total} emails.`, "warning");
+                        break;
+                    }
+
                     const batch = recipients.slice(i, i + BATCH_SIZE);
                     const progress = Math.floor((i / total) * 100);
                     document.getElementById('sendProgressBar').style.width = progress + '%';
+                    document.getElementById('sendProgressCount').textContent = `${totalSent}/${total}`;
+                    document.getElementById('sendProgressText').textContent = `Sending batch ${Math.floor(i/BATCH_SIZE) + 1}...`;
 
                     try {
                         const result = await sendEmailBatch(batch, senderName, subject, body, jobId, opts);
                         if (result.sent) {
                             totalSent += result.sent;
+                            document.getElementById('sendProgressCount').textContent = `${totalSent}/${total}`;
                         }
                         if (result.errors) {
                             errors.push(...result.errors);
@@ -6203,8 +6230,10 @@
                         errors.push(err.message || "Batch failure");
                     }
 
-                    // Small delay between batches to avoid rate limiting
-                    await new Promise(r => setTimeout(r, 100));
+                    // Only add small delay between batches if sending many emails (>50)
+                    if (total > 50) {
+                        await new Promise(r => setTimeout(r, 50));
+                    }
                 }
 
                 // Complete
@@ -6214,8 +6243,12 @@
                     btn.disabled = false;
                     progressContainer.classList.add('hidden');
                     document.getElementById('sendProgressBar').style.width = '0%';
+                    // Reset stop button state
+                    document.getElementById('stopSendingBtn').disabled = false;
+                    document.getElementById('stopSendingBtn').innerHTML = '<i class="fa-solid fa-stop"></i> STOP';
+                    document.getElementById('sendProgressText').textContent = 'Sending...';
 
-                    if(totalSent > 0) {
+                    if(totalSent > 0 && !emailSendingAborted) {
                         showToast(`Sent ${totalSent} emails!`, "success");
                         closeEmailPanel();
                         deselectAll(); // Clear selection after successful email send
@@ -6229,6 +6262,9 @@
                             document.getElementById('newTemplateName').value = '';
                             document.getElementById('newTemplateName').classList.add('hidden');
                         }
+                    } else if (totalSent > 0 && emailSendingAborted) {
+                        // Partial send - don't close panel, let user see what was sent
+                        fetchData();
                     } else {
                         showToast("No emails sent (duplicates?)", "warning");
                     }
@@ -6236,12 +6272,18 @@
                     if (errors.length > 0) {
                         console.error("Email sending errors:", errors);
                     }
+                    emailSendingAborted = false; // Reset flag for next send
                 }, 500);
             } catch (err) {
                 btn.innerHTML = '<i class="fa-solid fa-paper-plane"></i> Send Campaign';
                 btn.disabled = false;
                 progressContainer.classList.add('hidden');
                 document.getElementById('sendProgressBar').style.width = '0%';
+                // Reset stop button state on error
+                document.getElementById('stopSendingBtn').disabled = false;
+                document.getElementById('stopSendingBtn').innerHTML = '<i class="fa-solid fa-stop"></i> STOP';
+                document.getElementById('sendProgressText').textContent = 'Sending...';
+                emailSendingAborted = false;
                 showToast("Error: " + err.message, "error");
             }
         }
