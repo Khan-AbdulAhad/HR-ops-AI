@@ -702,8 +702,8 @@ function saveLogSheetUrl(url) {
 }
 
 function ensureSheetsExist(ss) {
-  // Include new sheets: Manual_Sent_Logs, Data_Fetch_Logs, Follow_Up_Queue, Daily_Reports, Unresponsive_Devs, Email_Mismatch_Reports, AI_Learning_Cases
-  const sheets = ['Email_Logs', 'Email_Templates', 'Negotiation_Config', 'Negotiation_Tasks', 'Negotiation_State', 'Negotiation_FAQs', 'Negotiation_Completed', 'Rate_Tiers', 'Manual_Sent_Logs', 'Data_Fetch_Logs', 'Follow_Up_Queue', 'Daily_Reports', 'Unresponsive_Devs', 'Email_Mismatch_Reports', 'AI_Learning_Cases'];
+  // Include new sheets: Manual_Sent_Logs, Data_Fetch_Logs, Follow_Up_Queue, Unresponsive_Devs, Email_Mismatch_Reports, AI_Learning_Cases
+  const sheets = ['Email_Logs', 'Email_Templates', 'Negotiation_Config', 'Negotiation_Tasks', 'Negotiation_State', 'Negotiation_FAQs', 'Negotiation_Completed', 'Rate_Tiers', 'Manual_Sent_Logs', 'Data_Fetch_Logs', 'Follow_Up_Queue', 'Unresponsive_Devs', 'Email_Mismatch_Reports', 'AI_Learning_Cases'];
   sheets.forEach(name => {
     if (!ss.getSheetByName(name)) ss.insertSheet(name);
   });
@@ -761,10 +761,6 @@ function ensureSheetsExist(ss) {
   // Column 11 (K) = Manual Override - when TRUE, prevents automatic status changes from processor
   const followUpSheet = ss.getSheetByName('Follow_Up_Queue');
   if (followUpSheet.getLastRow() === 0) followUpSheet.appendRow(['Email', 'Job ID', 'Thread ID', 'Name', 'Dev ID', 'Initial Send Time', 'Follow Up 1 Sent', 'Follow Up 2 Sent', 'Status', 'Last Updated', 'Manual Override']);
-
-  // Daily_Reports sheet - for storing daily activity reports
-  const dailyReportsSheet = ss.getSheetByName('Daily_Reports');
-  if (dailyReportsSheet.getLastRow() === 0) dailyReportsSheet.appendRow(['Report Date', 'Job ID', 'AI Replies Succeeded', 'Human Negotiations Sent', 'Data Gathering Emails', 'First Follow-Ups Sent', 'Second Follow-Ups Sent', 'Total Outreach', 'Generated At', 'Sent To']);
 
   // Unresponsive_Devs sheet - for tracking developers who didn't respond after all follow-ups
   const unresponsiveSheet = ss.getSheetByName('Unresponsive_Devs');
