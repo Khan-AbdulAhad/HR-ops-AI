@@ -1745,7 +1745,7 @@ function getOrCreateJobDetailsSheet(ss, jobId, emailBody) {
   // Build headers: fixed columns + dynamic question columns + status columns
   const fixedHeaders = ['Timestamp', 'Email', 'Name', 'Dev ID', 'Thread ID', 'Region'];
   const questionHeaders = questions.map(q => q.header);
-  const statusHeaders = ['Negotiation Notes', 'Status', 'Agreed Rate'];
+  const statusHeaders = ['Candidate Offer', 'Counter Offer', 'Final Agreed Rate', 'Negotiation Notes', 'Status'];
 
   const allHeaders = [...fixedHeaders, ...questionHeaders, ...statusHeaders];
 
@@ -1756,11 +1756,24 @@ function getOrCreateJobDetailsSheet(ss, jobId, emailBody) {
   const questionsKey = `JOB_${jobId}_QUESTIONS`;
   PropertiesService.getScriptProperties().setProperty(questionsKey, JSON.stringify(questions));
 
-  // Format header row
+  // Format header row - different colors for different column types
   const headerRange = sheet.getRange(1, 1, 1, allHeaders.length);
   headerRange.setFontWeight('bold');
-  headerRange.setBackground('#4285f4');
   headerRange.setFontColor('#ffffff');
+
+  // Fixed columns (blue)
+  const fixedRange = sheet.getRange(1, 1, 1, fixedHeaders.length);
+  fixedRange.setBackground('#4285f4');
+
+  // Question columns (orange) - Email questions asked to candidate
+  if (questionHeaders.length > 0) {
+    const questionRange = sheet.getRange(1, fixedHeaders.length + 1, 1, questionHeaders.length);
+    questionRange.setBackground('#e69138');
+  }
+
+  // Status/Negotiation columns (green)
+  const statusRange = sheet.getRange(1, fixedHeaders.length + questionHeaders.length + 1, 1, statusHeaders.length);
+  statusRange.setBackground('#38761d');
 
   // Freeze header row
   sheet.setFrozenRows(1);
@@ -1978,9 +1991,8 @@ const EMAIL_TYPE_COLUMNS = {
   },
   'negotiation': {
     columns: [
-      { header: 'Counter Offer', question: 'What rate did the candidate counter-propose?' },
-      { header: 'Negotiation Response', question: 'What was the candidate response to negotiation?' },
-      { header: 'Final Agreed Rate', question: 'What is the final agreed rate?' }
+      // Note: Counter Offer and Final Agreed Rate are now base columns in the sheet
+      { header: 'Negotiation Response', question: 'What was the candidate response to negotiation?' }
     ],
     description: 'Email negotiating rate or terms with candidate'
   },
@@ -2149,8 +2161,8 @@ function addEmailTypeColumns(jobId, emailType) {
     return { success: true, message: 'All columns already exist', added: [] };
   }
 
-  // Find where to insert (before status columns: 'Negotiation Notes', 'Status', 'Agreed Rate')
-  const statusColumns = ['Negotiation Notes', 'Status', 'Agreed Rate'];
+  // Find where to insert (before status columns: 'Candidate Offer', 'Counter Offer', 'Final Agreed Rate', 'Negotiation Notes', 'Status')
+  const statusColumns = ['Candidate Offer', 'Counter Offer', 'Final Agreed Rate', 'Negotiation Notes', 'Status'];
   let insertPosition = lastCol + 1;
 
   for (let i = 0; i < existingHeaders.length; i++) {
@@ -2849,8 +2861,7 @@ Return a JSON object where:
 - Values are the extracted answers
 
 Special values:
-- "NOT_PROVIDED" - ONLY if truly no matching value exists
-- "NEGOTIATING" - if they want to discuss later
+- "NOT_PROVIDED" - ONLY if truly no matching value exists (do NOT use "NEGOTIATING" - always extract the actual value provided)
 
 {
   "Age": "23",
@@ -2932,7 +2943,7 @@ function saveJobCandidateDetails(ss, jobId, candidateEmail, candidateName, devId
   const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
 
   // Fixed column headers that are NOT question columns
-  const fixedHeaders = ['Timestamp', 'Email', 'Name', 'Dev ID', 'Thread ID', 'Region', 'Negotiation Notes', 'Status', 'Agreed Rate'];
+  const fixedHeaders = ['Timestamp', 'Email', 'Name', 'Dev ID', 'Thread ID', 'Region', 'Candidate Offer', 'Counter Offer', 'Final Agreed Rate', 'Negotiation Notes', 'Status'];
 
   // Log for debugging
   console.log(`saveJobCandidateDetails: jobId=${jobId}, email=${cleanEmail}, questions=${questions.length}, answers=${JSON.stringify(answers)}`);
@@ -2957,9 +2968,13 @@ function saveJobCandidateDetails(ss, jobId, candidateEmail, candidateName, devId
   const devIdColIdx = headers.indexOf('Dev ID');
   const threadIdColIdx = headers.indexOf('Thread ID');
   const regionColIdx = headers.indexOf('Region');
+  const candidateOfferColIdx = headers.indexOf('Candidate Offer');
+  const counterOfferColIdx = headers.indexOf('Counter Offer');
+  const finalAgreedRateColIdx = headers.indexOf('Final Agreed Rate');
   const notesColIdx = headers.indexOf('Negotiation Notes');
   const statusColIdx = headers.indexOf('Status');
-  const agreedRateColIdx = headers.indexOf('Agreed Rate');
+  // Legacy support - check for old 'Agreed Rate' column name
+  const agreedRateColIdx = headers.indexOf('Agreed Rate') !== -1 ? headers.indexOf('Agreed Rate') : finalAgreedRateColIdx;
 
   // Check if candidate already exists in sheet
   const data = sheet.getDataRange().getValues();
@@ -3131,7 +3146,9 @@ function updateJobCandidateStatus(ss, jobId, candidateEmail, status, agreedRate)
   const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
   const emailColIdx = headers.indexOf('Email');
   const statusColIdx = headers.indexOf('Status');
-  const agreedRateColIdx = headers.indexOf('Agreed Rate');
+  // Support both new 'Final Agreed Rate' and legacy 'Agreed Rate' column names
+  let agreedRateColIdx = headers.indexOf('Final Agreed Rate');
+  if (agreedRateColIdx === -1) agreedRateColIdx = headers.indexOf('Agreed Rate');
   const timestampColIdx = headers.indexOf('Timestamp');
 
   const data = sheet.getDataRange().getValues();
@@ -3484,6 +3501,7 @@ function moveToCompleted(email, finalStatus, jobIdFilter) {
         agreedRate: rate ? `$${rate}/hr` : null
       };
       compSheet.appendRow([new Date(), taskData[i][1], email, taskData[i][2], finalStatus || "Accepted", "Moved from Task List", taskData[i][6] || 'N/A']);
+      logAnalytics('task_completed', taskData[i][1], 1, finalStatus || "Accepted - Moved from Task List");
       taskSheet.deleteRow(i+1);
       moved = true;
       break;
@@ -3505,6 +3523,7 @@ function moveToCompleted(email, finalStatus, jobIdFilter) {
           threadId: stateData[i][9] || ''
         };
         compSheet.appendRow([new Date(), stateData[i][1], email, stateData[i][7] || 'Unknown', finalStatus || stateData[i][4], "Moved from State List", stateData[i][6] || 'N/A']);
+        logAnalytics('task_completed', stateData[i][1], 1, finalStatus || "Moved from State List");
         moved = true;
       }
       // Capture threadId if not already captured
@@ -4184,6 +4203,7 @@ function processJobNegotiations(jobId, rules, ss, faqContent) {
       status: stateData[r][4],
       name: stateData[r][7] || 'Unknown',
       devId: stateData[r][6] || 'N/A',
+      aiNotes: stateData[r][8] || '', // Column 9 = AI Notes (preserve summary)
       region: stateData[r][10] || '', // Column 11 = Region
       originalEmail: String(stateData[r][0]).toLowerCase() // Store original email for mismatch tracking
     };
@@ -4927,6 +4947,12 @@ Write ONLY the email, nothing else.
       updateFollowUpLabels(thread.getId(), 'responded');
 
       // Record directly in Negotiation_Completed (auto-completed, not pending)
+      // Preserve the existing AI Notes/Summary from negotiation process
+      const existingAiNotes = state?.aiNotes || '';
+      const finalNotes = existingAiNotes
+        ? existingAiNotes + ' | AI Auto-Accepted'
+        : `Offer Accepted at $${rate}/hr - AI Auto-Accepted`;
+
       const compSheet = ss.getSheetByName('Negotiation_Completed');
       if (compSheet) {
         compSheet.appendRow([
@@ -4935,7 +4961,7 @@ Write ONLY the email, nothing else.
           candidateEmail,
           candidateName,
           `Offer Accepted at $${rate}/hr`,
-          'AI Auto-Accepted - Email sent',
+          finalNotes,
           devId,
           candidateRegion || ''
         ]);
@@ -4950,6 +4976,9 @@ Write ONLY the email, nothing else.
       // Invalidate caches so UI reflects the change immediately
       invalidateSheetCache('Negotiation_State');
       invalidateSheetCache('Negotiation_Completed');
+
+      // Log completion to analytics
+      logAnalytics('task_completed', jobId, 1, `Offer accepted at $${rate}/hr`);
 
       jobStats.accepted++;
       jobStats.log.push({type: 'success', message: `${candidateEmail} AUTO-ACCEPTED at $${rate}/hr - Completed`});
@@ -5754,6 +5783,12 @@ Write ONLY the email, nothing else.
       updateFollowUpLabels(thread.getId(), 'responded');
 
       // Record directly in Negotiation_Completed (auto-completed, not pending)
+      // Preserve the existing AI Notes/Summary from negotiation process
+      const existingAiNotes = state?.aiNotes || '';
+      const finalNotes = existingAiNotes
+        ? existingAiNotes + ' | AI Accepted'
+        : `Offer Accepted at $${rate}/hr - AI Accepted`;
+
       const compSheet = ss.getSheetByName('Negotiation_Completed');
       if (compSheet) {
         compSheet.appendRow([
@@ -5762,7 +5797,7 @@ Write ONLY the email, nothing else.
           candidateEmail,
           candidateName,
           `Offer Accepted at $${rate}/hr`,
-          'AI Accepted - Email sent',
+          finalNotes,
           devId,
           candidateRegion || ''
         ]);
@@ -5777,6 +5812,9 @@ Write ONLY the email, nothing else.
       // Invalidate caches so UI reflects the change immediately
       invalidateSheetCache('Negotiation_State');
       invalidateSheetCache('Negotiation_Completed');
+
+      // Log completion to analytics
+      logAnalytics('task_completed', jobId, 1, `Offer accepted at $${rate}/hr`);
 
       jobStats.accepted++;
       jobStats.log.push({type: 'success', message: `${candidateEmail} ACCEPTED at $${rate}/hr - Completed`});
@@ -5912,7 +5950,7 @@ function getJobCandidateData(jobId, candidateEmail) {
     const cleanEmail = String(candidateEmail).toLowerCase().trim();
 
     // Fixed headers that are NOT data gathering questions
-    const fixedHeaders = ['Timestamp', 'Email', 'Name', 'Dev ID', 'Thread ID', 'Region', 'Negotiation Notes', 'Status', 'Agreed Rate'];
+    const fixedHeaders = ['Timestamp', 'Email', 'Name', 'Dev ID', 'Thread ID', 'Region', 'Candidate Offer', 'Counter Offer', 'Final Agreed Rate', 'Negotiation Notes', 'Status', 'Agreed Rate'];
 
     // Find candidate row
     const emailColIdx = headers.indexOf('Email');
@@ -5927,11 +5965,14 @@ function getJobCandidateData(jobId, candidateEmail) {
     if (!candidateRow) return null;
 
     // Extract question/answer pairs
+    // Support both new 'Final Agreed Rate' and legacy 'Agreed Rate' column names
+    let agreedRateIdx = headers.indexOf('Final Agreed Rate');
+    if (agreedRateIdx === -1) agreedRateIdx = headers.indexOf('Agreed Rate');
     const dataGathering = {
       answered: [],
       pending: [],
       status: candidateRow[headers.indexOf('Status')] || 'Unknown',
-      agreedRate: candidateRow[headers.indexOf('Agreed Rate')] || null
+      agreedRate: agreedRateIdx !== -1 ? (candidateRow[agreedRateIdx] || null) : null
     };
 
     headers.forEach((header, idx) => {
@@ -6562,6 +6603,9 @@ function syncCompletedFromGmail() {
             devId
           ]);
 
+          // Log completion to analytics
+          logAnalytics('task_completed', jobId, 1, completionStatus);
+
           // If escalated, also send notification
           if (shouldEscalate) {
             try {
@@ -6606,6 +6650,9 @@ function syncCompletedFromGmail() {
             'Marked complete directly in Gmail',
             devId
           ]);
+
+          // Log completion to analytics
+          logAnalytics('task_completed', jobId, 1, `Accepted at $${agreedRate}/hr (Gmail Sync)`);
 
           // Update job-specific details sheet
           try {
@@ -8221,6 +8268,52 @@ function resetFollowUpStatus(emailToReset) {
 }
 
 /**
+ * Get active negotiation count from Negotiation_State sheet
+ * Counts unique candidates in active negotiation (excluding Initial Outreach)
+ * @returns {Object} { active: number, humanEscalated: number, initialOutreach: number, total: number }
+ */
+function getActiveNegotiationStats() {
+  const url = getStoredSheetUrl();
+  if (!url) return { active: 0, humanEscalated: 0, initialOutreach: 0, total: 0 };
+
+  try {
+    const ss = SpreadsheetApp.openByUrl(url);
+    const stateSheet = ss.getSheetByName('Negotiation_State');
+    if (!stateSheet || stateSheet.getLastRow() <= 1) {
+      return { active: 0, humanEscalated: 0, initialOutreach: 0, total: 0 };
+    }
+
+    const data = stateSheet.getDataRange().getValues();
+    let active = 0;
+    let humanEscalated = 0;
+    let initialOutreach = 0;
+    let total = 0;
+
+    // Count unique candidates by status (each row is a unique email+jobId)
+    for (let i = 1; i < data.length; i++) {
+      if (!data[i][0]) continue; // Skip empty rows
+
+      const status = String(data[i][4] || '').toLowerCase();
+      total++;
+
+      if (status.includes('initial outreach') || status.includes('initial sent')) {
+        initialOutreach++;
+      } else if (status.includes('human') || status.includes('escalat')) {
+        humanEscalated++;
+      } else {
+        active++; // Active AI negotiation
+      }
+    }
+
+    return { active, humanEscalated, initialOutreach, total };
+
+  } catch (e) {
+    console.error("Error getting negotiation stats:", e);
+    return { active: 0, humanEscalated: 0, initialOutreach: 0, total: 0 };
+  }
+}
+
+/**
  * Get data gathering statistics - counts pending candidates across all Job_*_Details sheets
  * @returns {Object} { pending: number, dataComplete: number, negotiating: number, total: number }
  */
@@ -9539,6 +9632,7 @@ function getUserAnalytics(filterEmail, filterJobId, startDate, endDate) {
       totalDataFetches: 0,
       totalNegotiations: 0,
       totalFollowUps: 0,
+      totalCompleted: 0,
       userStats: [],
       recentActivity: [],
       actionsByType: {},
@@ -9600,6 +9694,7 @@ function getUserAnalytics(filterEmail, filterJobId, startDate, endDate) {
             dataFetches: 0,
             negotiations: 0,
             followUps: 0,
+            completed: 0,
             lastActive: null
           });
         }
@@ -9618,6 +9713,9 @@ function getUserAnalytics(filterEmail, filterJobId, startDate, endDate) {
         } else if (action === 'follow_up_sent') {
           userStats.followUps += count;
           analytics.totalFollowUps += count;
+        } else if (action === 'task_completed') {
+          userStats.completed += count;
+          analytics.totalCompleted += count;
         }
 
         // Track last active
@@ -9683,6 +9781,11 @@ function getUserAnalytics(filterEmail, filterJobId, startDate, endDate) {
     const dataGatheringStats = getDataGatheringStats();
     analytics.pendingDataGathering = dataGatheringStats.pending;
     analytics.dataGatheringStats = dataGatheringStats;
+
+    // Get active negotiation stats (unique candidates in negotiation)
+    const negotiationStats = getActiveNegotiationStats();
+    analytics.activeNegotiations = negotiationStats.active + negotiationStats.humanEscalated;
+    analytics.negotiationStats = negotiationStats;
 
     return analytics;
   } catch (e) {
@@ -10940,14 +11043,17 @@ function testDataExtraction(testData) {
 
     // Build sheet preview - what a row would look like
     const sheetPreview = {
-      headers: ['Timestamp', 'Email', 'Name', ...questionsList.map(q => q.header), 'Status', 'Negotiation Notes'],
+      headers: ['Timestamp', 'Email', 'Name', ...questionsList.map(q => q.header), 'Candidate Offer', 'Counter Offer', 'Final Agreed Rate', 'Negotiation Notes', 'Status'],
       values: [
         new Date().toLocaleString(),
         'test@example.com',
         devName || 'Test Candidate',
         ...questionsList.map(q => extractedData[q.header] || ''),
-        answeredCount === questionsList.length ? 'Data Complete' : 'Pending',
-        extractedData.negotiation_notes || ''
+        '', // Candidate Offer
+        '', // Counter Offer
+        '', // Final Agreed Rate
+        extractedData.negotiation_notes || '',
+        answeredCount === questionsList.length ? 'Data Complete' : 'Pending'
       ]
     };
 
