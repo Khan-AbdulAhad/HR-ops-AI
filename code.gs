@@ -9925,8 +9925,11 @@ function getDetailedEmailStats(filterEmail, filterJobId, startDate, endDate) {
       totalFollowUps: 0,
       totalNegotiations: 0,
       totalDataFetches: 0,
+      totalCompleted: 0,
       emailsByJob: {},
       emailsByUser: {},
+      completedByJob: {},
+      completedByUser: {},
       filterApplied: emailFilter || null,
       jobFilterApplied: jobIdFilter || null,
       startDateApplied: startDate || null,
@@ -9978,6 +9981,10 @@ function getDetailedEmailStats(filterEmail, filterJobId, startDate, endDate) {
         stats.totalNegotiations += count;
       } else if (action === 'data_fetched') {
         stats.totalDataFetches += count;
+      } else if (action === 'task_completed') {
+        stats.totalCompleted += count;
+        stats.completedByJob[jobId] = (stats.completedByJob[jobId] || 0) + count;
+        stats.completedByUser[userEmail] = (stats.completedByUser[userEmail] || 0) + count;
       }
     }
 
