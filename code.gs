@@ -4118,18 +4118,27 @@ function runAutoNegotiator() {
     return {status: "Error", message: "No job configurations found. Please configure at least one job.", stats: stats, log: log};
   }
 
-  // STEP 4: Process negotiations for each job
+  // STEP 4: Process negotiations and data gathering for each job
   for(let i=1; i<configs.length; i++) {
     const jobId = configs[i][0];
     if(!jobId) continue;
 
-    // Check if negotiation is enabled for this job (new toggle system)
-    if(!jobHasNegotiation(jobId)) {
-      log.push({type: 'info', message: `Job ${jobId}: Negotiation disabled, skipping AI processing`});
+    // Check if negotiation OR data gathering is enabled for this job
+    // Each feature can work independently now
+    const negotiationEnabled = jobHasNegotiation(jobId);
+    const dataGatheringEnabled = jobHasDataGathering(jobId);
+
+    // Skip job only if BOTH negotiation AND data gathering are disabled
+    if(!negotiationEnabled && !dataGatheringEnabled) {
+      log.push({type: 'info', message: `Job ${jobId}: Both negotiation and data gathering disabled, skipping`});
       continue;
     }
 
-    log.push({type: 'info', message: `Processing Job ${jobId}...`});
+    // Log which features are active for this job
+    const activeFeatures = [];
+    if (negotiationEnabled) activeFeatures.push('Negotiation');
+    if (dataGatheringEnabled) activeFeatures.push('Data Gathering');
+    log.push({type: 'info', message: `Processing Job ${jobId}... (${activeFeatures.join(' + ')} enabled)`});
 
     // UPDATED: Added startDates and jdLink to rules
     let startDates = [];
@@ -4150,8 +4159,8 @@ function runAutoNegotiator() {
       startDates: startDates,
       jdLink: configs[i][8] || ''
     };
-    
-    let jobResult = processJobNegotiations(jobId, rules, ss, faqContent);
+
+    let jobResult = processJobNegotiations(jobId, rules, ss, faqContent, negotiationEnabled);
     
     stats.replied += jobResult.replied;
     stats.escalated += jobResult.escalated;
@@ -4174,7 +4183,7 @@ function runAutoNegotiator() {
   return {status: "Success", stats: stats, log: log};
 }
 
-function processJobNegotiations(jobId, rules, ss, faqContent) {
+function processJobNegotiations(jobId, rules, ss, faqContent, negotiationEnabled = true) {
   // OPTIMIZATION: Filter at Gmail search level to reduce API calls and processing time
   // Only fetch threads that are:
   // 1. Tagged with the job label
@@ -4485,6 +4494,14 @@ function processJobNegotiations(jobId, rules, ss, faqContent) {
 
       jobStats.skipped++;
       jobStats.log.push({type: 'info', message: `Skipped AI negotiation for ${cleanCandidateEmail}: Already escalated to human (data was extracted, AI notes updated)`});
+      return;
+    }
+
+    // CHECK: Skip negotiation if negotiation is disabled for this job
+    // Data extraction and gathering still happen above - this only skips the rate negotiation part
+    if (!negotiationEnabled) {
+      jobStats.skipped++;
+      jobStats.log.push({type: 'info', message: `${cleanCandidateEmail} - Negotiation disabled for this job (data gathering only mode)`});
       return;
     }
 
