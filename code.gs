@@ -4157,7 +4157,8 @@ function runAutoNegotiator() {
       special: configs[i][4],
       jobDescription: configs[i][5] || '',
       startDates: startDates,
-      jdLink: configs[i][8] || ''
+      jdLink: configs[i][8] || '',
+      escalationEmail: configs[i][9] || '' // Optional: add escalation email column to Configuration sheet to receive notifications
     };
 
     let jobResult = processJobNegotiations(jobId, rules, ss, faqContent, negotiationEnabled);
@@ -4423,6 +4424,13 @@ function processJobNegotiations(jobId, rules, ss, faqContent, negotiationEnabled
               );
 
               if (missingInfoEmail) {
+                // SECURITY: Validate email content before sending
+                if (!validateEmailForSending(missingInfoEmail, { jobId: jobId })) {
+                  console.error(`BLOCKED: Missing info follow-up for ${candidateEmail} contained sensitive data`);
+                  jobStats.log.push({type: 'warning', message: `${candidateEmail} - Missing info email blocked: contained sensitive data`});
+                  return;
+                }
+
                 // Send the follow-up email in the same thread using proper sender name
                 // FIX: Use sendReplyWithSenderName instead of thread.replyAll to respect sender settings
                 sendReplyWithSenderName(thread, missingInfoEmail, getEffectiveSenderName());
@@ -5895,6 +5903,53 @@ Write ONLY the email, nothing else.
   });
 
   return jobStats;
+}
+
+/**
+ * Send an internal escalation notification email to the recruiter/HR team
+ * This is separate from escalateToHuman which sends a message to the candidate
+ * @param {string} jobId - Job ID
+ * @param {string} candidateName - Candidate's name
+ * @param {string} candidateEmail - Candidate's email
+ * @param {Object} thread - Gmail thread object
+ * @param {string} escalationReason - Reason for escalation
+ * @param {string} escalationEmail - Email address to send notification to (optional)
+ */
+function sendEscalationEmail(jobId, candidateName, candidateEmail, thread, escalationReason, escalationEmail) {
+  // Safety check: if no escalation email provided, just log and return
+  // This prevents crashes when escalation email is not configured
+  if (!escalationEmail || escalationEmail.trim() === '') {
+    console.log(`[Escalation Notice] Job ${jobId}: ${candidateName} (${candidateEmail}) - ${escalationReason}`);
+    console.log(`Note: No escalation email configured. Add escalation email to job configuration to receive notifications.`);
+    return;
+  }
+
+  try {
+    const threadUrl = thread ? `https://mail.google.com/mail/u/0/#inbox/${thread.getId()}` : 'N/A';
+    const subject = `[Escalation Required] Job ${jobId} - ${candidateName}`;
+    const body = `
+ESCALATION NOTIFICATION
+
+Job ID: ${jobId}
+Candidate: ${candidateName}
+Email: ${candidateEmail}
+Reason: ${escalationReason}
+
+Thread Link: ${threadUrl}
+
+This candidate has been escalated for human review. Please check the thread and take appropriate action.
+
+---
+This is an automated notification from the HR-Ops AI system.
+    `.trim();
+
+    GmailApp.sendEmail(escalationEmail, subject, body);
+    console.log(`Escalation notification sent to ${escalationEmail} for ${candidateEmail}`);
+
+  } catch (e) {
+    console.error(`Failed to send escalation email to ${escalationEmail}:`, e);
+    // Don't throw - escalation notification failure shouldn't block the process
+  }
 }
 
 function escalateToHuman(thread, reason, candidateName, conversationContext) {
@@ -8159,8 +8214,9 @@ function sendFollowUpEmail(email, jobId, threadId, name, followUpNumber) {
     }
 
     // If no thread ID, send new email (fallback)
-    // CRITICAL: This fallback path must also verify AI-Managed label
-    const messages = GmailApp.search(`to:${email}`);
+    // CRITICAL: Include AI-Managed label in search query for safety
+    // This prevents fetching non-app threads in the first place
+    const messages = GmailApp.search(`to:${email} label:${AI_MANAGED_LABEL}`);
     if(messages && messages.length > 0) {
       const thread = messages[0];
 
