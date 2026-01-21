@@ -3340,9 +3340,12 @@
     <div id="manualInputModal" class="fixed inset-0 z-50 hidden bg-black/50 backdrop-blur-sm flex items-center justify-center">
         <div class="bg-white p-6 rounded-xl shadow-xl w-full max-w-lg">
             <h3 class="font-bold mb-2">Manual Entry</h3>
-            <textarea id="manualDataInput" class="input-field h-32 mb-4" placeholder="email, name, region (one per line)"></textarea>
+            <p class="text-xs text-slate-500 mb-2">Format: email, name, region/country (one per line)</p>
+            <textarea id="manualDataInput" class="input-field h-32 mb-2" placeholder="john@example.com, John Doe, India&#10;jane@test.com, Jane Smith, Brazil"></textarea>
+            <div id="manualEntryValidation" class="hidden mb-3 p-3 rounded-lg text-sm max-h-32 overflow-y-auto"></div>
             <div class="flex justify-end gap-2">
-                <button onclick="document.getElementById('manualInputModal').classList.add('hidden')" class="px-4 py-2 bg-slate-100 rounded-lg">Cancel</button>
+                <button onclick="closeManualEntryModal()" class="px-4 py-2 bg-slate-100 rounded-lg">Cancel</button>
+                <button onclick="validateManualData()" class="px-4 py-2 bg-amber-500 text-white rounded-lg"><i class="fa-solid fa-check-double mr-1"></i>Validate</button>
                 <button onclick="loadManualData()" class="px-4 py-2 bg-blue-600 text-white rounded-lg">Load Data</button>
             </div>
         </div>
@@ -6343,33 +6346,213 @@
                 .saveNegotiationConfig(jobId, config);
         }
 
-        function loadManualData() {
+        // Country-to-Region mapping for manual entry validation
+        const COUNTRY_TO_REGION_MAP = {
+            // India
+            'india': 'India', 'in': 'India', 'ind': 'India',
+            // US/Canada
+            'us': 'US/Canada', 'usa': 'US/Canada', 'united states': 'US/Canada', 'america': 'US/Canada',
+            'canada': 'US/Canada', 'ca': 'US/Canada',
+            // Europe
+            'uk': 'Europe', 'united kingdom': 'Europe', 'england': 'Europe', 'germany': 'Europe',
+            'de': 'Europe', 'france': 'Europe', 'fr': 'Europe', 'spain': 'Europe', 'es': 'Europe',
+            'italy': 'Europe', 'it': 'Europe', 'netherlands': 'Europe', 'nl': 'Europe',
+            'poland': 'Europe', 'pl': 'Europe', 'portugal': 'Europe', 'sweden': 'Europe',
+            'norway': 'Europe', 'denmark': 'Europe', 'finland': 'Europe', 'ireland': 'Europe',
+            'austria': 'Europe', 'switzerland': 'Europe', 'belgium': 'Europe', 'europe': 'Europe', 'eu': 'Europe',
+            // LATAM
+            'mexico': 'LATAM', 'mx': 'LATAM', 'brazil': 'LATAM', 'br': 'LATAM',
+            'argentina': 'LATAM', 'ar': 'LATAM', 'colombia': 'LATAM', 'co': 'LATAM',
+            'chile': 'LATAM', 'cl': 'LATAM', 'peru': 'LATAM', 'pe': 'LATAM',
+            'venezuela': 'LATAM', 'ecuador': 'LATAM', 'uruguay': 'LATAM', 'costa rica': 'LATAM',
+            'panama': 'LATAM', 'latam': 'LATAM', 'latin america': 'LATAM', 'south america': 'LATAM',
+            // APAC
+            'china': 'APAC', 'cn': 'APAC', 'japan': 'APAC', 'jp': 'APAC',
+            'korea': 'APAC', 'south korea': 'APAC', 'kr': 'APAC', 'australia': 'APAC',
+            'au': 'APAC', 'new zealand': 'APAC', 'nz': 'APAC', 'singapore': 'APAC',
+            'sg': 'APAC', 'malaysia': 'APAC', 'my': 'APAC', 'indonesia': 'APAC',
+            'id': 'APAC', 'philippines': 'APAC', 'ph': 'APAC', 'vietnam': 'APAC',
+            'vn': 'APAC', 'thailand': 'APAC', 'th': 'APAC', 'taiwan': 'APAC',
+            'tw': 'APAC', 'hong kong': 'APAC', 'hk': 'APAC', 'apac': 'APAC', 'asia': 'APAC', 'asia pacific': 'APAC',
+            // Pakistan and nearby
+            'pakistan': 'APAC', 'pk': 'APAC', 'bangladesh': 'APAC', 'bd': 'APAC', 'sri lanka': 'APAC', 'lk': 'APAC',
+            'nepal': 'APAC', 'np': 'APAC',
+            // Middle East
+            'uae': 'Middle East', 'dubai': 'Middle East', 'saudi arabia': 'Middle East', 'qatar': 'Middle East',
+            'israel': 'Middle East', 'turkey': 'Middle East', 'egypt': 'Middle East', 'middle east': 'Middle East',
+            // Africa
+            'south africa': 'Africa', 'za': 'Africa', 'nigeria': 'Africa', 'kenya': 'Africa', 'africa': 'Africa'
+        };
+
+        const VALID_REGIONS = ['India', 'US/Canada', 'Europe', 'LATAM', 'APAC', 'Middle East', 'Africa', 'Default'];
+
+        function normalizeRegion(input) {
+            if (!input) return { region: '', warning: 'No region specified' };
+            const normalized = input.toLowerCase().trim();
+            // Check direct region match
+            if (VALID_REGIONS.map(r => r.toLowerCase()).includes(normalized)) {
+                return { region: VALID_REGIONS.find(r => r.toLowerCase() === normalized), warning: null };
+            }
+            // Check country mapping
+            if (COUNTRY_TO_REGION_MAP[normalized]) {
+                return { region: COUNTRY_TO_REGION_MAP[normalized], warning: null, mapped: input };
+            }
+            // Unknown region - keep original but warn
+            return { region: input.trim(), warning: `Unknown region "${input}" - will use as-is` };
+        }
+
+        function validateEmail(email) {
+            if (!email) return { valid: false, error: 'Email is required' };
+            const trimmed = email.trim();
+            const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+            if (!emailRegex.test(trimmed)) {
+                return { valid: false, error: `Invalid email format: "${trimmed}"` };
+            }
+            return { valid: true, email: trimmed };
+        }
+
+        function validateName(name) {
+            if (!name || !name.trim()) {
+                return { valid: false, warning: 'Name is empty - will use "Unknown"', name: 'Unknown' };
+            }
+            const trimmed = name.trim();
+            if (trimmed.length < 2) {
+                return { valid: false, warning: `Name "${trimmed}" is too short`, name: trimmed };
+            }
+            // Check for obviously invalid names (just numbers, special chars only)
+            if (/^[\d\s\W]+$/.test(trimmed)) {
+                return { valid: false, warning: `Name "${trimmed}" appears invalid`, name: trimmed };
+            }
+            return { valid: true, name: trimmed };
+        }
+
+        function closeManualEntryModal() {
+            document.getElementById('manualInputModal').classList.add('hidden');
+            document.getElementById('manualEntryValidation').classList.add('hidden');
+            document.getElementById('manualEntryValidation').innerHTML = '';
+        }
+
+        function validateManualData() {
             const raw = document.getElementById('manualDataInput').value;
-            if(!raw.trim()) return;
-            const lines = raw.split('\n');
-            const manualData = lines.map((line) => {
+            const validationDiv = document.getElementById('manualEntryValidation');
+
+            if (!raw.trim()) {
+                validationDiv.innerHTML = '<span class="text-amber-600"><i class="fa-solid fa-exclamation-triangle mr-1"></i>Please enter some data to validate</span>';
+                validationDiv.className = 'mb-3 p-3 rounded-lg text-sm max-h-32 overflow-y-auto bg-amber-50 border border-amber-200';
+                validationDiv.classList.remove('hidden');
+                return { valid: false, data: [] };
+            }
+
+            const lines = raw.split('\n').filter(l => l.trim());
+            const errors = [];
+            const warnings = [];
+            const validData = [];
+            const seenEmails = new Set();
+
+            lines.forEach((line, index) => {
+                const lineNum = index + 1;
                 const parts = line.split(',');
-                const email = parts[0];
-                const name = parts[1];
-                const region = parts[2];
-                if(!email) return null;
-                return {
-                    developer_id: `TEST-${Math.floor(Math.random()*10000)}`,
-                    full_name: name ? name.trim() : 'Test Candidate',
-                    email: email.trim(),
-                    region: region ? region.trim() : '',
+                const rawEmail = parts[0];
+                const rawName = parts[1];
+                const rawRegion = parts[2];
+
+                // Validate email
+                const emailResult = validateEmail(rawEmail);
+                if (!emailResult.valid) {
+                    errors.push(`Line ${lineNum}: ${emailResult.error}`);
+                    return;
+                }
+
+                // Check for duplicate emails
+                const emailLower = emailResult.email.toLowerCase();
+                if (seenEmails.has(emailLower)) {
+                    errors.push(`Line ${lineNum}: Duplicate email "${emailResult.email}"`);
+                    return;
+                }
+                seenEmails.add(emailLower);
+
+                // Validate name
+                const nameResult = validateName(rawName);
+                if (!nameResult.valid && nameResult.warning) {
+                    warnings.push(`Line ${lineNum}: ${nameResult.warning}`);
+                }
+
+                // Validate region
+                const regionResult = normalizeRegion(rawRegion);
+                if (regionResult.warning) {
+                    warnings.push(`Line ${lineNum}: ${regionResult.warning}`);
+                }
+                if (regionResult.mapped) {
+                    warnings.push(`Line ${lineNum}: "${regionResult.mapped}" → "${regionResult.region}"`);
+                }
+
+                validData.push({
+                    developer_id: `TEST-${Math.floor(Math.random() * 10000)}`,
+                    full_name: nameResult.name,
+                    email: emailResult.email,
+                    region: regionResult.region,
                     status: 'Manual Test',
                     is_sent: false
-                };
-            }).filter(d => d !== null);
-            tableData = manualData;
-            fullTableData = manualData;
+                });
+            });
+
+            // Display validation results
+            let html = '';
+            if (errors.length > 0) {
+                html += `<div class="text-red-600 mb-2"><i class="fa-solid fa-times-circle mr-1"></i><strong>Errors (${errors.length}):</strong><ul class="ml-4 list-disc">`;
+                errors.forEach(e => html += `<li>${e}</li>`);
+                html += '</ul></div>';
+            }
+            if (warnings.length > 0) {
+                html += `<div class="text-amber-600 mb-2"><i class="fa-solid fa-exclamation-triangle mr-1"></i><strong>Warnings (${warnings.length}):</strong><ul class="ml-4 list-disc">`;
+                warnings.forEach(w => html += `<li>${w}</li>`);
+                html += '</ul></div>';
+            }
+            if (validData.length > 0 && errors.length === 0) {
+                html += `<div class="text-green-600"><i class="fa-solid fa-check-circle mr-1"></i><strong>${validData.length} valid record(s) ready to load</strong></div>`;
+            } else if (validData.length > 0) {
+                html += `<div class="text-blue-600"><i class="fa-solid fa-info-circle mr-1"></i>${validData.length} valid record(s), ${errors.length} skipped due to errors</div>`;
+            }
+
+            validationDiv.innerHTML = html;
+            validationDiv.className = errors.length > 0
+                ? 'mb-3 p-3 rounded-lg text-sm max-h-32 overflow-y-auto bg-red-50 border border-red-200'
+                : warnings.length > 0
+                    ? 'mb-3 p-3 rounded-lg text-sm max-h-32 overflow-y-auto bg-amber-50 border border-amber-200'
+                    : 'mb-3 p-3 rounded-lg text-sm max-h-32 overflow-y-auto bg-green-50 border border-green-200';
+            validationDiv.classList.remove('hidden');
+
+            return { valid: errors.length === 0, data: validData, errors, warnings };
+        }
+
+        function loadManualData() {
+            const result = validateManualData();
+
+            if (result.data.length === 0) {
+                showToast("No valid data to load. Please check validation errors.", "error");
+                return;
+            }
+
+            if (result.errors.length > 0) {
+                // Show confirmation if there are errors but some valid data
+                if (!confirm(`${result.errors.length} row(s) have errors and will be skipped.\n\nLoad ${result.data.length} valid record(s)?`)) {
+                    return;
+                }
+            }
+
+            tableData = result.data;
+            fullTableData = result.data;
             document.getElementById('tableContainer').classList.remove('hidden');
             document.getElementById('statusFilterContainer').classList.remove('hidden');
             document.getElementById('tableControls').classList.remove('hidden');
             renderTable(tableData);
-            document.getElementById('manualInputModal').classList.add('hidden');
-            showToast(`Loaded ${manualData.length} test candidates`, "success");
+            closeManualEntryModal();
+
+            let message = `Loaded ${result.data.length} test candidate(s)`;
+            if (result.warnings.length > 0) {
+                message += ` (${result.warnings.length} warning(s))`;
+            }
+            showToast(message, result.warnings.length > 0 ? "warning" : "success");
         }
 
         // Functions for button calls
