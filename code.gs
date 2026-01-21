@@ -1862,12 +1862,25 @@ function getJobSettings(jobId) {
       // Fall back to defaults
     }
   }
-  // Return defaults based on legacy job type
-  const legacyType = getJobType(jobId);
+  // Check if legacy type was explicitly set
+  const legacyKey = `JOB_${jobId}_TYPE`;
+  const legacyType = PropertiesService.getScriptProperties().getProperty(legacyKey);
+
+  // If legacy type was explicitly set, honor it for backward compatibility
+  if (legacyType) {
+    return {
+      negotiation: legacyType === 'negotiation',
+      followUp: legacyType !== 'informing',
+      dataGathering: legacyType === 'data_gathering'
+    };
+  }
+
+  // No settings and no legacy type: use same defaults as saveJobSettings()
+  // This ensures new jobs default to negotiation enabled
   return {
-    negotiation: legacyType === 'negotiation',
-    followUp: legacyType !== 'informing',
-    dataGathering: legacyType === 'data_gathering'
+    negotiation: true,
+    followUp: true,
+    dataGathering: true
   };
 }
 
