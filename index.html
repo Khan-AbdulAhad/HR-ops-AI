@@ -1434,30 +1434,49 @@
                             <button id="rateTiersRefreshBtn" onclick="refreshRateTiersWithAnimation()" class="refresh-btn text-sm text-blue-600 hover:underline"><i class="fa-solid fa-rotate mr-1 text-xs"></i>Refresh</button>
                         </div>
                         <!-- Add Tier Form -->
-                        <div class="bg-white p-4 rounded-lg border border-slate-200 mb-4 flex gap-2 items-end">
-                            <div class="flex-1">
-                                <label class="text-xs text-slate-500">Region</label>
-                                <input id="tierRegion" class="input-field" placeholder="e.g. LATAM">
+                        <div class="bg-white p-4 rounded-lg border border-slate-200 mb-4">
+                            <div class="flex gap-2 items-end flex-wrap">
+                                <div class="w-36">
+                                    <label class="text-xs text-slate-500">Country <span class="text-slate-400">(optional)</span></label>
+                                    <input id="tierCountry" class="input-field" placeholder="e.g. Brazil" oninput="autoFillRegionFromCountry()">
+                                </div>
+                                <div class="w-36">
+                                    <label class="text-xs text-slate-500">Region</label>
+                                    <select id="tierRegion" class="input-field">
+                                        <option value="">Select region...</option>
+                                        <option value="US/Canada">US/Canada</option>
+                                        <option value="Europe">Europe</option>
+                                        <option value="Eastern Europe">Eastern Europe</option>
+                                        <option value="LATAM">LATAM</option>
+                                        <option value="APAC">APAC</option>
+                                        <option value="India">India</option>
+                                        <option value="Middle East">Middle East</option>
+                                        <option value="Africa">Africa</option>
+                                        <option value="Default">Default</option>
+                                    </select>
+                                </div>
+                                <div class="w-24">
+                                    <label class="text-xs text-slate-500">Target $</label>
+                                    <input id="tierTargetRate" type="number" class="input-field" placeholder="20">
+                                </div>
+                                <div class="w-24">
+                                    <label class="text-xs text-slate-500">Max $</label>
+                                    <input id="tierMaxRate" type="number" class="input-field" placeholder="30">
+                                </div>
+                                <div class="flex-1 min-w-32">
+                                    <label class="text-xs text-slate-500">Note</label>
+                                    <input id="tierNotes" class="input-field" placeholder="Optional">
+                                </div>
+                                <button id="addRateTierBtn" onclick="addRateTier()" class="bg-blue-600 text-white p-2.5 rounded-lg hover:bg-blue-700 disabled:opacity-50"><i class="fa-solid fa-plus"></i></button>
                             </div>
-                            <div class="w-24">
-                                <label class="text-xs text-slate-500">Target $</label>
-                                <input id="tierTargetRate" type="number" class="input-field" placeholder="20">
-                            </div>
-                            <div class="w-24">
-                                <label class="text-xs text-slate-500">Max $</label>
-                                <input id="tierMaxRate" type="number" class="input-field" placeholder="30">
-                            </div>
-                            <div class="flex-1">
-                                <label class="text-xs text-slate-500">Note</label>
-                                <input id="tierNotes" class="input-field" placeholder="Optional">
-                            </div>
-                            <button id="addRateTierBtn" onclick="addRateTier()" class="bg-blue-600 text-white p-2.5 rounded-lg hover:bg-blue-700 disabled:opacity-50"><i class="fa-solid fa-plus"></i></button>
+                            <p class="text-xs text-slate-400 mt-2"><i class="fa-solid fa-info-circle mr-1"></i>Add country for specific rates (e.g., Brazil $22/hr) or leave empty for region-wide rates (e.g., all LATAM $20/hr)</p>
                         </div>
                         <!-- Tier Table -->
                         <div class="bg-white rounded-lg border border-slate-200 overflow-hidden">
                             <table class="w-full text-sm text-left">
                                 <thead class="bg-slate-50 text-xs uppercase text-slate-500 font-semibold">
                                     <tr>
+                                        <th class="px-4 py-3">Country</th>
                                         <th class="px-4 py-3">Region</th>
                                         <th class="px-4 py-3">Target</th>
                                         <th class="px-4 py-3">Max</th>
@@ -1466,7 +1485,7 @@
                                     </tr>
                                 </thead>
                                 <tbody id="rateTiersBody" class="divide-y divide-slate-100">
-                                    <tr><td colspan="5" class="p-4 text-center text-slate-400">No tiers loaded. Select a Job ID.</td></tr>
+                                    <tr><td colspan="6" class="p-4 text-center text-slate-400">No tiers loaded. Select a Job ID.</td></tr>
                                 </tbody>
                             </table>
                         </div>
@@ -3378,9 +3397,12 @@
     <div id="manualInputModal" class="fixed inset-0 z-50 hidden bg-black/50 backdrop-blur-sm flex items-center justify-center">
         <div class="bg-white p-6 rounded-xl shadow-xl w-full max-w-lg">
             <h3 class="font-bold mb-2">Manual Entry</h3>
-            <textarea id="manualDataInput" class="input-field h-32 mb-4" placeholder="email, name, region (one per line)"></textarea>
+            <p class="text-xs text-slate-500 mb-2">Format: email, name, region/country (one per line)</p>
+            <textarea id="manualDataInput" class="input-field h-32 mb-2" placeholder="john@example.com, John Doe, India&#10;jane@test.com, Jane Smith, Brazil"></textarea>
+            <div id="manualEntryValidation" class="hidden mb-3 p-3 rounded-lg text-sm max-h-32 overflow-y-auto"></div>
             <div class="flex justify-end gap-2">
-                <button onclick="document.getElementById('manualInputModal').classList.add('hidden')" class="px-4 py-2 bg-slate-100 rounded-lg">Cancel</button>
+                <button onclick="closeManualEntryModal()" class="px-4 py-2 bg-slate-100 rounded-lg">Cancel</button>
+                <button onclick="validateManualData()" class="px-4 py-2 bg-amber-500 text-white rounded-lg"><i class="fa-solid fa-check-double mr-1"></i>Validate</button>
                 <button onclick="loadManualData()" class="px-4 py-2 bg-blue-600 text-white rounded-lg">Load Data</button>
             </div>
         </div>
@@ -6381,33 +6403,213 @@
                 .saveNegotiationConfig(jobId, config);
         }
 
-        function loadManualData() {
+        // Country-to-Region mapping for manual entry validation
+        const COUNTRY_TO_REGION_MAP = {
+            // India
+            'india': 'India', 'in': 'India', 'ind': 'India',
+            // US/Canada
+            'us': 'US/Canada', 'usa': 'US/Canada', 'united states': 'US/Canada', 'america': 'US/Canada',
+            'canada': 'US/Canada', 'ca': 'US/Canada',
+            // Europe
+            'uk': 'Europe', 'united kingdom': 'Europe', 'england': 'Europe', 'germany': 'Europe',
+            'de': 'Europe', 'france': 'Europe', 'fr': 'Europe', 'spain': 'Europe', 'es': 'Europe',
+            'italy': 'Europe', 'it': 'Europe', 'netherlands': 'Europe', 'nl': 'Europe',
+            'poland': 'Europe', 'pl': 'Europe', 'portugal': 'Europe', 'sweden': 'Europe',
+            'norway': 'Europe', 'denmark': 'Europe', 'finland': 'Europe', 'ireland': 'Europe',
+            'austria': 'Europe', 'switzerland': 'Europe', 'belgium': 'Europe', 'europe': 'Europe', 'eu': 'Europe',
+            // LATAM
+            'mexico': 'LATAM', 'mx': 'LATAM', 'brazil': 'LATAM', 'br': 'LATAM',
+            'argentina': 'LATAM', 'ar': 'LATAM', 'colombia': 'LATAM', 'co': 'LATAM',
+            'chile': 'LATAM', 'cl': 'LATAM', 'peru': 'LATAM', 'pe': 'LATAM',
+            'venezuela': 'LATAM', 'ecuador': 'LATAM', 'uruguay': 'LATAM', 'costa rica': 'LATAM',
+            'panama': 'LATAM', 'latam': 'LATAM', 'latin america': 'LATAM', 'south america': 'LATAM',
+            // APAC
+            'china': 'APAC', 'cn': 'APAC', 'japan': 'APAC', 'jp': 'APAC',
+            'korea': 'APAC', 'south korea': 'APAC', 'kr': 'APAC', 'australia': 'APAC',
+            'au': 'APAC', 'new zealand': 'APAC', 'nz': 'APAC', 'singapore': 'APAC',
+            'sg': 'APAC', 'malaysia': 'APAC', 'my': 'APAC', 'indonesia': 'APAC',
+            'id': 'APAC', 'philippines': 'APAC', 'ph': 'APAC', 'vietnam': 'APAC',
+            'vn': 'APAC', 'thailand': 'APAC', 'th': 'APAC', 'taiwan': 'APAC',
+            'tw': 'APAC', 'hong kong': 'APAC', 'hk': 'APAC', 'apac': 'APAC', 'asia': 'APAC', 'asia pacific': 'APAC',
+            // Pakistan and nearby
+            'pakistan': 'APAC', 'pk': 'APAC', 'bangladesh': 'APAC', 'bd': 'APAC', 'sri lanka': 'APAC', 'lk': 'APAC',
+            'nepal': 'APAC', 'np': 'APAC',
+            // Middle East
+            'uae': 'Middle East', 'dubai': 'Middle East', 'saudi arabia': 'Middle East', 'qatar': 'Middle East',
+            'israel': 'Middle East', 'turkey': 'Middle East', 'egypt': 'Middle East', 'middle east': 'Middle East',
+            // Africa
+            'south africa': 'Africa', 'za': 'Africa', 'nigeria': 'Africa', 'kenya': 'Africa', 'africa': 'Africa'
+        };
+
+        const VALID_REGIONS = ['India', 'US/Canada', 'Europe', 'LATAM', 'APAC', 'Middle East', 'Africa', 'Default'];
+
+        function normalizeRegion(input) {
+            if (!input) return { region: '', warning: 'No region specified' };
+            const normalized = input.toLowerCase().trim();
+            // Check direct region match
+            if (VALID_REGIONS.map(r => r.toLowerCase()).includes(normalized)) {
+                return { region: VALID_REGIONS.find(r => r.toLowerCase() === normalized), warning: null };
+            }
+            // Check country mapping
+            if (COUNTRY_TO_REGION_MAP[normalized]) {
+                return { region: COUNTRY_TO_REGION_MAP[normalized], warning: null, mapped: input };
+            }
+            // Unknown region - keep original but warn
+            return { region: input.trim(), warning: `Unknown region "${input}" - will use as-is` };
+        }
+
+        function validateEmail(email) {
+            if (!email) return { valid: false, error: 'Email is required' };
+            const trimmed = email.trim();
+            const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+            if (!emailRegex.test(trimmed)) {
+                return { valid: false, error: `Invalid email format: "${trimmed}"` };
+            }
+            return { valid: true, email: trimmed };
+        }
+
+        function validateName(name) {
+            if (!name || !name.trim()) {
+                return { valid: false, warning: 'Name is empty - will use "Unknown"', name: 'Unknown' };
+            }
+            const trimmed = name.trim();
+            if (trimmed.length < 2) {
+                return { valid: false, warning: `Name "${trimmed}" is too short`, name: trimmed };
+            }
+            // Check for obviously invalid names (just numbers, special chars only)
+            if (/^[\d\s\W]+$/.test(trimmed)) {
+                return { valid: false, warning: `Name "${trimmed}" appears invalid`, name: trimmed };
+            }
+            return { valid: true, name: trimmed };
+        }
+
+        function closeManualEntryModal() {
+            document.getElementById('manualInputModal').classList.add('hidden');
+            document.getElementById('manualEntryValidation').classList.add('hidden');
+            document.getElementById('manualEntryValidation').innerHTML = '';
+        }
+
+        function validateManualData() {
             const raw = document.getElementById('manualDataInput').value;
-            if(!raw.trim()) return;
-            const lines = raw.split('\n');
-            const manualData = lines.map((line) => {
+            const validationDiv = document.getElementById('manualEntryValidation');
+
+            if (!raw.trim()) {
+                validationDiv.innerHTML = '<span class="text-amber-600"><i class="fa-solid fa-exclamation-triangle mr-1"></i>Please enter some data to validate</span>';
+                validationDiv.className = 'mb-3 p-3 rounded-lg text-sm max-h-32 overflow-y-auto bg-amber-50 border border-amber-200';
+                validationDiv.classList.remove('hidden');
+                return { valid: false, data: [] };
+            }
+
+            const lines = raw.split('\n').filter(l => l.trim());
+            const errors = [];
+            const warnings = [];
+            const validData = [];
+            const seenEmails = new Set();
+
+            lines.forEach((line, index) => {
+                const lineNum = index + 1;
                 const parts = line.split(',');
-                const email = parts[0];
-                const name = parts[1];
-                const region = parts[2];
-                if(!email) return null;
-                return {
-                    developer_id: `TEST-${Math.floor(Math.random()*10000)}`,
-                    full_name: name ? name.trim() : 'Test Candidate',
-                    email: email.trim(),
-                    region: region ? region.trim() : '',
+                const rawEmail = parts[0];
+                const rawName = parts[1];
+                const rawRegion = parts[2];
+
+                // Validate email
+                const emailResult = validateEmail(rawEmail);
+                if (!emailResult.valid) {
+                    errors.push(`Line ${lineNum}: ${emailResult.error}`);
+                    return;
+                }
+
+                // Check for duplicate emails
+                const emailLower = emailResult.email.toLowerCase();
+                if (seenEmails.has(emailLower)) {
+                    errors.push(`Line ${lineNum}: Duplicate email "${emailResult.email}"`);
+                    return;
+                }
+                seenEmails.add(emailLower);
+
+                // Validate name
+                const nameResult = validateName(rawName);
+                if (!nameResult.valid && nameResult.warning) {
+                    warnings.push(`Line ${lineNum}: ${nameResult.warning}`);
+                }
+
+                // Validate region
+                const regionResult = normalizeRegion(rawRegion);
+                if (regionResult.warning) {
+                    warnings.push(`Line ${lineNum}: ${regionResult.warning}`);
+                }
+                if (regionResult.mapped) {
+                    warnings.push(`Line ${lineNum}: "${regionResult.mapped}" → "${regionResult.region}"`);
+                }
+
+                validData.push({
+                    developer_id: `TEST-${Math.floor(Math.random() * 10000)}`,
+                    full_name: nameResult.name,
+                    email: emailResult.email,
+                    region: regionResult.region,
                     status: 'Manual Test',
                     is_sent: false
-                };
-            }).filter(d => d !== null);
-            tableData = manualData;
-            fullTableData = manualData;
+                });
+            });
+
+            // Display validation results
+            let html = '';
+            if (errors.length > 0) {
+                html += `<div class="text-red-600 mb-2"><i class="fa-solid fa-times-circle mr-1"></i><strong>Errors (${errors.length}):</strong><ul class="ml-4 list-disc">`;
+                errors.forEach(e => html += `<li>${e}</li>`);
+                html += '</ul></div>';
+            }
+            if (warnings.length > 0) {
+                html += `<div class="text-amber-600 mb-2"><i class="fa-solid fa-exclamation-triangle mr-1"></i><strong>Warnings (${warnings.length}):</strong><ul class="ml-4 list-disc">`;
+                warnings.forEach(w => html += `<li>${w}</li>`);
+                html += '</ul></div>';
+            }
+            if (validData.length > 0 && errors.length === 0) {
+                html += `<div class="text-green-600"><i class="fa-solid fa-check-circle mr-1"></i><strong>${validData.length} valid record(s) ready to load</strong></div>`;
+            } else if (validData.length > 0) {
+                html += `<div class="text-blue-600"><i class="fa-solid fa-info-circle mr-1"></i>${validData.length} valid record(s), ${errors.length} skipped due to errors</div>`;
+            }
+
+            validationDiv.innerHTML = html;
+            validationDiv.className = errors.length > 0
+                ? 'mb-3 p-3 rounded-lg text-sm max-h-32 overflow-y-auto bg-red-50 border border-red-200'
+                : warnings.length > 0
+                    ? 'mb-3 p-3 rounded-lg text-sm max-h-32 overflow-y-auto bg-amber-50 border border-amber-200'
+                    : 'mb-3 p-3 rounded-lg text-sm max-h-32 overflow-y-auto bg-green-50 border border-green-200';
+            validationDiv.classList.remove('hidden');
+
+            return { valid: errors.length === 0, data: validData, errors, warnings };
+        }
+
+        function loadManualData() {
+            const result = validateManualData();
+
+            if (result.data.length === 0) {
+                showToast("No valid data to load. Please check validation errors.", "error");
+                return;
+            }
+
+            if (result.errors.length > 0) {
+                // Show confirmation if there are errors but some valid data
+                if (!confirm(`${result.errors.length} row(s) have errors and will be skipped.\n\nLoad ${result.data.length} valid record(s)?`)) {
+                    return;
+                }
+            }
+
+            tableData = result.data;
+            fullTableData = result.data;
             document.getElementById('tableContainer').classList.remove('hidden');
             document.getElementById('statusFilterContainer').classList.remove('hidden');
             document.getElementById('tableControls').classList.remove('hidden');
             renderTable(tableData);
-            document.getElementById('manualInputModal').classList.add('hidden');
-            showToast(`Loaded ${manualData.length} test candidates`, "success");
+            closeManualEntryModal();
+
+            let message = `Loaded ${result.data.length} test candidate(s)`;
+            if (result.warnings.length > 0) {
+                message += ` (${result.warnings.length} warning(s))`;
+            }
+            showToast(message, result.warnings.length > 0 ? "warning" : "success");
         }
 
         // Functions for button calls
@@ -6425,6 +6627,30 @@
         }
 
         // Rate Tier Functions
+
+        // Auto-fill region dropdown when country is entered
+        function autoFillRegionFromCountry() {
+            const countryInput = document.getElementById('tierCountry');
+            const regionSelect = document.getElementById('tierRegion');
+            const country = countryInput.value.trim().toLowerCase();
+
+            if (!country) {
+                return; // Don't auto-fill if country is empty
+            }
+
+            // Use the same mapping as backend
+            const region = COUNTRY_TO_REGION_MAP[country];
+            if (region) {
+                // Find and select the matching option
+                for (let option of regionSelect.options) {
+                    if (option.value === region) {
+                        regionSelect.value = region;
+                        break;
+                    }
+                }
+            }
+        }
+
         function refreshRateTiers(onComplete = null) {
             const jobId = document.getElementById('negJobId').value;
             const tbody = document.getElementById('rateTiersBody');
@@ -6433,11 +6659,11 @@
                 return;
             }
 
-            tbody.innerHTML = '<tr><td colspan="5" class="p-4 text-center">Loading...</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="6" class="p-4 text-center">Loading...</td></tr>';
 
             google.script.run.withSuccessHandler(tiers => {
                 if(!tiers || tiers.length === 0) {
-                    tbody.innerHTML = '<tr><td colspan="5" class="p-4 text-center text-slate-400">No tiers loaded.</td></tr>';
+                    tbody.innerHTML = '<tr><td colspan="6" class="p-4 text-center text-slate-400">No tiers loaded.</td></tr>';
                     if (onComplete) onComplete([]);
                     return;
                 }
@@ -6445,13 +6671,18 @@
                 tiers.forEach(tier => {
                     const row = document.createElement('tr');
                     row.className = 'hover:bg-slate-50 border-b border-slate-50';
+                    const countryDisplay = tier.country
+                        ? `<span class="font-medium text-blue-600">${tier.country}</span>`
+                        : '<span class="text-slate-300">-</span>';
+                    const tierKey = `${tier.country || ''}::${tier.region}`;
                     row.innerHTML = `
+                        <td class="px-4 py-2">${countryDisplay}</td>
                         <td class="px-4 py-2">${tier.region}</td>
                         <td class="px-4 py-2 text-green-600">$${tier.targetRate}</td>
                         <td class="px-4 py-2 text-amber-600">$${tier.maxRate}</td>
                         <td class="px-4 py-2 text-slate-500 text-xs">${tier.notes || '-'}</td>
                         <td class="px-4 py-2 text-right">
-                            <button onclick="deleteRateTier('${tier.region}')" class="text-red-500 hover:text-red-700"><i class="fa-solid fa-trash"></i></button>
+                            <button onclick="deleteRateTier('${tier.country || ''}', '${tier.region}')" class="text-red-500 hover:text-red-700"><i class="fa-solid fa-trash"></i></button>
                         </td>
                     `;
                     tbody.appendChild(row);
@@ -6488,18 +6719,20 @@
 
         function addRateTier() {
             const jobId = document.getElementById('negJobId').value;
+            const countryInput = document.getElementById('tierCountry');
             const regionInput = document.getElementById('tierRegion');
             const targetInput = document.getElementById('tierTargetRate');
             const maxInput = document.getElementById('tierMaxRate');
             const notesInput = document.getElementById('tierNotes');
             const btn = document.getElementById('addRateTierBtn');
 
+            const country = countryInput.value.trim();
             const region = regionInput.value;
             const target = targetInput.value;
             const max = maxInput.value;
             const notes = notesInput.value;
 
-            if(!jobId || !region || !target || !max) { showToast("Fill all fields", "warning"); return; }
+            if(!jobId || !region || !target || !max) { showToast("Fill Job ID, Region, Target and Max fields", "warning"); return; }
 
             // Show loading state
             btn.disabled = true;
@@ -6507,8 +6740,10 @@
 
             google.script.run
                 .withSuccessHandler(() => {
-                    showToast("Rate tier added", "success");
+                    const msg = country ? `Rate tier added for ${country} (${region})` : `Rate tier added for ${region}`;
+                    showToast(msg, "success");
                     // Clear the form
+                    countryInput.value = '';
                     regionInput.value = '';
                     targetInput.value = '';
                     maxInput.value = '';
@@ -6524,16 +6759,17 @@
                     btn.disabled = false;
                     btn.innerHTML = '<i class="fa-solid fa-plus"></i>';
                 })
-                .saveRateTier(jobId, region, target, max, notes);
+                .saveRateTier(jobId, country, region, target, max, notes);
         }
 
-        function deleteRateTier(region) {
+        function deleteRateTier(country, region) {
             const jobId = document.getElementById('negJobId').value;
-            if(!confirm("Delete tier?")) return;
+            const tierDesc = country ? `${country} (${region})` : region;
+            if(!confirm(`Delete rate tier for ${tierDesc}?`)) return;
             google.script.run.withSuccessHandler(() => {
                 showToast("Deleted", "success");
                 refreshRateTiers();
-            }).deleteRateTier(jobId, region);
+            }).deleteRateTier(jobId, country, region);
         }
 
         function manualTriggerFollowUps() {
@@ -8065,7 +8301,11 @@
                         tiers.forEach((tier, idx) => {
                             const option = document.createElement('option');
                             option.value = idx;
-                            option.textContent = `${tier.region}: $${tier.targetRate}/hr (max: $${tier.maxRate}/hr)`;
+                            // Show country if specified, otherwise just region
+                            const tierLabel = tier.country
+                                ? `${tier.country} (${tier.region})`
+                                : tier.region;
+                            option.textContent = `${tierLabel}: $${tier.targetRate}/hr (max: $${tier.maxRate}/hr)`;
                             select.appendChild(option);
                         });
                         showToast(`Loaded ${tiers.length} rate tier(s) for Job ${jobId}`, 'success');
@@ -8098,21 +8338,23 @@
                 document.getElementById('aiTestTargetRate').value = tier.targetRate;
                 document.getElementById('aiTestMaxRate').value = tier.maxRate;
 
-                // Show tier info
+                // Show tier info with country if available
                 infoDiv.classList.remove('hidden');
-                let infoHtml = `<strong>${tier.region}</strong>: Target $${tier.targetRate}/hr, Max $${tier.maxRate}/hr`;
+                const tierLabel = tier.country ? `<strong>${tier.country}</strong> (${tier.region})` : `<strong>${tier.region}</strong>`;
+                let infoHtml = `${tierLabel}: Target $${tier.targetRate}/hr, Max $${tier.maxRate}/hr`;
                 if (tier.notes) {
                     infoHtml += ` — ${tier.notes}`;
                 }
                 infoText.innerHTML = infoHtml;
 
-                // Auto-fill country if it matches region
-                const country = document.getElementById('aiTestDevCountry');
-                if (!country.value) {
-                    country.value = tier.region;
+                // Auto-fill country field - prefer tier's country, fallback to region
+                const countryField = document.getElementById('aiTestDevCountry');
+                if (!countryField.value) {
+                    countryField.value = tier.country || tier.region;
                 }
 
-                showToast(`Applied ${tier.region} rates`, 'success');
+                const appliedLabel = tier.country ? `${tier.country} (${tier.region})` : tier.region;
+                showToast(`Applied ${appliedLabel} rates`, 'success');
             }
         }
 

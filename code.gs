@@ -728,17 +728,19 @@ function ensureSheetsExist(ss) {
   const compSheet = ss.getSheetByName('Negotiation_Completed');
   if (compSheet.getLastRow() === 0) compSheet.appendRow(['Timestamp', 'Job ID', 'Email', 'Name', 'Final Status', 'Notes', 'Dev ID', 'Region']);
 
-  // Rate Tiers sheet - for region-based rate management
+  // Rate Tiers sheet - for region-based and country-specific rate management
   const rateTiersSheet = ss.getSheetByName('Rate_Tiers');
   if (rateTiersSheet.getLastRow() === 0) {
-    rateTiersSheet.appendRow(['Job ID', 'Region', 'Target Rate', 'Max Rate', 'Notes']);
+    rateTiersSheet.appendRow(['Job ID', 'Country', 'Region', 'Target Rate', 'Max Rate', 'Notes']);
     // Add example data for reference
-    rateTiersSheet.appendRow(['EXAMPLE', 'US/Canada', 35, 45, 'Tier 1 - High cost regions']);
-    rateTiersSheet.appendRow(['EXAMPLE', 'Europe', 30, 40, 'Tier 2 - Medium-high cost']);
-    rateTiersSheet.appendRow(['EXAMPLE', 'LATAM', 20, 28, 'Tier 3 - Medium cost']);
-    rateTiersSheet.appendRow(['EXAMPLE', 'APAC', 18, 25, 'Tier 4 - Lower cost']);
-    rateTiersSheet.appendRow(['EXAMPLE', 'India', 15, 22, 'Tier 5 - Lowest cost']);
-    rateTiersSheet.appendRow(['EXAMPLE', 'Default', 25, 35, 'Fallback for unknown regions']);
+    rateTiersSheet.appendRow(['EXAMPLE', '', 'US/Canada', 35, 45, 'Tier 1 - High cost regions']);
+    rateTiersSheet.appendRow(['EXAMPLE', '', 'Europe', 30, 40, 'Tier 2 - Medium-high cost']);
+    rateTiersSheet.appendRow(['EXAMPLE', '', 'LATAM', 20, 28, 'Tier 3 - Medium cost']);
+    rateTiersSheet.appendRow(['EXAMPLE', 'Brazil', 'LATAM', 22, 30, 'Brazil-specific (higher than LATAM default)']);
+    rateTiersSheet.appendRow(['EXAMPLE', '', 'APAC', 18, 25, 'Tier 4 - Lower cost']);
+    rateTiersSheet.appendRow(['EXAMPLE', 'Japan', 'APAC', 32, 42, 'Japan-specific (higher than APAC default)']);
+    rateTiersSheet.appendRow(['EXAMPLE', '', 'India', 15, 22, 'Tier 5 - Lowest cost']);
+    rateTiersSheet.appendRow(['EXAMPLE', '', 'Default', 25, 35, 'Fallback for unknown regions']);
   }
 
   // Note: Job-specific details sheets (Job_XXX_Details) are created dynamically
@@ -1291,7 +1293,8 @@ function getFAQs() {
 
 /**
  * Get all rate tiers for a specific job
- * Returns array of tier objects: { region, targetRate, maxRate, notes }
+ * Returns array of tier objects: { country, region, targetRate, maxRate, notes }
+ * Supports both old format (without country) and new format (with country) for backward compatibility
  */
 function getRateTiersForJob(jobId) {
   const url = getStoredSheetUrl();
@@ -1304,14 +1307,30 @@ function getRateTiersForJob(jobId) {
   const data = sheet.getDataRange().getValues();
   const tiers = [];
 
+  // Detect if sheet has new format (Country column) by checking header
+  const hasCountryColumn = data[0] && String(data[0][1]).toLowerCase() === 'country';
+
   for(let i=1; i<data.length; i++) {
     if(String(data[i][0]) === String(jobId)) {
-      tiers.push({
-        region: data[i][1],
-        targetRate: Number(data[i][2]) || 0,
-        maxRate: Number(data[i][3]) || 0,
-        notes: data[i][4] || ''
-      });
+      if(hasCountryColumn) {
+        // New format: Job ID, Country, Region, Target Rate, Max Rate, Notes
+        tiers.push({
+          country: data[i][1] || '',
+          region: data[i][2] || '',
+          targetRate: Number(data[i][3]) || 0,
+          maxRate: Number(data[i][4]) || 0,
+          notes: data[i][5] || ''
+        });
+      } else {
+        // Old format: Job ID, Region, Target Rate, Max Rate, Notes (backward compatibility)
+        tiers.push({
+          country: '',
+          region: data[i][1] || '',
+          targetRate: Number(data[i][2]) || 0,
+          maxRate: Number(data[i][3]) || 0,
+          notes: data[i][4] || ''
+        });
+      }
     }
   }
 
@@ -1488,9 +1507,16 @@ function normalizeRegion(regionInput) {
 }
 
 /**
- * Get rate tier for a specific region within a job
- * Falls back to 'Default' tier if region not found, then to job's base config
- * Now supports country names like "India", "US", "Mexico" etc.
+ * Get rate tier for a specific region/country within a job
+ * Priority order:
+ *   1. Exact country match (if candidate has specific country and tier exists for that country)
+ *   2. Region match (normalized region)
+ *   3. Default tier
+ *
+ * @param {string} jobId - The job ID
+ * @param {string} region - The region or country name from candidate data
+ * @param {Spreadsheet} ss - Optional spreadsheet reference
+ * @returns {Object|null} - Rate tier object with { country, region, targetRate, maxRate, notes, matchType }
  */
 function getRateForRegion(jobId, region, ss) {
   if(!ss) {
@@ -1503,60 +1529,141 @@ function getRateForRegion(jobId, region, ss) {
   if(!sheet) return null;
 
   const data = sheet.getDataRange().getValues();
-
-  // Normalize the input region to a standard tier name
-  const normalizedRegion = normalizeRegion(region);
-  const cleanRegion = String(normalizedRegion || '').toLowerCase().trim();
   const cleanJobId = String(jobId);
 
-  let exactMatch = null;
-  let defaultMatch = null;
+  // Detect if sheet has new format (Country column) by checking header
+  const hasCountryColumn = data[0] && String(data[0][1]).toLowerCase() === 'country';
+
+  // Normalize the input - could be a country name or region
+  const inputLower = String(region || '').toLowerCase().trim();
+  const normalizedRegion = normalizeRegion(region);
+  const cleanRegion = String(normalizedRegion || '').toLowerCase().trim();
+
+  let countryMatch = null;   // Priority 1: Exact country match
+  let regionMatch = null;    // Priority 2: Region match
+  let defaultMatch = null;   // Priority 3: Default fallback
 
   for(let i=1; i<data.length; i++) {
-    if(String(data[i][0]) === cleanJobId) {
-      const tierRegion = String(data[i][1] || '').toLowerCase().trim();
+    if(String(data[i][0]) !== cleanJobId) continue;
 
-      // Check for exact match (case-insensitive)
-      if(tierRegion === cleanRegion) {
-        exactMatch = {
-          region: data[i][1],
-          targetRate: Number(data[i][2]) || 0,
-          maxRate: Number(data[i][3]) || 0,
-          notes: data[i][4] || ''
+    if(hasCountryColumn) {
+      // New format: Job ID, Country, Region, Target Rate, Max Rate, Notes
+      const tierCountry = String(data[i][1] || '').toLowerCase().trim();
+      const tierRegion = String(data[i][2] || '').toLowerCase().trim();
+      const targetRate = Number(data[i][3]) || 0;
+      const maxRate = Number(data[i][4]) || 0;
+      const notes = data[i][5] || '';
+
+      // Priority 1: Check for exact country match (case-insensitive)
+      // Input could be "Brazil" and tier country is "Brazil"
+      if(tierCountry && tierCountry === inputLower) {
+        countryMatch = {
+          country: data[i][1],
+          region: data[i][2],
+          targetRate,
+          maxRate,
+          notes,
+          matchType: 'country'
         };
-        break;
+        break; // Country match is highest priority, stop searching
       }
 
-      // Check for partial match (region contains or is contained)
-      if(!exactMatch && (tierRegion.includes(cleanRegion) || cleanRegion.includes(tierRegion))) {
-        exactMatch = {
+      // Priority 2: Check for region match (only if tier has no specific country)
+      if(!regionMatch && !tierCountry && tierRegion === cleanRegion) {
+        regionMatch = {
+          country: '',
+          region: data[i][2],
+          targetRate,
+          maxRate,
+          notes,
+          matchType: 'region'
+        };
+      }
+
+      // Also check partial region match (region contains or is contained)
+      if(!regionMatch && !tierCountry && tierRegion !== 'default' &&
+         (tierRegion.includes(cleanRegion) || cleanRegion.includes(tierRegion))) {
+        regionMatch = {
+          country: '',
+          region: data[i][2],
+          targetRate,
+          maxRate,
+          notes,
+          matchType: 'region_partial'
+        };
+      }
+
+      // Priority 3: Capture default tier
+      if(tierRegion === 'default' && !tierCountry) {
+        defaultMatch = {
+          country: '',
+          region: 'Default',
+          targetRate,
+          maxRate,
+          notes,
+          matchType: 'default'
+        };
+      }
+    } else {
+      // Old format: Job ID, Region, Target Rate, Max Rate, Notes (backward compatibility)
+      const tierRegion = String(data[i][1] || '').toLowerCase().trim();
+      const targetRate = Number(data[i][2]) || 0;
+      const maxRate = Number(data[i][3]) || 0;
+      const notes = data[i][4] || '';
+
+      // Check for exact match
+      if(tierRegion === cleanRegion) {
+        regionMatch = {
+          country: '',
           region: data[i][1],
-          targetRate: Number(data[i][2]) || 0,
-          maxRate: Number(data[i][3]) || 0,
-          notes: data[i][4] || ''
+          targetRate,
+          maxRate,
+          notes,
+          matchType: 'region'
+        };
+      }
+
+      // Partial match
+      if(!regionMatch && (tierRegion.includes(cleanRegion) || cleanRegion.includes(tierRegion))) {
+        regionMatch = {
+          country: '',
+          region: data[i][1],
+          targetRate,
+          maxRate,
+          notes,
+          matchType: 'region_partial'
         };
       }
 
       // Capture default tier
       if(tierRegion === 'default') {
         defaultMatch = {
+          country: '',
           region: 'Default',
-          targetRate: Number(data[i][2]) || 0,
-          maxRate: Number(data[i][3]) || 0,
-          notes: data[i][4] || ''
+          targetRate,
+          maxRate,
+          notes,
+          matchType: 'default'
         };
       }
     }
   }
 
-  // Return exact match, or default, or null
-  return exactMatch || defaultMatch || null;
+  // Return in priority order: country > region > default
+  return countryMatch || regionMatch || defaultMatch || null;
 }
 
 /**
  * Save or update a rate tier for a job
+ * Supports country-specific tiers (new) and region-only tiers (backward compatible)
+ * @param {string} jobId - Job ID
+ * @param {string} country - Country name (optional, empty for region-only tiers)
+ * @param {string} region - Region name
+ * @param {number} targetRate - Target hourly rate
+ * @param {number} maxRate - Maximum hourly rate
+ * @param {string} notes - Optional notes
  */
-function saveRateTier(jobId, region, targetRate, maxRate, notes) {
+function saveRateTier(jobId, country, region, targetRate, maxRate, notes) {
   const url = getStoredSheetUrl();
   if(!url) return { success: false, message: "No config URL" };
 
@@ -1566,28 +1673,53 @@ function saveRateTier(jobId, region, targetRate, maxRate, notes) {
   const sheet = ss.getSheetByName('Rate_Tiers');
   const data = sheet.getDataRange().getValues();
 
+  // Detect if sheet has new format (Country column) by checking header
+  const hasCountryColumn = data[0] && String(data[0][1]).toLowerCase() === 'country';
+
   const cleanJobId = String(jobId);
+  const cleanCountry = String(country || '').trim();
   const cleanRegion = String(region || '').trim();
 
-  // Check if this tier already exists
-  for(let i=1; i<data.length; i++) {
-    if(String(data[i][0]) === cleanJobId &&
-       String(data[i][1]).toLowerCase() === cleanRegion.toLowerCase()) {
-      // Update existing row
-      sheet.getRange(i+1, 3, 1, 3).setValues([[targetRate, maxRate, notes || '']]);
-      return { success: true, message: "Updated existing tier", isUpdate: true };
+  if(hasCountryColumn) {
+    // New format: Job ID, Country, Region, Target Rate, Max Rate, Notes
+    // Check if this tier already exists (match both country AND region)
+    for(let i=1; i<data.length; i++) {
+      if(String(data[i][0]) === cleanJobId &&
+         String(data[i][1] || '').toLowerCase() === cleanCountry.toLowerCase() &&
+         String(data[i][2] || '').toLowerCase() === cleanRegion.toLowerCase()) {
+        // Update existing row
+        sheet.getRange(i+1, 4, 1, 3).setValues([[targetRate, maxRate, notes || '']]);
+        return { success: true, message: "Updated existing tier", isUpdate: true };
+      }
     }
-  }
 
-  // Add new row
-  sheet.appendRow([jobId, region, targetRate, maxRate, notes || '']);
-  return { success: true, message: "Added new tier", isUpdate: false };
+    // Add new row with country
+    sheet.appendRow([jobId, cleanCountry, cleanRegion, targetRate, maxRate, notes || '']);
+    return { success: true, message: "Added new tier", isUpdate: false };
+  } else {
+    // Old format - migrate to new format by adding header first
+    // Insert Country column at position 2
+    sheet.insertColumnAfter(1);
+    sheet.getRange(1, 2).setValue('Country');
+
+    // Shift existing data - add empty country for all existing rows
+    for(let i=2; i<=data.length; i++) {
+      sheet.getRange(i, 2).setValue('');
+    }
+
+    // Now add the new tier with new format
+    sheet.appendRow([jobId, cleanCountry, cleanRegion, targetRate, maxRate, notes || '']);
+    return { success: true, message: "Added new tier (migrated sheet format)", isUpdate: false };
+  }
 }
 
 /**
  * Delete a rate tier
+ * @param {string} jobId - Job ID
+ * @param {string} country - Country name (can be empty for region-only tiers)
+ * @param {string} region - Region name
  */
-function deleteRateTier(jobId, region) {
+function deleteRateTier(jobId, country, region) {
   const url = getStoredSheetUrl();
   if(!url) return { success: false, message: "No config URL" };
 
@@ -1596,14 +1728,32 @@ function deleteRateTier(jobId, region) {
   if(!sheet) return { success: false, message: "Rate_Tiers sheet not found" };
 
   const data = sheet.getDataRange().getValues();
+
+  // Detect if sheet has new format (Country column) by checking header
+  const hasCountryColumn = data[0] && String(data[0][1]).toLowerCase() === 'country';
+
   const cleanJobId = String(jobId);
+  const cleanCountry = String(country || '').toLowerCase().trim();
   const cleanRegion = String(region || '').toLowerCase().trim();
 
   for(let i=data.length-1; i>=1; i--) {
-    if(String(data[i][0]) === cleanJobId &&
-       String(data[i][1]).toLowerCase() === cleanRegion) {
-      sheet.deleteRow(i+1);
-      return { success: true, message: "Tier deleted" };
+    if(String(data[i][0]) !== cleanJobId) continue;
+
+    if(hasCountryColumn) {
+      // New format: match both country AND region
+      const tierCountry = String(data[i][1] || '').toLowerCase().trim();
+      const tierRegion = String(data[i][2] || '').toLowerCase().trim();
+      if(tierCountry === cleanCountry && tierRegion === cleanRegion) {
+        sheet.deleteRow(i+1);
+        return { success: true, message: "Tier deleted" };
+      }
+    } else {
+      // Old format: match region only
+      const tierRegion = String(data[i][1] || '').toLowerCase().trim();
+      if(tierRegion === cleanRegion) {
+        sheet.deleteRow(i+1);
+        return { success: true, message: "Tier deleted" };
+      }
     }
   }
 
@@ -1619,7 +1769,7 @@ function copyRateTiers(sourceJobId, targetJobId) {
 
   let copied = 0;
   tiers.forEach(tier => {
-    const result = saveRateTier(targetJobId, tier.region, tier.targetRate, tier.maxRate, tier.notes);
+    const result = saveRateTier(targetJobId, tier.country || '', tier.region, tier.targetRate, tier.maxRate, tier.notes);
     if(result.success) copied++;
   });
 
