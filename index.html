@@ -1434,30 +1434,49 @@
                             <button id="rateTiersRefreshBtn" onclick="refreshRateTiersWithAnimation()" class="refresh-btn text-sm text-blue-600 hover:underline"><i class="fa-solid fa-rotate mr-1 text-xs"></i>Refresh</button>
                         </div>
                         <!-- Add Tier Form -->
-                        <div class="bg-white p-4 rounded-lg border border-slate-200 mb-4 flex gap-2 items-end">
-                            <div class="flex-1">
-                                <label class="text-xs text-slate-500">Region</label>
-                                <input id="tierRegion" class="input-field" placeholder="e.g. LATAM">
+                        <div class="bg-white p-4 rounded-lg border border-slate-200 mb-4">
+                            <div class="flex gap-2 items-end flex-wrap">
+                                <div class="w-36">
+                                    <label class="text-xs text-slate-500">Country <span class="text-slate-400">(optional)</span></label>
+                                    <input id="tierCountry" class="input-field" placeholder="e.g. Brazil" oninput="autoFillRegionFromCountry()">
+                                </div>
+                                <div class="w-36">
+                                    <label class="text-xs text-slate-500">Region</label>
+                                    <select id="tierRegion" class="input-field">
+                                        <option value="">Select region...</option>
+                                        <option value="US/Canada">US/Canada</option>
+                                        <option value="Europe">Europe</option>
+                                        <option value="Eastern Europe">Eastern Europe</option>
+                                        <option value="LATAM">LATAM</option>
+                                        <option value="APAC">APAC</option>
+                                        <option value="India">India</option>
+                                        <option value="Middle East">Middle East</option>
+                                        <option value="Africa">Africa</option>
+                                        <option value="Default">Default</option>
+                                    </select>
+                                </div>
+                                <div class="w-24">
+                                    <label class="text-xs text-slate-500">Target $</label>
+                                    <input id="tierTargetRate" type="number" class="input-field" placeholder="20">
+                                </div>
+                                <div class="w-24">
+                                    <label class="text-xs text-slate-500">Max $</label>
+                                    <input id="tierMaxRate" type="number" class="input-field" placeholder="30">
+                                </div>
+                                <div class="flex-1 min-w-32">
+                                    <label class="text-xs text-slate-500">Note</label>
+                                    <input id="tierNotes" class="input-field" placeholder="Optional">
+                                </div>
+                                <button id="addRateTierBtn" onclick="addRateTier()" class="bg-blue-600 text-white p-2.5 rounded-lg hover:bg-blue-700 disabled:opacity-50"><i class="fa-solid fa-plus"></i></button>
                             </div>
-                            <div class="w-24">
-                                <label class="text-xs text-slate-500">Target $</label>
-                                <input id="tierTargetRate" type="number" class="input-field" placeholder="20">
-                            </div>
-                            <div class="w-24">
-                                <label class="text-xs text-slate-500">Max $</label>
-                                <input id="tierMaxRate" type="number" class="input-field" placeholder="30">
-                            </div>
-                            <div class="flex-1">
-                                <label class="text-xs text-slate-500">Note</label>
-                                <input id="tierNotes" class="input-field" placeholder="Optional">
-                            </div>
-                            <button id="addRateTierBtn" onclick="addRateTier()" class="bg-blue-600 text-white p-2.5 rounded-lg hover:bg-blue-700 disabled:opacity-50"><i class="fa-solid fa-plus"></i></button>
+                            <p class="text-xs text-slate-400 mt-2"><i class="fa-solid fa-info-circle mr-1"></i>Add country for specific rates (e.g., Brazil $22/hr) or leave empty for region-wide rates (e.g., all LATAM $20/hr)</p>
                         </div>
                         <!-- Tier Table -->
                         <div class="bg-white rounded-lg border border-slate-200 overflow-hidden">
                             <table class="w-full text-sm text-left">
                                 <thead class="bg-slate-50 text-xs uppercase text-slate-500 font-semibold">
                                     <tr>
+                                        <th class="px-4 py-3">Country</th>
                                         <th class="px-4 py-3">Region</th>
                                         <th class="px-4 py-3">Target</th>
                                         <th class="px-4 py-3">Max</th>
@@ -1466,7 +1485,7 @@
                                     </tr>
                                 </thead>
                                 <tbody id="rateTiersBody" class="divide-y divide-slate-100">
-                                    <tr><td colspan="5" class="p-4 text-center text-slate-400">No tiers loaded. Select a Job ID.</td></tr>
+                                    <tr><td colspan="6" class="p-4 text-center text-slate-400">No tiers loaded. Select a Job ID.</td></tr>
                                 </tbody>
                             </table>
                         </div>
@@ -6570,6 +6589,30 @@
         }
 
         // Rate Tier Functions
+
+        // Auto-fill region dropdown when country is entered
+        function autoFillRegionFromCountry() {
+            const countryInput = document.getElementById('tierCountry');
+            const regionSelect = document.getElementById('tierRegion');
+            const country = countryInput.value.trim().toLowerCase();
+
+            if (!country) {
+                return; // Don't auto-fill if country is empty
+            }
+
+            // Use the same mapping as backend
+            const region = COUNTRY_TO_REGION_MAP[country];
+            if (region) {
+                // Find and select the matching option
+                for (let option of regionSelect.options) {
+                    if (option.value === region) {
+                        regionSelect.value = region;
+                        break;
+                    }
+                }
+            }
+        }
+
         function refreshRateTiers(onComplete = null) {
             const jobId = document.getElementById('negJobId').value;
             const tbody = document.getElementById('rateTiersBody');
@@ -6578,11 +6621,11 @@
                 return;
             }
 
-            tbody.innerHTML = '<tr><td colspan="5" class="p-4 text-center">Loading...</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="6" class="p-4 text-center">Loading...</td></tr>';
 
             google.script.run.withSuccessHandler(tiers => {
                 if(!tiers || tiers.length === 0) {
-                    tbody.innerHTML = '<tr><td colspan="5" class="p-4 text-center text-slate-400">No tiers loaded.</td></tr>';
+                    tbody.innerHTML = '<tr><td colspan="6" class="p-4 text-center text-slate-400">No tiers loaded.</td></tr>';
                     if (onComplete) onComplete([]);
                     return;
                 }
@@ -6590,13 +6633,18 @@
                 tiers.forEach(tier => {
                     const row = document.createElement('tr');
                     row.className = 'hover:bg-slate-50 border-b border-slate-50';
+                    const countryDisplay = tier.country
+                        ? `<span class="font-medium text-blue-600">${tier.country}</span>`
+                        : '<span class="text-slate-300">-</span>';
+                    const tierKey = `${tier.country || ''}::${tier.region}`;
                     row.innerHTML = `
+                        <td class="px-4 py-2">${countryDisplay}</td>
                         <td class="px-4 py-2">${tier.region}</td>
                         <td class="px-4 py-2 text-green-600">$${tier.targetRate}</td>
                         <td class="px-4 py-2 text-amber-600">$${tier.maxRate}</td>
                         <td class="px-4 py-2 text-slate-500 text-xs">${tier.notes || '-'}</td>
                         <td class="px-4 py-2 text-right">
-                            <button onclick="deleteRateTier('${tier.region}')" class="text-red-500 hover:text-red-700"><i class="fa-solid fa-trash"></i></button>
+                            <button onclick="deleteRateTier('${tier.country || ''}', '${tier.region}')" class="text-red-500 hover:text-red-700"><i class="fa-solid fa-trash"></i></button>
                         </td>
                     `;
                     tbody.appendChild(row);
@@ -6633,18 +6681,20 @@
 
         function addRateTier() {
             const jobId = document.getElementById('negJobId').value;
+            const countryInput = document.getElementById('tierCountry');
             const regionInput = document.getElementById('tierRegion');
             const targetInput = document.getElementById('tierTargetRate');
             const maxInput = document.getElementById('tierMaxRate');
             const notesInput = document.getElementById('tierNotes');
             const btn = document.getElementById('addRateTierBtn');
 
+            const country = countryInput.value.trim();
             const region = regionInput.value;
             const target = targetInput.value;
             const max = maxInput.value;
             const notes = notesInput.value;
 
-            if(!jobId || !region || !target || !max) { showToast("Fill all fields", "warning"); return; }
+            if(!jobId || !region || !target || !max) { showToast("Fill Job ID, Region, Target and Max fields", "warning"); return; }
 
             // Show loading state
             btn.disabled = true;
@@ -6652,8 +6702,10 @@
 
             google.script.run
                 .withSuccessHandler(() => {
-                    showToast("Rate tier added", "success");
+                    const msg = country ? `Rate tier added for ${country} (${region})` : `Rate tier added for ${region}`;
+                    showToast(msg, "success");
                     // Clear the form
+                    countryInput.value = '';
                     regionInput.value = '';
                     targetInput.value = '';
                     maxInput.value = '';
@@ -6669,16 +6721,17 @@
                     btn.disabled = false;
                     btn.innerHTML = '<i class="fa-solid fa-plus"></i>';
                 })
-                .saveRateTier(jobId, region, target, max, notes);
+                .saveRateTier(jobId, country, region, target, max, notes);
         }
 
-        function deleteRateTier(region) {
+        function deleteRateTier(country, region) {
             const jobId = document.getElementById('negJobId').value;
-            if(!confirm("Delete tier?")) return;
+            const tierDesc = country ? `${country} (${region})` : region;
+            if(!confirm(`Delete rate tier for ${tierDesc}?`)) return;
             google.script.run.withSuccessHandler(() => {
                 showToast("Deleted", "success");
                 refreshRateTiers();
-            }).deleteRateTier(jobId, region);
+            }).deleteRateTier(jobId, country, region);
         }
 
         function manualTriggerFollowUps() {
@@ -8180,7 +8233,11 @@
                         tiers.forEach((tier, idx) => {
                             const option = document.createElement('option');
                             option.value = idx;
-                            option.textContent = `${tier.region}: $${tier.targetRate}/hr (max: $${tier.maxRate}/hr)`;
+                            // Show country if specified, otherwise just region
+                            const tierLabel = tier.country
+                                ? `${tier.country} (${tier.region})`
+                                : tier.region;
+                            option.textContent = `${tierLabel}: $${tier.targetRate}/hr (max: $${tier.maxRate}/hr)`;
                             select.appendChild(option);
                         });
                         showToast(`Loaded ${tiers.length} rate tier(s) for Job ${jobId}`, 'success');
@@ -8213,21 +8270,23 @@
                 document.getElementById('aiTestTargetRate').value = tier.targetRate;
                 document.getElementById('aiTestMaxRate').value = tier.maxRate;
 
-                // Show tier info
+                // Show tier info with country if available
                 infoDiv.classList.remove('hidden');
-                let infoHtml = `<strong>${tier.region}</strong>: Target $${tier.targetRate}/hr, Max $${tier.maxRate}/hr`;
+                const tierLabel = tier.country ? `<strong>${tier.country}</strong> (${tier.region})` : `<strong>${tier.region}</strong>`;
+                let infoHtml = `${tierLabel}: Target $${tier.targetRate}/hr, Max $${tier.maxRate}/hr`;
                 if (tier.notes) {
                     infoHtml += ` — ${tier.notes}`;
                 }
                 infoText.innerHTML = infoHtml;
 
-                // Auto-fill country if it matches region
-                const country = document.getElementById('aiTestDevCountry');
-                if (!country.value) {
-                    country.value = tier.region;
+                // Auto-fill country field - prefer tier's country, fallback to region
+                const countryField = document.getElementById('aiTestDevCountry');
+                if (!countryField.value) {
+                    countryField.value = tier.country || tier.region;
                 }
 
-                showToast(`Applied ${tier.region} rates`, 'success');
+                const appliedLabel = tier.country ? `${tier.country} (${tier.region})` : tier.region;
+                showToast(`Applied ${appliedLabel} rates`, 'success');
             }
         }
 
