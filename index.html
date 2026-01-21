@@ -2051,7 +2051,45 @@
                             </div>
                         </div>
                     </div>
-                    
+
+                    <!-- Completed Breakdown Section -->
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mt-6">
+                        <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+                            <div class="flex items-center gap-3 mb-4">
+                                <div class="bg-blue-100 p-2 rounded-lg">
+                                    <i class="fa-solid fa-user-check text-blue-600"></i>
+                                </div>
+                                <div>
+                                    <h4 class="font-bold text-slate-800">Completed by User</h4>
+                                    <p class="text-xs text-slate-500">Completion distribution across team members</p>
+                                </div>
+                            </div>
+                            <div id="completedUsersList" class="space-y-3">
+                                <div id="completedUsersEmpty" class="text-center py-6 text-slate-400">
+                                    <i class="fa-regular fa-check-circle text-2xl mb-2 block"></i>
+                                    <span class="text-sm">No completions yet</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+                            <div class="flex items-center gap-3 mb-4">
+                                <div class="bg-purple-100 p-2 rounded-lg">
+                                    <i class="fa-solid fa-clipboard-check text-purple-600"></i>
+                                </div>
+                                <div>
+                                    <h4 class="font-bold text-slate-800">Completed by Job</h4>
+                                    <p class="text-xs text-slate-500">Completions grouped by job ID</p>
+                                </div>
+                            </div>
+                            <div id="completedJobsList" class="space-y-2">
+                                <div id="completedJobsEmpty" class="text-center py-6 text-slate-400">
+                                    <i class="fa-regular fa-check-circle text-2xl mb-2 block"></i>
+                                    <span class="text-sm">No completions yet</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
                     <!-- Hidden container for recent activity to prevent errors if script references it -->
                     <div id="recentActivityList" class="hidden"></div>
                 </div>
@@ -7747,6 +7785,36 @@
                     jList.innerHTML = `<div class="text-center py-6 text-slate-400">
                         <i class="fa-regular fa-envelope text-2xl mb-2 block"></i>
                         <span class="text-sm">${hasFilters ? 'No emails found for the selected filters' : 'No emails sent yet'}</span>
+                    </div>`;
+                }
+
+                // Render completed by user breakdown
+                const cuList = document.getElementById('completedUsersList');
+                const completedUserEntries = stats.completedByUser ? Object.entries(stats.completedByUser).sort((a,b)=>b[1]-a[1]) : [];
+                if(completedUserEntries.length > 0) {
+                    cuList.innerHTML = '';
+                    completedUserEntries.forEach(([k,v]) => {
+                        cuList.innerHTML += `<div class="flex justify-between text-sm mb-2 p-2 bg-slate-50 rounded"><span class="text-slate-700">${k}</span><span class="font-bold text-blue-600">${v}</span></div>`;
+                    });
+                } else {
+                    cuList.innerHTML = `<div class="text-center py-6 text-slate-400">
+                        <i class="fa-regular fa-check-circle text-2xl mb-2 block"></i>
+                        <span class="text-sm">${hasFilters ? 'No completions found for the selected filters' : 'No completions yet'}</span>
+                    </div>`;
+                }
+
+                // Render completed by job breakdown
+                const cjList = document.getElementById('completedJobsList');
+                const completedJobEntries = stats.completedByJob ? Object.entries(stats.completedByJob).sort((a,b)=>b[1]-a[1]) : [];
+                if(completedJobEntries.length > 0) {
+                    cjList.innerHTML = '';
+                    completedJobEntries.forEach(([k,v]) => {
+                        cjList.innerHTML += `<div class="flex justify-between text-sm mb-2 p-2 bg-slate-50 rounded"><span class="text-slate-700">Job ${k}</span><span class="font-bold text-purple-600">${v}</span></div>`;
+                    });
+                } else {
+                    cjList.innerHTML = `<div class="text-center py-6 text-slate-400">
+                        <i class="fa-regular fa-check-circle text-2xl mb-2 block"></i>
+                        <span class="text-sm">${hasFilters ? 'No completions found for the selected filters' : 'No completions yet'}</span>
                     </div>`;
                 }
             }).getDetailedEmailStats(filterEmail, filterJobId, startDate, endDate);
