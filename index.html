@@ -4693,10 +4693,17 @@
             let tsv = "Developer ID\tName\tEmail\tCountry\tPhone\tStatus\tType\tAgency Name\tHistory\n";
 
             dataToExport.forEach(d => {
-                // Format phone with country code
-                const phoneDisplay = d.phone_number ?
-                    (d.phone_country_code ? `+${d.phone_country_code} ${d.phone_number}` : d.phone_number) :
-                    '';
+                // Format phone for Google Sheets - prefix with apostrophe to prevent formula interpretation
+                // Clean phone number to avoid duplicate + signs
+                let phoneDisplay = '';
+                if (d.phone_number) {
+                    const cleanPhone = d.phone_number.toString().replace(/^\+/, ''); // Remove leading + if present
+                    if (d.phone_country_code) {
+                        phoneDisplay = `'+${d.phone_country_code} ${cleanPhone}`;
+                    } else {
+                        phoneDisplay = `'${d.phone_number}`;
+                    }
+                }
 
                 // Type display
                 let typeDisplay = 'Direct';
@@ -4742,10 +4749,16 @@
 
             let csv = "Developer ID,Candidate Name,Email,Country,Phone,Pipeline Status,Type,Agency Name,Outreach History\n";
             dataToExport.forEach(d => {
-                // Format phone with country code
-                const phoneDisplay = d.phone_number ?
-                    (d.phone_country_code ? `+${d.phone_country_code} ${d.phone_number}` : d.phone_number) :
-                    '';
+                // Format phone for CSV - clean up duplicate + signs
+                let phoneDisplay = '';
+                if (d.phone_number) {
+                    const cleanPhone = d.phone_number.toString().replace(/^\+/, ''); // Remove leading + if present
+                    if (d.phone_country_code) {
+                        phoneDisplay = `+${d.phone_country_code} ${cleanPhone}`;
+                    } else {
+                        phoneDisplay = d.phone_number;
+                    }
+                }
 
                 let typeDisplay = 'Direct';
                 if (d.candidate_status === 'Agency Sub-Contractor') typeDisplay = 'Sub-Contractor';
