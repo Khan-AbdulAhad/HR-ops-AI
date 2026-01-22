@@ -4516,16 +4516,38 @@
         function fetchData() {
             const jobId = document.getElementById('jobId').value;
             const stages = Array.from(document.querySelectorAll('.smart-chip.active')).map(e => e.dataset.value);
-            
+
             if(!jobId || stages.length === 0) {
                 showToast("Enter Job ID & Select Stages", "warning");
                 return;
             }
 
+            // Reset all selection state when fetching new data
+            selectedDevs.clear();
+            updateBulkUI();
+
+            // Clear paste filter input and hide area
+            document.getElementById('pasteFilterInput').value = '';
+            document.getElementById('pasteFilterArea').classList.add('hidden');
+
+            // Reset all filters to default state
+            activeFilters.status.clear();
+            activeFilters.status.add('all');
+            activeFilters.type.clear();
+            activeFilters.country.clear();
+            document.querySelectorAll('.filter-chip').forEach(chip => {
+                chip.classList.remove('active');
+            });
+            const allFilterChip = document.querySelector('.filter-chip[data-filter="all"]');
+            if (allFilterChip) allFilterChip.classList.add('active');
+            document.getElementById('tableSearch').value = '';
+            updateCountryFilterIcon();
+            updateActiveFiltersIndicator();
+
             const btn = document.getElementById('fetchBtn');
             const originalHtml = btn.innerHTML;
             btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Fetching...';
-            
+
             google.script.run
                 .withSuccessHandler(data => {
                     tableData = data;
