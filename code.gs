@@ -4600,9 +4600,12 @@ function processJobNegotiations(jobId, rules, ss, faqContent, negotiationEnabled
 
                 // FIX: Update AI Summary when data gathering email is sent
                 // This ensures the summary reflects the current state including pending questions
+                // Include the just-sent email in conversation history for accurate summary
+                const updatedHistoryForDataGathering = conversationHistory +
+                  "\n---\n[ME]: " + missingInfoEmail.substring(0, 400);
                 try {
                   const dataGatheringSummary = generateComprehensiveAISummary(
-                    conversationHistory,
+                    updatedHistoryForDataGathering,
                     candidateEmail,
                     jobId,
                     attempts || 0,
@@ -5041,10 +5044,13 @@ Write ONLY the email, nothing else.
           updateFollowUpLabels(thread.getId(), 'responded');
 
           // FIX: Generate AI Summary when combined rate+data email is sent
+          // Include the just-sent email in conversation history for accurate summary
+          const updatedHistoryForCombined = conversationHistory +
+            "\n---\n[ME]: " + combinedEmail.substring(0, 400);
           let combinedSummary = null;
           try {
             combinedSummary = generateComprehensiveAISummary(
-              conversationHistory,
+              updatedHistoryForCombined,
               candidateEmail,
               jobId,
               attempts + 1,
@@ -5352,10 +5358,13 @@ Write ONLY the email, nothing else.
           updateFollowUpLabels(thread.getId(), 'responded');
 
           // FIX: Generate AI Summary when combined rate+data email is sent
+          // Include the just-sent email in conversation history for accurate summary
+          const updatedHistoryForCombined2 = conversationHistory +
+            "\n---\n[ME]: " + combinedEmail.substring(0, 400);
           let combinedSummary = null;
           try {
             combinedSummary = generateComprehensiveAISummary(
-              conversationHistory,
+              updatedHistoryForCombined2,
               candidateEmail,
               jobId,
               attempts + 1,
@@ -5716,14 +5725,19 @@ Write ONLY the email, nothing else.
         }
 
         sendReplyWithSenderName(thread, retryResponse, getEffectiveSenderName());
-        
+
         const newAttemptCount = attempts + 1;
+
+        // FIX: Update conversation history to include the AI's just-sent reply
+        // Without this, the summary won't reflect what the AI just said (e.g., counter-offer amount)
+        const updatedConversationHistory = conversationHistory +
+          "\n---\n[ME]: " + retryResponse.substring(0, 400);
 
         // Generate COMPREHENSIVE AI summary after every exchange
         let comprehensiveSummary = `Attempt ${newAttemptCount}: AI negotiated`;
         try {
           comprehensiveSummary = generateComprehensiveAISummary(
-            conversationHistory,
+            updatedConversationHistory,
             cleanCandidateEmail,
             jobId,
             newAttemptCount,
@@ -6026,11 +6040,16 @@ Write ONLY the email, nothing else.
 
       const newAttemptCount = attempts + 1;
 
+      // FIX: Update conversation history to include the AI's just-sent reply
+      // Without this, the summary won't reflect what the AI just said (e.g., counter-offer amount)
+      const updatedConversationHistoryForOffer = conversationHistory +
+        "\n---\n[ME]: " + aiResponse.substring(0, 400);
+
       // Generate COMPREHENSIVE AI summary after every exchange
       let comprehensiveSummary = `Attempt ${newAttemptCount}: Offered $${currentOfferRate}/hr`;
       try {
         comprehensiveSummary = generateComprehensiveAISummary(
-          conversationHistory,
+          updatedConversationHistoryForOffer,
           cleanCandidateEmail,
           jobId,
           newAttemptCount,
