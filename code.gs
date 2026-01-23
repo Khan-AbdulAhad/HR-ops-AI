@@ -4331,6 +4331,13 @@ function runAutoNegotiator() {
     }
   }
 
+  // CRITICAL: Invalidate all caches at the end of runAutoNegotiator
+  // This ensures that loadTasks() gets fresh data including updated AI summaries
+  // Without this, the UI may show stale AI summaries after AI negotiates or captures details
+  invalidateSheetCache('Negotiation_State');
+  invalidateSheetCache('Negotiation_Tasks');
+  invalidateSheetCache('Negotiation_Completed');
+
   return {status: "Success", stats: stats, log: log};
 }
 
