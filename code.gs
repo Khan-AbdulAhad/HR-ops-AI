@@ -4798,6 +4798,9 @@ IMPORTANT INTERPRETATION RULES:
 - "My expected rate is $X" = They are proposing $X (NOT accepting!)
 - "I want $X" = They are proposing $X
 - "How about $X?" = They are counter-proposing $X
+- "What would you say if I can do it at $X" = They are ACCEPTING $X (treat as acceptance!)
+- "Can I do it at $X?" or "I can do it at $X" or "I can do $X" = They are ACCEPTING/proposing $X
+- "If I can do it for $X" or "if i can do it in $X" = They are ACCEPTING $X
 - ANY mention of a specific dollar amount by the candidate = Their proposed/expected rate
 - "I am ready to start" WITHOUT agreeing to our rate = Just expressing availability, NOT acceptance
 
@@ -4819,12 +4822,12 @@ SENSITIVE QUESTIONS (require immediate escalation):
 DECISION RULES (in priority order):
 1. If candidate asks SENSITIVE QUESTIONS (see above) → ACTION: ESCALATE, escalation_type: "sensitive_question"
 2. If candidate explicitly ACCEPTS a rate WE previously offered → ACTION: AUTO_ACCEPT, is_accepting_offer: true
-3. If candidate PROPOSES a rate AT OR BELOW $${targetRate}/hr → ACTION: AUTO_ACCEPT (accept their proposal!)
-4. If candidate PROPOSES a rate ABOVE $${targetRate}/hr (even above max) → ACTION: COUNTER (we will negotiate)
+3. If candidate PROPOSES a rate AT OR BELOW $${maxRate}/hr → ACTION: AUTO_ACCEPT (accept their proposal - it's within our budget!)
+4. If candidate PROPOSES a rate ABOVE $${maxRate}/hr → ACTION: COUNTER (we will negotiate)
 5. If no clear rate mentioned but message is positive → ACTION: COUNTER
 
 IMPORTANT - RATE NEGOTIATION:
-- Even if rate is above our max ($${maxRate}), recommend COUNTER - we will try to negotiate
+- If rate is ABOVE our max ($${maxRate}), recommend COUNTER - we will try to negotiate
 - Do NOT escalate just because rate is high - we want to try negotiating first
 - Only use ESCALATE for sensitive questions, NOT for rate-related issues
 
@@ -5245,44 +5248,15 @@ Write ONLY the email, nothing else.
       }
     }
 
-    // CRITICAL SAFEGUARD: Never offer more than what the candidate is asking for
-    // If candidate asks for $41 and our scheduled offer is $50, we should accept $41 (not offer $50!)
+    // CRITICAL SAFEGUARD: Accept any rate the candidate proposes that's within our budget
+    // If candidate asks for $41 and our max is $50, we should accept $41 (not re-offer $41!)
+    // This also prevents the awkward scenario of re-offering the same rate the candidate just proposed
     const candidateProposedRate = rateAnalysis ? rateAnalysis.proposed_rate : null;
-    if (candidateProposedRate !== null && candidateProposedRate < currentOfferRate) {
+    if (candidateProposedRate !== null && candidateProposedRate <= maxRate) {
       const rate = candidateProposedRate;
 
-      // SAFETY CHECK: Even if candidate asks less than our offer, still validate against limits
-      // This prevents accepting $40/hr from India when their limit is $25
-      if (rate > maxRate) {
-        jobStats.log.push({type: 'warning', message: `${candidateEmail} - SAFETY BLOCK: Candidate proposed $${rate}/hr (less than our $${currentOfferRate} offer) but exceeds max $${maxRate}/hr. Escalating.`});
-
-        const escalationReason = `Candidate proposed $${rate}/hr which exceeds job max of $${maxRate}/hr`;
-
-        try {
-          updateJobCandidateStatus(ss, jobId, candidateEmail, 'Escalated - Rate Exceeds Max', `$${rate}/hr (max: $${maxRate})`);
-        } catch(detailsErr) {
-          console.error("Failed to update job details sheet:", detailsErr);
-        }
-
-        const completedSheetLower = ss.getSheetByName('Negotiation_Completed');
-        completedSheetLower.appendRow([
-          new Date(), jobId, candidateEmail, candidateName, devId, "Escalated",
-          escalationReason, thread.getId(),
-          `Rate: $${rate}/hr | Max: $${maxRate}/hr${candidateRegion ? ' | Region: ' + candidateRegion : ''}`
-        ]);
-
-        sendEscalationEmail(jobId, candidateName, candidateEmail, thread, escalationReason, rules.escalationEmail);
-        updateFollowUpLabels(thread.getId(), 'responded');
-
-        if(stateRowIndex > -1) {
-          stateSheet.deleteRow(stateRowIndex);
-        }
-
-        jobStats.escalated++;
-        return;
-      }
-
-      // SAFETY CHECK: Validate against regional limits
+      // SAFETY CHECK: Validate against regional limits even if within job maxRate
+      // This prevents accepting $40/hr from India when their regional limit is $25
       if (candidateRegion && regionMaxRateLimit && rate > regionMaxRateLimit) {
         jobStats.log.push({type: 'warning', message: `${candidateEmail} - SAFETY BLOCK: Candidate proposed $${rate}/hr but exceeds ${candidateRegion} limit of $${regionMaxRateLimit}/hr. Escalating.`});
 
@@ -5294,8 +5268,8 @@ Write ONLY the email, nothing else.
           console.error("Failed to update job details sheet:", detailsErr);
         }
 
-        const completedSheetRegionLower = ss.getSheetByName('Negotiation_Completed');
-        completedSheetRegionLower.appendRow([
+        const completedSheetRegion = ss.getSheetByName('Negotiation_Completed');
+        completedSheetRegion.appendRow([
           new Date(), jobId, candidateEmail, candidateName, devId, "Escalated",
           escalationReason, thread.getId(),
           `Rate: $${rate}/hr | Region: ${candidateRegion} | Max Expected: $${regionMaxRateLimit}/hr`
@@ -5312,8 +5286,8 @@ Write ONLY the email, nothing else.
         return;
       }
 
-      // Rate is valid - proceed with acceptance
-      jobStats.log.push({type: 'success', message: `${candidateEmail} - Candidate asking $${rate}/hr which is LESS than our offer of $${currentOfferRate}/hr - accepting their lower rate!`});
+      // Rate is valid (within maxRate and regional limits) - proceed with acceptance
+      jobStats.log.push({type: 'success', message: `${candidateEmail} - Candidate proposed $${rate}/hr (within max $${maxRate}/hr) - accepting their rate!`});
 
       // FIX: Check if data gathering is enabled but incomplete before completing
       if (hasDataGatheringEnabled && !isDataGatheringComplete && pendingDataQuestions.length > 0) {
