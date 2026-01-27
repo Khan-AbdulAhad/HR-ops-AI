@@ -8265,16 +8265,13 @@
 
                 document.getElementById('statTotalUsers').textContent = data.totalUsers || 0;
                 document.getElementById('statTotalEmails').textContent = data.totalEmailsSent || 0;
-                document.getElementById('statTotalDataFetches').textContent = data.pendingDataGathering || 0;
+                document.getElementById('statTotalDataFetches').textContent = data.totalDataFetches || 0;
                 document.getElementById('statTotalCompleted').textContent = data.totalCompleted || 0;
-                // Use activeNegotiations for accurate unique candidate count
-                if (data.activeNegotiations !== undefined) {
-                    document.getElementById('statTotalNegotiations').textContent = data.activeNegotiations || 0;
-                }
+                // Use totalNegotiations for consistency with User Activity table (cumulative from activity log)
+                document.getElementById('statTotalNegotiations').textContent = data.totalNegotiations || 0;
 
                 const tbody = document.getElementById('userStatsTableBody');
                 tbody.innerHTML = '';
-                const pendingDataGathering = data.pendingDataGathering || 0;
                 if(data.userStats && data.userStats.length > 0) {
                     data.userStats.forEach(u => {
                         const tr = document.createElement('tr');
@@ -8282,7 +8279,7 @@
                         tr.innerHTML = `
                             <td class="px-6 py-3 font-medium">${u.email}</td>
                             <td class="px-6 py-3 text-center text-emerald-600 font-bold">${u.emailsSent || 0}</td>
-                            <td class="px-6 py-3 text-center text-cyan-600">${pendingDataGathering}</td>
+                            <td class="px-6 py-3 text-center text-cyan-600">${u.dataFetches || 0}</td>
                             <td class="px-6 py-3 text-center text-purple-600">${u.negotiations || 0}</td>
                             <td class="px-6 py-3 text-center text-amber-600">${u.followUps || 0}</td>
                             <td class="px-6 py-3 text-slate-500 text-xs">${u.lastActive ? new Date(u.lastActive).toLocaleDateString() : '-'}</td>
@@ -8304,7 +8301,7 @@
             google.script.run.withSuccessHandler(stats => {
                 if(stats.error) return;
                 document.getElementById('statTotalFollowUps').textContent = stats.totalFollowUps || 0;
-                document.getElementById('statTotalNegotiations').textContent = stats.totalNegotiations || 0;
+                // Note: totalNegotiations is already set by getUserAnalytics for consistency with User Activity table
 
                 // Render charts (simplified lists)
                 const uList = document.getElementById('emailUsersList');
