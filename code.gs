@@ -10719,6 +10719,11 @@ function getUserAnalytics(filterEmail, filterJobId, startDate, endDate) {
     analytics.activeNegotiations = negotiationStats.active + negotiationStats.humanEscalated;
     analytics.negotiationStats = negotiationStats;
 
+    // Get pending follow-ups count (candidates awaiting follow-up)
+    const followUpStats = getFollowUpStats();
+    analytics.pendingFollowUps = followUpStats.pending;
+    analytics.followUpStats = followUpStats;
+
     return analytics;
   } catch (e) {
     console.error("Error getting user analytics:", e);
