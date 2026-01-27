@@ -11908,6 +11908,15 @@ function sendSupplementaryDataRequest(jobId, candidateEmails, additionalQuestion
           return;
         }
 
+        // SAFETY CHECK: Verify thread has AI_MANAGED_LABEL before sending
+        const threadLabels = thread.getLabels().map(l => l.getName());
+        if (!threadLabels.includes(AI_MANAGED_LABEL)) {
+          console.warn(`BLOCKED: Supplementary request to ${candidate.email} - thread missing "${AI_MANAGED_LABEL}" label`);
+          errors.push({ email: candidate.email, error: `Thread missing "${AI_MANAGED_LABEL}" label - not sent via app` });
+          failedCount++;
+          return;
+        }
+
         // Build conversation context from thread
         const messages = thread.getMessages();
         let conversationContext = '';
