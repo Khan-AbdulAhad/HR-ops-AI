@@ -4542,6 +4542,7 @@ function processJobNegotiations(jobId, rules, ss, faqContent, negotiationEnabled
     let candidateName = state ? state.name : 'Unknown';
     let devId = state ? state.devId : 'N/A';
     let candidateRegion = state ? state.region : '';
+    let currentStatus = state ? (state.status || '') : '';
 
     // Build conversation history FIRST (needed for escalation and data extraction)
     const recentMsgs = msgs.slice(-5);
@@ -4777,6 +4778,181 @@ function processJobNegotiations(jobId, rules, ss, faqContent, negotiationEnabled
 
     // Log the final rate configuration being used for this candidate
     jobStats.log.push({type: 'info', message: `${candidateEmail} - Rate config: target=$${targetRate}, max=$${maxRate}, region=${candidateRegion || 'none'}, regionRatesFound=${regionRatesFound}, regionLimit=${regionMaxRateLimit || 'none'}`});
+
+    // FIX: Check if rate is already agreed - skip rate negotiation and only handle data collection
+    // This prevents the AI from asking for rate again after negotiation is complete
+    const isRateAlreadyAgreed = currentStatus && (
+      currentStatus.includes('Rate Agreed') ||
+      currentStatus === 'Active - Data Pending'
+    );
+
+    if (isRateAlreadyAgreed) {
+      jobStats.log.push({type: 'info', message: `${candidateEmail} - Rate already agreed (status: ${currentStatus}). Skipping rate negotiation.`});
+
+      // Extract the agreed rate from status if available (format: "Rate Agreed $XX/hr - Data Pending")
+      const agreedRateMatch = currentStatus.match(/\$(\d+(?:\.\d+)?)/);
+      const agreedRate = agreedRateMatch ? agreedRateMatch[1] : null;
+
+      // If data gathering is pending, send a follow-up for data only (no rate discussion)
+      if (hasDataGatheringEnabled && !isDataGatheringComplete && pendingDataQuestions.length > 0) {
+        const dataOnlyPrompt = `
+You are a professional recruiter at Turing. The candidate has already agreed to a rate${agreedRate ? ` of $${agreedRate}/hr` : ''}.
+Write an email responding to their message and following up on the missing information.
+
+CANDIDATE'S MESSAGE:
+"${candidateLatestMessage}"
+
+CANDIDATE NAME: ${candidateName.split(' ')[0]}
+
+MISSING INFORMATION NEEDED:
+${pendingDataQuestions.map((q, i) => `${i+1}. ${q.question}`).join('\n')}
+
+JOB CONTEXT:
+${rules.jobDescription || 'Freelance opportunity at Turing'}
+
+IMPORTANT RULES:
+- Do NOT discuss rate or negotiate - the rate is already agreed
+- Do NOT ask about rate expectations
+- If they ask about rate, politely remind them you've already noted their rate
+- Only follow up on the missing information listed above
+- If they provided any of the missing information in their message, acknowledge it
+- Keep the tone professional and friendly
+
+EMAIL FORMAT:
+Hi ${candidateName.split(' ')[0]},
+
+[Acknowledge their message/question if any]
+
+[Request the missing information naturally]
+
+Once we have these details, our team will proceed with the next steps.
+
+Best regards,
+${getEffectiveSignature()}
+
+Write ONLY the email, nothing else.
+`;
+
+        try {
+          const dataOnlyEmail = callAI(dataOnlyPrompt);
+
+          // SECURITY: Validate email content before sending
+          if (!validateEmailForSending(dataOnlyEmail, { jobId: jobId })) {
+            console.error(`BLOCKED: Data-only follow-up for ${candidateEmail} contained sensitive data`);
+            jobStats.log.push({type: 'warning', message: `${candidateEmail} - Data follow-up email blocked: contained sensitive data`});
+            return;
+          }
+
+          sendReplyWithSenderName(thread, dataOnlyEmail, getEffectiveSenderName());
+
+          // Update state timestamp
+          if (stateRowIndex > -1) {
+            stateSheet.getRange(stateRowIndex, 6).setValue(new Date());
+          }
+
+          updateFollowUpLabels(thread.getId(), 'responded');
+
+          jobStats.replied++;
+          jobStats.log.push({type: 'info', message: `${candidateEmail} - Sent data-only follow-up (rate already agreed)`});
+          return;
+        } catch (emailErr) {
+          console.error("Failed to send data-only follow-up:", emailErr);
+          jobStats.log.push({type: 'error', message: `${candidateEmail} - Failed to send data-only follow-up: ${emailErr.message}`});
+        }
+      } else if (isDataGatheringComplete || !hasDataGatheringEnabled) {
+        // Data is complete or not enabled - send acceptance/completion email and complete
+        const completionPrompt = `
+You are a professional recruiter at Turing. The candidate has agreed to the rate${agreedRate ? ` of $${agreedRate}/hr` : ''} and all information has been collected.
+Write a brief, friendly email responding to their message.
+
+CANDIDATE'S MESSAGE:
+"${candidateLatestMessage}"
+
+CANDIDATE NAME: ${candidateName.split(' ')[0]}
+
+JOB CONTEXT:
+${rules.jobDescription || 'Freelance opportunity at Turing'}
+
+${faqContent ? `FAQs (ONLY use if candidate explicitly asks a matching question):\n${faqContent}` : ''}
+
+IMPORTANT RULES:
+- Do NOT discuss rate or negotiate - everything is already settled
+- If they ask a question that's in the FAQ, answer it naturally
+- If they ask something not in the FAQ, politely say you'll connect them with the team
+- Keep the response brief and professional
+- Do NOT include job IDs, internal terminology, or system details
+- Do NOT use phrases like "target rate", "max rate", "budget"
+
+EMAIL FORMAT:
+Hi ${candidateName.split(' ')[0]},
+
+[Brief acknowledgment and response to their message]
+
+[If they had questions, answer or defer appropriately]
+
+If you have any other questions, feel free to reach out.
+
+Best regards,
+${getEffectiveSignature()}
+
+Write ONLY the email, nothing else.
+`;
+
+        try {
+          const completionEmail = callAI(completionPrompt);
+
+          // SECURITY: Validate email content before sending
+          if (!validateEmailForSending(completionEmail, { jobId: jobId })) {
+            console.error(`BLOCKED: Completion email for ${candidateEmail} contained sensitive data`);
+            jobStats.log.push({type: 'warning', message: `${candidateEmail} - Completion email blocked: contained sensitive data`});
+            return;
+          }
+
+          sendReplyWithSenderName(thread, completionEmail, getEffectiveSenderName());
+          markCompleted(thread);
+
+          // Move to completed sheet
+          const compSheet = ss.getSheetByName('Negotiation_Completed');
+          if (compSheet) {
+            const existingAiNotes = state?.aiNotes || '';
+            const finalNotes = existingAiNotes
+              ? existingAiNotes + ' | AI Auto-Completed after follow-up'
+              : `Rate Agreed${agreedRate ? ` at $${agreedRate}/hr` : ''} - Completed after candidate follow-up`;
+
+            compSheet.appendRow([
+              new Date(),
+              jobId,
+              candidateEmail,
+              candidateName,
+              `Offer Accepted${agreedRate ? ` at $${agreedRate}/hr` : ''}`,
+              finalNotes,
+              devId,
+              candidateRegion || ''
+            ]);
+          }
+
+          // Remove from state sheet
+          if (stateRowIndex > -1) {
+            stateSheet.deleteRow(stateRowIndex);
+            stateMap.delete(stateKey);
+          }
+
+          updateFollowUpLabels(thread.getId(), 'responded');
+          invalidateSheetCache('Negotiation_State');
+          invalidateSheetCache('Negotiation_Completed');
+
+          jobStats.accepted++;
+          jobStats.log.push({type: 'success', message: `${candidateEmail} - Completed after follow-up (rate was already agreed)`});
+          return;
+        } catch (emailErr) {
+          console.error("Failed to send completion email:", emailErr);
+          jobStats.log.push({type: 'error', message: `${candidateEmail} - Failed to send completion email: ${emailErr.message}`});
+        }
+      }
+
+      // If we get here, something went wrong - fall through to normal processing as safety net
+      jobStats.log.push({type: 'warning', message: `${candidateEmail} - Rate agreed but could not handle follow-up. Falling through to normal processing.`});
+    }
 
     // Progressive offer strategy:
     // Attempt 1 (attempts=0): 80% of target rate
@@ -11871,67 +12047,86 @@ function testAiEmailResponse(testData) {
 
       // Step 2: Negotiation - If negotiation is enabled and candidate mentioned rates
       if (functions.negotiation) {
-        const candidateMentionsRate = candidateReply && /\$?\d+|\brate\b|\bhourly\b|\bsalary\b|\bcompensation\b|\bpay\b|\bbudget\b/i.test(candidateReply);
+        // FIX: Check if rate was already agreed in previous exchanges - skip rate negotiation
+        const isRateAlreadyAgreed = ctx && ctx.negotiationState && ctx.negotiationState.rateAgreed;
 
-        if (candidateMentionsRate || (ctx && ctx.negotiationState)) {
-          // Prepare negotiation parameters (same as single-function mode)
-          // SAFETY: Validate that rates are provided - no silent defaults
-          let effectiveTargetRate = Number(targetRate);
-          if (!effectiveTargetRate || effectiveTargetRate <= 0) {
-            return { success: false, error: 'Target rate is required when negotiation is enabled. Please enter a target rate.' };
-          }
-          let effectiveMaxRate = Number(maxRate) || Math.round(effectiveTargetRate * 1.2);
-          let regionName = devCountry || '';
-
-          // Auto-lookup regional rates
-          if (devCountry && jobId) {
-            const regionRates = getRateForRegion(jobId, devCountry, null);
-            // SAFETY: Use explicit > 0 check to avoid falsy value bugs
-            if (regionRates && regionRates.targetRate > 0) {
-              effectiveTargetRate = regionRates.targetRate;
-              effectiveMaxRate = regionRates.maxRate > 0 ? regionRates.maxRate : Math.round(effectiveTargetRate * 1.2);
-              regionName = regionRates.region || devCountry;
-            }
-          }
-
-          // Get start dates and JD link
-          let startDates = [];
-          let jdLink = '';
-          if (jobId) {
-            const jobConfig = getNegotiationConfig(jobId);
-            if (jobConfig) {
-              startDates = jobConfig.startDates || [];
-              jdLink = jobConfig.jdLink || '';
-            }
-          }
-
-          // Determine current attempt based on conversation history
-          let currentAttempt = ctx && ctx.negotiationState ? ctx.negotiationState.attempt : (parseInt(attempt) || 1);
-
-          // Build negotiation prompt
-          const negotiationPrompt = buildNegotiationReplyPrompt({
-            candidateName: devName,
-            jobDescription: jobDesc,
-            targetRate: effectiveTargetRate,
-            maxRate: effectiveMaxRate,
-            attempt: currentAttempt.toString(),
-            candidateMessage: candidateReply,
-            style: 'professional',
-            faqContent: '',
-            conversationContext: `Latest candidate message: "${candidateReply}"`,
-            specialRules: '',
-            region: regionName,
-            startDates: startDates,
-            jdLink: jdLink
-          });
-
-          combinedResponse = callAI(negotiationPrompt);
+        if (isRateAlreadyAgreed) {
+          // Rate already agreed - don't re-negotiate, just carry forward the state
           negotiationState = {
-            attempt: currentAttempt + 1,
-            lastRate: effectiveTargetRate,
-            maxOffered: effectiveMaxRate
+            ...ctx.negotiationState,
+            rateAgreed: true
           };
-          activeTypes.push('negotiation');
+          // Don't add 'negotiation' to activeTypes - we're not negotiating anymore
+        } else {
+          const candidateMentionsRate = candidateReply && /\$?\d+|\brate\b|\bhourly\b|\bsalary\b|\bcompensation\b|\bpay\b|\bbudget\b/i.test(candidateReply);
+
+          if (candidateMentionsRate || (ctx && ctx.negotiationState)) {
+            // Prepare negotiation parameters (same as single-function mode)
+            // SAFETY: Validate that rates are provided - no silent defaults
+            let effectiveTargetRate = Number(targetRate);
+            if (!effectiveTargetRate || effectiveTargetRate <= 0) {
+              return { success: false, error: 'Target rate is required when negotiation is enabled. Please enter a target rate.' };
+            }
+            let effectiveMaxRate = Number(maxRate) || Math.round(effectiveTargetRate * 1.2);
+            let regionName = devCountry || '';
+
+            // Auto-lookup regional rates
+            if (devCountry && jobId) {
+              const regionRates = getRateForRegion(jobId, devCountry, null);
+              // SAFETY: Use explicit > 0 check to avoid falsy value bugs
+              if (regionRates && regionRates.targetRate > 0) {
+                effectiveTargetRate = regionRates.targetRate;
+                effectiveMaxRate = regionRates.maxRate > 0 ? regionRates.maxRate : Math.round(effectiveTargetRate * 1.2);
+                regionName = regionRates.region || devCountry;
+              }
+            }
+
+            // Get start dates and JD link
+            let startDates = [];
+            let jdLink = '';
+            if (jobId) {
+              const jobConfig = getNegotiationConfig(jobId);
+              if (jobConfig) {
+                startDates = jobConfig.startDates || [];
+                jdLink = jobConfig.jdLink || '';
+              }
+            }
+
+            // Determine current attempt based on conversation history
+            let currentAttempt = ctx && ctx.negotiationState ? ctx.negotiationState.attempt : (parseInt(attempt) || 1);
+
+            // Build negotiation prompt
+            const negotiationPrompt = buildNegotiationReplyPrompt({
+              candidateName: devName,
+              jobDescription: jobDesc,
+              targetRate: effectiveTargetRate,
+              maxRate: effectiveMaxRate,
+              attempt: currentAttempt.toString(),
+              candidateMessage: candidateReply,
+              style: 'professional',
+              faqContent: '',
+              conversationContext: `Latest candidate message: "${candidateReply}"`,
+              specialRules: '',
+              region: regionName,
+              startDates: startDates,
+              jdLink: jdLink
+            });
+
+            combinedResponse = callAI(negotiationPrompt);
+
+            // FIX: Check if the AI response indicates rate acceptance
+            // Common patterns: "noted your rate", "agreed", "alignment at $X", "confirmed", "accepted"
+            const rateAcceptancePatterns = /noted your (?:rate|alignment)|rate.*agreed|alignment at \$|we can proceed|accept.*\$\d+|confirmed.*\$\d+|thank you for (?:confirming|sharing) (?:the|your) rate|i've noted/i;
+            const isRateAccepted = rateAcceptancePatterns.test(combinedResponse);
+
+            negotiationState = {
+              attempt: currentAttempt + 1,
+              lastRate: effectiveTargetRate,
+              maxOffered: effectiveMaxRate,
+              rateAgreed: isRateAccepted
+            };
+            activeTypes.push('negotiation');
+          }
         }
       }
 
