@@ -11163,67 +11163,86 @@ function testAiEmailResponse(testData) {
 
       // Step 2: Negotiation - If negotiation is enabled and candidate mentioned rates
       if (functions.negotiation) {
-        const candidateMentionsRate = candidateReply && /\$?\d+|\brate\b|\bhourly\b|\bsalary\b|\bcompensation\b|\bpay\b|\bbudget\b/i.test(candidateReply);
+        // FIX: Check if rate was already agreed in previous exchanges - skip rate negotiation
+        const isRateAlreadyAgreed = ctx && ctx.negotiationState && ctx.negotiationState.rateAgreed;
 
-        if (candidateMentionsRate || (ctx && ctx.negotiationState)) {
-          // Prepare negotiation parameters (same as single-function mode)
-          // SAFETY: Validate that rates are provided - no silent defaults
-          let effectiveTargetRate = Number(targetRate);
-          if (!effectiveTargetRate || effectiveTargetRate <= 0) {
-            return { success: false, error: 'Target rate is required when negotiation is enabled. Please enter a target rate.' };
-          }
-          let effectiveMaxRate = Number(maxRate) || Math.round(effectiveTargetRate * 1.2);
-          let regionName = devCountry || '';
-
-          // Auto-lookup regional rates
-          if (devCountry && jobId) {
-            const regionRates = getRateForRegion(jobId, devCountry, null);
-            // SAFETY: Use explicit > 0 check to avoid falsy value bugs
-            if (regionRates && regionRates.targetRate > 0) {
-              effectiveTargetRate = regionRates.targetRate;
-              effectiveMaxRate = regionRates.maxRate > 0 ? regionRates.maxRate : Math.round(effectiveTargetRate * 1.2);
-              regionName = regionRates.region || devCountry;
-            }
-          }
-
-          // Get start dates and JD link
-          let startDates = [];
-          let jdLink = '';
-          if (jobId) {
-            const jobConfig = getNegotiationConfig(jobId);
-            if (jobConfig) {
-              startDates = jobConfig.startDates || [];
-              jdLink = jobConfig.jdLink || '';
-            }
-          }
-
-          // Determine current attempt based on conversation history
-          let currentAttempt = ctx && ctx.negotiationState ? ctx.negotiationState.attempt : (parseInt(attempt) || 1);
-
-          // Build negotiation prompt
-          const negotiationPrompt = buildNegotiationReplyPrompt({
-            candidateName: devName,
-            jobDescription: jobDesc,
-            targetRate: effectiveTargetRate,
-            maxRate: effectiveMaxRate,
-            attempt: currentAttempt.toString(),
-            candidateMessage: candidateReply,
-            style: 'professional',
-            faqContent: '',
-            conversationContext: `Latest candidate message: "${candidateReply}"`,
-            specialRules: '',
-            region: regionName,
-            startDates: startDates,
-            jdLink: jdLink
-          });
-
-          combinedResponse = callAI(negotiationPrompt);
+        if (isRateAlreadyAgreed) {
+          // Rate already agreed - don't re-negotiate, just carry forward the state
           negotiationState = {
-            attempt: currentAttempt + 1,
-            lastRate: effectiveTargetRate,
-            maxOffered: effectiveMaxRate
+            ...ctx.negotiationState,
+            rateAgreed: true
           };
-          activeTypes.push('negotiation');
+          // Don't add 'negotiation' to activeTypes - we're not negotiating anymore
+        } else {
+          const candidateMentionsRate = candidateReply && /\$?\d+|\brate\b|\bhourly\b|\bsalary\b|\bcompensation\b|\bpay\b|\bbudget\b/i.test(candidateReply);
+
+          if (candidateMentionsRate || (ctx && ctx.negotiationState)) {
+            // Prepare negotiation parameters (same as single-function mode)
+            // SAFETY: Validate that rates are provided - no silent defaults
+            let effectiveTargetRate = Number(targetRate);
+            if (!effectiveTargetRate || effectiveTargetRate <= 0) {
+              return { success: false, error: 'Target rate is required when negotiation is enabled. Please enter a target rate.' };
+            }
+            let effectiveMaxRate = Number(maxRate) || Math.round(effectiveTargetRate * 1.2);
+            let regionName = devCountry || '';
+
+            // Auto-lookup regional rates
+            if (devCountry && jobId) {
+              const regionRates = getRateForRegion(jobId, devCountry, null);
+              // SAFETY: Use explicit > 0 check to avoid falsy value bugs
+              if (regionRates && regionRates.targetRate > 0) {
+                effectiveTargetRate = regionRates.targetRate;
+                effectiveMaxRate = regionRates.maxRate > 0 ? regionRates.maxRate : Math.round(effectiveTargetRate * 1.2);
+                regionName = regionRates.region || devCountry;
+              }
+            }
+
+            // Get start dates and JD link
+            let startDates = [];
+            let jdLink = '';
+            if (jobId) {
+              const jobConfig = getNegotiationConfig(jobId);
+              if (jobConfig) {
+                startDates = jobConfig.startDates || [];
+                jdLink = jobConfig.jdLink || '';
+              }
+            }
+
+            // Determine current attempt based on conversation history
+            let currentAttempt = ctx && ctx.negotiationState ? ctx.negotiationState.attempt : (parseInt(attempt) || 1);
+
+            // Build negotiation prompt
+            const negotiationPrompt = buildNegotiationReplyPrompt({
+              candidateName: devName,
+              jobDescription: jobDesc,
+              targetRate: effectiveTargetRate,
+              maxRate: effectiveMaxRate,
+              attempt: currentAttempt.toString(),
+              candidateMessage: candidateReply,
+              style: 'professional',
+              faqContent: '',
+              conversationContext: `Latest candidate message: "${candidateReply}"`,
+              specialRules: '',
+              region: regionName,
+              startDates: startDates,
+              jdLink: jdLink
+            });
+
+            combinedResponse = callAI(negotiationPrompt);
+
+            // FIX: Check if the AI response indicates rate acceptance
+            // Common patterns: "noted your rate", "agreed", "alignment at $X", "confirmed", "accepted"
+            const rateAcceptancePatterns = /noted your (?:rate|alignment)|rate.*agreed|alignment at \$|we can proceed|accept.*\$\d+|confirmed.*\$\d+|thank you for (?:confirming|sharing) (?:the|your) rate|i've noted/i;
+            const isRateAccepted = rateAcceptancePatterns.test(combinedResponse);
+
+            negotiationState = {
+              attempt: currentAttempt + 1,
+              lastRate: effectiveTargetRate,
+              maxOffered: effectiveMaxRate,
+              rateAgreed: isRateAccepted
+            };
+            activeTypes.push('negotiation');
+          }
         }
       }
 
