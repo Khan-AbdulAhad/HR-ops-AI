@@ -12497,3 +12497,440 @@ function getProcessMapStatus() {
   }
 }
 
+// ============================================================
+// SUPPLEMENTARY DATA REQUEST FEATURE
+// Allows users to request additional information from candidates
+// after the initial outreach has been sent
+// ============================================================
+
+/**
+ * Get all candidates for a job (for supplementary data request selection)
+ * @param {string} jobId - The job ID
+ * @param {boolean} includeCompleted - Whether to include completed candidates
+ * @returns {Object} List of candidates with their status
+ */
+function getJobCandidatesForSupplementaryRequest(jobId, includeCompleted = false) {
+  try {
+    const jobsSs = getCachedJobsSpreadsheet();
+    if (!jobsSs) {
+      return { success: false, error: 'Jobs Sheet not configured' };
+    }
+
+    const sheetName = `Job_${jobId}_Details`;
+    const sheet = jobsSs.getSheetByName(sheetName);
+
+    if (!sheet || sheet.getLastRow() < 2) {
+      return { success: true, candidates: [], message: 'No candidates found for this job' };
+    }
+
+    const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+    const data = sheet.getDataRange().getValues();
+
+    const emailIdx = headers.indexOf('Email');
+    const nameIdx = headers.indexOf('Name');
+    const statusIdx = headers.indexOf('Status');
+    const threadIdIdx = headers.indexOf('Thread ID');
+
+    const candidates = [];
+    const completedStatuses = ['Completed', 'Data Complete', 'Offer Accepted', 'Rate Agreed'];
+
+    for (let i = 1; i < data.length; i++) {
+      const email = data[i][emailIdx];
+      const name = data[i][nameIdx] || 'Unknown';
+      const status = data[i][statusIdx] || 'Unknown';
+      const threadId = data[i][threadIdIdx] || '';
+      const isCompleted = completedStatuses.some(s => String(status).includes(s));
+
+      // Skip completed candidates unless includeCompleted is true
+      if (isCompleted && !includeCompleted) continue;
+
+      if (email) {
+        candidates.push({
+          email: String(email).trim(),
+          name: String(name).trim(),
+          status: String(status),
+          threadId: threadId,
+          isCompleted: isCompleted
+        });
+      }
+    }
+
+    return {
+      success: true,
+      candidates: candidates,
+      totalCount: data.length - 1,
+      filteredCount: candidates.length
+    };
+  } catch (e) {
+    console.error('Error getting candidates for supplementary request:', e);
+    return { success: false, error: e.message };
+  }
+}
+
+/**
+ * Add supplementary questions/columns to a job
+ * @param {string} jobId - The job ID
+ * @param {Array} additionalQuestions - Array of {header, question} objects
+ * @param {boolean} applyToFuture - Whether to add to stored questions for future candidates
+ * @returns {Object} Result with added columns info
+ */
+function addSupplementaryQuestions(jobId, additionalQuestions, applyToFuture = true) {
+  try {
+    const jobsSs = getCachedJobsSpreadsheet();
+    if (!jobsSs) {
+      return { success: false, error: 'Jobs Sheet not configured' };
+    }
+
+    const sheetName = `Job_${jobId}_Details`;
+    const sheet = jobsSs.getSheetByName(sheetName);
+
+    if (!sheet) {
+      return { success: false, error: `Job details sheet not found: ${sheetName}` };
+    }
+
+    // Get existing headers
+    const lastCol = sheet.getLastColumn();
+    const existingHeaders = lastCol > 0 ? sheet.getRange(1, 1, 1, lastCol).getValues()[0] : [];
+
+    // Find columns that don't exist yet
+    const newColumns = additionalQuestions.filter(q => !existingHeaders.includes(q.header));
+
+    if (newColumns.length === 0) {
+      return { success: true, message: 'All columns already exist', added: [] };
+    }
+
+    // Find where to insert (before status columns)
+    const statusColumns = ['Candidate Offer', 'Counter Offer', 'Final Agreed Rate', 'Negotiation Notes', 'Status'];
+    let insertPosition = lastCol + 1;
+
+    for (let i = 0; i < existingHeaders.length; i++) {
+      if (statusColumns.includes(existingHeaders[i])) {
+        insertPosition = i + 1;
+        break;
+      }
+    }
+
+    // Insert new columns
+    const addedHeaders = [];
+    newColumns.forEach((col, index) => {
+      const colPosition = insertPosition + index;
+      sheet.insertColumnBefore(colPosition);
+      sheet.getRange(1, colPosition).setValue(col.header);
+      addedHeaders.push(col.header);
+    });
+
+    // Format new headers with a distinct color (teal for supplementary)
+    const headerRange = sheet.getRange(1, insertPosition, 1, newColumns.length);
+    headerRange.setFontWeight('bold');
+    headerRange.setBackground('#0d9488'); // Teal for supplementary questions
+    headerRange.setFontColor('#ffffff');
+
+    // Update stored questions if applyToFuture is true
+    if (applyToFuture) {
+      const questionsKey = `JOB_${jobId}_QUESTIONS`;
+      const existingQuestions = getJobQuestions(jobId);
+      const updatedQuestions = [...existingQuestions, ...newColumns];
+      PropertiesService.getScriptProperties().setProperty(questionsKey, JSON.stringify(updatedQuestions));
+    }
+
+    console.log(`Added ${newColumns.length} supplementary columns to Job_${jobId}_Details: ${addedHeaders.join(', ')}`);
+    return { success: true, message: `Added ${newColumns.length} columns`, added: addedHeaders };
+  } catch (e) {
+    console.error('Error adding supplementary questions:', e);
+    return { success: false, error: e.message };
+  }
+}
+
+/**
+ * Generate email body for supplementary data request
+ * @param {string} candidateName - The candidate's name
+ * @param {Array} additionalQuestions - Array of {header, question} objects
+ * @param {string} conversationContext - Optional conversation history
+ * @returns {string} Generated email body
+ */
+function generateSupplementaryEmailBody(candidateName, additionalQuestions, conversationContext) {
+  const firstName = candidateName ? candidateName.split(' ')[0] : 'there';
+  const questionsList = additionalQuestions.map((q, i) => `${i + 1}. ${q.question}`).join('\n');
+
+  const prompt = `
+You are a professional recruiter at Turing sending a follow-up email to collect additional information from a candidate.
+
+CANDIDATE NAME: ${firstName}
+
+ADDITIONAL INFORMATION NEEDED:
+${questionsList}
+
+${conversationContext ? `RECENT CONVERSATION CONTEXT:\n${conversationContext}\n` : ''}
+
+TASK: Write a brief, friendly email asking for this additional information.
+
+RULES:
+1. Keep it short and professional (3-5 sentences max)
+2. Explain this is additional information needed for their application
+3. Don't apologize excessively - just be matter-of-fact
+4. List the questions clearly
+5. End with a friendly closing
+
+=== CRITICAL CONFIDENTIALITY RULES ===
+NEVER include any of the following:
+- Job IDs, reference numbers, or internal identifiers
+- Any rates, budgets, or compensation figures
+- Internal status or pipeline information
+
+Write ONLY the email body. Start with "Hi ${firstName}," and end with:
+
+Best regards,
+${getEffectiveSignature()}
+`;
+
+  try {
+    const response = callAI(prompt);
+    return response.replace(/^["']|["']$/g, '').trim();
+  } catch (e) {
+    console.error('Failed to generate supplementary email:', e);
+    // Fallback template
+    return `Hi ${firstName},
+
+I hope this message finds you well. We need a few additional details to move forward with your application:
+
+${questionsList}
+
+Could you please provide this information at your earliest convenience?
+
+Best regards,
+${getEffectiveSignature()}`;
+  }
+}
+
+/**
+ * Send supplementary data request emails to selected candidates
+ * @param {string} jobId - The job ID
+ * @param {Array} candidateEmails - Array of candidate emails to send to (empty = all)
+ * @param {Array} additionalQuestions - Array of {header, question} objects
+ * @param {boolean} includeCompleted - Whether to send to completed candidates
+ * @param {boolean} applyToFuture - Whether to add questions for future candidates
+ * @returns {Object} Result with success/failure counts
+ */
+function sendSupplementaryDataRequest(jobId, candidateEmails, additionalQuestions, includeCompleted = false, applyToFuture = true) {
+  try {
+    if (!additionalQuestions || additionalQuestions.length === 0) {
+      return { success: false, error: 'No questions provided' };
+    }
+
+    // First, add the columns to the sheet
+    const columnsResult = addSupplementaryQuestions(jobId, additionalQuestions, applyToFuture);
+    if (!columnsResult.success) {
+      return columnsResult;
+    }
+
+    // Get candidates to send to
+    let targetCandidates = [];
+
+    if (candidateEmails && candidateEmails.length > 0) {
+      // Specific candidates selected
+      const allCandidatesResult = getJobCandidatesForSupplementaryRequest(jobId, true); // Get all to filter
+      if (!allCandidatesResult.success) {
+        return allCandidatesResult;
+      }
+
+      const emailSet = new Set(candidateEmails.map(e => String(e).toLowerCase().trim()));
+      targetCandidates = allCandidatesResult.candidates.filter(c => {
+        const candidateEmail = String(c.email).toLowerCase().trim();
+        const isSelected = emailSet.has(candidateEmail);
+        // If not including completed, skip completed candidates even if selected
+        if (!includeCompleted && c.isCompleted) return false;
+        return isSelected;
+      });
+    } else {
+      // All candidates for the job
+      const candidatesResult = getJobCandidatesForSupplementaryRequest(jobId, includeCompleted);
+      if (!candidatesResult.success) {
+        return candidatesResult;
+      }
+      targetCandidates = candidatesResult.candidates;
+    }
+
+    if (targetCandidates.length === 0) {
+      return {
+        success: true,
+        message: 'No candidates to send to',
+        sent: 0,
+        failed: 0,
+        columnsAdded: columnsResult.added || []
+      };
+    }
+
+    // Send emails to each candidate
+    let sentCount = 0;
+    let failedCount = 0;
+    const errors = [];
+
+    targetCandidates.forEach(candidate => {
+      try {
+        // Find the thread for this candidate
+        let thread = null;
+        if (candidate.threadId) {
+          try {
+            thread = GmailApp.getThreadById(candidate.threadId);
+          } catch (e) {
+            console.warn(`Could not find thread ${candidate.threadId} for ${candidate.email}`);
+          }
+        }
+
+        // If no thread found by ID, search by email
+        if (!thread) {
+          const threads = GmailApp.search(`to:${candidate.email} label:${AI_MANAGED_LABEL}`, 0, 1);
+          if (threads.length > 0) {
+            thread = threads[0];
+          }
+        }
+
+        if (!thread) {
+          console.warn(`No thread found for candidate ${candidate.email}`);
+          errors.push({ email: candidate.email, error: 'No email thread found' });
+          failedCount++;
+          return;
+        }
+
+        // SAFETY CHECK: Verify thread has AI_MANAGED_LABEL before sending
+        const threadLabels = thread.getLabels().map(l => l.getName());
+        if (!threadLabels.includes(AI_MANAGED_LABEL)) {
+          console.warn(`BLOCKED: Supplementary request to ${candidate.email} - thread missing "${AI_MANAGED_LABEL}" label`);
+          errors.push({ email: candidate.email, error: `Thread missing "${AI_MANAGED_LABEL}" label - not sent via app` });
+          failedCount++;
+          return;
+        }
+
+        // Build conversation context from thread
+        const messages = thread.getMessages();
+        let conversationContext = '';
+        const lastMessages = messages.slice(-3); // Last 3 messages for context
+        lastMessages.forEach((msg, idx) => {
+          const from = msg.getFrom();
+          const body = msg.getPlainBody().substring(0, 300);
+          conversationContext += `Message ${idx + 1} from ${from}:\n${body}\n---\n`;
+        });
+
+        // Generate email body
+        const emailBody = generateSupplementaryEmailBody(candidate.name, additionalQuestions, conversationContext);
+
+        // Send the email as a reply in the thread
+        sendReplyWithSenderName(thread, emailBody, getEffectiveSenderName());
+
+        console.log(`Sent supplementary data request to ${candidate.email}`);
+        sentCount++;
+
+      } catch (e) {
+        console.error(`Failed to send to ${candidate.email}:`, e);
+        errors.push({ email: candidate.email, error: e.message });
+        failedCount++;
+      }
+    });
+
+    return {
+      success: true,
+      message: `Sent ${sentCount} emails, ${failedCount} failed`,
+      sent: sentCount,
+      failed: failedCount,
+      errors: errors.length > 0 ? errors : undefined,
+      columnsAdded: columnsResult.added || [],
+      applyToFuture: applyToFuture
+    };
+
+  } catch (e) {
+    console.error('Error in sendSupplementaryDataRequest:', e);
+    return { success: false, error: e.message };
+  }
+}
+
+/**
+ * Parse user input to extract questions for supplementary request
+ * @param {string} userInput - Free-form text describing what info is needed
+ * @returns {Array} Array of {header, question} objects
+ */
+function parseSupplementaryQuestions(userInput) {
+  if (!userInput || userInput.trim().length === 0) {
+    return [];
+  }
+
+  const prompt = `
+You are helping a recruiter request additional information from candidates.
+
+USER INPUT:
+"${userInput}"
+
+TASK: Extract specific questions/information requests from this input.
+
+For each piece of information requested, provide:
+1. A short header (2-4 words, suitable for a spreadsheet column)
+2. The full question to ask the candidate
+
+Return a JSON array like:
+[
+  {"header": "Visa Status", "question": "What is your current visa/work authorization status?"},
+  {"header": "Weekend Availability", "question": "Are you available to work on weekends if needed?"}
+]
+
+RULES:
+- Only extract actual information requests
+- Keep headers short and clear (max 4 words)
+- Make questions professional and clear
+- Maximum 5 questions
+- Return ONLY the JSON array, no other text
+`;
+
+  try {
+    const response = callAI(prompt);
+    let cleanResponse = response.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+    return JSON.parse(cleanResponse);
+  } catch (e) {
+    console.error('Failed to parse supplementary questions:', e);
+    // Try to create a single question from the input
+    return [{
+      header: 'Additional Info',
+      question: userInput.trim()
+    }];
+  }
+}
+
+/**
+ * Get existing questions/columns for a job (for UI display)
+ * @param {string} jobId - The job ID
+ * @returns {Object} Existing questions and columns info
+ */
+function getJobQuestionsInfo(jobId) {
+  try {
+    const questions = getJobQuestions(jobId);
+    const allColumns = getAllJobColumns(jobId);
+
+    const jobsSs = getCachedJobsSpreadsheet();
+    let sheetHeaders = [];
+
+    if (jobsSs) {
+      const sheet = jobsSs.getSheetByName(`Job_${jobId}_Details`);
+      if (sheet && sheet.getLastColumn() > 0) {
+        sheetHeaders = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+      }
+    }
+
+    // Fixed headers to exclude
+    const fixedHeaders = ['Timestamp', 'Email', 'Name', 'Dev ID', 'Thread ID', 'Region',
+                          'Candidate Offer', 'Counter Offer', 'Final Agreed Rate',
+                          'Negotiation Notes', 'Status', 'Agreed Rate'];
+
+    const questionHeaders = sheetHeaders.filter(h => h && !fixedHeaders.includes(h));
+
+    return {
+      success: true,
+      jobId: jobId,
+      storedQuestions: questions,
+      allColumns: allColumns,
+      currentSheetHeaders: questionHeaders,
+      questionCount: questionHeaders.length
+    };
+  } catch (e) {
+    console.error('Error getting job questions info:', e);
+    return { success: false, error: e.message };
+  }
+}
+
