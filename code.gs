@@ -11627,55 +11627,109 @@ function getProcessMapStatus() {
  */
 function getJobCandidatesForSupplementaryRequest(jobId, includeCompleted = false) {
   try {
-    const jobsSs = getCachedJobsSpreadsheet();
-    if (!jobsSs) {
-      return { success: false, error: 'Jobs Sheet not configured' };
-    }
-
-    const sheetName = `Job_${jobId}_Details`;
-    const sheet = jobsSs.getSheetByName(sheetName);
-
-    if (!sheet || sheet.getLastRow() < 2) {
-      return { success: true, candidates: [], message: 'No candidates found for this job' };
-    }
-
-    const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
-    const data = sheet.getDataRange().getValues();
-
-    const emailIdx = headers.indexOf('Email');
-    const nameIdx = headers.indexOf('Name');
-    const statusIdx = headers.indexOf('Status');
-    const threadIdIdx = headers.indexOf('Thread ID');
-
     const candidates = [];
+    const seenEmails = new Set();
     const completedStatuses = ['Completed', 'Data Complete', 'Offer Accepted', 'Rate Agreed'];
 
-    for (let i = 1; i < data.length; i++) {
-      const email = data[i][emailIdx];
-      const name = data[i][nameIdx] || 'Unknown';
-      const status = data[i][statusIdx] || 'Unknown';
-      const threadId = data[i][threadIdIdx] || '';
-      const isCompleted = completedStatuses.some(s => String(status).includes(s));
+    // First, check Job_X_Details sheet
+    const jobsSs = getCachedJobsSpreadsheet();
+    if (jobsSs) {
+      const sheetName = `Job_${jobId}_Details`;
+      const sheet = jobsSs.getSheetByName(sheetName);
 
-      // Skip completed candidates unless includeCompleted is true
-      if (isCompleted && !includeCompleted) continue;
+      if (sheet && sheet.getLastRow() >= 2) {
+        const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+        const data = sheet.getDataRange().getValues();
 
-      if (email) {
-        candidates.push({
-          email: String(email).trim(),
-          name: String(name).trim(),
-          status: String(status),
-          threadId: threadId,
-          isCompleted: isCompleted
-        });
+        const emailIdx = headers.indexOf('Email');
+        const nameIdx = headers.indexOf('Name');
+        const statusIdx = headers.indexOf('Status');
+        const threadIdIdx = headers.indexOf('Thread ID');
+
+        for (let i = 1; i < data.length; i++) {
+          const email = data[i][emailIdx];
+          if (!email) continue;
+
+          const cleanEmail = String(email).toLowerCase().trim();
+          if (seenEmails.has(cleanEmail)) continue;
+
+          const name = data[i][nameIdx] || 'Unknown';
+          const status = data[i][statusIdx] || 'Unknown';
+          const threadId = data[i][threadIdIdx] || '';
+          const isCompleted = completedStatuses.some(s => String(status).includes(s));
+
+          // Skip completed candidates unless includeCompleted is true
+          if (isCompleted && !includeCompleted) continue;
+
+          seenEmails.add(cleanEmail);
+          candidates.push({
+            email: String(email).trim(),
+            name: String(name).trim(),
+            status: String(status),
+            threadId: threadId,
+            isCompleted: isCompleted,
+            source: 'Job_Details'
+          });
+        }
+      }
+    }
+
+    // Also check Negotiation_State for candidates with this jobId
+    const ss = getCachedSpreadsheet();
+    if (ss) {
+      const stateSheet = ss.getSheetByName('Negotiation_State');
+      if (stateSheet && stateSheet.getLastRow() >= 2) {
+        const stateData = stateSheet.getDataRange().getValues();
+        const stateHeaders = stateData[0];
+
+        const jobIdIdx = stateHeaders.indexOf('Job ID');
+        const emailIdx = stateHeaders.indexOf('Email');
+        const nameIdx = stateHeaders.indexOf('Name');
+        const statusIdx = stateHeaders.indexOf('Status');
+        const threadIdIdx = stateHeaders.indexOf('Thread ID');
+        const tagsIdx = stateHeaders.indexOf('Tags');
+
+        for (let i = 1; i < stateData.length; i++) {
+          const rowJobId = String(stateData[i][jobIdIdx] || '').trim();
+          if (rowJobId !== String(jobId)) continue;
+
+          const email = stateData[i][emailIdx];
+          if (!email) continue;
+
+          const cleanEmail = String(email).toLowerCase().trim();
+          if (seenEmails.has(cleanEmail)) continue;
+
+          const name = stateData[i][nameIdx] || 'Unknown';
+          const status = stateData[i][statusIdx] || '';
+          const tags = stateData[i][tagsIdx] || '';
+          const threadId = stateData[i][threadIdIdx] || '';
+          const displayStatus = status || tags || 'Active';
+          const isCompleted = completedStatuses.some(s =>
+            String(status).includes(s) || String(tags).includes(s)
+          );
+
+          // Skip completed candidates unless includeCompleted is true
+          if (isCompleted && !includeCompleted) continue;
+
+          seenEmails.add(cleanEmail);
+          candidates.push({
+            email: String(email).trim(),
+            name: String(name).trim(),
+            status: String(displayStatus),
+            threadId: threadId,
+            isCompleted: isCompleted,
+            source: 'Negotiation_State'
+          });
+        }
       }
     }
 
     return {
       success: true,
       candidates: candidates,
-      totalCount: data.length - 1,
-      filteredCount: candidates.length
+      totalCount: candidates.length,
+      filteredCount: candidates.length,
+      message: candidates.length === 0 ? 'No candidates found for this job' : null
     };
   } catch (e) {
     console.error('Error getting candidates for supplementary request:', e);
