@@ -10148,6 +10148,372 @@ function getDetailedEmailStats(filterEmail, filterJobId, startDate, endDate) {
 }
 
 /**
+ * Get time-to-response metrics for analytics dashboard
+ * Calculates how quickly candidates respond to outreach emails
+ * @param {string} filterJobId - Optional job ID filter
+ * @param {string} startDate - Optional start date (ISO string)
+ * @param {string} endDate - Optional end date (ISO string)
+ * @returns {Object} Response time metrics
+ */
+function getTimeToResponseMetrics(filterJobId, startDate, endDate) {
+  const access = checkAnalyticsAccess();
+  if (!access.hasAccess) {
+    return { error: "Access denied" };
+  }
+
+  try {
+    const ss = getSpreadsheet();
+    if (!ss) return { error: "Cannot access spreadsheet" };
+
+    // Get Email_Logs for outreach timestamps
+    const emailLogsSheet = ss.getSheetByName('Email_Logs');
+    if (!emailLogsSheet || emailLogsSheet.getLastRow() <= 1) {
+      return { error: "No email logs found" };
+    }
+
+    // Get Negotiation_State for response timestamps
+    const stateSheet = ss.getSheetByName('Negotiation_State');
+
+    const emailData = emailLogsSheet.getDataRange().getValues();
+    const stateData = stateSheet ? stateSheet.getDataRange().getValues() : [];
+
+    // Parse date filters
+    let startDateFilter = null;
+    let endDateFilter = null;
+    if (startDate) {
+      startDateFilter = new Date(startDate);
+      startDateFilter.setHours(0, 0, 0, 0);
+    }
+    if (endDate) {
+      endDateFilter = new Date(endDate);
+      endDateFilter.setHours(23, 59, 59, 999);
+    }
+
+    // Build map of email -> first outreach timestamp by job
+    const outreachMap = new Map(); // key: "email|jobId" -> timestamp
+    for (let i = 1; i < emailData.length; i++) {
+      const timestamp = emailData[i][0];
+      const jobId = String(emailData[i][1] || '');
+      const email = String(emailData[i][2] || '').toLowerCase();
+      const type = String(emailData[i][5] || '');
+
+      // Only count outreach emails (not follow-ups)
+      if (type && type.toLowerCase().includes('follow')) continue;
+
+      // Apply job filter
+      if (filterJobId && jobId !== filterJobId) continue;
+
+      // Apply date filter
+      if (timestamp && startDateFilter && new Date(timestamp) < startDateFilter) continue;
+      if (timestamp && endDateFilter && new Date(timestamp) > endDateFilter) continue;
+
+      const key = `${email}|${jobId}`;
+      if (!outreachMap.has(key) && timestamp) {
+        outreachMap.set(key, new Date(timestamp));
+      }
+    }
+
+    // Build map of email -> first response timestamp by job
+    const responseMap = new Map(); // key: "email|jobId" -> timestamp
+    for (let i = 1; i < stateData.length; i++) {
+      const email = String(stateData[i][0] || '').toLowerCase();
+      const jobId = String(stateData[i][1] || '');
+      const lastReplyTime = stateData[i][5]; // Last Reply Time column
+
+      // Apply job filter
+      if (filterJobId && jobId !== filterJobId) continue;
+
+      const key = `${email}|${jobId}`;
+      if (!responseMap.has(key) && lastReplyTime) {
+        responseMap.set(key, new Date(lastReplyTime));
+      }
+    }
+
+    // Calculate response times
+    const responseTimes = []; // in hours
+    const responsesByDay = {}; // day of week distribution
+    const responsesByHour = {}; // hour of day distribution
+
+    outreachMap.forEach((outreachTime, key) => {
+      const responseTime = responseMap.get(key);
+      if (responseTime && responseTime > outreachTime) {
+        const hoursToRespond = (responseTime - outreachTime) / (1000 * 60 * 60);
+        responseTimes.push(hoursToRespond);
+
+        // Track which day they responded
+        const dayOfWeek = responseTime.getDay();
+        const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+        responsesByDay[dayNames[dayOfWeek]] = (responsesByDay[dayNames[dayOfWeek]] || 0) + 1;
+
+        // Track which hour they responded
+        const hourOfDay = responseTime.getHours();
+        responsesByHour[hourOfDay] = (responsesByHour[hourOfDay] || 0) + 1;
+      }
+    });
+
+    // Sort response times for percentile calculations
+    responseTimes.sort((a, b) => a - b);
+
+    // Calculate metrics
+    const totalOutreach = outreachMap.size;
+    const totalResponses = responseTimes.length;
+    const responseRate = totalOutreach > 0 ? ((totalResponses / totalOutreach) * 100).toFixed(1) : 0;
+
+    const avgResponseHours = responseTimes.length > 0
+      ? (responseTimes.reduce((a, b) => a + b, 0) / responseTimes.length).toFixed(1)
+      : 0;
+
+    const medianResponseHours = responseTimes.length > 0
+      ? responseTimes[Math.floor(responseTimes.length / 2)].toFixed(1)
+      : 0;
+
+    // Calculate percentiles
+    const p25Index = Math.floor(responseTimes.length * 0.25);
+    const p75Index = Math.floor(responseTimes.length * 0.75);
+    const p90Index = Math.floor(responseTimes.length * 0.90);
+
+    // Response time buckets for histogram
+    const buckets = {
+      'Under 1hr': 0,
+      '1-6hrs': 0,
+      '6-12hrs': 0,
+      '12-24hrs': 0,
+      '24-48hrs': 0,
+      '48-72hrs': 0,
+      '72hrs+': 0
+    };
+
+    responseTimes.forEach(hours => {
+      if (hours < 1) buckets['Under 1hr']++;
+      else if (hours < 6) buckets['1-6hrs']++;
+      else if (hours < 12) buckets['6-12hrs']++;
+      else if (hours < 24) buckets['12-24hrs']++;
+      else if (hours < 48) buckets['24-48hrs']++;
+      else if (hours < 72) buckets['48-72hrs']++;
+      else buckets['72hrs+']++;
+    });
+
+    return {
+      totalOutreach: totalOutreach,
+      totalResponses: totalResponses,
+      responseRate: parseFloat(responseRate),
+      avgResponseHours: parseFloat(avgResponseHours),
+      medianResponseHours: parseFloat(medianResponseHours),
+      p25ResponseHours: responseTimes.length > 0 ? parseFloat(responseTimes[p25Index].toFixed(1)) : 0,
+      p75ResponseHours: responseTimes.length > 0 ? parseFloat(responseTimes[p75Index].toFixed(1)) : 0,
+      p90ResponseHours: responseTimes.length > 0 ? parseFloat(responseTimes[p90Index].toFixed(1)) : 0,
+      within24h: responseTimes.filter(t => t <= 24).length,
+      within48h: responseTimes.filter(t => t <= 48).length,
+      within72h: responseTimes.filter(t => t <= 72).length,
+      responseTimeBuckets: buckets,
+      responsesByDay: responsesByDay,
+      responsesByHour: responsesByHour
+    };
+  } catch (e) {
+    console.error("Error getting time-to-response metrics:", e);
+    return { error: e.message };
+  }
+}
+
+/**
+ * Get conversion funnel data for analytics dashboard
+ * Tracks candidates through the recruitment funnel stages
+ * @param {string} filterJobId - Optional job ID filter
+ * @param {string} startDate - Optional start date (ISO string)
+ * @param {string} endDate - Optional end date (ISO string)
+ * @returns {Object} Funnel metrics
+ */
+function getConversionFunnelData(filterJobId, startDate, endDate) {
+  const access = checkAnalyticsAccess();
+  if (!access.hasAccess) {
+    return { error: "Access denied" };
+  }
+
+  try {
+    const ss = getSpreadsheet();
+    if (!ss) return { error: "Cannot access spreadsheet" };
+
+    // Parse date filters
+    let startDateFilter = null;
+    let endDateFilter = null;
+    if (startDate) {
+      startDateFilter = new Date(startDate);
+      startDateFilter.setHours(0, 0, 0, 0);
+    }
+    if (endDate) {
+      endDateFilter = new Date(endDate);
+      endDateFilter.setHours(23, 59, 59, 999);
+    }
+
+    // Get Email_Logs for outreach count
+    const emailLogsSheet = ss.getSheetByName('Email_Logs');
+    const emailData = emailLogsSheet ? emailLogsSheet.getDataRange().getValues() : [];
+
+    // Get Follow_Up_Queue for response tracking
+    const followUpSheet = ss.getSheetByName('Follow_Up_Queue');
+    const followUpData = followUpSheet ? followUpSheet.getDataRange().getValues() : [];
+
+    // Get Negotiation_State for active negotiations
+    const stateSheet = ss.getSheetByName('Negotiation_State');
+    const stateData = stateSheet ? stateSheet.getDataRange().getValues() : [];
+
+    // Get Negotiation_Completed for outcomes
+    const completedSheet = ss.getSheetByName('Negotiation_Completed');
+    const completedData = completedSheet ? completedSheet.getDataRange().getValues() : [];
+
+    // Get Unresponsive_Devs for unresponsive count
+    const unresponsiveSheet = ss.getSheetByName('Unresponsive_Devs');
+    const unresponsiveData = unresponsiveSheet ? unresponsiveSheet.getDataRange().getValues() : [];
+
+    // Count unique outreach emails
+    const outreachEmails = new Set();
+    for (let i = 1; i < emailData.length; i++) {
+      const timestamp = emailData[i][0];
+      const jobId = String(emailData[i][1] || '');
+      const email = String(emailData[i][2] || '').toLowerCase();
+      const type = String(emailData[i][5] || '');
+
+      // Only count initial outreach, not follow-ups
+      if (type && type.toLowerCase().includes('follow')) continue;
+
+      // Apply filters
+      if (filterJobId && jobId !== filterJobId) continue;
+      if (timestamp && startDateFilter && new Date(timestamp) < startDateFilter) continue;
+      if (timestamp && endDateFilter && new Date(timestamp) > endDateFilter) continue;
+
+      if (email) outreachEmails.add(email);
+    }
+
+    // Count responded (have entries in Negotiation_State)
+    const respondedEmails = new Set();
+    for (let i = 1; i < stateData.length; i++) {
+      const email = String(stateData[i][0] || '').toLowerCase();
+      const jobId = String(stateData[i][1] || '');
+
+      if (filterJobId && jobId !== filterJobId) continue;
+      if (email) respondedEmails.add(email);
+    }
+
+    // Count negotiating (status is active/pending in state)
+    const negotiatingEmails = new Set();
+    for (let i = 1; i < stateData.length; i++) {
+      const email = String(stateData[i][0] || '').toLowerCase();
+      const jobId = String(stateData[i][1] || '');
+      const status = String(stateData[i][4] || '').toLowerCase();
+
+      if (filterJobId && jobId !== filterJobId) continue;
+      if (email && (status.includes('active') || status.includes('pending') || status === '')) {
+        negotiatingEmails.add(email);
+      }
+    }
+
+    // Count completed outcomes
+    let accepted = 0;
+    let rejected = 0;
+    let escalated = 0;
+    const acceptedEmails = new Set();
+
+    for (let i = 1; i < completedData.length; i++) {
+      const timestamp = completedData[i][0];
+      const jobId = String(completedData[i][1] || '');
+      const email = String(completedData[i][2] || '').toLowerCase();
+      const status = String(completedData[i][4] || '').toLowerCase();
+
+      if (filterJobId && jobId !== filterJobId) continue;
+      if (timestamp && startDateFilter && new Date(timestamp) < startDateFilter) continue;
+      if (timestamp && endDateFilter && new Date(timestamp) > endDateFilter) continue;
+
+      if (status.includes('accept') || status.includes('complete')) {
+        accepted++;
+        acceptedEmails.add(email);
+      } else if (status.includes('reject') || status.includes('declined')) {
+        rejected++;
+      } else if (status.includes('escalat') || status.includes('human')) {
+        escalated++;
+      }
+    }
+
+    // Count unresponsive
+    let unresponsive = 0;
+    for (let i = 1; i < unresponsiveData.length; i++) {
+      const jobId = String(unresponsiveData[i][1] || '');
+      if (filterJobId && jobId !== filterJobId) continue;
+      unresponsive++;
+    }
+
+    // Calculate rates
+    const totalOutreach = outreachEmails.size;
+    const totalResponded = respondedEmails.size;
+    const totalNegotiating = negotiatingEmails.size;
+    const totalAccepted = accepted;
+
+    const responseRate = totalOutreach > 0 ? ((totalResponded / totalOutreach) * 100).toFixed(1) : 0;
+    const negotiationRate = totalResponded > 0 ? ((totalNegotiating / totalResponded) * 100).toFixed(1) : 0;
+    const acceptanceRate = totalResponded > 0 ? ((totalAccepted / totalResponded) * 100).toFixed(1) : 0;
+    const overallConversion = totalOutreach > 0 ? ((totalAccepted / totalOutreach) * 100).toFixed(1) : 0;
+
+    // Funnel data for Chart.js
+    const funnelData = [
+      { stage: 'Outreach Sent', count: totalOutreach, rate: '100%' },
+      { stage: 'Responded', count: totalResponded, rate: responseRate + '%' },
+      { stage: 'Negotiating', count: totalNegotiating, rate: negotiationRate + '%' },
+      { stage: 'Accepted', count: totalAccepted, rate: acceptanceRate + '%' }
+    ];
+
+    // Outcome breakdown for pie chart
+    const outcomeBreakdown = {
+      accepted: accepted,
+      rejected: rejected,
+      escalated: escalated,
+      unresponsive: unresponsive,
+      pending: totalNegotiating
+    };
+
+    return {
+      funnel: funnelData,
+      outcomes: outcomeBreakdown,
+      totalOutreach: totalOutreach,
+      totalResponded: totalResponded,
+      totalNegotiating: totalNegotiating,
+      totalAccepted: totalAccepted,
+      totalRejected: rejected,
+      totalEscalated: escalated,
+      totalUnresponsive: unresponsive,
+      responseRate: parseFloat(responseRate),
+      negotiationRate: parseFloat(negotiationRate),
+      acceptanceRate: parseFloat(acceptanceRate),
+      overallConversion: parseFloat(overallConversion)
+    };
+  } catch (e) {
+    console.error("Error getting conversion funnel data:", e);
+    return { error: e.message };
+  }
+}
+
+/**
+ * Get combined chart data for analytics dashboard
+ * @param {string} filterJobId - Optional job ID filter
+ * @param {string} startDate - Optional start date
+ * @param {string} endDate - Optional end date
+ * @returns {Object} Combined chart data
+ */
+function getAnalyticsChartData(filterJobId, startDate, endDate) {
+  const access = checkAnalyticsAccess();
+  if (!access.hasAccess) {
+    return { error: "Access denied" };
+  }
+
+  const timeToResponse = getTimeToResponseMetrics(filterJobId, startDate, endDate);
+  const conversionFunnel = getConversionFunnelData(filterJobId, startDate, endDate);
+
+  return {
+    timeToResponse: timeToResponse.error ? null : timeToResponse,
+    conversionFunnel: conversionFunnel.error ? null : conversionFunnel,
+    error: timeToResponse.error || conversionFunnel.error || null
+  };
+}
+
+/**
  * Get the list of analytics viewers
  * @returns {Array} List of viewer objects
  */

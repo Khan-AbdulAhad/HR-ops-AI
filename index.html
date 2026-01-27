@@ -15,6 +15,8 @@
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
     <!-- Google Fonts -->
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 
     <script>
         tailwind.config = {
@@ -2013,6 +2015,137 @@
                                 </tr>
                             </tbody>
                         </table>
+                    </div>
+
+                    <!-- Performance Charts Section -->
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+                        <!-- Conversion Funnel Chart -->
+                        <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+                            <div class="flex items-center justify-between mb-4">
+                                <div class="flex items-center gap-3">
+                                    <div class="bg-gradient-to-br from-blue-500 to-indigo-600 p-2 rounded-lg">
+                                        <i class="fa-solid fa-filter text-white"></i>
+                                    </div>
+                                    <div>
+                                        <h4 class="font-bold text-slate-800">Conversion Funnel</h4>
+                                        <p class="text-xs text-slate-500">Candidate journey from outreach to acceptance</p>
+                                    </div>
+                                </div>
+                                <button onclick="refreshChartData()" class="text-slate-400 hover:text-slate-600 p-2 rounded-lg hover:bg-slate-100 transition-colors">
+                                    <i class="fa-solid fa-sync-alt"></i>
+                                </button>
+                            </div>
+                            <div class="relative h-64">
+                                <canvas id="funnelChart"></canvas>
+                            </div>
+                            <div id="funnelStats" class="grid grid-cols-4 gap-2 mt-4 pt-4 border-t border-slate-100">
+                                <div class="text-center">
+                                    <div class="text-lg font-bold text-blue-600" id="funnelOutreach">-</div>
+                                    <div class="text-xs text-slate-500">Outreach</div>
+                                </div>
+                                <div class="text-center">
+                                    <div class="text-lg font-bold text-cyan-600" id="funnelResponded">-</div>
+                                    <div class="text-xs text-slate-500">Responded</div>
+                                </div>
+                                <div class="text-center">
+                                    <div class="text-lg font-bold text-amber-600" id="funnelNegotiating">-</div>
+                                    <div class="text-xs text-slate-500">Negotiating</div>
+                                </div>
+                                <div class="text-center">
+                                    <div class="text-lg font-bold text-emerald-600" id="funnelAccepted">-</div>
+                                    <div class="text-xs text-slate-500">Accepted</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Response Time Distribution Chart -->
+                        <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+                            <div class="flex items-center justify-between mb-4">
+                                <div class="flex items-center gap-3">
+                                    <div class="bg-gradient-to-br from-emerald-500 to-teal-600 p-2 rounded-lg">
+                                        <i class="fa-solid fa-clock text-white"></i>
+                                    </div>
+                                    <div>
+                                        <h4 class="font-bold text-slate-800">Response Time Distribution</h4>
+                                        <p class="text-xs text-slate-500">How quickly candidates respond to outreach</p>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="relative h-64">
+                                <canvas id="responseTimeChart"></canvas>
+                            </div>
+                            <div id="responseTimeStats" class="grid grid-cols-3 gap-2 mt-4 pt-4 border-t border-slate-100">
+                                <div class="text-center">
+                                    <div class="text-lg font-bold text-emerald-600" id="avgResponseTime">-</div>
+                                    <div class="text-xs text-slate-500">Avg Response</div>
+                                </div>
+                                <div class="text-center">
+                                    <div class="text-lg font-bold text-teal-600" id="medianResponseTime">-</div>
+                                    <div class="text-xs text-slate-500">Median Response</div>
+                                </div>
+                                <div class="text-center">
+                                    <div class="text-lg font-bold text-cyan-600" id="responseRatePercent">-</div>
+                                    <div class="text-xs text-slate-500">Response Rate</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Secondary Charts Row -->
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+                        <!-- Outcome Breakdown Pie Chart -->
+                        <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+                            <div class="flex items-center gap-3 mb-4">
+                                <div class="bg-gradient-to-br from-purple-500 to-pink-600 p-2 rounded-lg">
+                                    <i class="fa-solid fa-chart-pie text-white"></i>
+                                </div>
+                                <div>
+                                    <h4 class="font-bold text-slate-800">Negotiation Outcomes</h4>
+                                    <p class="text-xs text-slate-500">Distribution of negotiation results</p>
+                                </div>
+                            </div>
+                            <div class="relative h-56">
+                                <canvas id="outcomeChart"></canvas>
+                            </div>
+                            <div id="outcomeStats" class="flex flex-wrap justify-center gap-3 mt-4 pt-4 border-t border-slate-100">
+                                <div class="flex items-center gap-1.5 text-xs">
+                                    <span class="w-3 h-3 rounded-full bg-emerald-500"></span>
+                                    <span class="text-slate-600">Accepted: <strong id="outcomeAccepted">0</strong></span>
+                                </div>
+                                <div class="flex items-center gap-1.5 text-xs">
+                                    <span class="w-3 h-3 rounded-full bg-red-500"></span>
+                                    <span class="text-slate-600">Rejected: <strong id="outcomeRejected">0</strong></span>
+                                </div>
+                                <div class="flex items-center gap-1.5 text-xs">
+                                    <span class="w-3 h-3 rounded-full bg-amber-500"></span>
+                                    <span class="text-slate-600">Escalated: <strong id="outcomeEscalated">0</strong></span>
+                                </div>
+                                <div class="flex items-center gap-1.5 text-xs">
+                                    <span class="w-3 h-3 rounded-full bg-slate-400"></span>
+                                    <span class="text-slate-600">Unresponsive: <strong id="outcomeUnresponsive">0</strong></span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Response by Day of Week Chart -->
+                        <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+                            <div class="flex items-center gap-3 mb-4">
+                                <div class="bg-gradient-to-br from-amber-500 to-orange-600 p-2 rounded-lg">
+                                    <i class="fa-solid fa-calendar-week text-white"></i>
+                                </div>
+                                <div>
+                                    <h4 class="font-bold text-slate-800">Response by Day</h4>
+                                    <p class="text-xs text-slate-500">Best days for candidate responses</p>
+                                </div>
+                            </div>
+                            <div class="relative h-56">
+                                <canvas id="dayOfWeekChart"></canvas>
+                            </div>
+                            <div id="dayStats" class="text-center mt-4 pt-4 border-t border-slate-100">
+                                <span class="text-xs text-slate-500">Best day: </span>
+                                <span class="text-sm font-bold text-amber-600" id="bestResponseDay">-</span>
+                            </div>
+                        </div>
                     </div>
 
                     <!-- Split Charts -->
@@ -7837,6 +7970,321 @@
                     </div>`;
                 }
             }).getDetailedEmailStats(filterEmail, filterJobId, startDate, endDate);
+
+            // Load chart data
+            loadAnalyticsCharts(filterJobId, startDate, endDate);
+        }
+
+        // ============================================
+        // ANALYTICS CHARTS - Chart.js Visualizations
+        // ============================================
+        let funnelChartInstance = null;
+        let responseTimeChartInstance = null;
+        let outcomeChartInstance = null;
+        let dayOfWeekChartInstance = null;
+
+        function loadAnalyticsCharts(filterJobId, startDate, endDate) {
+            google.script.run.withSuccessHandler(chartData => {
+                if (chartData.error) {
+                    console.error('Chart data error:', chartData.error);
+                    return;
+                }
+
+                // Render all charts with the data
+                if (chartData.conversionFunnel) {
+                    renderFunnelChart(chartData.conversionFunnel);
+                    renderOutcomeChart(chartData.conversionFunnel);
+                }
+                if (chartData.timeToResponse) {
+                    renderResponseTimeChart(chartData.timeToResponse);
+                    renderDayOfWeekChart(chartData.timeToResponse);
+                }
+            }).getAnalyticsChartData(filterJobId || '', startDate || '', endDate || '');
+        }
+
+        function refreshChartData() {
+            const filterJobId = currentAnalyticsJobFilter || '';
+            const startDate = currentAnalyticsStartDate || '';
+            const endDate = currentAnalyticsEndDate || '';
+            loadAnalyticsCharts(filterJobId, startDate, endDate);
+            showToast('Charts refreshed', 'success');
+        }
+
+        function renderFunnelChart(data) {
+            const ctx = document.getElementById('funnelChart');
+            if (!ctx) return;
+
+            // Update stats
+            document.getElementById('funnelOutreach').textContent = data.totalOutreach || 0;
+            document.getElementById('funnelResponded').textContent = data.totalResponded || 0;
+            document.getElementById('funnelNegotiating').textContent = data.totalNegotiating || 0;
+            document.getElementById('funnelAccepted').textContent = data.totalAccepted || 0;
+
+            // Destroy existing chart
+            if (funnelChartInstance) {
+                funnelChartInstance.destroy();
+            }
+
+            const funnelLabels = data.funnel ? data.funnel.map(f => f.stage) : ['Outreach', 'Responded', 'Negotiating', 'Accepted'];
+            const funnelValues = data.funnel ? data.funnel.map(f => f.count) : [0, 0, 0, 0];
+
+            funnelChartInstance = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: funnelLabels,
+                    datasets: [{
+                        data: funnelValues,
+                        backgroundColor: [
+                            'rgba(59, 130, 246, 0.8)',   // blue
+                            'rgba(6, 182, 212, 0.8)',   // cyan
+                            'rgba(245, 158, 11, 0.8)',  // amber
+                            'rgba(16, 185, 129, 0.8)'   // emerald
+                        ],
+                        borderColor: [
+                            'rgb(59, 130, 246)',
+                            'rgb(6, 182, 212)',
+                            'rgb(245, 158, 11)',
+                            'rgb(16, 185, 129)'
+                        ],
+                        borderWidth: 2,
+                        borderRadius: 8
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    const total = data.totalOutreach || 1;
+                                    const percent = ((context.raw / total) * 100).toFixed(1);
+                                    return `${context.raw} candidates (${percent}%)`;
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            grid: { color: 'rgba(0,0,0,0.05)' }
+                        },
+                        x: {
+                            grid: { display: false }
+                        }
+                    }
+                }
+            });
+        }
+
+        function renderResponseTimeChart(data) {
+            const ctx = document.getElementById('responseTimeChart');
+            if (!ctx) return;
+
+            // Update stats
+            document.getElementById('avgResponseTime').textContent = data.avgResponseHours ? data.avgResponseHours + 'h' : '-';
+            document.getElementById('medianResponseTime').textContent = data.medianResponseHours ? data.medianResponseHours + 'h' : '-';
+            document.getElementById('responseRatePercent').textContent = data.responseRate ? data.responseRate + '%' : '-';
+
+            // Destroy existing chart
+            if (responseTimeChartInstance) {
+                responseTimeChartInstance.destroy();
+            }
+
+            const buckets = data.responseTimeBuckets || {};
+            const labels = Object.keys(buckets);
+            const values = Object.values(buckets);
+
+            responseTimeChartInstance = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'Candidates',
+                        data: values,
+                        backgroundColor: 'rgba(16, 185, 129, 0.7)',
+                        borderColor: 'rgb(16, 185, 129)',
+                        borderWidth: 2,
+                        borderRadius: 6
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    const total = values.reduce((a, b) => a + b, 0) || 1;
+                                    const percent = ((context.raw / total) * 100).toFixed(1);
+                                    return `${context.raw} responses (${percent}%)`;
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            grid: { color: 'rgba(0,0,0,0.05)' },
+                            title: { display: true, text: 'Responses', font: { size: 11 } }
+                        },
+                        x: {
+                            grid: { display: false },
+                            title: { display: true, text: 'Response Time', font: { size: 11 } }
+                        }
+                    }
+                }
+            });
+        }
+
+        function renderOutcomeChart(data) {
+            const ctx = document.getElementById('outcomeChart');
+            if (!ctx) return;
+
+            const outcomes = data.outcomes || {};
+
+            // Update stats
+            document.getElementById('outcomeAccepted').textContent = outcomes.accepted || 0;
+            document.getElementById('outcomeRejected').textContent = outcomes.rejected || 0;
+            document.getElementById('outcomeEscalated').textContent = outcomes.escalated || 0;
+            document.getElementById('outcomeUnresponsive').textContent = outcomes.unresponsive || 0;
+
+            // Destroy existing chart
+            if (outcomeChartInstance) {
+                outcomeChartInstance.destroy();
+            }
+
+            const labels = ['Accepted', 'Rejected', 'Escalated', 'Unresponsive', 'Pending'];
+            const values = [
+                outcomes.accepted || 0,
+                outcomes.rejected || 0,
+                outcomes.escalated || 0,
+                outcomes.unresponsive || 0,
+                outcomes.pending || 0
+            ];
+
+            // Only show if there's data
+            const total = values.reduce((a, b) => a + b, 0);
+            if (total === 0) {
+                ctx.parentElement.innerHTML = `<div class="flex items-center justify-center h-56 text-slate-400">
+                    <div class="text-center">
+                        <i class="fa-regular fa-chart-pie text-3xl mb-2"></i>
+                        <p class="text-sm">No outcome data yet</p>
+                    </div>
+                </div>`;
+                return;
+            }
+
+            outcomeChartInstance = new Chart(ctx, {
+                type: 'doughnut',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        data: values,
+                        backgroundColor: [
+                            'rgba(16, 185, 129, 0.8)',   // emerald - accepted
+                            'rgba(239, 68, 68, 0.8)',   // red - rejected
+                            'rgba(245, 158, 11, 0.8)',  // amber - escalated
+                            'rgba(148, 163, 184, 0.8)', // slate - unresponsive
+                            'rgba(99, 102, 241, 0.8)'   // indigo - pending
+                        ],
+                        borderColor: [
+                            'rgb(16, 185, 129)',
+                            'rgb(239, 68, 68)',
+                            'rgb(245, 158, 11)',
+                            'rgb(148, 163, 184)',
+                            'rgb(99, 102, 241)'
+                        ],
+                        borderWidth: 2
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    cutout: '60%',
+                    plugins: {
+                        legend: {
+                            display: false
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    const percent = ((context.raw / total) * 100).toFixed(1);
+                                    return `${context.label}: ${context.raw} (${percent}%)`;
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        function renderDayOfWeekChart(data) {
+            const ctx = document.getElementById('dayOfWeekChart');
+            if (!ctx) return;
+
+            const responsesByDay = data.responsesByDay || {};
+
+            // Destroy existing chart
+            if (dayOfWeekChartInstance) {
+                dayOfWeekChartInstance.destroy();
+            }
+
+            const dayOrder = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+            const values = dayOrder.map(day => responsesByDay[day] || 0);
+
+            // Find best day
+            const maxVal = Math.max(...values);
+            const bestDayIndex = values.indexOf(maxVal);
+            const bestDay = maxVal > 0 ? dayOrder[bestDayIndex] : '-';
+            document.getElementById('bestResponseDay').textContent = bestDay;
+
+            // Create gradient colors (darker for higher values)
+            const maxValue = Math.max(...values, 1);
+            const colors = values.map(v => {
+                const intensity = 0.3 + (v / maxValue) * 0.5;
+                return `rgba(245, 158, 11, ${intensity})`;
+            });
+
+            dayOfWeekChartInstance = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: dayOrder,
+                    datasets: [{
+                        label: 'Responses',
+                        data: values,
+                        backgroundColor: colors,
+                        borderColor: 'rgb(245, 158, 11)',
+                        borderWidth: 1,
+                        borderRadius: 4
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    return `${context.raw} responses`;
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            grid: { color: 'rgba(0,0,0,0.05)' }
+                        },
+                        x: {
+                            grid: { display: false }
+                        }
+                    }
+                }
+            });
         }
 
         // Refresh Analytics with animation and success message
