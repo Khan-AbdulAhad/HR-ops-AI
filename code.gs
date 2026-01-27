@@ -772,7 +772,7 @@ function ensureSheetsExist(ss) {
   const mismatchSheet = ss.getSheetByName('Email_Mismatch_Reports');
   if (mismatchSheet.getLastRow() === 0) mismatchSheet.appendRow(['Timestamp', 'Job ID', 'Expected Email', 'Actual Reply Email', 'Name', 'Dev ID', 'Thread ID', 'Context', 'Action Taken', 'Requires Review']);
 
-  // AI_Learning_Cases sheet - stores learning cases from successful human escalations
+  // AI_Learning_Cases sheet - stores learning cases from human escalations (positive & negative)
   // These are used to train the AI by consolidating approved cases into Negotiation_FAQs
   const learningSheet = ss.getSheetByName('AI_Learning_Cases');
   if (learningSheet.getLastRow() === 0) {
@@ -789,9 +789,14 @@ function ensureSheetsExist(ss) {
       'Approved_By',         // Who approved this learning
       'Approved_At',         // When it was approved
       'Consolidated',        // FALSE (default) - TRUE after added to FAQs
-      'Times_Used',          // Counter for how often AI used this (future use)
+      'Times_Used',          // Counter for how often AI used this
       'Candidate_Email',     // Reference to original candidate
-      'Thread_ID'            // Reference to Gmail thread
+      'Thread_ID',           // Reference to Gmail thread
+      'Learning_Type',       // positive | negative | style_adaptation
+      'Candidate_Tone',      // formal | casual | direct | detailed (for style adaptations)
+      'Success_Count',       // How many times this learning led to success
+      'Effectiveness_Rate',  // Success_Count / Times_Used * 100
+      'Last_Used'            // When this learning was last applied
     ]);
   }
 }
@@ -3852,11 +3857,28 @@ function getDevelopers(jobId, selectedStages) {
 
   try {
     const startTime = new Date().getTime();
+    const BIGQUERY_TIMEOUT_MS = 300000; // 300 seconds timeout
 
     let queryResults = BigQuery.Jobs.query({ query: finalSql, useLegacySql: false }, CONFIG.PROJECT_ID);
     let job = queryResults.jobReference;
+    let pollAttempts = 0;
+    const MAX_POLL_ATTEMPTS = 600; // 300 seconds at 500ms intervals
+
     while (!queryResults.jobComplete) {
+      // Check for timeout
+      const elapsedTime = new Date().getTime() - startTime;
+      if (elapsedTime > BIGQUERY_TIMEOUT_MS || pollAttempts >= MAX_POLL_ATTEMPTS) {
+        console.error(`BigQuery timeout after ${elapsedTime}ms (${pollAttempts} polls)`);
+        return {
+          error: 'TIMEOUT',
+          message: 'BigQuery query timed out after 300 seconds. Please click Refresh to try again.',
+          elapsedMs: elapsedTime,
+          canRetry: true
+        };
+      }
+
       Utilities.sleep(500);
+      pollAttempts++;
       queryResults = BigQuery.Jobs.getQueryResults(CONFIG.PROJECT_ID, job.jobId);
     }
 
@@ -7323,8 +7345,14 @@ function getPendingLearningCases() {
         lessonLearned: data[i][7],
         approved: data[i][8],
         consolidated: data[i][11],
+        timesUsed: data[i][12] || 0,
         candidateEmail: data[i][13],
-        threadId: data[i][14]
+        threadId: data[i][14],
+        learningType: data[i][15] || 'positive',   // New field
+        candidateTone: data[i][16] || '',          // New field
+        successCount: data[i][17] || 0,            // New field
+        effectivenessRate: data[i][18] || '0%',    // New field
+        lastUsed: data[i][19] || ''                // New field
       });
     }
   }
@@ -7420,6 +7448,453 @@ function rejectLearningCase(rowIndex) {
   } catch (e) {
     console.error('Failed to reject learning case:', e);
     return false;
+  }
+}
+
+// ==========================================
+// NEGATIVE LEARNING EXTRACTION
+// Extract learnings from failed negotiations (rejected final offers)
+// ==========================================
+
+/**
+ * Extract negative learning from a failed negotiation
+ * Called when a candidate rejects our final offer or negotiation fails
+ * @param {string} conversationText - The full conversation history
+ * @param {string} jobId - Job ID
+ * @param {string} candidateEmail - Candidate email
+ * @param {string} threadId - Gmail thread ID
+ * @param {string} lastOffer - The last offer we made
+ * @param {string} candidateAsk - What the candidate asked for (if known)
+ * @returns {Object} Extracted negative learning
+ */
+function extractNegativeLearning(conversationText, jobId, candidateEmail, threadId, lastOffer, candidateAsk) {
+  const negativeLearningPrompt = `
+Analyze this FAILED negotiation conversation. The candidate rejected our final offer or the negotiation failed.
+
+CONVERSATION:
+${conversationText}
+
+OUR FINAL OFFER: ${lastOffer ? '$' + lastOffer + '/hr' : 'Unknown'}
+CANDIDATE'S ASK: ${candidateAsk ? '$' + candidateAsk + '/hr' : 'Unknown'}
+
+Your task is to extract actionable learning about what went WRONG so AI can avoid similar mistakes.
+
+Return ONLY a JSON object with these fields:
+{
+  "category": "rate_objection" | "availability" | "competitor" | "requirements" | "trust" | "timing" | "communication" | "other",
+  "primary_failure_reason": "<1 sentence - main reason the negotiation failed>",
+  "warning_signs": "<2-3 bullet points - signals we missed that indicated this would fail>",
+  "what_to_avoid": "<2-3 bullet points - specific approaches or phrases AI should AVOID in future>",
+  "suggested_improvement": "<1-2 sentences - how this could have been handled better>",
+  "candidate_sentiment": "frustrated" | "polite_decline" | "aggressive" | "indifferent" | "interested_but_blocked",
+  "salvageable": true | false,
+  "confidence": "HIGH" | "MEDIUM" | "LOW"
+}
+
+CATEGORY DEFINITIONS:
+- rate_objection: Candidate wanted higher rate and wouldn't budge
+- availability: Start date, hours, or scheduling was the blocker
+- competitor: Lost to another company/offer
+- requirements: Job requirements didn't match candidate expectations
+- trust: Candidate didn't trust company, payment, or legitimacy
+- timing: Bad timing (candidate not ready, other commitments)
+- communication: AI tone, approach, or messaging was off
+- other: Doesn't fit other categories
+
+Return ONLY the JSON, no other text.
+`;
+
+  try {
+    const aiResponse = callAI(negativeLearningPrompt);
+    const cleanResponse = aiResponse.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+    const learning = JSON.parse(cleanResponse);
+
+    // Save to AI_Learning_Cases with negative type
+    saveLearningCaseExtended({
+      jobId: jobId,
+      category: learning.category,
+      candidateConcern: learning.primary_failure_reason,
+      humanApproach: learning.what_to_avoid,
+      resolutionOutcome: 'REJECTED',
+      keyPhrases: learning.warning_signs,
+      lessonLearned: learning.suggested_improvement,
+      candidateEmail: candidateEmail,
+      threadId: threadId,
+      learningType: 'negative',
+      candidateTone: learning.candidate_sentiment
+    });
+
+    // Send notification to AI Learning tab users
+    notifyLearningTabUsers('negative', jobId, candidateEmail);
+
+    return learning;
+  } catch (e) {
+    console.error('Negative learning extraction failed:', e);
+    return null;
+  }
+}
+
+// ==========================================
+// ADAPTIVE NEGOTIATION STYLE
+// Detect candidate tone and suggest style adaptations
+// ==========================================
+
+/**
+ * Detect the communication style/tone of a candidate message
+ * @param {string} message - The candidate's message
+ * @returns {Object} Detected tone and recommended style adaptation
+ */
+function detectCandidateTone(message) {
+  const toneDetectionPrompt = `
+Analyze this candidate message and classify their communication style:
+
+MESSAGE:
+"${message}"
+
+Return ONLY a JSON object:
+{
+  "detected_tone": "formal" | "casual" | "direct" | "detailed" | "emotional" | "professional",
+  "confidence": "HIGH" | "MEDIUM" | "LOW",
+  "indicators": "<comma-separated - what in the message indicates this tone>",
+  "recommended_response_style": {
+    "formality": "formal" | "semi-formal" | "casual",
+    "length": "concise" | "moderate" | "detailed",
+    "warmth": "warm" | "neutral" | "businesslike",
+    "approach": "<1 sentence - how AI should respond to this candidate>"
+  },
+  "mirror_phrases": "<2-3 phrases AI can use that match this candidate's style>"
+}
+
+TONE DEFINITIONS:
+- formal: Professional language, proper grammar, business-like (Dear Sir, Regards, etc.)
+- casual: Friendly, relaxed, uses contractions, informal greetings (Hey, Thanks!, etc.)
+- direct: Brief, to the point, minimal pleasantries, wants quick answers
+- detailed: Thorough, asks many questions, wants full explanations
+- emotional: Shows frustration, excitement, or strong feelings
+- professional: Balanced, neither too formal nor casual, standard business tone
+
+Return ONLY the JSON, no other text.
+`;
+
+  try {
+    const aiResponse = callAI(toneDetectionPrompt);
+    const cleanResponse = aiResponse.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+    return JSON.parse(cleanResponse);
+  } catch (e) {
+    console.error('Tone detection failed:', e);
+    return {
+      detected_tone: 'professional',
+      confidence: 'LOW',
+      indicators: 'Could not analyze',
+      recommended_response_style: {
+        formality: 'semi-formal',
+        length: 'moderate',
+        warmth: 'neutral',
+        approach: 'Use standard professional tone'
+      },
+      mirror_phrases: ''
+    };
+  }
+}
+
+/**
+ * Save a style adaptation learning case for human approval
+ * @param {string} jobId - Job ID
+ * @param {string} candidateEmail - Candidate email
+ * @param {string} threadId - Gmail thread ID
+ * @param {Object} toneAnalysis - Result from detectCandidateTone
+ * @param {string} outcome - The outcome of using this adaptation (if known)
+ */
+function saveStyleAdaptationLearning(jobId, candidateEmail, threadId, toneAnalysis, outcome) {
+  try {
+    saveLearningCaseExtended({
+      jobId: jobId,
+      category: 'communication',
+      candidateConcern: `Candidate tone: ${toneAnalysis.detected_tone}`,
+      humanApproach: toneAnalysis.recommended_response_style.approach,
+      resolutionOutcome: outcome || 'PENDING',
+      keyPhrases: toneAnalysis.mirror_phrases,
+      lessonLearned: `For ${toneAnalysis.detected_tone} candidates, use ${toneAnalysis.recommended_response_style.formality} tone with ${toneAnalysis.recommended_response_style.warmth} warmth`,
+      candidateEmail: candidateEmail,
+      threadId: threadId,
+      learningType: 'style_adaptation',
+      candidateTone: toneAnalysis.detected_tone
+    });
+
+    // Send notification to AI Learning tab users
+    notifyLearningTabUsers('style_adaptation', jobId, candidateEmail);
+
+    return true;
+  } catch (e) {
+    console.error('Failed to save style adaptation learning:', e);
+    return false;
+  }
+}
+
+// ==========================================
+// LEARNING VALIDATION TRACKING
+// Track effectiveness of applied learnings
+// ==========================================
+
+/**
+ * Record that a learning was used in a negotiation
+ * @param {number} learningRowIndex - Row index of the learning case
+ * @param {boolean} wasSuccessful - Whether the negotiation was successful
+ */
+function trackLearningUsage(learningRowIndex, wasSuccessful) {
+  try {
+    const url = getStoredSheetUrl();
+    if (!url) return false;
+
+    const ss = SpreadsheetApp.openByUrl(url);
+    const sheet = ss.getSheetByName('AI_Learning_Cases');
+    if (!sheet) return false;
+
+    // Get current values
+    const timesUsed = sheet.getRange(learningRowIndex, 13).getValue() || 0; // Times_Used column
+    const successCount = sheet.getRange(learningRowIndex, 18).getValue() || 0; // Success_Count column
+
+    // Update counters
+    const newTimesUsed = timesUsed + 1;
+    const newSuccessCount = wasSuccessful ? successCount + 1 : successCount;
+    const effectivenessRate = newTimesUsed > 0 ? Math.round((newSuccessCount / newTimesUsed) * 100) : 0;
+
+    // Update the row
+    sheet.getRange(learningRowIndex, 13).setValue(newTimesUsed);       // Times_Used
+    sheet.getRange(learningRowIndex, 18).setValue(newSuccessCount);    // Success_Count
+    sheet.getRange(learningRowIndex, 19).setValue(effectivenessRate + '%'); // Effectiveness_Rate
+    sheet.getRange(learningRowIndex, 20).setValue(new Date().toISOString()); // Last_Used
+
+    invalidateSheetCache('AI_Learning_Cases');
+    return true;
+  } catch (e) {
+    console.error('Failed to track learning usage:', e);
+    return false;
+  }
+}
+
+/**
+ * Get learning validation statistics
+ * @returns {Object} Stats about learning effectiveness
+ */
+function getLearningValidationStats() {
+  try {
+    const url = getStoredSheetUrl();
+    if (!url) return { error: 'No config URL' };
+
+    const ss = SpreadsheetApp.openByUrl(url);
+    const sheet = ss.getSheetByName('AI_Learning_Cases');
+    if (!sheet || sheet.getLastRow() <= 1) return { totalLearnings: 0 };
+
+    const data = sheet.getDataRange().getValues();
+    let stats = {
+      totalLearnings: 0,
+      positiveLearnings: 0,
+      negativeLearnings: 0,
+      styleAdaptations: 0,
+      totalUsages: 0,
+      totalSuccesses: 0,
+      avgEffectiveness: 0,
+      topPerformers: [],
+      lowPerformers: []
+    };
+
+    const learningsWithUsage = [];
+
+    for (let i = 1; i < data.length; i++) {
+      stats.totalLearnings++;
+
+      const learningType = data[i][15] || 'positive'; // Learning_Type column
+      const timesUsed = parseInt(data[i][12]) || 0;   // Times_Used column
+      const successCount = parseInt(data[i][17]) || 0; // Success_Count column
+
+      if (learningType === 'positive') stats.positiveLearnings++;
+      else if (learningType === 'negative') stats.negativeLearnings++;
+      else if (learningType === 'style_adaptation') stats.styleAdaptations++;
+
+      stats.totalUsages += timesUsed;
+      stats.totalSuccesses += successCount;
+
+      if (timesUsed >= 3) { // Only track learnings used 3+ times
+        const effectiveness = timesUsed > 0 ? (successCount / timesUsed) * 100 : 0;
+        learningsWithUsage.push({
+          rowIndex: i + 1,
+          category: data[i][2],
+          lesson: data[i][7],
+          timesUsed: timesUsed,
+          successCount: successCount,
+          effectiveness: effectiveness
+        });
+      }
+    }
+
+    // Calculate average effectiveness
+    stats.avgEffectiveness = stats.totalUsages > 0
+      ? Math.round((stats.totalSuccesses / stats.totalUsages) * 100)
+      : 0;
+
+    // Sort for top/low performers
+    learningsWithUsage.sort((a, b) => b.effectiveness - a.effectiveness);
+    stats.topPerformers = learningsWithUsage.slice(0, 5);
+    stats.lowPerformers = learningsWithUsage.filter(l => l.effectiveness < 40).slice(0, 5);
+
+    return stats;
+  } catch (e) {
+    console.error('Failed to get learning validation stats:', e);
+    return { error: e.message };
+  }
+}
+
+/**
+ * Extended save function with new fields
+ */
+function saveLearningCaseExtended(params) {
+  const {
+    jobId,
+    category,
+    candidateConcern,
+    humanApproach,
+    resolutionOutcome,
+    keyPhrases,
+    lessonLearned,
+    candidateEmail,
+    threadId,
+    learningType = 'positive',
+    candidateTone = ''
+  } = params;
+
+  try {
+    const url = getStoredSheetUrl();
+    if (!url) return false;
+
+    const ss = SpreadsheetApp.openByUrl(url);
+    const sheet = ss.getSheetByName('AI_Learning_Cases');
+    if (!sheet) return false;
+
+    sheet.appendRow([
+      new Date().toISOString(),  // Timestamp
+      jobId,                      // Job_ID
+      category,                   // Category
+      candidateConcern,           // Candidate_Concern
+      humanApproach,              // Human_Approach
+      resolutionOutcome,          // Resolution_Outcome
+      keyPhrases,                 // Key_Phrases
+      lessonLearned,              // Lesson_Learned
+      false,                      // Approved
+      '',                         // Approved_By
+      '',                         // Approved_At
+      false,                      // Consolidated
+      0,                          // Times_Used
+      candidateEmail,             // Candidate_Email
+      threadId,                   // Thread_ID
+      learningType,               // Learning_Type (positive/negative/style_adaptation)
+      candidateTone,              // Candidate_Tone
+      0,                          // Success_Count
+      '0%',                       // Effectiveness_Rate
+      ''                          // Last_Used
+    ]);
+
+    invalidateSheetCache('AI_Learning_Cases');
+    return true;
+  } catch (e) {
+    console.error('Failed to save extended learning case:', e);
+    return false;
+  }
+}
+
+// ==========================================
+// NOTIFICATION SYSTEM FOR AI LEARNING TAB
+// ==========================================
+
+/**
+ * Notify users with AI Learning tab access about new learnings
+ * @param {string} learningType - Type of learning (negative/style_adaptation/positive)
+ * @param {string} jobId - Job ID
+ * @param {string} candidateEmail - Candidate email for context
+ */
+function notifyLearningTabUsers(learningType, jobId, candidateEmail) {
+  try {
+    // Get users with AI Learning tab access (Admins and TLs)
+    const access = checkAnalyticsAccess();
+    if (!access) return;
+
+    const analyticsSpreadsheet = getAnalyticsSpreadsheet();
+    if (!analyticsSpreadsheet) return;
+
+    const viewersSheet = analyticsSpreadsheet.getSheetByName('Analytics_Viewers');
+    if (!viewersSheet || viewersSheet.getLastRow() <= 1) return;
+
+    const viewersData = viewersSheet.getDataRange().getValues();
+    const eligibleUsers = [];
+
+    // Get users with Admin or TL access (they have AI Learning tab access)
+    for (let i = 1; i < viewersData.length; i++) {
+      const email = String(viewersData[i][0] || '');
+      const accessLevel = String(viewersData[i][3] || '').toLowerCase();
+
+      if (email && (accessLevel === 'admin' || accessLevel === 'tl')) {
+        eligibleUsers.push(email);
+      }
+    }
+
+    // Also add default admins
+    const defaultAdmins = ['abdul.ahad@turing.com'];
+    defaultAdmins.forEach(admin => {
+      if (!eligibleUsers.includes(admin)) {
+        eligibleUsers.push(admin);
+      }
+    });
+
+    if (eligibleUsers.length === 0) return;
+
+    // Compose notification email
+    const typeLabels = {
+      'negative': 'Negative Learning (Failed Negotiation)',
+      'style_adaptation': 'Style Adaptation Learning',
+      'positive': 'Positive Learning'
+    };
+
+    const subject = `[AI Learning] New ${typeLabels[learningType] || learningType} Requires Approval`;
+
+    const body = `
+Hello,
+
+A new AI learning case has been extracted and requires your approval before it can be used.
+
+Learning Type: ${typeLabels[learningType] || learningType}
+Job ID: ${jobId}
+Related Candidate: ${candidateEmail}
+
+Please review this learning in the AI Learning tab of the Turing Outreach system.
+
+Why this matters:
+${learningType === 'negative' ? '- This learning is from a FAILED negotiation. Approving it will help AI avoid similar mistakes.' : ''}
+${learningType === 'style_adaptation' ? '- This learning captures a communication style pattern. Approving it will help AI adapt to different candidate personalities.' : ''}
+${learningType === 'positive' ? '- This learning is from a SUCCESSFUL human escalation. Approving it will help AI handle similar situations.' : ''}
+
+To approve or reject, go to the AI Learning tab and review pending cases.
+
+Best regards,
+Turing AI Recruiter System
+`;
+
+    // Send email to each eligible user
+    eligibleUsers.forEach(userEmail => {
+      try {
+        GmailApp.sendEmail(userEmail, subject, body, {
+          name: 'Turing AI Learning System',
+          noReply: true
+        });
+        console.log(`Learning notification sent to ${userEmail}`);
+      } catch (emailError) {
+        console.error(`Failed to send notification to ${userEmail}:`, emailError);
+      }
+    });
+
+    return { success: true, notified: eligibleUsers.length };
+  } catch (e) {
+    console.error('Failed to notify learning tab users:', e);
+    return { success: false, error: e.message };
   }
 }
 
@@ -7628,7 +8103,13 @@ function removeWeeklyLearningConsolidation() {
   return { success: true, message: `Removed ${removed} learning consolidation trigger(s)` };
 }
 
-function callAI(prompt) {
+/**
+ * Call OpenAI API with rate limiting and exponential backoff retry
+ * @param {string} prompt - The prompt to send to the AI
+ * @param {number} maxRetries - Maximum number of retry attempts (default: 4)
+ * @returns {string} AI response or escalation message
+ */
+function callAI(prompt, maxRetries = 4) {
   const apiKey = PropertiesService.getScriptProperties().getProperty('OPENAI_API_KEY');
   if (!apiKey) return "ACTION: ESCALATE (API Key missing)";
 
@@ -7642,48 +8123,85 @@ function callAI(prompt) {
     temperature: 0.7,
     max_tokens: 400
   };
-  
-  try {
-    const options = {
-      method: 'post',
-      contentType: 'application/json',
-      headers: { "Authorization": `Bearer ${apiKey}` },
-      payload: JSON.stringify(payload),
-      muteHttpExceptions: true
-    };
-    const response = UrlFetchApp.fetch(url, options);
-    const responseText = response.getContentText();
 
-    // Check for HTTP errors
-    const responseCode = response.getResponseCode();
-    if (responseCode < 200 || responseCode >= 300) {
-      console.error("OpenAI HTTP Error:", responseCode, responseText);
-      return "ACTION: ESCALATE (AI Error - HTTP " + responseCode + ")";
+  const options = {
+    method: 'post',
+    contentType: 'application/json',
+    headers: { "Authorization": `Bearer ${apiKey}` },
+    payload: JSON.stringify(payload),
+    muteHttpExceptions: true
+  };
+
+  let lastError = null;
+
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      const response = UrlFetchApp.fetch(url, options);
+      const responseText = response.getContentText();
+      const responseCode = response.getResponseCode();
+
+      // Rate limit handling (429) with exponential backoff
+      if (responseCode === 429) {
+        const waitTime = Math.pow(2, attempt) * 1000; // 1s, 2s, 4s, 8s
+        console.warn(`OpenAI rate limited (429). Attempt ${attempt + 1}/${maxRetries}. Waiting ${waitTime}ms...`);
+        Utilities.sleep(waitTime);
+        continue;
+      }
+
+      // Server errors (5xx) - retry with backoff
+      if (responseCode >= 500 && responseCode < 600) {
+        const waitTime = Math.pow(2, attempt) * 1000;
+        console.warn(`OpenAI server error (${responseCode}). Attempt ${attempt + 1}/${maxRetries}. Waiting ${waitTime}ms...`);
+        Utilities.sleep(waitTime);
+        continue;
+      }
+
+      // Other HTTP errors - don't retry
+      if (responseCode < 200 || responseCode >= 300) {
+        console.error("OpenAI HTTP Error:", responseCode, responseText);
+        return "ACTION: ESCALATE (AI Error - HTTP " + responseCode + ")";
+      }
+
+      const json = JSON.parse(responseText);
+
+      if (json.error) {
+        // Check if it's a rate limit error in the body
+        if (json.error.type === 'rate_limit_exceeded' || json.error.code === 'rate_limit_exceeded') {
+          const waitTime = Math.pow(2, attempt) * 1000;
+          console.warn(`OpenAI rate limit in response. Attempt ${attempt + 1}/${maxRetries}. Waiting ${waitTime}ms...`);
+          Utilities.sleep(waitTime);
+          continue;
+        }
+        console.error("OpenAI Error:", json.error);
+        return "ACTION: ESCALATE (AI Error)";
+      }
+
+      // Validate response structure
+      if (!json.choices || !Array.isArray(json.choices) || json.choices.length === 0) {
+        console.error("OpenAI returned empty choices:", json);
+        return "ACTION: ESCALATE (AI Error - Empty response)";
+      }
+
+      if (!json.choices[0].message || !json.choices[0].message.content) {
+        console.error("OpenAI returned malformed choice:", json.choices[0]);
+        return "ACTION: ESCALATE (AI Error - Malformed response)";
+      }
+
+      // Success! Return the response
+      return json.choices[0].message.content.trim();
+
+    } catch (e) {
+      lastError = e;
+      // Network errors - retry with backoff
+      const waitTime = Math.pow(2, attempt) * 1000;
+      console.warn(`AI call failed (${e.message}). Attempt ${attempt + 1}/${maxRetries}. Waiting ${waitTime}ms...`);
+      Utilities.sleep(waitTime);
     }
-
-    const json = JSON.parse(responseText);
-
-    if(json.error) {
-      console.error("OpenAI Error:", json.error);
-      return "ACTION: ESCALATE (AI Error)";
-    }
-
-    // Validate response structure before accessing
-    if (!json.choices || !Array.isArray(json.choices) || json.choices.length === 0) {
-      console.error("OpenAI returned empty choices:", json);
-      return "ACTION: ESCALATE (AI Error - Empty response)";
-    }
-
-    if (!json.choices[0].message || !json.choices[0].message.content) {
-      console.error("OpenAI returned malformed choice:", json.choices[0]);
-      return "ACTION: ESCALATE (AI Error - Malformed response)";
-    }
-
-    return json.choices[0].message.content.trim();
-  } catch (e) {
-    console.error("AI call failed:", e);
-    return "ACTION: ESCALATE (AI Error)";
   }
+
+  // All retries exhausted
+  console.error(`AI call failed after ${maxRetries} attempts. Last error:`, lastError);
+  return "ACTION: ESCALATE (AI Error - Max retries exceeded)";
 }
 
 // --- UTILITY FUNCTIONS ---

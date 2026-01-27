@@ -2247,8 +2247,8 @@
                         </div>
                     </div>
 
-                    <!-- Learning Stats Cards -->
-                    <div class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+                    <!-- Learning Stats Cards - Row 1 -->
+                    <div class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-4">
                         <div class="bg-white dark:bg-slate-800 rounded-xl p-6 shadow-sm border border-slate-200 dark:border-slate-700">
                             <div class="flex items-center justify-between">
                                 <div>
@@ -2285,11 +2285,101 @@
                         <div class="bg-white dark:bg-slate-800 rounded-xl p-6 shadow-sm border border-slate-200 dark:border-slate-700">
                             <div class="flex items-center justify-between">
                                 <div>
-                                    <p class="text-sm text-slate-500 dark:text-slate-400">Total Learnings</p>
-                                    <p id="learningTotalCount" class="text-3xl font-bold text-slate-800 dark:text-white">0</p>
+                                    <p class="text-sm text-slate-500 dark:text-slate-400">Effectiveness</p>
+                                    <p id="learningEffectivenessRate" class="text-3xl font-bold text-cyan-600">0%</p>
                                 </div>
-                                <div class="w-12 h-12 bg-slate-100 dark:bg-slate-700 rounded-xl flex items-center justify-center">
-                                    <i class="fa-solid fa-brain text-slate-600 dark:text-slate-300 text-xl"></i>
+                                <div class="w-12 h-12 bg-cyan-100 dark:bg-cyan-900/30 rounded-xl flex items-center justify-center">
+                                    <i class="fa-solid fa-chart-line text-cyan-600 text-xl"></i>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Learning Stats Cards - Row 2 (Learning Types) -->
+                    <div class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+                        <div class="bg-white dark:bg-slate-800 rounded-xl p-6 shadow-sm border border-slate-200 dark:border-slate-700 border-l-4 border-l-green-500">
+                            <div class="flex items-center justify-between">
+                                <div>
+                                    <p class="text-sm text-slate-500 dark:text-slate-400">Positive Learnings</p>
+                                    <p id="learningPositiveCount" class="text-2xl font-bold text-green-600">0</p>
+                                    <p class="text-xs text-slate-400 mt-1">From successful escalations</p>
+                                </div>
+                                <div class="w-10 h-10 bg-green-100 dark:bg-green-900/30 rounded-lg flex items-center justify-center">
+                                    <i class="fa-solid fa-thumbs-up text-green-600"></i>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="bg-white dark:bg-slate-800 rounded-xl p-6 shadow-sm border border-slate-200 dark:border-slate-700 border-l-4 border-l-red-500">
+                            <div class="flex items-center justify-between">
+                                <div>
+                                    <p class="text-sm text-slate-500 dark:text-slate-400">Negative Learnings</p>
+                                    <p id="learningNegativeCount" class="text-2xl font-bold text-red-600">0</p>
+                                    <p class="text-xs text-slate-400 mt-1">From failed negotiations</p>
+                                </div>
+                                <div class="w-10 h-10 bg-red-100 dark:bg-red-900/30 rounded-lg flex items-center justify-center">
+                                    <i class="fa-solid fa-thumbs-down text-red-600"></i>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="bg-white dark:bg-slate-800 rounded-xl p-6 shadow-sm border border-slate-200 dark:border-slate-700 border-l-4 border-l-purple-500">
+                            <div class="flex items-center justify-between">
+                                <div>
+                                    <p class="text-sm text-slate-500 dark:text-slate-400">Style Adaptations</p>
+                                    <p id="learningStyleCount" class="text-2xl font-bold text-purple-600">0</p>
+                                    <p class="text-xs text-slate-400 mt-1">Candidate tone patterns</p>
+                                </div>
+                                <div class="w-10 h-10 bg-purple-100 dark:bg-purple-900/30 rounded-lg flex items-center justify-center">
+                                    <i class="fa-solid fa-masks-theater text-purple-600"></i>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="bg-white dark:bg-slate-800 rounded-xl p-6 shadow-sm border border-slate-200 dark:border-slate-700">
+                            <div class="flex items-center justify-between">
+                                <div>
+                                    <p class="text-sm text-slate-500 dark:text-slate-400">Total Learnings</p>
+                                    <p id="learningTotalCount" class="text-2xl font-bold text-slate-800 dark:text-white">0</p>
+                                    <p class="text-xs text-slate-400 mt-1">All learning types</p>
+                                </div>
+                                <div class="w-10 h-10 bg-slate-100 dark:bg-slate-700 rounded-lg flex items-center justify-center">
+                                    <i class="fa-solid fa-brain text-slate-600 dark:text-slate-300"></i>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Learning Validation Performance Section -->
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+                        <div class="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 p-6">
+                            <div class="flex items-center gap-3 mb-4">
+                                <div class="bg-gradient-to-br from-emerald-500 to-green-600 p-2 rounded-lg">
+                                    <i class="fa-solid fa-trophy text-white"></i>
+                                </div>
+                                <div>
+                                    <h4 class="font-bold text-slate-800 dark:text-white">Top Performing Learnings</h4>
+                                    <p class="text-xs text-slate-500">Learnings with highest success rates (used 3+ times)</p>
+                                </div>
+                            </div>
+                            <div id="topPerformersList" class="space-y-2">
+                                <div class="text-center py-4 text-slate-400 text-sm">
+                                    <i class="fa-solid fa-chart-simple text-2xl mb-2 block"></i>
+                                    No data yet - learnings need 3+ uses to appear here
+                                </div>
+                            </div>
+                        </div>
+                        <div class="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 p-6">
+                            <div class="flex items-center gap-3 mb-4">
+                                <div class="bg-gradient-to-br from-amber-500 to-orange-600 p-2 rounded-lg">
+                                    <i class="fa-solid fa-triangle-exclamation text-white"></i>
+                                </div>
+                                <div>
+                                    <h4 class="font-bold text-slate-800 dark:text-white">Underperforming Learnings</h4>
+                                    <p class="text-xs text-slate-500">Learnings with &lt;40% effectiveness - consider reviewing</p>
+                                </div>
+                            </div>
+                            <div id="lowPerformersList" class="space-y-2">
+                                <div class="text-center py-4 text-slate-400 text-sm">
+                                    <i class="fa-solid fa-check-circle text-2xl mb-2 block text-green-400"></i>
+                                    No underperforming learnings detected
                                 </div>
                             </div>
                         </div>
@@ -4684,15 +4774,32 @@
 
             google.script.run
                 .withSuccessHandler(data => {
+                    // Handle BigQuery timeout error
+                    if (data && data.error === 'TIMEOUT') {
+                        btn.innerHTML = originalHtml;
+                        showBigQueryTimeoutError(data.message, jobId, stages);
+                        return;
+                    }
+
+                    // Handle other error objects
+                    if (data && data.error && typeof data.error === 'string') {
+                        btn.innerHTML = originalHtml;
+                        showToast("Error: " + data.error, "error");
+                        return;
+                    }
+
                     tableData = data;
                     fullTableData = data;
                     document.getElementById('tableControls').classList.remove('hidden');
                     document.getElementById('statusFilterContainer').classList.remove('hidden');
                     document.getElementById('tableContainer').classList.remove('hidden');
-                    
+
+                    // Hide any previous timeout error
+                    hideBigQueryTimeoutError();
+
                     renderTable(data);
                     updateCounts(data);
-                    
+
                     btn.innerHTML = originalHtml;
                     showToast(`Loaded ${data.length} candidates`, "success");
                 })
@@ -4719,6 +4826,82 @@
             document.getElementById('subCount').textContent = subCount;
             document.getElementById('agencyCount').textContent = agencyCount;
             document.getElementById('directCount').textContent = directCount;
+        }
+
+        // BigQuery Timeout Error Handling
+        let lastBigQueryParams = { jobId: '', stages: [] };
+
+        function showBigQueryTimeoutError(message, jobId, stages) {
+            lastBigQueryParams = { jobId, stages };
+
+            // Create or show the error container
+            let errorContainer = document.getElementById('bigQueryTimeoutError');
+            if (!errorContainer) {
+                errorContainer = document.createElement('div');
+                errorContainer.id = 'bigQueryTimeoutError';
+                errorContainer.className = 'bg-amber-50 border border-amber-200 rounded-xl p-6 mb-6';
+
+                // Insert after the fetch button area
+                const tableControls = document.getElementById('tableControls');
+                if (tableControls) {
+                    tableControls.parentNode.insertBefore(errorContainer, tableControls);
+                }
+            }
+
+            errorContainer.innerHTML = `
+                <div class="flex items-start gap-4">
+                    <div class="flex-shrink-0">
+                        <div class="w-12 h-12 bg-amber-100 rounded-full flex items-center justify-center">
+                            <i class="fa-solid fa-clock text-amber-600 text-xl"></i>
+                        </div>
+                    </div>
+                    <div class="flex-1">
+                        <h4 class="font-bold text-amber-800 mb-1">BigQuery Query Timeout</h4>
+                        <p class="text-sm text-amber-700 mb-3">${message || 'The database query took too long to complete. This can happen with large datasets or high server load.'}</p>
+                        <div class="flex items-center gap-3">
+                            <button onclick="retryBigQueryFetch()" class="bg-amber-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-amber-700 flex items-center gap-2 transition-colors">
+                                <i class="fa-solid fa-rotate"></i> Retry Fetch
+                            </button>
+                            <button onclick="hideBigQueryTimeoutError()" class="text-amber-600 hover:text-amber-800 text-sm font-medium">
+                                Dismiss
+                            </button>
+                        </div>
+                        <p class="text-xs text-amber-500 mt-2">
+                            <i class="fa-solid fa-info-circle mr-1"></i>
+                            Tip: If this keeps happening, try selecting fewer pipeline stages or contact support.
+                        </p>
+                    </div>
+                </div>
+            `;
+
+            errorContainer.classList.remove('hidden');
+            showToast('Query timed out. Click "Retry Fetch" to try again.', 'warning');
+        }
+
+        function hideBigQueryTimeoutError() {
+            const errorContainer = document.getElementById('bigQueryTimeoutError');
+            if (errorContainer) {
+                errorContainer.classList.add('hidden');
+            }
+        }
+
+        function retryBigQueryFetch() {
+            if (!lastBigQueryParams.jobId) {
+                showToast('No previous query to retry. Please fetch again.', 'warning');
+                return;
+            }
+
+            hideBigQueryTimeoutError();
+
+            // Trigger the fetch again with the same parameters
+            const jobId = lastBigQueryParams.jobId;
+            const stages = lastBigQueryParams.stages;
+
+            // Set the UI values
+            document.getElementById('jobIdInput').value = jobId;
+
+            // Call fetchDevelopers again
+            fetchDevelopers();
         }
 
         function renderTable(data) {
@@ -5983,7 +6166,7 @@
         // ==========================================
 
         function loadLearningCases(onComplete = null) {
-            // Load stats
+            // Load basic stats
             google.script.run
                 .withSuccessHandler(stats => {
                     document.getElementById('learningPendingCount').textContent = stats.pending || 0;
@@ -5993,6 +6176,28 @@
                 })
                 .withFailureHandler(err => console.error('Failed to load learning stats:', err))
                 .getLearningStats();
+
+            // Load validation stats (new feature)
+            google.script.run
+                .withSuccessHandler(validationStats => {
+                    if (validationStats && !validationStats.error) {
+                        // Update effectiveness rate
+                        document.getElementById('learningEffectivenessRate').textContent = (validationStats.avgEffectiveness || 0) + '%';
+
+                        // Update learning type counts
+                        document.getElementById('learningPositiveCount').textContent = validationStats.positiveLearnings || 0;
+                        document.getElementById('learningNegativeCount').textContent = validationStats.negativeLearnings || 0;
+                        document.getElementById('learningStyleCount').textContent = validationStats.styleAdaptations || 0;
+
+                        // Render top performers
+                        renderTopPerformers(validationStats.topPerformers || []);
+
+                        // Render low performers
+                        renderLowPerformers(validationStats.lowPerformers || []);
+                    }
+                })
+                .withFailureHandler(err => console.error('Failed to load validation stats:', err))
+                .getLearningValidationStats();
 
             // Load pending cases
             google.script.run
@@ -6008,6 +6213,56 @@
                     if (onComplete) onComplete([]);
                 })
                 .getPendingLearningCases();
+        }
+
+        function renderTopPerformers(performers) {
+            const container = document.getElementById('topPerformersList');
+            if (!performers || performers.length === 0) {
+                container.innerHTML = `
+                    <div class="text-center py-4 text-slate-400 text-sm">
+                        <i class="fa-solid fa-chart-simple text-2xl mb-2 block"></i>
+                        No data yet - learnings need 3+ uses to appear here
+                    </div>
+                `;
+                return;
+            }
+
+            container.innerHTML = performers.map(p => `
+                <div class="flex items-center justify-between p-2 bg-slate-50 dark:bg-slate-700/50 rounded-lg">
+                    <div class="flex-1 min-w-0">
+                        <p class="text-sm font-medium text-slate-700 dark:text-slate-200 truncate">${escapeHtml(p.lesson || p.category)}</p>
+                        <p class="text-xs text-slate-500">${p.category} | Used ${p.timesUsed}x</p>
+                    </div>
+                    <span class="ml-2 px-2 py-1 text-xs font-bold rounded-full bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400">
+                        ${Math.round(p.effectiveness)}%
+                    </span>
+                </div>
+            `).join('');
+        }
+
+        function renderLowPerformers(performers) {
+            const container = document.getElementById('lowPerformersList');
+            if (!performers || performers.length === 0) {
+                container.innerHTML = `
+                    <div class="text-center py-4 text-slate-400 text-sm">
+                        <i class="fa-solid fa-check-circle text-2xl mb-2 block text-green-400"></i>
+                        No underperforming learnings detected
+                    </div>
+                `;
+                return;
+            }
+
+            container.innerHTML = performers.map(p => `
+                <div class="flex items-center justify-between p-2 bg-red-50 dark:bg-red-900/20 rounded-lg">
+                    <div class="flex-1 min-w-0">
+                        <p class="text-sm font-medium text-slate-700 dark:text-slate-200 truncate">${escapeHtml(p.lesson || p.category)}</p>
+                        <p class="text-xs text-slate-500">${p.category} | Used ${p.timesUsed}x | ${p.successCount} successes</p>
+                    </div>
+                    <span class="ml-2 px-2 py-1 text-xs font-bold rounded-full bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400">
+                        ${Math.round(p.effectiveness)}%
+                    </span>
+                </div>
+            `).join('');
         }
 
         // Refresh Learning Cases with animation and success message
@@ -6048,19 +6303,21 @@
                 <div class="p-4 hover:bg-slate-50 dark:hover:bg-slate-700/50 transition" data-row="${c.rowIndex}">
                     <div class="flex items-start justify-between gap-4">
                         <div class="flex-1">
-                            <div class="flex items-center gap-2 mb-2">
+                            <div class="flex items-center gap-2 mb-2 flex-wrap">
+                                ${getLearningTypeBadge(c.learningType)}
                                 <span class="px-2 py-1 text-xs font-medium rounded-full ${getCategoryColor(c.category)}">${formatCategory(c.category)}</span>
+                                ${c.candidateTone ? `<span class="px-2 py-1 text-xs font-medium rounded-full bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300"><i class="fa-solid fa-comment mr-1"></i>${c.candidateTone}</span>` : ''}
                                 <span class="text-xs text-slate-400">Job ${c.jobId}</span>
                                 <span class="text-xs text-slate-400">${formatDate(c.timestamp)}</span>
                             </div>
                             <p class="font-medium text-slate-800 dark:text-white mb-1">${escapeHtml(c.candidateConcern)}</p>
                             <div class="text-sm text-slate-600 dark:text-slate-300 mb-2">
-                                <strong>Human Approach:</strong> ${escapeHtml(c.humanApproach)}
+                                <strong>${c.learningType === 'negative' ? 'What to Avoid:' : 'Human Approach:'}</strong> ${escapeHtml(c.humanApproach)}
                             </div>
                             <div class="text-sm text-slate-600 dark:text-slate-300 mb-2">
-                                <strong>Key Phrases:</strong> <span class="italic">${escapeHtml(c.keyPhrases)}</span>
+                                <strong>${c.learningType === 'negative' ? 'Warning Signs:' : 'Key Phrases:'}</strong> <span class="italic">${escapeHtml(c.keyPhrases)}</span>
                             </div>
-                            <div class="text-sm text-green-700 dark:text-green-400 bg-green-50 dark:bg-green-900/20 px-3 py-2 rounded-lg">
+                            <div class="text-sm ${c.learningType === 'negative' ? 'text-red-700 dark:text-red-400 bg-red-50 dark:bg-red-900/20' : 'text-green-700 dark:text-green-400 bg-green-50 dark:bg-green-900/20'} px-3 py-2 rounded-lg">
                                 <i class="fa-solid fa-lightbulb mr-1"></i> <strong>Lesson:</strong> ${escapeHtml(c.lessonLearned)}
                             </div>
                             <div class="text-xs text-slate-400 mt-2">
@@ -6080,6 +6337,15 @@
             `).join('');
         }
 
+        function getLearningTypeBadge(learningType) {
+            const badges = {
+                'positive': '<span class="px-2 py-1 text-xs font-bold rounded-full bg-green-600 text-white"><i class="fa-solid fa-thumbs-up mr-1"></i>Positive</span>',
+                'negative': '<span class="px-2 py-1 text-xs font-bold rounded-full bg-red-600 text-white"><i class="fa-solid fa-thumbs-down mr-1"></i>Negative</span>',
+                'style_adaptation': '<span class="px-2 py-1 text-xs font-bold rounded-full bg-purple-600 text-white"><i class="fa-solid fa-masks-theater mr-1"></i>Style</span>'
+            };
+            return badges[learningType] || badges['positive'];
+        }
+
         function getCategoryColor(category) {
             const colors = {
                 'rate_objection': 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300',
@@ -6087,6 +6353,8 @@
                 'competitor': 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300',
                 'requirements': 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300',
                 'trust': 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300',
+                'timing': 'bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-300',
+                'communication': 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300',
                 'other': 'bg-slate-100 text-slate-700 dark:bg-slate-700 dark:text-slate-300'
             };
             return colors[category] || colors['other'];
@@ -6099,6 +6367,8 @@
                 'competitor': 'Competitor Offer',
                 'requirements': 'Requirements',
                 'trust': 'Trust Concerns',
+                'timing': 'Timing Issue',
+                'communication': 'Communication',
                 'other': 'Other'
             };
             return labels[category] || category;
