@@ -1634,6 +1634,12 @@
                                     </div>
                                     <div class="toggle-switch" id="taskToggleDataGathering" onclick="toggleTaskJobSetting('dataGathering')"></div>
                                 </div>
+
+                                <!-- Request Additional Data Button -->
+                                <button onclick="openSupplementaryDataModal()" class="flex items-center gap-2 px-4 py-2 bg-teal-100 hover:bg-teal-200 dark:bg-teal-900/30 dark:hover:bg-teal-800/50 text-teal-700 dark:text-teal-400 rounded-lg transition" title="Request additional information from candidates for data gathering">
+                                    <i class="fa-solid fa-plus-circle"></i>
+                                    <span class="text-sm font-medium">Request Additional Data</span>
+                                </button>
                             </div>
 
                             <!-- Status Hint -->
@@ -3587,6 +3593,125 @@
                 </div>
                 <button onclick="closePageAccessModal()" class="px-4 py-2 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-white rounded-lg hover:bg-slate-200 dark:hover:bg-slate-600 transition">
                     Close
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Supplementary Data Request Modal -->
+    <div id="supplementaryDataModal" class="fixed inset-0 z-50 hidden bg-black/50 backdrop-blur-sm flex items-center justify-center">
+        <div class="bg-white dark:bg-slate-800 p-6 rounded-xl shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+            <h3 class="font-bold mb-4 text-teal-700 dark:text-teal-400 flex items-center gap-2">
+                <i class="fa-solid fa-plus-circle"></i> Request Additional Data
+                <span class="text-xs font-normal text-slate-400">(Add questions to data gathering)</span>
+            </h3>
+
+            <!-- Job Selection -->
+            <div class="mb-4">
+                <label class="block text-xs font-bold text-slate-600 dark:text-slate-400 uppercase mb-1">Select Job</label>
+                <select id="suppDataJobDropdown" onchange="loadSupplementaryCandidates()" class="input-field w-full">
+                    <option value="">-- Select a Job --</option>
+                </select>
+            </div>
+
+            <!-- Current Questions Display -->
+            <div id="currentQuestionsSection" class="hidden mb-4 p-3 bg-slate-50 dark:bg-slate-700 rounded-lg">
+                <div class="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-2">Current Data Fields</div>
+                <div id="currentQuestionsList" class="flex flex-wrap gap-2 text-xs"></div>
+            </div>
+
+            <!-- Additional Questions Input -->
+            <div class="mb-4">
+                <label class="block text-xs font-bold text-slate-600 dark:text-slate-400 uppercase mb-1">
+                    What additional information do you need?
+                </label>
+                <textarea id="suppDataInput" class="input-field h-24" placeholder="Example: Ask for their visa status, preferred shift timing, and whether they have prior experience with React Native"></textarea>
+                <p class="text-xs text-slate-400 mt-1">
+                    <i class="fa-solid fa-magic mr-1"></i> AI will convert this to professional questions and create columns automatically
+                </p>
+            </div>
+
+            <!-- Preview Parsed Questions -->
+            <div id="parsedQuestionsPreview" class="hidden mb-4 p-3 bg-teal-50 dark:bg-teal-900/20 rounded-lg border border-teal-200 dark:border-teal-700">
+                <div class="flex items-center justify-between mb-2">
+                    <div class="text-xs font-bold text-teal-600 dark:text-teal-400 uppercase">Preview: Questions to Add</div>
+                    <button onclick="clearParsedQuestions()" class="text-xs text-slate-400 hover:text-red-500">
+                        <i class="fa-solid fa-times"></i> Clear
+                    </button>
+                </div>
+                <div id="parsedQuestionsList" class="space-y-2 text-sm"></div>
+            </div>
+
+            <!-- Parse Questions Button -->
+            <div class="mb-4">
+                <button onclick="parseSupplementaryInput()" class="bg-teal-100 hover:bg-teal-200 text-teal-700 px-4 py-2 rounded-lg text-sm font-medium transition">
+                    <i class="fa-solid fa-wand-magic-sparkles mr-1"></i> Preview Questions
+                </button>
+            </div>
+
+            <!-- Target Selection -->
+            <div class="mb-4 p-4 bg-slate-50 dark:bg-slate-700 rounded-lg">
+                <div class="text-xs font-bold text-slate-600 dark:text-slate-400 uppercase mb-3">Who should receive this request?</div>
+
+                <!-- Selection Mode -->
+                <div class="flex gap-4 mb-3">
+                    <label class="flex items-center gap-2 cursor-pointer">
+                        <input type="radio" name="suppDataTarget" value="all" checked onchange="toggleCandidateSelection()" class="text-teal-600">
+                        <span class="text-sm text-slate-700 dark:text-slate-300">All candidates for this job</span>
+                    </label>
+                    <label class="flex items-center gap-2 cursor-pointer">
+                        <input type="radio" name="suppDataTarget" value="selected" onchange="toggleCandidateSelection()" class="text-teal-600">
+                        <span class="text-sm text-slate-700 dark:text-slate-300">Select specific candidates</span>
+                    </label>
+                </div>
+
+                <!-- Include Completed Checkbox -->
+                <div class="flex items-center gap-2 mb-3">
+                    <input type="checkbox" id="suppDataIncludeCompleted" onchange="loadSupplementaryCandidates()" class="rounded border-slate-300 text-teal-600">
+                    <label for="suppDataIncludeCompleted" class="text-sm text-slate-600 dark:text-slate-400">
+                        Include completed candidates (already finished data gathering)
+                    </label>
+                </div>
+
+                <!-- Apply to Future Checkbox -->
+                <div class="flex items-center gap-2">
+                    <input type="checkbox" id="suppDataApplyToFuture" checked class="rounded border-slate-300 text-teal-600">
+                    <label for="suppDataApplyToFuture" class="text-sm text-slate-600 dark:text-slate-400">
+                        Also ask future candidates these questions
+                    </label>
+                </div>
+            </div>
+
+            <!-- Candidate Selection (hidden by default) -->
+            <div id="candidateSelectionSection" class="hidden mb-4">
+                <div class="flex items-center justify-between mb-2">
+                    <div class="text-xs font-bold text-slate-600 dark:text-slate-400 uppercase">Select Candidates</div>
+                    <div class="flex gap-2">
+                        <button onclick="selectAllSupplementaryCandidates(true)" class="text-xs text-blue-600 hover:underline">Select All</button>
+                        <button onclick="selectAllSupplementaryCandidates(false)" class="text-xs text-slate-400 hover:underline">Clear</button>
+                    </div>
+                </div>
+                <div id="candidateCheckboxList" class="max-h-48 overflow-y-auto border border-slate-200 dark:border-slate-600 rounded-lg p-2 space-y-1"></div>
+                <div class="mt-2 text-xs text-slate-500">
+                    <span id="selectedCandidateCount">0</span> candidates selected
+                </div>
+            </div>
+
+            <!-- Summary -->
+            <div id="suppDataSummary" class="hidden mb-4 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-700">
+                <div class="text-sm text-blue-700 dark:text-blue-300">
+                    <i class="fa-solid fa-info-circle mr-1"></i>
+                    <span id="suppDataSummaryText">Ready to send</span>
+                </div>
+            </div>
+
+            <!-- Footer Actions -->
+            <div class="flex justify-end gap-2 pt-4 border-t border-slate-200 dark:border-slate-700">
+                <button onclick="closeSupplementaryDataModal()" class="px-4 py-2 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-white rounded-lg hover:bg-slate-200 dark:hover:bg-slate-600 transition">
+                    Cancel
+                </button>
+                <button id="sendSuppDataBtn" onclick="sendSupplementaryDataRequest()" class="px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition flex items-center gap-2" disabled>
+                    <i class="fa-solid fa-paper-plane"></i> Send Request
                 </button>
             </div>
         </div>
@@ -7945,6 +8070,321 @@
         }
         function closeViewersModal() {
             document.getElementById('viewersModal').classList.add('hidden');
+        }
+
+        // ============================================================
+        // SUPPLEMENTARY DATA REQUEST FEATURE
+        // Allows users to request additional information from candidates
+        // ============================================================
+        let supplementaryCandidates = [];
+        let parsedSupplementaryQuestions = [];
+
+        function openSupplementaryDataModal() {
+            document.getElementById('supplementaryDataModal').classList.remove('hidden');
+            // Populate job dropdown
+            populateSuppDataJobDropdown();
+            // Reset form
+            resetSupplementaryDataForm();
+        }
+
+        function closeSupplementaryDataModal() {
+            document.getElementById('supplementaryDataModal').classList.add('hidden');
+            resetSupplementaryDataForm();
+        }
+
+        function resetSupplementaryDataForm() {
+            document.getElementById('suppDataInput').value = '';
+            document.getElementById('parsedQuestionsPreview').classList.add('hidden');
+            document.getElementById('parsedQuestionsList').innerHTML = '';
+            document.getElementById('currentQuestionsSection').classList.add('hidden');
+            document.getElementById('candidateSelectionSection').classList.add('hidden');
+            document.getElementById('suppDataSummary').classList.add('hidden');
+            document.getElementById('candidateCheckboxList').innerHTML = '';
+            document.getElementById('suppDataIncludeCompleted').checked = false;
+            document.getElementById('suppDataApplyToFuture').checked = true;
+            document.querySelector('input[name="suppDataTarget"][value="all"]').checked = true;
+            document.getElementById('sendSuppDataBtn').disabled = true;
+            supplementaryCandidates = [];
+            parsedSupplementaryQuestions = [];
+            updateSupplementarySummary();
+        }
+
+        function populateSuppDataJobDropdown() {
+            google.script.run
+                .withSuccessHandler(jobs => {
+                    const dropdown = document.getElementById('suppDataJobDropdown');
+                    dropdown.innerHTML = '<option value="">-- Select a Job --</option>';
+                    jobs.forEach(j => {
+                        dropdown.innerHTML += `<option value="${j}">Job ${j}</option>`;
+                    });
+                    // Pre-select if a job is already selected in the tasks tab
+                    if (currentTaskJobId) {
+                        dropdown.value = currentTaskJobId;
+                        loadSupplementaryCandidates();
+                    }
+                })
+                .getJobConfigList();
+        }
+
+        function loadSupplementaryCandidates() {
+            const jobId = document.getElementById('suppDataJobDropdown').value;
+            if (!jobId) {
+                supplementaryCandidates = [];
+                document.getElementById('candidateCheckboxList').innerHTML = '<div class="text-sm text-slate-400 p-2">Select a job first</div>';
+                document.getElementById('currentQuestionsSection').classList.add('hidden');
+                updateSupplementarySummary();
+                return;
+            }
+
+            const includeCompleted = document.getElementById('suppDataIncludeCompleted').checked;
+
+            // Load current questions for this job
+            google.script.run
+                .withSuccessHandler(result => {
+                    if (result.success && result.currentSheetHeaders && result.currentSheetHeaders.length > 0) {
+                        const questionsDiv = document.getElementById('currentQuestionsList');
+                        questionsDiv.innerHTML = result.currentSheetHeaders.map(h =>
+                            `<span class="px-2 py-1 bg-slate-200 dark:bg-slate-600 text-slate-700 dark:text-slate-300 rounded">${h}</span>`
+                        ).join('');
+                        document.getElementById('currentQuestionsSection').classList.remove('hidden');
+                    } else {
+                        document.getElementById('currentQuestionsSection').classList.add('hidden');
+                    }
+                })
+                .getJobQuestionsInfo(jobId);
+
+            // Load candidates
+            google.script.run
+                .withSuccessHandler(result => {
+                    if (result.success) {
+                        supplementaryCandidates = result.candidates || [];
+                        renderCandidateCheckboxes();
+                        updateSupplementarySummary();
+                    } else {
+                        showToast('Failed to load candidates: ' + result.error, 'error');
+                    }
+                })
+                .withFailureHandler(err => {
+                    showToast('Error loading candidates: ' + err.message, 'error');
+                })
+                .getJobCandidatesForSupplementaryRequest(jobId, includeCompleted);
+        }
+
+        function renderCandidateCheckboxes() {
+            const container = document.getElementById('candidateCheckboxList');
+            if (supplementaryCandidates.length === 0) {
+                container.innerHTML = '<div class="text-sm text-slate-400 p-2">No candidates found for this job</div>';
+                return;
+            }
+
+            container.innerHTML = supplementaryCandidates.map((c, idx) => `
+                <label class="flex items-center gap-2 p-2 hover:bg-slate-50 dark:hover:bg-slate-600 rounded cursor-pointer">
+                    <input type="checkbox" class="supp-candidate-check rounded border-slate-300 text-teal-600"
+                           data-email="${c.email}" onchange="updateSelectedCandidateCount()">
+                    <span class="text-sm text-slate-700 dark:text-slate-300">${c.name}</span>
+                    <span class="text-xs text-slate-400">(${c.email})</span>
+                    ${c.isCompleted ? '<span class="text-xs px-1 py-0.5 bg-green-100 text-green-700 rounded">Completed</span>' : ''}
+                    <span class="text-xs px-1 py-0.5 bg-slate-100 dark:bg-slate-600 text-slate-500 dark:text-slate-400 rounded">${c.status}</span>
+                </label>
+            `).join('');
+        }
+
+        function selectAllSupplementaryCandidates(selectAll) {
+            const checkboxes = document.querySelectorAll('.supp-candidate-check');
+            checkboxes.forEach(cb => cb.checked = selectAll);
+            updateSelectedCandidateCount();
+        }
+
+        function updateSelectedCandidateCount() {
+            const selected = document.querySelectorAll('.supp-candidate-check:checked').length;
+            document.getElementById('selectedCandidateCount').textContent = selected;
+            updateSupplementarySummary();
+        }
+
+        function toggleCandidateSelection() {
+            const targetMode = document.querySelector('input[name="suppDataTarget"]:checked').value;
+            const selectionSection = document.getElementById('candidateSelectionSection');
+
+            if (targetMode === 'selected') {
+                selectionSection.classList.remove('hidden');
+            } else {
+                selectionSection.classList.add('hidden');
+            }
+            updateSupplementarySummary();
+        }
+
+        function parseSupplementaryInput() {
+            const input = document.getElementById('suppDataInput').value.trim();
+            if (!input) {
+                showToast('Please enter what information you need', 'warning');
+                return;
+            }
+
+            showToast('Analyzing your request...', 'info');
+
+            google.script.run
+                .withSuccessHandler(questions => {
+                    parsedSupplementaryQuestions = questions || [];
+                    if (parsedSupplementaryQuestions.length === 0) {
+                        showToast('Could not parse any questions from your input', 'warning');
+                        return;
+                    }
+
+                    // Display parsed questions
+                    const previewDiv = document.getElementById('parsedQuestionsList');
+                    previewDiv.innerHTML = parsedSupplementaryQuestions.map((q, idx) => `
+                        <div class="flex items-start gap-2 p-2 bg-white dark:bg-slate-700 rounded">
+                            <span class="font-bold text-teal-600 min-w-[24px]">${idx + 1}.</span>
+                            <div class="flex-1">
+                                <div class="font-medium text-slate-700 dark:text-slate-300">${q.header}</div>
+                                <div class="text-xs text-slate-500 dark:text-slate-400">${q.question}</div>
+                            </div>
+                            <button onclick="removeSupplementaryQuestion(${idx})" class="text-slate-400 hover:text-red-500">
+                                <i class="fa-solid fa-times"></i>
+                            </button>
+                        </div>
+                    `).join('');
+
+                    document.getElementById('parsedQuestionsPreview').classList.remove('hidden');
+                    updateSupplementarySummary();
+                    showToast(`Parsed ${parsedSupplementaryQuestions.length} questions`, 'success');
+                })
+                .withFailureHandler(err => {
+                    showToast('Error parsing questions: ' + err.message, 'error');
+                })
+                .parseSupplementaryQuestions(input);
+        }
+
+        function removeSupplementaryQuestion(idx) {
+            parsedSupplementaryQuestions.splice(idx, 1);
+            if (parsedSupplementaryQuestions.length === 0) {
+                clearParsedQuestions();
+            } else {
+                // Re-render
+                const previewDiv = document.getElementById('parsedQuestionsList');
+                previewDiv.innerHTML = parsedSupplementaryQuestions.map((q, i) => `
+                    <div class="flex items-start gap-2 p-2 bg-white dark:bg-slate-700 rounded">
+                        <span class="font-bold text-teal-600 min-w-[24px]">${i + 1}.</span>
+                        <div class="flex-1">
+                            <div class="font-medium text-slate-700 dark:text-slate-300">${q.header}</div>
+                            <div class="text-xs text-slate-500 dark:text-slate-400">${q.question}</div>
+                        </div>
+                        <button onclick="removeSupplementaryQuestion(${i})" class="text-slate-400 hover:text-red-500">
+                            <i class="fa-solid fa-times"></i>
+                        </button>
+                    </div>
+                `).join('');
+            }
+            updateSupplementarySummary();
+        }
+
+        function clearParsedQuestions() {
+            parsedSupplementaryQuestions = [];
+            document.getElementById('parsedQuestionsPreview').classList.add('hidden');
+            document.getElementById('parsedQuestionsList').innerHTML = '';
+            updateSupplementarySummary();
+        }
+
+        function updateSupplementarySummary() {
+            const jobId = document.getElementById('suppDataJobDropdown').value;
+            const targetMode = document.querySelector('input[name="suppDataTarget"]:checked').value;
+            const includeCompleted = document.getElementById('suppDataIncludeCompleted').checked;
+            const applyToFuture = document.getElementById('suppDataApplyToFuture').checked;
+
+            let candidateCount = 0;
+            if (targetMode === 'all') {
+                candidateCount = supplementaryCandidates.length;
+            } else {
+                candidateCount = document.querySelectorAll('.supp-candidate-check:checked').length;
+            }
+
+            const questionCount = parsedSupplementaryQuestions.length;
+            const summaryDiv = document.getElementById('suppDataSummary');
+            const summaryText = document.getElementById('suppDataSummaryText');
+            const sendBtn = document.getElementById('sendSuppDataBtn');
+
+            // Validate and enable/disable send button
+            const canSend = jobId && questionCount > 0 && candidateCount > 0;
+            sendBtn.disabled = !canSend;
+
+            if (!jobId) {
+                summaryText.textContent = 'Select a job to continue';
+                summaryDiv.classList.remove('hidden');
+                return;
+            }
+
+            if (questionCount === 0) {
+                summaryText.textContent = 'Click "Preview Questions" to parse your input';
+                summaryDiv.classList.remove('hidden');
+                return;
+            }
+
+            let summaryParts = [];
+            summaryParts.push(`${questionCount} question${questionCount > 1 ? 's' : ''}`);
+            summaryParts.push(`${candidateCount} candidate${candidateCount > 1 ? 's' : ''}`);
+            if (includeCompleted) summaryParts.push('including completed');
+            if (applyToFuture) summaryParts.push('+ future candidates');
+
+            summaryText.textContent = `Will send ${summaryParts.join(', ')}`;
+            summaryDiv.classList.remove('hidden');
+        }
+
+        function sendSupplementaryDataRequest() {
+            const jobId = document.getElementById('suppDataJobDropdown').value;
+            const targetMode = document.querySelector('input[name="suppDataTarget"]:checked').value;
+            const includeCompleted = document.getElementById('suppDataIncludeCompleted').checked;
+            const applyToFuture = document.getElementById('suppDataApplyToFuture').checked;
+
+            if (!jobId || parsedSupplementaryQuestions.length === 0) {
+                showToast('Please select a job and preview your questions first', 'warning');
+                return;
+            }
+
+            // Get selected candidate emails
+            let selectedEmails = [];
+            if (targetMode === 'selected') {
+                const checkboxes = document.querySelectorAll('.supp-candidate-check:checked');
+                checkboxes.forEach(cb => selectedEmails.push(cb.dataset.email));
+                if (selectedEmails.length === 0) {
+                    showToast('Please select at least one candidate', 'warning');
+                    return;
+                }
+            }
+
+            const sendBtn = document.getElementById('sendSuppDataBtn');
+            sendBtn.disabled = true;
+            sendBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin mr-1"></i> Sending...';
+
+            google.script.run
+                .withSuccessHandler(result => {
+                    sendBtn.disabled = false;
+                    sendBtn.innerHTML = '<i class="fa-solid fa-paper-plane"></i> Send Request';
+
+                    if (result.success) {
+                        let message = `Sent ${result.sent} email${result.sent !== 1 ? 's' : ''}`;
+                        if (result.columnsAdded && result.columnsAdded.length > 0) {
+                            message += `. Added columns: ${result.columnsAdded.join(', ')}`;
+                        }
+                        if (result.failed > 0) {
+                            message += `. ${result.failed} failed.`;
+                        }
+                        if (result.applyToFuture) {
+                            message += ' Questions saved for future candidates.';
+                        }
+                        showToast(message, result.failed > 0 ? 'warning' : 'success');
+                        closeSupplementaryDataModal();
+                        // Refresh tasks to show updated data
+                        loadTasks();
+                    } else {
+                        showToast('Error: ' + (result.error || 'Unknown error'), 'error');
+                    }
+                })
+                .withFailureHandler(err => {
+                    sendBtn.disabled = false;
+                    sendBtn.innerHTML = '<i class="fa-solid fa-paper-plane"></i> Send Request';
+                    showToast('Error: ' + err.message, 'error');
+                })
+                .sendSupplementaryDataRequest(jobId, selectedEmails, parsedSupplementaryQuestions, includeCompleted, applyToFuture);
         }
 
         // ===== Page Access Control (Admin Only) =====
