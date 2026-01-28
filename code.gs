@@ -3902,10 +3902,8 @@ function getDevelopers(jobId, selectedStages) {
       console.warn("logDataConsumption call failed:", le);
     }
 
-    // Log to central analytics
-    if (rows.length > 0) {
-      logAnalytics('data_fetched', cleanJobId, rows.length, `BigQuery candidates fetch`);
-    }
+    // Note: Data fetch logs are stored in Data_Fetch_Logs sheet, not in Activity_Log
+    // This avoids redundant logging and keeps Activity_Log focused on user actions
 
     // Map results into developer objects (ensure uniqueness by developer_id as a safety net)
     const devMap = new Map();
@@ -9232,46 +9230,60 @@ function resetFollowUpStatus(emailToReset) {
 /**
  * Get active negotiation count from Negotiation_State sheet
  * Counts unique candidates in active negotiation (excluding Initial Outreach)
- * @returns {Object} { active: number, humanEscalated: number, initialOutreach: number, total: number }
+ * @returns {Object} { active: number, humanEscalated: number, initialOutreach: number, total: number, perJob: {} }
  */
 function getActiveNegotiationStats() {
   const url = getStoredSheetUrl();
-  if (!url) return { active: 0, humanEscalated: 0, initialOutreach: 0, total: 0 };
+  if (!url) return { active: 0, humanEscalated: 0, initialOutreach: 0, total: 0, perJob: {} };
 
   try {
     const ss = SpreadsheetApp.openByUrl(url);
     const stateSheet = ss.getSheetByName('Negotiation_State');
     if (!stateSheet || stateSheet.getLastRow() <= 1) {
-      return { active: 0, humanEscalated: 0, initialOutreach: 0, total: 0 };
+      return { active: 0, humanEscalated: 0, initialOutreach: 0, total: 0, perJob: {} };
     }
 
     const data = stateSheet.getDataRange().getValues();
+    const headers = data[0];
+    const jobIdColIdx = headers.indexOf('Job ID');
+
     let active = 0;
     let humanEscalated = 0;
     let initialOutreach = 0;
     let total = 0;
+    const perJob = {}; // Per-job breakdown of active negotiations
 
     // Count unique candidates by status (each row is a unique email+jobId)
     for (let i = 1; i < data.length; i++) {
       if (!data[i][0]) continue; // Skip empty rows
 
+      const jobId = jobIdColIdx !== -1 ? String(data[i][jobIdColIdx] || '') : '';
       const status = String(data[i][4] || '').toLowerCase();
       total++;
 
+      // Initialize per-job stats if not exists
+      if (jobId && !perJob[jobId]) {
+        perJob[jobId] = { active: 0, humanEscalated: 0, initialOutreach: 0, total: 0 };
+      }
+
       if (status.includes('initial outreach') || status.includes('initial sent')) {
         initialOutreach++;
+        if (jobId) perJob[jobId].initialOutreach++;
       } else if (status.includes('human') || status.includes('escalat')) {
         humanEscalated++;
+        if (jobId) perJob[jobId].humanEscalated++;
       } else {
         active++; // Active AI negotiation
+        if (jobId) perJob[jobId].active++;
       }
+      if (jobId) perJob[jobId].total++;
     }
 
-    return { active, humanEscalated, initialOutreach, total };
+    return { active, humanEscalated, initialOutreach, total, perJob };
 
   } catch (e) {
     console.error("Error getting negotiation stats:", e);
-    return { active: 0, humanEscalated: 0, initialOutreach: 0, total: 0 };
+    return { active: 0, humanEscalated: 0, initialOutreach: 0, total: 0, perJob: {} };
   }
 }
 
@@ -10751,6 +10763,10 @@ function getUserAnalytics(filterEmail, filterJobId, startDate, endDate) {
     const dataGatheringStats = getDataGatheringStats();
     const perJobDataGathering = dataGatheringStats.perJob || {};
 
+    // Get active negotiation stats - MOVED UP to use in job breakdown
+    const negotiationStats = getActiveNegotiationStats();
+    const perJobNegotiations = negotiationStats.perJob || {};
+
     // Convert user map to sorted array with job breakdown
     analytics.userStats = Array.from(userMap.values())
       .sort((a, b) => {
@@ -10759,12 +10775,18 @@ function getUserAnalytics(filterEmail, filterJobId, startDate, endDate) {
         return bTime - aTime;
       })
       .map(u => {
-        // Calculate total active data gathering for this user across all their jobs
+        // Calculate totals for this user across all their jobs
         let userActiveDataGathering = 0;
+        let userActiveNegotiations = 0;
         Object.keys(u.jobBreakdown).forEach(jobKey => {
           const jobDgStats = perJobDataGathering[jobKey];
+          const jobNegStats = perJobNegotiations[jobKey];
           if (jobDgStats) {
             userActiveDataGathering += jobDgStats.pending || 0;
+          }
+          if (jobNegStats) {
+            // Count active + human escalated as total active negotiations
+            userActiveNegotiations += (jobNegStats.active || 0) + (jobNegStats.humanEscalated || 0);
           }
         });
 
@@ -10773,9 +10795,11 @@ function getUserAnalytics(filterEmail, filterJobId, startDate, endDate) {
           emailsSent: u.emailsSent,
           // FIXED: Show active data gathering candidates, not cumulative fetch counts
           dataFetches: userActiveDataGathering,
-          negotiations: u.negotiations,
+          // FIXED: Show active negotiations, not cumulative log counts
+          negotiations: userActiveNegotiations,
           followUps: u.followUps,
-          totalActions: u.emailsSent + u.negotiations + u.followUps,
+          completed: u.completed || 0,
+          totalActions: u.emailsSent + u.followUps,
           lastActive: u.lastActive && !isNaN(u.lastActive.getTime()) ? u.lastActive.toISOString() : null,
           // NEW: Include job breakdown sorted by last active
           jobBreakdown: Object.values(u.jobBreakdown)
@@ -10789,14 +10813,20 @@ function getUserAnalytics(filterEmail, filterJobId, startDate, endDate) {
               const jobDgStats = perJobDataGathering[j.jobId];
               const activeDataGathering = jobDgStats ? (jobDgStats.pending || 0) : 0;
 
+              // FIXED: Use active negotiation count from getActiveNegotiationStats() instead of log count
+              const jobNegStats = perJobNegotiations[j.jobId];
+              const activeNegotiations = jobNegStats ? ((jobNegStats.active || 0) + (jobNegStats.humanEscalated || 0)) : 0;
+
               return {
                 jobId: j.jobId,
                 emailsSent: j.emailsSent,
                 // FIXED: Show active candidates in data gathering (pending status), not fetch action counts
                 dataFetches: activeDataGathering,
-                negotiations: j.negotiations,
+                // FIXED: Show active negotiations, not cumulative log counts
+                negotiations: activeNegotiations,
                 followUps: j.followUps,
-                totalActions: j.emailsSent + j.negotiations + j.followUps,
+                completed: j.completed || 0,
+                totalActions: j.emailsSent + j.followUps,
                 lastActive: j.lastActive && !isNaN(j.lastActive.getTime()) ? j.lastActive.toISOString() : null
               };
             })
@@ -10828,8 +10858,7 @@ function getUserAnalytics(filterEmail, filterJobId, startDate, endDate) {
     analytics.pendingDataGathering = dataGatheringStats.pending;
     analytics.dataGatheringStats = dataGatheringStats;
 
-    // Get active negotiation stats (unique candidates in negotiation)
-    const negotiationStats = getActiveNegotiationStats();
+    // Use negotiationStats from earlier (already called for job breakdown)
     analytics.activeNegotiations = negotiationStats.active + negotiationStats.humanEscalated;
     analytics.negotiationStats = negotiationStats;
 
