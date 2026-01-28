@@ -10747,6 +10747,10 @@ function getUserAnalytics(filterEmail, filterJobId, startDate, endDate) {
       }
     }
 
+    // Get pending data gathering count (candidates awaiting data) - MOVED UP to use in job breakdown
+    const dataGatheringStats = getDataGatheringStats();
+    const perJobDataGathering = dataGatheringStats.perJob || {};
+
     // Convert user map to sorted array with job breakdown
     analytics.userStats = Array.from(userMap.values())
       .sort((a, b) => {
@@ -10754,31 +10758,50 @@ function getUserAnalytics(filterEmail, filterJobId, startDate, endDate) {
         const aTime = a.lastActive && !isNaN(a.lastActive.getTime()) ? a.lastActive.getTime() : 0;
         return bTime - aTime;
       })
-      .map(u => ({
-        email: u.email,
-        emailsSent: u.emailsSent,
-        dataFetches: u.dataFetches,
-        negotiations: u.negotiations,
-        followUps: u.followUps,
-        totalActions: u.emailsSent + u.dataFetches + u.negotiations + u.followUps,
-        lastActive: u.lastActive && !isNaN(u.lastActive.getTime()) ? u.lastActive.toISOString() : null,
-        // NEW: Include job breakdown sorted by last active
-        jobBreakdown: Object.values(u.jobBreakdown)
-          .sort((a, b) => {
-            const bTime = b.lastActive && !isNaN(b.lastActive.getTime()) ? b.lastActive.getTime() : 0;
-            const aTime = a.lastActive && !isNaN(a.lastActive.getTime()) ? a.lastActive.getTime() : 0;
-            return bTime - aTime;
-          })
-          .map(j => ({
-            jobId: j.jobId,
-            emailsSent: j.emailsSent,
-            dataFetches: j.dataFetches,
-            negotiations: j.negotiations,
-            followUps: j.followUps,
-            totalActions: j.emailsSent + j.dataFetches + j.negotiations + j.followUps,
-            lastActive: j.lastActive && !isNaN(j.lastActive.getTime()) ? j.lastActive.toISOString() : null
-          }))
-      }));
+      .map(u => {
+        // Calculate total active data gathering for this user across all their jobs
+        let userActiveDataGathering = 0;
+        Object.keys(u.jobBreakdown).forEach(jobKey => {
+          const jobDgStats = perJobDataGathering[jobKey];
+          if (jobDgStats) {
+            userActiveDataGathering += jobDgStats.pending || 0;
+          }
+        });
+
+        return {
+          email: u.email,
+          emailsSent: u.emailsSent,
+          // FIXED: Show active data gathering candidates, not cumulative fetch counts
+          dataFetches: userActiveDataGathering,
+          negotiations: u.negotiations,
+          followUps: u.followUps,
+          totalActions: u.emailsSent + u.negotiations + u.followUps,
+          lastActive: u.lastActive && !isNaN(u.lastActive.getTime()) ? u.lastActive.toISOString() : null,
+          // NEW: Include job breakdown sorted by last active
+          jobBreakdown: Object.values(u.jobBreakdown)
+            .sort((a, b) => {
+              const bTime = b.lastActive && !isNaN(b.lastActive.getTime()) ? b.lastActive.getTime() : 0;
+              const aTime = a.lastActive && !isNaN(a.lastActive.getTime()) ? a.lastActive.getTime() : 0;
+              return bTime - aTime;
+            })
+            .map(j => {
+              // FIXED: Use active data gathering count from getDataGatheringStats() instead of fetch log count
+              const jobDgStats = perJobDataGathering[j.jobId];
+              const activeDataGathering = jobDgStats ? (jobDgStats.pending || 0) : 0;
+
+              return {
+                jobId: j.jobId,
+                emailsSent: j.emailsSent,
+                // FIXED: Show active candidates in data gathering (pending status), not fetch action counts
+                dataFetches: activeDataGathering,
+                negotiations: j.negotiations,
+                followUps: j.followUps,
+                totalActions: j.emailsSent + j.negotiations + j.followUps,
+                lastActive: j.lastActive && !isNaN(j.lastActive.getTime()) ? j.lastActive.toISOString() : null
+              };
+            })
+        };
+      });
 
     analytics.totalUsers = analytics.userStats.length;
 
@@ -10801,8 +10824,7 @@ function getUserAnalytics(filterEmail, filterJobId, startDate, endDate) {
       }
     }
 
-    // Get pending data gathering count (candidates awaiting data)
-    const dataGatheringStats = getDataGatheringStats();
+    // Use dataGatheringStats from earlier (already called for job breakdown)
     analytics.pendingDataGathering = dataGatheringStats.pending;
     analytics.dataGatheringStats = dataGatheringStats;
 
