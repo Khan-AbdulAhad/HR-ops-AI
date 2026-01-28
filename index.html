@@ -8991,15 +8991,20 @@
 
         function loadSupplementaryCandidates() {
             const jobId = document.getElementById('suppDataJobDropdown').value;
+            const container = document.getElementById('candidateCheckboxList');
+
             if (!jobId) {
                 supplementaryCandidates = [];
-                document.getElementById('candidateCheckboxList').innerHTML = '<div class="text-sm text-slate-400 p-2">Select a job first</div>';
+                container.innerHTML = '<div class="text-sm text-slate-400 p-3 text-center"><i class="fa-solid fa-info-circle mr-1"></i> Select a job first to see candidates</div>';
                 document.getElementById('currentQuestionsSection').classList.add('hidden');
                 updateSupplementarySummary();
                 return;
             }
 
             const includeCompleted = document.getElementById('suppDataIncludeCompleted').checked;
+
+            // Show loading indicator
+            container.innerHTML = '<div class="text-sm text-slate-500 p-3 text-center"><i class="fa-solid fa-spinner fa-spin mr-2"></i> Loading candidates...</div>';
 
             // Load current questions for this job
             google.script.run
@@ -9023,11 +9028,18 @@
                         supplementaryCandidates = result.candidates || [];
                         renderCandidateCheckboxes();
                         updateSupplementarySummary();
+
+                        // Show toast with count
+                        if (supplementaryCandidates.length > 0) {
+                            showToast(`Found ${supplementaryCandidates.length} candidate(s) for Job ${jobId}`, 'success');
+                        }
                     } else {
+                        container.innerHTML = `<div class="text-sm text-red-500 p-3 text-center"><i class="fa-solid fa-exclamation-circle mr-1"></i> ${result.error || 'Failed to load candidates'}</div>`;
                         showToast('Failed to load candidates: ' + result.error, 'error');
                     }
                 })
                 .withFailureHandler(err => {
+                    container.innerHTML = '<div class="text-sm text-red-500 p-3 text-center"><i class="fa-solid fa-exclamation-circle mr-1"></i> Error loading candidates</div>';
                     showToast('Error loading candidates: ' + err.message, 'error');
                 })
                 .getJobCandidatesForSupplementaryRequest(jobId, includeCompleted);
@@ -9035,21 +9047,40 @@
 
         function renderCandidateCheckboxes() {
             const container = document.getElementById('candidateCheckboxList');
+            const jobId = document.getElementById('suppDataJobDropdown').value;
+
+            if (!jobId) {
+                container.innerHTML = '<div class="text-sm text-slate-400 p-3 text-center"><i class="fa-solid fa-info-circle mr-1"></i> Select a job first to see candidates</div>';
+                return;
+            }
+
             if (supplementaryCandidates.length === 0) {
-                container.innerHTML = '<div class="text-sm text-slate-400 p-2">No candidates found for this job</div>';
+                const includeCompleted = document.getElementById('suppDataIncludeCompleted').checked;
+                container.innerHTML = `
+                    <div class="text-sm text-slate-500 p-3 text-center">
+                        <i class="fa-solid fa-user-slash mr-1"></i> No candidates found for Job ${jobId}
+                        ${!includeCompleted ? '<br><span class="text-xs text-slate-400">Try checking "Include completed candidates"</span>' : ''}
+                    </div>`;
                 return;
             }
 
             container.innerHTML = supplementaryCandidates.map((c, idx) => `
-                <label class="flex items-center gap-2 p-2 hover:bg-slate-50 dark:hover:bg-slate-600 rounded cursor-pointer">
-                    <input type="checkbox" class="supp-candidate-check rounded border-slate-300 text-teal-600"
+                <label class="flex items-center gap-2 p-2 hover:bg-slate-50 dark:hover:bg-slate-600 rounded cursor-pointer border-b border-slate-100 dark:border-slate-600 last:border-0">
+                    <input type="checkbox" class="supp-candidate-check rounded border-slate-300 text-teal-600 focus:ring-teal-500"
                            data-email="${c.email}" onchange="updateSelectedCandidateCount()">
-                    <span class="text-sm text-slate-700 dark:text-slate-300">${c.name}</span>
-                    <span class="text-xs text-slate-400">(${c.email})</span>
-                    ${c.isCompleted ? '<span class="text-xs px-1 py-0.5 bg-green-100 text-green-700 rounded">Completed</span>' : ''}
-                    <span class="text-xs px-1 py-0.5 bg-slate-100 dark:bg-slate-600 text-slate-500 dark:text-slate-400 rounded">${c.status}</span>
+                    <div class="flex-1 min-w-0">
+                        <div class="flex items-center gap-2">
+                            <span class="text-sm font-medium text-slate-700 dark:text-slate-300">${c.name}</span>
+                            ${c.isCompleted ? '<span class="text-xs px-1.5 py-0.5 bg-green-100 text-green-700 rounded-full">Completed</span>' : ''}
+                        </div>
+                        <div class="text-xs text-slate-400 truncate">${c.email}</div>
+                    </div>
+                    <span class="text-xs px-2 py-1 bg-slate-100 dark:bg-slate-600 text-slate-500 dark:text-slate-400 rounded whitespace-nowrap">${c.status}</span>
                 </label>
             `).join('');
+
+            // Update count display
+            document.getElementById('selectedCandidateCount').textContent = '0';
         }
 
         function selectAllSupplementaryCandidates(selectAll) {
@@ -9060,7 +9091,8 @@
 
         function updateSelectedCandidateCount() {
             const selected = document.querySelectorAll('.supp-candidate-check:checked').length;
-            document.getElementById('selectedCandidateCount').textContent = selected;
+            const total = supplementaryCandidates.length;
+            document.getElementById('selectedCandidateCount').textContent = `${selected} of ${total}`;
             updateSupplementarySummary();
         }
 
@@ -9070,6 +9102,12 @@
 
             if (targetMode === 'selected') {
                 selectionSection.classList.remove('hidden');
+                // Reload candidates if not already loaded
+                if (supplementaryCandidates.length === 0) {
+                    loadSupplementaryCandidates();
+                } else {
+                    renderCandidateCheckboxes();
+                }
             } else {
                 selectionSection.classList.add('hidden');
             }
