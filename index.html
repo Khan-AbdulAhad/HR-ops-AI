@@ -1988,39 +1988,47 @@
                         </div>
                     </div>
 
-                    <!-- User Table -->
+                    <!-- User Activity Table with Job ID Pivot -->
                     <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden mb-8">
                         <div class="px-6 py-4 border-b border-slate-100">
-                            <div class="flex items-center gap-3">
-                                <div class="bg-indigo-100 p-2 rounded-lg">
-                                    <i class="fa-solid fa-users text-indigo-600"></i>
+                            <div class="flex items-center justify-between">
+                                <div class="flex items-center gap-3">
+                                    <div class="bg-indigo-100 p-2 rounded-lg">
+                                        <i class="fa-solid fa-users text-indigo-600"></i>
+                                    </div>
+                                    <div>
+                                        <h4 class="font-bold text-slate-800">User Activity</h4>
+                                        <p class="text-xs text-slate-500">Click on a user row to expand job-level breakdown</p>
+                                    </div>
                                 </div>
-                                <div>
-                                    <h4 class="font-bold text-slate-800">User Activity</h4>
-                                    <p class="text-xs text-slate-500">Users who have accessed the app and their activity</p>
-                                </div>
+                                <button onclick="toggleAllUserRows()" id="toggleAllRowsBtn" class="text-xs px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg transition-colors">
+                                    <i class="fa-solid fa-expand-alt mr-1"></i> Expand All
+                                </button>
                             </div>
                         </div>
-                        <table class="w-full text-left text-sm">
-                            <thead class="bg-slate-50 text-xs font-bold text-slate-500 uppercase">
-                                <tr>
-                                    <th class="px-6 py-3">User Email</th>
-                                    <th class="px-6 py-3 text-center">Emails Sent</th>
-                                    <th class="px-6 py-3 text-center">Data Gathering</th>
-                                    <th class="px-6 py-3 text-center">Negotiations</th>
-                                    <th class="px-6 py-3 text-center">Follow-Ups</th>
-                                    <th class="px-6 py-3">Last Active</th>
-                                </tr>
-                            </thead>
-                            <tbody id="userStatsTableBody" class="divide-y divide-slate-100">
-                                <tr id="userStatsEmptyState">
-                                    <td colspan="6" class="px-6 py-8 text-center text-slate-400">
-                                        <i class="fa-regular fa-folder-open text-2xl mb-2 block"></i>
-                                        No user activity recorded yet
-                                    </td>
-                                </tr>
-                            </tbody>
-                        </table>
+                        <div class="overflow-x-auto">
+                            <table class="w-full text-left text-sm">
+                                <thead class="bg-slate-50 text-xs font-bold text-slate-500 uppercase">
+                                    <tr>
+                                        <th class="px-6 py-3 w-8"></th>
+                                        <th class="px-6 py-3">User Email / Job ID</th>
+                                        <th class="px-6 py-3 text-center">Emails Sent</th>
+                                        <th class="px-6 py-3 text-center">Data Gathering</th>
+                                        <th class="px-6 py-3 text-center">Negotiations</th>
+                                        <th class="px-6 py-3 text-center">Follow-Ups</th>
+                                        <th class="px-6 py-3">Last Active</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="userStatsTableBody" class="divide-y divide-slate-100">
+                                    <tr id="userStatsEmptyState">
+                                        <td colspan="7" class="px-6 py-8 text-center text-slate-400">
+                                            <i class="fa-regular fa-folder-open text-2xl mb-2 block"></i>
+                                            No user activity recorded yet
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
                     </div>
 
                     <!-- Performance Charts Section -->
@@ -8265,34 +8273,72 @@
 
                 document.getElementById('statTotalUsers').textContent = data.totalUsers || 0;
                 document.getElementById('statTotalEmails').textContent = data.totalEmailsSent || 0;
+                // Show active candidates currently in data gathering phase (not cumulative fetches)
                 document.getElementById('statTotalDataFetches').textContent = data.pendingDataGathering || 0;
                 document.getElementById('statTotalCompleted').textContent = data.totalCompleted || 0;
-                // Use activeNegotiations for accurate unique candidate count
-                if (data.activeNegotiations !== undefined) {
-                    document.getElementById('statTotalNegotiations').textContent = data.activeNegotiations || 0;
-                }
+                // Show active candidates currently in negotiation (not cumulative actions)
+                document.getElementById('statTotalNegotiations').textContent = data.activeNegotiations || 0;
+                // Show candidates currently awaiting follow-up (not cumulative follow-ups sent)
+                document.getElementById('statTotalFollowUps').textContent = data.pendingFollowUps || 0;
 
                 const tbody = document.getElementById('userStatsTableBody');
                 tbody.innerHTML = '';
-                const pendingDataGathering = data.pendingDataGathering || 0;
-                // Get per-job data gathering stats if available
-                const perJobDataGathering = data.dataGatheringStats?.perJob || {};
                 if(data.userStats && data.userStats.length > 0) {
-                    data.userStats.forEach(u => {
+                    data.userStats.forEach((u, userIndex) => {
+                        const hasJobs = u.jobBreakdown && u.jobBreakdown.length > 0;
+                        const userRowId = `user-row-${userIndex}`;
+
+                        // Main user row (parent row)
                         const tr = document.createElement('tr');
-                        tr.className = "hover:bg-slate-50 border-b border-slate-50";
+                        tr.id = userRowId;
+                        tr.className = "hover:bg-slate-50 border-b border-slate-50 cursor-pointer user-parent-row";
+                        tr.setAttribute('data-expanded', 'false');
+                        tr.onclick = function() { toggleUserJobRows(userIndex); };
                         tr.innerHTML = `
-                            <td class="px-6 py-3 font-medium">${u.email}</td>
+                            <td class="px-6 py-3 text-center">
+                                ${hasJobs ? `<i class="fa-solid fa-chevron-right text-slate-400 transition-transform duration-200" id="chevron-${userIndex}"></i>` : ''}
+                            </td>
+                            <td class="px-6 py-3 font-medium">
+                                <div class="flex items-center gap-2">
+                                    <span>${u.email}</span>
+                                    ${hasJobs ? `<span class="text-xs bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded">${u.jobBreakdown.length} jobs</span>` : ''}
+                                </div>
+                            </td>
                             <td class="px-6 py-3 text-center text-emerald-600 font-bold">${u.emailsSent || 0}</td>
-                            <td class="px-6 py-3 text-center text-cyan-600" title="Active data gathering count shown in card above (counts only pending candidates, not completed)">-</td>
+                            <td class="px-6 py-3 text-center text-cyan-600">${u.dataFetches || 0}</td>
                             <td class="px-6 py-3 text-center text-purple-600">${u.negotiations || 0}</td>
                             <td class="px-6 py-3 text-center text-amber-600">${u.followUps || 0}</td>
                             <td class="px-6 py-3 text-slate-500 text-xs">${u.lastActive ? new Date(u.lastActive).toLocaleDateString() : '-'}</td>
                         `;
                         tbody.appendChild(tr);
+
+                        // Job breakdown rows (child rows - initially hidden)
+                        if (hasJobs) {
+                            u.jobBreakdown.forEach((job, jobIndex) => {
+                                const jobTr = document.createElement('tr');
+                                jobTr.id = `job-row-${userIndex}-${jobIndex}`;
+                                jobTr.className = "bg-slate-50/50 border-b border-slate-50 job-child-row hidden";
+                                jobTr.setAttribute('data-parent', userRowId);
+                                jobTr.innerHTML = `
+                                    <td class="px-6 py-2"></td>
+                                    <td class="px-6 py-2 pl-12">
+                                        <div class="flex items-center gap-2">
+                                            <i class="fa-solid fa-briefcase text-slate-400 text-xs"></i>
+                                            <span class="text-slate-600 font-medium">${job.jobId === 'No Job ID' ? '<span class="text-slate-400 italic">No Job ID</span>' : 'Job ' + job.jobId}</span>
+                                        </div>
+                                    </td>
+                                    <td class="px-6 py-2 text-center text-emerald-500">${job.emailsSent || 0}</td>
+                                    <td class="px-6 py-2 text-center text-cyan-500">${job.dataFetches || 0}</td>
+                                    <td class="px-6 py-2 text-center text-purple-500">${job.negotiations || 0}</td>
+                                    <td class="px-6 py-2 text-center text-amber-500">${job.followUps || 0}</td>
+                                    <td class="px-6 py-2 text-slate-400 text-xs">${job.lastActive ? new Date(job.lastActive).toLocaleDateString() : '-'}</td>
+                                `;
+                                tbody.appendChild(jobTr);
+                            });
+                        }
                     });
                 } else {
-                    tbody.innerHTML = `<tr><td colspan="6" class="px-6 py-8 text-center text-slate-400">
+                    tbody.innerHTML = `<tr><td colspan="7" class="px-6 py-8 text-center text-slate-400">
                         <i class="fa-regular fa-folder-open text-2xl mb-2 block"></i>
                         ${hasFilters ? 'No activity found for the selected filters' : 'No user activity recorded yet'}
                     </td></tr>`;
@@ -8305,8 +8351,8 @@
 
             google.script.run.withSuccessHandler(stats => {
                 if(stats.error) return;
-                document.getElementById('statTotalFollowUps').textContent = stats.totalFollowUps || 0;
-                document.getElementById('statTotalNegotiations').textContent = stats.totalNegotiations || 0;
+                // Note: statTotalFollowUps and statTotalNegotiations are already set by getUserAnalytics
+                // to show active/pending counts instead of cumulative action counts
 
                 // Render charts (simplified lists)
                 const uList = document.getElementById('emailUsersList');
@@ -8370,6 +8416,103 @@
 
             // Load chart data
             loadAnalyticsCharts(filterJobId, startDate, endDate);
+        }
+
+        // ============================================
+        // USER ACTIVITY TABLE - Pivot Row Toggle Functions
+        // ============================================
+
+        /**
+         * Toggle job breakdown rows for a specific user
+         * @param {number} userIndex - Index of the user in the table
+         */
+        function toggleUserJobRows(userIndex) {
+            const parentRow = document.getElementById(`user-row-${userIndex}`);
+            const chevron = document.getElementById(`chevron-${userIndex}`);
+            if (!parentRow) return;
+
+            const isExpanded = parentRow.getAttribute('data-expanded') === 'true';
+
+            // Find all child rows for this user
+            const childRows = document.querySelectorAll(`[data-parent="user-row-${userIndex}"]`);
+
+            if (isExpanded) {
+                // Collapse: hide child rows
+                childRows.forEach(row => {
+                    row.classList.add('hidden');
+                });
+                parentRow.setAttribute('data-expanded', 'false');
+                if (chevron) {
+                    chevron.classList.remove('rotate-90');
+                }
+            } else {
+                // Expand: show child rows
+                childRows.forEach(row => {
+                    row.classList.remove('hidden');
+                });
+                parentRow.setAttribute('data-expanded', 'true');
+                if (chevron) {
+                    chevron.classList.add('rotate-90');
+                }
+            }
+
+            // Update "Expand All" button text
+            updateToggleAllButtonText();
+        }
+
+        /**
+         * Toggle all user rows (expand or collapse all)
+         */
+        function toggleAllUserRows() {
+            const parentRows = document.querySelectorAll('.user-parent-row');
+            const anyExpanded = Array.from(parentRows).some(row => row.getAttribute('data-expanded') === 'true');
+
+            if (anyExpanded) {
+                // Collapse all
+                parentRows.forEach((row, index) => {
+                    const childRows = document.querySelectorAll(`[data-parent="${row.id}"]`);
+                    childRows.forEach(childRow => {
+                        childRow.classList.add('hidden');
+                    });
+                    row.setAttribute('data-expanded', 'false');
+                    const chevron = document.getElementById(`chevron-${index}`);
+                    if (chevron) {
+                        chevron.classList.remove('rotate-90');
+                    }
+                });
+            } else {
+                // Expand all
+                parentRows.forEach((row, index) => {
+                    const childRows = document.querySelectorAll(`[data-parent="${row.id}"]`);
+                    childRows.forEach(childRow => {
+                        childRow.classList.remove('hidden');
+                    });
+                    row.setAttribute('data-expanded', 'true');
+                    const chevron = document.getElementById(`chevron-${index}`);
+                    if (chevron) {
+                        chevron.classList.add('rotate-90');
+                    }
+                });
+            }
+
+            updateToggleAllButtonText();
+        }
+
+        /**
+         * Update the "Expand All" / "Collapse All" button text
+         */
+        function updateToggleAllButtonText() {
+            const btn = document.getElementById('toggleAllRowsBtn');
+            if (!btn) return;
+
+            const parentRows = document.querySelectorAll('.user-parent-row');
+            const anyExpanded = Array.from(parentRows).some(row => row.getAttribute('data-expanded') === 'true');
+
+            if (anyExpanded) {
+                btn.innerHTML = '<i class="fa-solid fa-compress-alt mr-1"></i> Collapse All';
+            } else {
+                btn.innerHTML = '<i class="fa-solid fa-expand-alt mr-1"></i> Expand All';
+            }
         }
 
         // ============================================

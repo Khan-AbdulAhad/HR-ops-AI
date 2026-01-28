@@ -868,11 +868,10 @@ function logEmailMismatch(jobId, expectedEmail, actualEmail, name, devId, thread
  * @param {string} details - Additional details about the operation
  */
 function logDataConsumption(source, context, byteSize, durationMs, details) {
-  const url = getStoredSheetUrl();
-  if(!url) return;
-
   try {
-    const ss = SpreadsheetApp.openByUrl(url);
+    // Write to central Analytics sheet instead of local sheet
+    const ss = getAnalyticsSpreadsheet();
+    if (!ss) return;
 
     // Get current user email
     let userEmail = 'System/Automated';
@@ -887,6 +886,7 @@ function logDataConsumption(source, context, byteSize, durationMs, details) {
     if (!sheet) {
       sheet = ss.insertSheet('Data_Fetch_Logs');
       sheet.appendRow(['Timestamp', 'Source', 'Context', 'Data Size (Bytes)', 'Duration (ms)', 'Details', 'User']);
+      sheet.setFrozenRows(1);
     }
 
     sheet.appendRow([
@@ -3678,7 +3678,7 @@ function moveToCompleted(email, finalStatus, jobIdFilter) {
         threadId: taskData[i][7] || '',
         agreedRate: rate ? `$${rate}/hr` : null
       };
-      compSheet.appendRow([new Date(), taskData[i][1], email, taskData[i][2], finalStatus || "Accepted", "Moved from Task List", taskData[i][6] || 'N/A']);
+      compSheet.appendRow([new Date(), taskData[i][1], email, taskData[i][2], finalStatus || "Accepted", "Moved from Task List", taskData[i][6] || 'N/A', taskData[i][8] || '']);
       logAnalytics('task_completed', taskData[i][1], 1, finalStatus || "Accepted - Moved from Task List");
       taskSheet.deleteRow(i+1);
       moved = true;
@@ -3700,7 +3700,7 @@ function moveToCompleted(email, finalStatus, jobIdFilter) {
           devId: stateData[i][6] || 'N/A',
           threadId: stateData[i][9] || ''
         };
-        compSheet.appendRow([new Date(), stateData[i][1], email, stateData[i][7] || 'Unknown', finalStatus || stateData[i][4], "Moved from State List", stateData[i][6] || 'N/A']);
+        compSheet.appendRow([new Date(), stateData[i][1], email, stateData[i][7] || 'Unknown', finalStatus || stateData[i][4], "Moved from State List", stateData[i][6] || 'N/A', stateData[i][10] || '']);
         logAnalytics('task_completed', stateData[i][1], 1, finalStatus || "Moved from State List");
         moved = true;
       }
@@ -5146,11 +5146,10 @@ Return ONLY the JSON object, no other text.
           jobId,
           candidateEmail,
           candidateName,
+          "Escalated - Rate Review",
+          `${escalationReason} | Rate: $${rate}/hr | Max Expected: $${regionMaxRateLimit}/hr`,
           devId,
-          "Escalated",
-          escalationReason,
-          thread.getId(),
-          `Rate: $${rate}/hr | Region: ${candidateRegion} | Max Expected: $${regionMaxRateLimit}/hr`
+          candidateRegion || ''
         ]);
 
         // Send escalation notification
@@ -5189,11 +5188,10 @@ Return ONLY the JSON object, no other text.
           jobId,
           candidateEmail,
           candidateName,
+          "Escalated - Rate Exceeds Max",
+          `${escalationReason} | Rate: $${rate}/hr | Max: $${maxRate}/hr | Target: $${targetRate}/hr`,
           devId,
-          "Escalated",
-          escalationReason,
-          thread.getId(),
-          `Rate: $${rate}/hr | Max: $${maxRate}/hr | Target: $${targetRate}/hr${candidateRegion ? ' | Region: ' + candidateRegion : ''}`
+          candidateRegion || ''
         ]);
 
         // Send escalation notification
@@ -5495,9 +5493,14 @@ Write ONLY the email, nothing else.
 
         const completedSheetRegion = ss.getSheetByName('Negotiation_Completed');
         completedSheetRegion.appendRow([
-          new Date(), jobId, candidateEmail, candidateName, devId, "Escalated",
-          escalationReason, thread.getId(),
-          `Rate: $${rate}/hr | Region: ${candidateRegion} | Max Expected: $${regionMaxRateLimit}/hr`
+          new Date(),
+          jobId,
+          candidateEmail,
+          candidateName,
+          "Escalated - Rate Review",
+          `${escalationReason} | Rate: $${rate}/hr | Max Expected: $${regionMaxRateLimit}/hr`,
+          devId,
+          candidateRegion || ''
         ]);
 
         sendEscalationEmail(jobId, candidateName, candidateEmail, thread, escalationReason, rules.escalationEmail);
@@ -5599,7 +5602,7 @@ Write ONLY the email, nothing else.
       }
 
       // Data gathering is complete OR not enabled - proceed with full acceptance
-      taskSheet.appendRow([new Date(), jobId, candidateName, candidateEmail, rate, "Pending Archive", devId, thread.getId()]);
+      taskSheet.appendRow([new Date(), jobId, candidateName, candidateEmail, rate, "Pending Archive", devId, thread.getId(), candidateRegion || '']);
 
       try {
         updateJobCandidateStatus(ss, jobId, candidateEmail, 'Offer Accepted', `$${rate}/hr`);
@@ -6016,11 +6019,10 @@ Write ONLY the email, nothing else.
           jobId,
           candidateEmail,
           candidateName,
+          "Escalated - Rate Exceeds Max",
+          `${escalationReason} | Rate: $${rate}/hr | Max: $${maxRate}/hr`,
           devId,
-          "Escalated",
-          escalationReason,
-          thread.getId(),
-          `Rate: $${rate}/hr | Max: $${maxRate}/hr${candidateRegion ? ' | Region: ' + candidateRegion : ''}`
+          candidateRegion || ''
         ]);
 
         sendEscalationEmail(jobId, candidateName, candidateEmail, thread, escalationReason, rules.escalationEmail);
@@ -6052,11 +6054,10 @@ Write ONLY the email, nothing else.
           jobId,
           candidateEmail,
           candidateName,
+          "Escalated - Rate Review",
+          `${escalationReason} | Rate: $${rate}/hr | Max Expected: $${regionMaxRateLimit}/hr`,
           devId,
-          "Escalated",
-          escalationReason,
-          thread.getId(),
-          `Rate: $${rate}/hr | Region: ${candidateRegion} | Max Expected: $${regionMaxRateLimit}/hr`
+          candidateRegion || ''
         ]);
 
         sendEscalationEmail(jobId, candidateName, candidateEmail, thread, escalationReason, rules.escalationEmail);
@@ -7062,7 +7063,8 @@ function syncCompletedFromGmail() {
             name,
             completionStatus,
             completionNotes,
-            devId
+            devId,
+            region || ''
           ]);
 
           // Log completion to analytics
@@ -7110,7 +7112,8 @@ function syncCompletedFromGmail() {
             name,
             `Accepted at $${agreedRate}/hr (Gmail Sync)`,
             'Marked complete directly in Gmail',
-            devId
+            devId,
+            taskData[r][8] || ''
           ]);
 
           // Log completion to analytics
@@ -10016,6 +10019,14 @@ function initAnalyticsSheet() {
     viewersSheet.appendRow(['abdul.ahad@turing.com', 'System', new Date(), 'admin']);
   }
 
+  // Create Data_Fetch_Logs sheet for centralized data consumption tracking
+  let dataFetchSheet = ss.getSheetByName('Data_Fetch_Logs');
+  if (!dataFetchSheet) {
+    dataFetchSheet = ss.insertSheet('Data_Fetch_Logs');
+    dataFetchSheet.appendRow(['Timestamp', 'Source', 'Context', 'Data Size (Bytes)', 'Duration (ms)', 'Details', 'User']);
+    dataFetchSheet.setFrozenRows(1);
+  }
+
   return { success: true };
 }
 
@@ -10668,36 +10679,60 @@ function getUserAnalytics(filterEmail, filterJobId, startDate, endDate) {
             negotiations: 0,
             followUps: 0,
             completed: 0,
-            lastActive: null
+            lastActive: null,
+            jobBreakdown: {} // NEW: Track activity per job ID
           });
         }
         const userStats = userMap.get(userEmail);
 
-        // Update counts based on action type
+        // NEW: Track activity per job ID for this user
+        const jobKey = jobId || 'No Job ID';
+        if (!userStats.jobBreakdown[jobKey]) {
+          userStats.jobBreakdown[jobKey] = {
+            jobId: jobKey,
+            emailsSent: 0,
+            dataFetches: 0,
+            negotiations: 0,
+            followUps: 0,
+            completed: 0,
+            lastActive: null
+          };
+        }
+        const jobStats = userStats.jobBreakdown[jobKey];
+
+        // Update counts based on action type (both user totals and job breakdown)
         if (action === 'email_sent') {
           userStats.emailsSent += count;
+          jobStats.emailsSent += count;
           analytics.totalEmailsSent += count;
         } else if (action === 'data_fetched') {
           userStats.dataFetches += count;
+          jobStats.dataFetches += count;
           analytics.totalDataFetches += count;
         } else if (action === 'negotiation_started') {
           userStats.negotiations += count;
+          jobStats.negotiations += count;
           analytics.totalNegotiations += count;
         } else if (action === 'follow_up_sent') {
           userStats.followUps += count;
+          jobStats.followUps += count;
           analytics.totalFollowUps += count;
         } else if (action === 'task_completed') {
           userStats.completed += count;
+          jobStats.completed += count;
           analytics.totalCompleted += count;
         }
 
-        // Track last active
+        // Track last active (both user level and job level)
         if (timestamp) {
           const ts = new Date(timestamp);
           // Validate that the date is valid before using it
           if (!isNaN(ts.getTime())) {
             if (!userStats.lastActive || ts > userStats.lastActive) {
               userStats.lastActive = ts;
+            }
+            if (!jobStats.lastActive || ts > jobStats.lastActive) {
+              jobStats.lastActive = ts;
             }
           }
         }
@@ -10712,7 +10747,7 @@ function getUserAnalytics(filterEmail, filterJobId, startDate, endDate) {
       }
     }
 
-    // Convert user map to sorted array
+    // Convert user map to sorted array with job breakdown
     analytics.userStats = Array.from(userMap.values())
       .sort((a, b) => {
         const bTime = b.lastActive && !isNaN(b.lastActive.getTime()) ? b.lastActive.getTime() : 0;
@@ -10726,7 +10761,23 @@ function getUserAnalytics(filterEmail, filterJobId, startDate, endDate) {
         negotiations: u.negotiations,
         followUps: u.followUps,
         totalActions: u.emailsSent + u.dataFetches + u.negotiations + u.followUps,
-        lastActive: u.lastActive && !isNaN(u.lastActive.getTime()) ? u.lastActive.toISOString() : null
+        lastActive: u.lastActive && !isNaN(u.lastActive.getTime()) ? u.lastActive.toISOString() : null,
+        // NEW: Include job breakdown sorted by last active
+        jobBreakdown: Object.values(u.jobBreakdown)
+          .sort((a, b) => {
+            const bTime = b.lastActive && !isNaN(b.lastActive.getTime()) ? b.lastActive.getTime() : 0;
+            const aTime = a.lastActive && !isNaN(a.lastActive.getTime()) ? a.lastActive.getTime() : 0;
+            return bTime - aTime;
+          })
+          .map(j => ({
+            jobId: j.jobId,
+            emailsSent: j.emailsSent,
+            dataFetches: j.dataFetches,
+            negotiations: j.negotiations,
+            followUps: j.followUps,
+            totalActions: j.emailsSent + j.dataFetches + j.negotiations + j.followUps,
+            lastActive: j.lastActive && !isNaN(j.lastActive.getTime()) ? j.lastActive.toISOString() : null
+          }))
       }));
 
     analytics.totalUsers = analytics.userStats.length;
@@ -10759,6 +10810,11 @@ function getUserAnalytics(filterEmail, filterJobId, startDate, endDate) {
     const negotiationStats = getActiveNegotiationStats();
     analytics.activeNegotiations = negotiationStats.active + negotiationStats.humanEscalated;
     analytics.negotiationStats = negotiationStats;
+
+    // Get pending follow-ups count (candidates awaiting follow-up)
+    const followUpStats = getFollowUpStats();
+    analytics.pendingFollowUps = followUpStats.pending;
+    analytics.followUpStats = followUpStats;
 
     return analytics;
   } catch (e) {
@@ -12542,12 +12598,13 @@ function getProcessMapStatus() {
         today.setHours(0, 0, 0, 0);
 
         // Emails sent today (from Email_Logs)
+        // Email_Logs columns: [0]=Timestamp, [1]=Job ID, [2]=Email, [3]=Name, [4]=Thread ID, [5]=Type, [6]=Country
         const emailLogsSheet = ss.getSheetByName('Email_Logs');
         let emailsSentToday = 0;
         if (emailLogsSheet) {
           const emailData = emailLogsSheet.getDataRange().getValues();
           for (let i = 1; i < emailData.length; i++) {
-            const timestamp = emailData[i][2]; // Timestamp column
+            const timestamp = emailData[i][0]; // Timestamp is column 0
             if (timestamp) {
               const rowDate = new Date(timestamp);
               if (rowDate >= today) emailsSentToday++;
@@ -12557,6 +12614,7 @@ function getProcessMapStatus() {
         result.todayStats.emailsSent = emailsSentToday;
 
         // Get negotiation stats (from Negotiation_State)
+        // Negotiation_State columns: [0]=Email, [1]=Job ID, [2]=Attempt Count, [3]=Last Offer, [4]=Status, [5]=Last Reply Time, [6]=Dev ID, [7]=Name, [8]=AI Notes, [9]=Thread ID, [10]=Region
         const stateSheet = ss.getSheetByName('Negotiation_State');
         let aiReplies = 0;
         let escalated = 0;
@@ -12564,8 +12622,8 @@ function getProcessMapStatus() {
         if (stateSheet) {
           const stateData = stateSheet.getDataRange().getValues();
           for (let i = 1; i < stateData.length; i++) {
-            const status = String(stateData[i][3] || '').toLowerCase();
-            const attempts = parseInt(stateData[i][4]) || 0;
+            const status = String(stateData[i][4] || '').toLowerCase(); // Status is column 4
+            const attempts = parseInt(stateData[i][2]) || 0; // Attempt Count is column 2
 
             if (status === 'active' || status === 'pending') {
               activeNegotiations++;
@@ -12660,14 +12718,15 @@ function getProcessMapStatus() {
         yesterday.setHours(yesterday.getHours() - 24);
 
         // Recent emails
+        // Email_Logs columns: [0]=Timestamp, [1]=Job ID, [2]=Email, [3]=Name, [4]=Thread ID, [5]=Type, [6]=Country
         const emailLogsSheet = ss.getSheetByName('Email_Logs');
         if (emailLogsSheet) {
           const emailData = emailLogsSheet.getDataRange().getValues();
           for (let i = Math.max(1, emailData.length - 20); i < emailData.length; i++) {
-            const email = emailData[i][0];
-            const jobId = emailData[i][1];
-            const timestamp = emailData[i][2];
-            const type = emailData[i][3];
+            const timestamp = emailData[i][0]; // Timestamp is column 0
+            const jobId = emailData[i][1];     // Job ID is column 1
+            const email = emailData[i][2];     // Email is column 2
+            const type = emailData[i][5];      // Type is column 5
 
             if (timestamp && new Date(timestamp) >= yesterday) {
               activities.push({
@@ -12680,13 +12739,14 @@ function getProcessMapStatus() {
         }
 
         // Recent escalations from Negotiation_Tasks
+        // Negotiation_Tasks columns: [0]=Timestamp, [1]=Job ID, [2]=Name, [3]=Email, [4]=Agreed Rate, [5]=Status, [6]=Dev ID, [7]=Thread ID, [8]=Region
         const taskSheet = ss.getSheetByName('Negotiation_Tasks');
         if (taskSheet) {
           const taskData = taskSheet.getDataRange().getValues();
           for (let i = Math.max(1, taskData.length - 10); i < taskData.length; i++) {
-            const email = taskData[i][0];
-            const jobId = taskData[i][1];
-            const timestamp = taskData[i][5]; // Created timestamp
+            const timestamp = taskData[i][0]; // Timestamp is column 0
+            const jobId = taskData[i][1];     // Job ID is column 1
+            const email = taskData[i][3];     // Email is column 3
 
             if (timestamp && new Date(timestamp) >= yesterday) {
               activities.push({
@@ -12699,13 +12759,14 @@ function getProcessMapStatus() {
         }
 
         // Recent completions
+        // Negotiation_Completed columns: [0]=Timestamp, [1]=Job ID, [2]=Email, [3]=Name, [4]=Final Status, [5]=Notes, [6]=Dev ID, [7]=Region
         const completedSheet = ss.getSheetByName('Negotiation_Completed');
         if (completedSheet) {
           const completedData = completedSheet.getDataRange().getValues();
           for (let i = Math.max(1, completedData.length - 10); i < completedData.length; i++) {
-            const email = completedData[i][0];
-            const finalStatus = completedData[i][2];
-            const timestamp = completedData[i][3];
+            const timestamp = completedData[i][0];    // Timestamp is column 0
+            const email = completedData[i][2];        // Email is column 2
+            const finalStatus = completedData[i][4];  // Final Status is column 4
 
             if (timestamp && new Date(timestamp) >= yesterday) {
               activities.push({
