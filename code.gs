@@ -3214,10 +3214,19 @@ function saveJobCandidateDetails(ss, jobId, candidateEmail, candidateName, devId
       if (idx !== -1) questionColIndices.add(idx);
     });
 
+    // Find Expected Rate column index for special handling
+    const expectedRateColIdx = headers.indexOf('Expected Rate');
+
     for (let col = 0; col < headers.length; col++) {
       // For question columns, keep existing if new is empty/NOT_PROVIDED
       if (questionColIndices.has(col)) {
-        if ((!rowData[col] || rowData[col] === 'NOT_PROVIDED') &&
+        // CRITICAL FIX: Always preserve the INITIAL Expected Rate once set
+        // Expected Rate represents the candidate's original expectation before negotiation
+        // It should NOT be overwritten by counter-offers during negotiation
+        if (col === expectedRateColIdx && existingRow[col] && existingRow[col] !== 'NOT_PROVIDED' && existingRow[col] !== 'PARSE_ERROR') {
+          // Keep the original expected rate - this is the candidate's initial expectation
+          rowData[col] = existingRow[col];
+        } else if ((!rowData[col] || rowData[col] === 'NOT_PROVIDED') &&
             existingRow[col] && existingRow[col] !== 'NOT_PROVIDED') {
           rowData[col] = existingRow[col];
         }
@@ -4966,7 +4975,10 @@ Write ONLY the email, nothing else.
     const rateAnalysisPrompt = `
 You are analyzing a candidate's message to determine their rate expectation and recommend an action.
 
-CANDIDATE'S MESSAGE:
+CONVERSATION HISTORY (for context on rates discussed):
+${conversationHistory}
+
+CANDIDATE'S LATEST MESSAGE:
 "${candidateLatestMessage}"
 
 OUR RATE PARAMETERS:
@@ -5009,6 +5021,13 @@ ACCEPTANCE DETECTION RULES - CRITICAL:
 - "I accept $X" or "I can do $X" where $X is what WE offered = ACCEPTING at rate $X
 - If candidate states THEIR OWN rate and says "ready to start", they are proposing, NOT accepting
 
+CRITICAL - EXTRACTING THE AGREED RATE FROM CONVERSATION HISTORY:
+- When candidate accepts WITHOUT mentioning a specific rate in their latest message, you MUST look at the CONVERSATION HISTORY to find the LAST rate that was discussed/offered
+- The agreed_rate should be the MOST RECENT rate mentioned in the negotiation (either our offer they're accepting, or the rate they proposed that we agreed to)
+- Example: If we offered $12, candidate counter-offered $14, we agreed to $14, and candidate says "yes that's fine" → agreed_rate = 14 (NOT 12!)
+- Example: If candidate said "I can do $14" and we replied accepting that rate, then candidate says "great, works for me" → agreed_rate = 14
+- ALWAYS check the conversation history for the most recent negotiated rate when is_accepting_offer is true
+
 SENSITIVE QUESTIONS (require immediate escalation):
 - Questions about internal company policies, hiring process details
 - Questions about other candidates or competition
@@ -5037,13 +5056,19 @@ CRITICAL RULES:
 
 RESPONSE FORMAT (JSON only):
 {
-  "proposed_rate": <number - the rate they mentioned/asked for, or null if none>,
+  "proposed_rate": <number - the rate they mentioned/asked for in their LATEST message, or null if none>,
+  "agreed_rate": <number - the FINAL negotiated rate from conversation history when accepting (CRITICAL: extract from conversation history if candidate accepts without mentioning a rate), or null if not accepting>,
   "is_accepting_offer": <true/false - ONLY true if they accepted OUR offer>,
   "action": "<AUTO_ACCEPT|COUNTER|ESCALATE>",
   "escalation_type": "<sensitive_question|null>",
   "reason": "<brief explanation>",
   "candidate_flexibility": "<flexible|firm|unclear>"
 }
+
+IMPORTANT for agreed_rate:
+- If is_accepting_offer is true, agreed_rate MUST be set to the rate being accepted (from conversation history)
+- If candidate says "yes" or "ok" to our $14/hr offer, agreed_rate = 14
+- If proposed_rate is set in the latest message, agreed_rate should match it when accepting
 
 Return ONLY the JSON object, no other text.
 `;
@@ -5095,8 +5120,10 @@ Return ONLY the JSON object, no other text.
 
     // If AI recommends AUTO_ACCEPT (rate at or below target, or accepting our offer)
     if (rateAnalysis && rateAnalysis.action === 'AUTO_ACCEPT') {
-      const rate = rateAnalysis.proposed_rate || targetRate;
-      jobStats.log.push({type: 'success', message: `${candidateEmail} - AI recommends AUTO-ACCEPT at $${rate}/hr (target: $${targetRate}/hr)`});
+      // CRITICAL FIX: Use agreed_rate (from conversation history) first when candidate accepts,
+      // then proposed_rate (from latest message), then targetRate as fallback
+      const rate = rateAnalysis.agreed_rate || rateAnalysis.proposed_rate || targetRate;
+      jobStats.log.push({type: 'success', message: `${candidateEmail} - AI recommends AUTO-ACCEPT at $${rate}/hr (agreed: $${rateAnalysis.agreed_rate || 'N/A'}, proposed: $${rateAnalysis.proposed_rate || 'N/A'}, target: $${targetRate}/hr)`});
 
       // CRITICAL SAFETY CHECK: Prevent auto-accepting rates that exceed region safety limits
       // This catches cases where Rate_Tiers lookup failed but candidate is from a low-cost region
