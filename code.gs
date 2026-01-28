@@ -10657,36 +10657,60 @@ function getUserAnalytics(filterEmail, filterJobId, startDate, endDate) {
             negotiations: 0,
             followUps: 0,
             completed: 0,
-            lastActive: null
+            lastActive: null,
+            jobBreakdown: {} // NEW: Track activity per job ID
           });
         }
         const userStats = userMap.get(userEmail);
 
-        // Update counts based on action type
+        // NEW: Track activity per job ID for this user
+        const jobKey = jobId || 'No Job ID';
+        if (!userStats.jobBreakdown[jobKey]) {
+          userStats.jobBreakdown[jobKey] = {
+            jobId: jobKey,
+            emailsSent: 0,
+            dataFetches: 0,
+            negotiations: 0,
+            followUps: 0,
+            completed: 0,
+            lastActive: null
+          };
+        }
+        const jobStats = userStats.jobBreakdown[jobKey];
+
+        // Update counts based on action type (both user totals and job breakdown)
         if (action === 'email_sent') {
           userStats.emailsSent += count;
+          jobStats.emailsSent += count;
           analytics.totalEmailsSent += count;
         } else if (action === 'data_fetched') {
           userStats.dataFetches += count;
+          jobStats.dataFetches += count;
           analytics.totalDataFetches += count;
         } else if (action === 'negotiation_started') {
           userStats.negotiations += count;
+          jobStats.negotiations += count;
           analytics.totalNegotiations += count;
         } else if (action === 'follow_up_sent') {
           userStats.followUps += count;
+          jobStats.followUps += count;
           analytics.totalFollowUps += count;
         } else if (action === 'task_completed') {
           userStats.completed += count;
+          jobStats.completed += count;
           analytics.totalCompleted += count;
         }
 
-        // Track last active
+        // Track last active (both user level and job level)
         if (timestamp) {
           const ts = new Date(timestamp);
           // Validate that the date is valid before using it
           if (!isNaN(ts.getTime())) {
             if (!userStats.lastActive || ts > userStats.lastActive) {
               userStats.lastActive = ts;
+            }
+            if (!jobStats.lastActive || ts > jobStats.lastActive) {
+              jobStats.lastActive = ts;
             }
           }
         }
@@ -10701,7 +10725,7 @@ function getUserAnalytics(filterEmail, filterJobId, startDate, endDate) {
       }
     }
 
-    // Convert user map to sorted array
+    // Convert user map to sorted array with job breakdown
     analytics.userStats = Array.from(userMap.values())
       .sort((a, b) => {
         const bTime = b.lastActive && !isNaN(b.lastActive.getTime()) ? b.lastActive.getTime() : 0;
@@ -10715,7 +10739,23 @@ function getUserAnalytics(filterEmail, filterJobId, startDate, endDate) {
         negotiations: u.negotiations,
         followUps: u.followUps,
         totalActions: u.emailsSent + u.dataFetches + u.negotiations + u.followUps,
-        lastActive: u.lastActive && !isNaN(u.lastActive.getTime()) ? u.lastActive.toISOString() : null
+        lastActive: u.lastActive && !isNaN(u.lastActive.getTime()) ? u.lastActive.toISOString() : null,
+        // NEW: Include job breakdown sorted by last active
+        jobBreakdown: Object.values(u.jobBreakdown)
+          .sort((a, b) => {
+            const bTime = b.lastActive && !isNaN(b.lastActive.getTime()) ? b.lastActive.getTime() : 0;
+            const aTime = a.lastActive && !isNaN(a.lastActive.getTime()) ? a.lastActive.getTime() : 0;
+            return bTime - aTime;
+          })
+          .map(j => ({
+            jobId: j.jobId,
+            emailsSent: j.emailsSent,
+            dataFetches: j.dataFetches,
+            negotiations: j.negotiations,
+            followUps: j.followUps,
+            totalActions: j.emailsSent + j.dataFetches + j.negotiations + j.followUps,
+            lastActive: j.lastActive && !isNaN(j.lastActive.getTime()) ? j.lastActive.toISOString() : null
+          }))
       }));
 
     analytics.totalUsers = analytics.userStats.length;
