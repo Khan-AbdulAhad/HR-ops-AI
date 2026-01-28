@@ -868,11 +868,10 @@ function logEmailMismatch(jobId, expectedEmail, actualEmail, name, devId, thread
  * @param {string} details - Additional details about the operation
  */
 function logDataConsumption(source, context, byteSize, durationMs, details) {
-  const url = getStoredSheetUrl();
-  if(!url) return;
-
   try {
-    const ss = SpreadsheetApp.openByUrl(url);
+    // Write to central Analytics sheet instead of local sheet
+    const ss = getAnalyticsSpreadsheet();
+    if (!ss) return;
 
     // Get current user email
     let userEmail = 'System/Automated';
@@ -887,6 +886,7 @@ function logDataConsumption(source, context, byteSize, durationMs, details) {
     if (!sheet) {
       sheet = ss.insertSheet('Data_Fetch_Logs');
       sheet.appendRow(['Timestamp', 'Source', 'Context', 'Data Size (Bytes)', 'Duration (ms)', 'Details', 'User']);
+      sheet.setFrozenRows(1);
     }
 
     sheet.appendRow([
@@ -10003,6 +10003,14 @@ function initAnalyticsSheet() {
     viewersSheet.setFrozenRows(1);
     // Add default admin
     viewersSheet.appendRow(['abdul.ahad@turing.com', 'System', new Date(), 'admin']);
+  }
+
+  // Create Data_Fetch_Logs sheet for centralized data consumption tracking
+  let dataFetchSheet = ss.getSheetByName('Data_Fetch_Logs');
+  if (!dataFetchSheet) {
+    dataFetchSheet = ss.insertSheet('Data_Fetch_Logs');
+    dataFetchSheet.appendRow(['Timestamp', 'Source', 'Context', 'Data Size (Bytes)', 'Duration (ms)', 'Details', 'User']);
+    dataFetchSheet.setFrozenRows(1);
   }
 
   return { success: true };
