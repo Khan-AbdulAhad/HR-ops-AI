@@ -8275,6 +8275,8 @@
                 const tbody = document.getElementById('userStatsTableBody');
                 tbody.innerHTML = '';
                 const pendingDataGathering = data.pendingDataGathering || 0;
+                // Get per-job data gathering stats if available
+                const perJobDataGathering = data.dataGatheringStats?.perJob || {};
                 if(data.userStats && data.userStats.length > 0) {
                     data.userStats.forEach(u => {
                         const tr = document.createElement('tr');
@@ -8282,7 +8284,7 @@
                         tr.innerHTML = `
                             <td class="px-6 py-3 font-medium">${u.email}</td>
                             <td class="px-6 py-3 text-center text-emerald-600 font-bold">${u.emailsSent || 0}</td>
-                            <td class="px-6 py-3 text-center text-cyan-600">${pendingDataGathering}</td>
+                            <td class="px-6 py-3 text-center text-cyan-600" title="Active data gathering count shown in card above (counts only pending candidates, not completed)">-</td>
                             <td class="px-6 py-3 text-center text-purple-600">${u.negotiations || 0}</td>
                             <td class="px-6 py-3 text-center text-amber-600">${u.followUps || 0}</td>
                             <td class="px-6 py-3 text-slate-500 text-xs">${u.lastActive ? new Date(u.lastActive).toLocaleDateString() : '-'}</td>
