@@ -9281,7 +9281,7 @@ function getActiveNegotiationStats() {
  */
 function getDataGatheringStats() {
   const jobsUrl = getStoredJobsSheetUrl();
-  if (!jobsUrl) return { pending: 0, dataComplete: 0, negotiating: 0, total: 0 };
+  if (!jobsUrl) return { pending: 0, dataComplete: 0, negotiating: 0, total: 0, perJob: {} };
 
   try {
     const jobsSs = SpreadsheetApp.openByUrl(jobsUrl);
@@ -9291,12 +9291,15 @@ function getDataGatheringStats() {
     let dataComplete = 0;
     let negotiating = 0;
     let total = 0;
+    const perJob = {}; // Per-job breakdown of ACTIVE data gathering
 
     // Iterate through all sheets that match Job_*_Details pattern
     for (const sheet of sheets) {
       const sheetName = sheet.getName();
-      if (!sheetName.match(/^Job_\d+_Details$/)) continue;
+      const jobMatch = sheetName.match(/^Job_(\d+)_Details$/);
+      if (!jobMatch) continue;
 
+      const jobId = jobMatch[1];
       const lastRow = sheet.getLastRow();
       if (lastRow <= 1) continue; // Skip if only header row
 
@@ -9306,29 +9309,40 @@ function getDataGatheringStats() {
 
       if (statusColIdx === -1) continue; // Skip if no Status column
 
+      // Initialize per-job stats
+      perJob[jobId] = { pending: 0, dataComplete: 0, negotiating: 0, total: 0 };
+
       // Count candidates by status
       for (let i = 1; i < data.length; i++) {
         const status = String(data[i][statusColIdx] || '').trim();
         if (!status) continue;
 
         total++;
+        perJob[jobId].total++;
 
-        // Count pending data gathering (awaiting candidate data)
+        // Count ACTIVE data gathering (awaiting candidate data)
+        // Pending = candidates we're actively waiting for data from
+        // Outreach Sent = candidates who received initial outreach but haven't responded yet
+        // NOTE: We do NOT count 'Offer Accepted', 'Data Complete', 'Completed', etc.
         if (status === 'Pending' || status === 'Outreach Sent') {
           pending++;
+          perJob[jobId].pending++;
         } else if (status === 'Data Complete') {
           dataComplete++;
+          perJob[jobId].dataComplete++;
         } else if (status === 'Negotiating' || status.includes('Negotiat')) {
           negotiating++;
+          perJob[jobId].negotiating++;
         }
+        // Note: Completed/Accepted statuses are intentionally NOT counted in active data gathering
       }
     }
 
-    return { pending, dataComplete, negotiating, total };
+    return { pending, dataComplete, negotiating, total, perJob };
 
   } catch (e) {
     console.error("Error getting data gathering stats:", e);
-    return { pending: 0, dataComplete: 0, negotiating: 0, total: 0 };
+    return { pending: 0, dataComplete: 0, negotiating: 0, total: 0, perJob: {} };
   }
 }
 
