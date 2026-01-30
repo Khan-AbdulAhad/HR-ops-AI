@@ -4251,7 +4251,7 @@ function runAutoNegotiator() {
   const configs = configSheet.getDataRange().getValues();
   const faqContent = getFAQs();
   
-  let stats = { replied: 0, escalated: 0, accepted: 0, skipped: 0, processed: 0, synced: 0, cleaned: 0, detailsExtracted: 0, missingInfoFollowUps: 0 };
+  let stats = { replied: 0, escalated: 0, accepted: 0, notInterested: 0, skipped: 0, processed: 0, synced: 0, cleaned: 0, detailsExtracted: 0, missingInfoFollowUps: 0 };
   let log = [];
   
   // STEP 1: Sync completed items from Gmail first (saves processing cost!)
@@ -4347,6 +4347,7 @@ function runAutoNegotiator() {
     stats.replied += jobResult.replied;
     stats.escalated += jobResult.escalated;
     stats.accepted += jobResult.accepted;
+    stats.notInterested += jobResult.notInterested || 0;
     stats.skipped += jobResult.skipped;
     stats.processed += jobResult.processed;
     stats.detailsExtracted += jobResult.detailsExtracted || 0;
@@ -4398,7 +4399,7 @@ function processJobNegotiations(jobId, rules, ss, faqContent, negotiationEnabled
   const stateSheet = ss.getSheetByName('Negotiation_State');
   const taskSheet = ss.getSheetByName('Negotiation_Tasks');
 
-  let jobStats = {replied:0, escalated:0, accepted:0, skipped:0, processed:0, detailsExtracted:0, missingInfoFollowUps:0, log:[]};
+  let jobStats = {replied:0, escalated:0, accepted:0, notInterested:0, skipped:0, processed:0, detailsExtracted:0, missingInfoFollowUps:0, log:[]};
   
   // Cache state data for efficiency
   // Build two maps: one by email+jobId, one by threadId+jobId (fallback for different email replies)
@@ -4991,7 +4992,8 @@ Analyze the candidate's message and determine:
 1. What hourly rate are they proposing, expecting, or asking for? (extract the exact number)
 2. Are they accepting a previous offer we made?
 3. Are they asking sensitive questions we cannot answer?
-4. What action should we take?
+4. Are they indicating they are NOT INTERESTED in proceeding?
+5. What action should we take?
 
 CRITICAL - PROPOSAL vs ACCEPTANCE DISTINCTION:
 - If candidate STATES their expected/desired rate (e.g., "my expected rate is $X", "I expect $X", "my rate is $X"), this is a PROPOSAL, NOT acceptance
@@ -5026,6 +5028,20 @@ CRITICAL - EXTRACTING THE AGREED RATE FROM CONVERSATION HISTORY:
 - Example: If candidate said "I can do $14" and we replied accepting that rate, then candidate says "great, works for me" → agreed_rate = 14
 - ALWAYS check the conversation history for the most recent negotiated rate when is_accepting_offer is true
 
+NOT INTERESTED DETECTION (candidate declining to proceed):
+- "not interested" or "no longer interested"
+- "already accepted another offer" or "already received an offer"
+- "accepted a position elsewhere" or "took another job"
+- "decided to go with another company/opportunity"
+- "withdrawing my application" or "please remove me"
+- "not looking anymore" or "no longer available"
+- "found another role/job/position"
+- "going in a different direction"
+- "declining this opportunity"
+- "not the right fit for me"
+- "circumstances have changed"
+- Any clear indication they don't want to continue the process
+
 SENSITIVE QUESTIONS (require immediate escalation):
 - Questions about internal company policies, hiring process details
 - Questions about other candidates or competition
@@ -5035,11 +5051,12 @@ SENSITIVE QUESTIONS (require immediate escalation):
 - Requests for information we don't have in our FAQ
 
 DECISION RULES (in priority order):
-1. If candidate asks SENSITIVE QUESTIONS (see above) → ACTION: ESCALATE, escalation_type: "sensitive_question"
-2. If candidate explicitly ACCEPTS a rate WE previously offered → ACTION: AUTO_ACCEPT, is_accepting_offer: true
-3. If candidate PROPOSES a rate AT OR BELOW $${maxRate}/hr → ACTION: AUTO_ACCEPT (accept their proposal - it's within our budget!)
-4. If candidate PROPOSES a rate ABOVE $${maxRate}/hr → ACTION: COUNTER (we will negotiate)
-5. If no clear rate mentioned but message is positive → ACTION: COUNTER
+1. If candidate indicates NOT INTERESTED (see above) → ACTION: NOT_INTERESTED, is_not_interested: true
+2. If candidate asks SENSITIVE QUESTIONS (see above) → ACTION: ESCALATE, escalation_type: "sensitive_question"
+3. If candidate explicitly ACCEPTS a rate WE previously offered → ACTION: AUTO_ACCEPT, is_accepting_offer: true
+4. If candidate PROPOSES a rate AT OR BELOW $${maxRate}/hr → ACTION: AUTO_ACCEPT (accept their proposal - it's within our budget!)
+5. If candidate PROPOSES a rate ABOVE $${maxRate}/hr → ACTION: COUNTER (we will negotiate)
+6. If no clear rate mentioned but message is positive → ACTION: COUNTER
 
 IMPORTANT - RATE NEGOTIATION:
 - If rate is ABOVE our max ($${maxRate}), recommend COUNTER - we will try to negotiate
@@ -5057,7 +5074,9 @@ RESPONSE FORMAT (JSON only):
   "proposed_rate": <number - the rate they mentioned/asked for in their LATEST message, or null if none>,
   "agreed_rate": <number - the FINAL negotiated rate from conversation history when accepting (CRITICAL: extract from conversation history if candidate accepts without mentioning a rate), or null if not accepting>,
   "is_accepting_offer": <true/false - ONLY true if they accepted OUR offer>,
-  "action": "<AUTO_ACCEPT|COUNTER|ESCALATE>",
+  "is_not_interested": <true/false - true if candidate indicates they don't want to proceed>,
+  "not_interested_reason": "<brief explanation of why they're not interested - e.g., 'accepted another offer', 'no longer looking', etc., or null if not applicable>",
+  "action": "<AUTO_ACCEPT|COUNTER|ESCALATE|NOT_INTERESTED>",
   "escalation_type": "<sensitive_question|null>",
   "reason": "<brief explanation>",
   "candidate_flexibility": "<flexible|firm|unclear>"
@@ -5083,9 +5102,9 @@ Return ONLY the JSON object, no other text.
     }
 
     // FIX: Check attempt limit (2 AI attempts max) AFTER rate analysis
-    // This ensures we can detect and process offer acceptance even when attempts >= 2
-    // Only escalate if candidate did NOT accept the offer
-    if (attempts >= 2 && (!rateAnalysis || rateAnalysis.action !== 'AUTO_ACCEPT')) {
+    // This ensures we can detect and process offer acceptance or not-interested even when attempts >= 2
+    // Only escalate if candidate did NOT accept the offer AND is not indicating they're not interested
+    if (attempts >= 2 && (!rateAnalysis || (rateAnalysis.action !== 'AUTO_ACCEPT' && rateAnalysis.action !== 'NOT_INTERESTED'))) {
       // Generate COMPREHENSIVE AI summary before escalating
       const comprehensiveSummary = generateComprehensiveAISummary(
         conversationHistory,
@@ -5113,6 +5132,64 @@ Return ONLY the JSON object, no other text.
 
       jobStats.escalated++;
       jobStats.log.push({type: 'warning', message: `${candidateEmail} escalated: Max attempts reached (data was extracted)`});
+      return;
+    }
+
+    // If AI detects candidate is NOT INTERESTED (declined, accepted another offer, etc.)
+    if (rateAnalysis && rateAnalysis.action === 'NOT_INTERESTED') {
+      const notInterestedReason = rateAnalysis.not_interested_reason || rateAnalysis.reason || 'Candidate indicated they are not interested';
+      jobStats.log.push({type: 'info', message: `${candidateEmail} - NOT INTERESTED: ${notInterestedReason}`});
+
+      // Generate AI summary for the not interested case
+      const notInterestedSummary = generateComprehensiveAISummary(
+        conversationHistory,
+        candidateEmail,
+        jobId,
+        attempts,
+        'Not Interested'
+      );
+
+      // Update Negotiation_State status and summary
+      if (stateRowIndex > -1) {
+        stateSheet.getRange(stateRowIndex, 5).setValue("Not Interested");
+        stateSheet.getRange(stateRowIndex, 9).setValue(`${notInterestedReason}. ${notInterestedSummary}`);
+      }
+
+      // Update Job Details sheet with Not Interested status
+      try {
+        updateJobCandidateStatus(ss, jobId, candidateEmail, 'Not Interested', null);
+      } catch(detailsErr) {
+        console.error("Failed to update job details sheet:", detailsErr);
+      }
+
+      // Add to Negotiation_Completed sheet for tracking
+      const completedSheet = ss.getSheetByName('Negotiation_Completed');
+      if (completedSheet) {
+        completedSheet.appendRow([
+          new Date(),
+          jobId,
+          candidateEmail,
+          candidateName,
+          "Not Interested",
+          `${notInterestedReason}. ${notInterestedSummary}`,
+          devId,
+          candidateRegion || ''
+        ]);
+      }
+
+      // Remove from Negotiation_State since this candidate is done
+      if (stateRowIndex > -1) {
+        stateSheet.deleteRow(stateRowIndex);
+        stateMap.delete(stateKey);
+      }
+
+      // Mark thread as completed and remove from follow-up
+      markCompleted(thread);
+      updateFollowUpLabels(thread.getId(), 'responded');
+
+      // Track as a completion (declined)
+      jobStats.notInterested++;
+      jobStats.log.push({type: 'info', message: `${candidateEmail} marked as Not Interested and moved to completed: ${notInterestedReason}`});
       return;
     }
 
@@ -11309,6 +11386,7 @@ function getConversionFunnelData(filterJobId, startDate, endDate) {
     let accepted = 0;
     let rejected = 0;
     let escalated = 0;
+    let notInterested = 0;
     const acceptedEmails = new Set();
 
     for (let i = 1; i < completedData.length; i++) {
@@ -11324,6 +11402,8 @@ function getConversionFunnelData(filterJobId, startDate, endDate) {
       if (status.includes('accept') || status.includes('complete')) {
         accepted++;
         acceptedEmails.add(email);
+      } else if (status.includes('not interested')) {
+        notInterested++;
       } else if (status.includes('reject') || status.includes('declined')) {
         rejected++;
       } else if (status.includes('escalat') || status.includes('human')) {
@@ -11361,6 +11441,7 @@ function getConversionFunnelData(filterJobId, startDate, endDate) {
     // Outcome breakdown for pie chart
     const outcomeBreakdown = {
       accepted: accepted,
+      notInterested: notInterested,
       rejected: rejected,
       escalated: escalated,
       unresponsive: unresponsive,
@@ -11374,6 +11455,7 @@ function getConversionFunnelData(filterJobId, startDate, endDate) {
       totalResponded: totalResponded,
       totalNegotiating: totalNegotiating,
       totalAccepted: totalAccepted,
+      totalNotInterested: notInterested,
       totalRejected: rejected,
       totalEscalated: escalated,
       totalUnresponsive: unresponsive,
