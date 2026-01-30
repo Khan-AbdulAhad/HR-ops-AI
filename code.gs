@@ -10252,6 +10252,8 @@ function buildAccessResponse(role, userEmail, isNewUser) {
   const pageAccess = getPageAccessForRole(normalizedRole);
 
   // Get team members for roles that use team-based filtering
+  // NOTE: Admin privileges are NEVER affected by team hierarchy placement
+  // Only Manager and TL roles use team-based filtering
   let teamMembers = [userEmail.toLowerCase()];
   if (normalizedRole === 'manager' || normalizedRole === 'tl') {
     teamMembers = getTeamMembersForUser(userEmail, normalizedRole);
@@ -10383,6 +10385,7 @@ function searchAnalyticsUsers(searchQuery) {
 
   const query = String(searchQuery || '').toLowerCase().trim();
   const teamMembers = access.teamMembers || [access.userEmail.toLowerCase()];
+  const isAdmin = access.accessLevel === 'admin' || access.canManageUsers;
   const isTeamLead = access.accessLevel === 'manager' || access.accessLevel === 'tl';
 
   // Users who can't view all analytics can only search for their own email
@@ -10394,8 +10397,12 @@ function searchAnalyticsUsers(searchQuery) {
     return [];
   }
 
-  // Team leads (Manager/TL) can only search within their team
-  if (isTeamLead && teamMembers.length > 0) {
+  // IMPORTANT: Admin privileges are NEVER affected by team hierarchy
+  // Skip team filtering for admins - they can search all emails
+  if (isAdmin) {
+    // Fall through to admin search below
+  } else if (isTeamLead && teamMembers.length > 0) {
+    // Team leads (Manager/TL) can only search within their team
     const matchingEmails = teamMembers.filter(email =>
       !query || email.toLowerCase().includes(query)
     );
@@ -10633,17 +10640,22 @@ function getUserAnalytics(filterEmail, filterJobId, startDate, endDate) {
   }
 
   // RBAC: Handle team-based access for Managers and TLs
-  // - Admin: can see all data
+  // - Admin: ALWAYS has full access (even if placed under a TL in hierarchy)
   // - Manager/TL: can see their team members' data
   // - Others: can only see their own data
   const canViewAll = access.canViewAllAnalytics;
   const teamMembers = access.teamMembers || [access.userEmail.toLowerCase()];
+  const isAdmin = access.accessLevel === 'admin' || access.canManageUsers;
   const isTeamLead = access.accessLevel === 'manager' || access.accessLevel === 'tl';
 
   // Determine which emails this user can see
   let allowedEmails = null; // null means all emails (for admin with full access)
 
-  if (!canViewAll) {
+  // IMPORTANT: Admin privileges are NEVER affected by team hierarchy
+  // Even if an admin is assigned under a TL, they retain full access
+  if (isAdmin) {
+    allowedEmails = null; // Admin can see ALL data
+  } else if (!canViewAll) {
     // Users without canViewAllAnalytics can only see their own data
     allowedEmails = [access.userEmail.toLowerCase()];
     emailFilter = access.userEmail.toLowerCase();
@@ -10655,7 +10667,6 @@ function getUserAnalytics(filterEmail, filterJobId, startDate, endDate) {
       emailFilter = ''; // Clear invalid filter, will show all team data
     }
   }
-  // For admins, allowedEmails stays null (can see all)
 
   try {
     const ss = getAnalyticsSpreadsheet();
