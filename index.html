@@ -3697,8 +3697,8 @@
     </div>
 
     <!-- Viewers Modal -->
-    <div id="viewersModal" class="fixed inset-0 z-50 hidden bg-black/50 backdrop-blur-sm flex items-center justify-center">
-        <div class="bg-white dark:bg-slate-800 p-6 rounded-xl shadow-xl w-full max-w-lg">
+    <div id="viewersModal" class="fixed inset-0 z-50 hidden bg-black/50 backdrop-blur-sm flex items-center justify-center overflow-y-auto py-4">
+        <div class="bg-white dark:bg-slate-800 p-6 rounded-xl shadow-xl w-full max-w-2xl mx-4">
             <h3 class="font-bold mb-4 text-slate-800 dark:text-white">Manage User Access</h3>
 
             <!-- Role Legend -->
@@ -3706,16 +3706,19 @@
                 <div class="font-semibold mb-2 text-slate-600 dark:text-slate-300">Role Permissions:</div>
                 <div class="grid grid-cols-2 gap-1 text-slate-500 dark:text-slate-400">
                     <div><span class="font-medium text-blue-600">Admin</span> - Full access + Manage users</div>
-                    <div><span class="font-medium text-indigo-600">TL</span> - Full access (no user mgmt)</div>
+                    <div><span class="font-medium text-indigo-600">TL</span> - Operations + Team analytics</div>
+                    <div><span class="font-medium text-emerald-600">TOS</span> - Operations + Own analytics</div>
                     <div><span class="font-medium text-purple-600">TM/TA/Manager</span> - Analytics only</div>
                     <div><span class="font-medium text-slate-600">Other</span> - Operations + Own analytics</div>
                 </div>
             </div>
 
+            <!-- Add User Section -->
             <div class="flex gap-2 mb-4">
                 <input id="newViewerEmail" class="input-field flex-1" placeholder="user@example.com">
                 <select id="newViewerLevel" class="input-field w-28">
                     <option value="other">Other</option>
+                    <option value="tos">TOS</option>
                     <option value="tl">TL</option>
                     <option value="tm">TM</option>
                     <option value="ta">TA</option>
@@ -3724,7 +3727,72 @@
                 </select>
                 <button onclick="addViewer()" class="bg-blue-600 hover:bg-blue-700 text-white px-3 rounded-lg transition"><i class="fa-solid fa-plus"></i></button>
             </div>
-            <div id="viewersList" class="max-h-64 overflow-y-auto space-y-2"></div>
+            <div id="viewersList" class="max-h-48 overflow-y-auto space-y-2 mb-4"></div>
+
+            <!-- Team Hierarchy Section -->
+            <div class="border-t border-slate-200 dark:border-slate-600 pt-4 mt-4">
+                <div class="flex items-center justify-between mb-3">
+                    <h4 class="font-semibold text-slate-700 dark:text-slate-200">
+                        <i class="fa-solid fa-sitemap mr-2 text-indigo-500"></i>Team Hierarchy
+                    </h4>
+                    <button onclick="toggleTeamHierarchySection()" class="text-xs text-blue-600 hover:text-blue-700">
+                        <span id="teamHierarchyToggleText">Show</span> <i class="fa-solid fa-chevron-down ml-1" id="teamHierarchyToggleIcon"></i>
+                    </button>
+                </div>
+
+                <div id="teamHierarchySection" class="hidden">
+                    <!-- Info -->
+                    <div class="mb-3 p-2 bg-blue-50 dark:bg-blue-900/30 rounded text-xs text-blue-700 dark:text-blue-300">
+                        <i class="fa-solid fa-info-circle mr-1"></i>
+                        Assign TLs to Managers and TOS to TLs. Team members can only view their team's analytics data.
+                    </div>
+
+                    <!-- Assign TL to Manager -->
+                    <div class="mb-3 p-3 bg-slate-50 dark:bg-slate-700/50 rounded-lg">
+                        <div class="text-xs font-medium text-slate-600 dark:text-slate-300 mb-2">
+                            <i class="fa-solid fa-user-tie text-purple-500 mr-1"></i>Assign TL to Manager
+                        </div>
+                        <div class="flex gap-2">
+                            <select id="assignManagerSelect" class="input-field flex-1 text-sm">
+                                <option value="">Select Manager</option>
+                            </select>
+                            <select id="assignTLForManagerSelect" class="input-field flex-1 text-sm">
+                                <option value="">Select TL</option>
+                            </select>
+                            <button onclick="assignTLToManagerClick()" class="bg-purple-600 hover:bg-purple-700 text-white px-3 py-1 rounded text-sm transition">
+                                <i class="fa-solid fa-link"></i>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Assign TOS to TL -->
+                    <div class="mb-3 p-3 bg-slate-50 dark:bg-slate-700/50 rounded-lg">
+                        <div class="text-xs font-medium text-slate-600 dark:text-slate-300 mb-2">
+                            <i class="fa-solid fa-users text-emerald-500 mr-1"></i>Assign TOS to TL
+                        </div>
+                        <div class="flex gap-2">
+                            <select id="assignTLSelect" class="input-field flex-1 text-sm">
+                                <option value="">Select TL</option>
+                            </select>
+                            <select id="assignTOSSelect" class="input-field flex-1 text-sm">
+                                <option value="">Select TOS</option>
+                            </select>
+                            <button onclick="assignTOSToTLClick()" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1 rounded text-sm transition">
+                                <i class="fa-solid fa-link"></i>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Current Team Structure -->
+                    <div class="text-xs font-medium text-slate-600 dark:text-slate-300 mb-2">
+                        <i class="fa-solid fa-diagram-project text-indigo-500 mr-1"></i>Current Team Structure
+                    </div>
+                    <div id="teamHierarchyDisplay" class="max-h-48 overflow-y-auto bg-slate-50 dark:bg-slate-700/50 rounded-lg p-2">
+                        <div class="text-slate-400 text-sm text-center py-4">Loading team structure...</div>
+                    </div>
+                </div>
+            </div>
+
             <div class="flex justify-end mt-4">
                 <button onclick="closeViewersModal()" class="px-4 py-2 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-white rounded-lg hover:bg-slate-200 dark:hover:bg-slate-600 transition">Close</button>
             </div>
@@ -8881,6 +8949,7 @@
                         'tm': 'bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-300',
                         'ta': 'bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-300',
                         'manager': 'bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-300',
+                        'tos': 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900 dark:text-emerald-300',
                         'other': 'bg-slate-100 text-slate-700 dark:bg-slate-700 dark:text-slate-300'
                     };
                     const roleLabels = {
@@ -8889,6 +8958,7 @@
                         'tm': 'TM',
                         'ta': 'TA',
                         'manager': 'Manager',
+                        'tos': 'TOS',
                         'other': 'Other',
                         'viewer': 'Other' // backwards compat
                     };
@@ -8936,6 +9006,204 @@
         }
         function closeViewersModal() {
             document.getElementById('viewersModal').classList.add('hidden');
+        }
+
+        // ============================================================
+        // TEAM HIERARCHY MANAGEMENT
+        // ============================================================
+        let teamHierarchySectionVisible = false;
+
+        function toggleTeamHierarchySection() {
+            teamHierarchySectionVisible = !teamHierarchySectionVisible;
+            const section = document.getElementById('teamHierarchySection');
+            const toggleText = document.getElementById('teamHierarchyToggleText');
+            const toggleIcon = document.getElementById('teamHierarchyToggleIcon');
+
+            if (teamHierarchySectionVisible) {
+                section.classList.remove('hidden');
+                toggleText.textContent = 'Hide';
+                toggleIcon.classList.remove('fa-chevron-down');
+                toggleIcon.classList.add('fa-chevron-up');
+                loadTeamHierarchyData();
+            } else {
+                section.classList.add('hidden');
+                toggleText.textContent = 'Show';
+                toggleIcon.classList.remove('fa-chevron-up');
+                toggleIcon.classList.add('fa-chevron-down');
+            }
+        }
+
+        function loadTeamHierarchyData() {
+            // Load users by role for dropdowns
+            google.script.run.withSuccessHandler(users => {
+                if (users.error) {
+                    console.error('Error loading users by role:', users.error);
+                    return;
+                }
+
+                // Populate Manager dropdown
+                const managerSelect = document.getElementById('assignManagerSelect');
+                managerSelect.innerHTML = '<option value="">Select Manager</option>';
+                users.managers.forEach(email => {
+                    managerSelect.innerHTML += `<option value="${email}">${email}</option>`;
+                });
+
+                // Populate TL dropdowns
+                const tlForManagerSelect = document.getElementById('assignTLForManagerSelect');
+                const tlSelect = document.getElementById('assignTLSelect');
+                tlForManagerSelect.innerHTML = '<option value="">Select TL</option>';
+                tlSelect.innerHTML = '<option value="">Select TL</option>';
+                users.tls.forEach(email => {
+                    tlForManagerSelect.innerHTML += `<option value="${email}">${email}</option>`;
+                    tlSelect.innerHTML += `<option value="${email}">${email}</option>`;
+                });
+
+                // Populate TOS dropdown
+                const tosSelect = document.getElementById('assignTOSSelect');
+                tosSelect.innerHTML = '<option value="">Select TOS</option>';
+                users.tos.forEach(email => {
+                    tosSelect.innerHTML += `<option value="${email}">${email}</option>`;
+                });
+            }).getUsersByRole();
+
+            // Load current team hierarchy
+            loadTeamHierarchyDisplay();
+        }
+
+        function loadTeamHierarchyDisplay() {
+            const display = document.getElementById('teamHierarchyDisplay');
+            display.innerHTML = '<div class="text-slate-400 text-sm text-center py-4">Loading team structure...</div>';
+
+            google.script.run.withSuccessHandler(hierarchy => {
+                if (hierarchy.error) {
+                    display.innerHTML = `<div class="text-red-500 text-sm text-center py-4">${hierarchy.error}</div>`;
+                    return;
+                }
+
+                const { managers, tls } = hierarchy;
+                let html = '';
+
+                // Check if there's any hierarchy
+                const hasManagerHierarchy = Object.keys(managers).length > 0;
+                const hasTLHierarchy = Object.keys(tls).length > 0;
+
+                if (!hasManagerHierarchy && !hasTLHierarchy) {
+                    display.innerHTML = '<div class="text-slate-400 text-sm text-center py-4">No team assignments yet. Use the forms above to create team structure.</div>';
+                    return;
+                }
+
+                // Display Manager -> TL hierarchy
+                if (hasManagerHierarchy) {
+                    html += '<div class="mb-3">';
+                    html += '<div class="text-xs font-semibold text-purple-600 dark:text-purple-400 mb-2">Managers</div>';
+                    for (const managerEmail in managers) {
+                        html += `<div class="mb-2 p-2 bg-white dark:bg-slate-800 rounded border border-slate-200 dark:border-slate-600">`;
+                        html += `<div class="flex items-center justify-between">`;
+                        html += `<span class="text-sm font-medium text-purple-700 dark:text-purple-300"><i class="fa-solid fa-user-tie mr-1"></i>${managerEmail}</span>`;
+                        html += `</div>`;
+                        html += `<div class="ml-4 mt-1 space-y-1">`;
+                        managers[managerEmail].forEach(tlEmail => {
+                            html += `<div class="flex items-center justify-between text-xs py-1 px-2 bg-indigo-50 dark:bg-indigo-900/30 rounded">`;
+                            html += `<span class="text-indigo-700 dark:text-indigo-300"><i class="fa-solid fa-arrow-right text-indigo-400 mr-1"></i>${tlEmail}</span>`;
+                            html += `<button onclick="removeTLFromManagerClick('${managerEmail}', '${tlEmail}')" class="text-red-500 hover:text-red-700 ml-2"><i class="fa-solid fa-times"></i></button>`;
+                            html += `</div>`;
+                        });
+                        html += `</div></div>`;
+                    }
+                    html += '</div>';
+                }
+
+                // Display TL -> TOS hierarchy
+                if (hasTLHierarchy) {
+                    html += '<div class="mb-2">';
+                    html += '<div class="text-xs font-semibold text-indigo-600 dark:text-indigo-400 mb-2">Team Leads</div>';
+                    for (const tlEmail in tls) {
+                        html += `<div class="mb-2 p-2 bg-white dark:bg-slate-800 rounded border border-slate-200 dark:border-slate-600">`;
+                        html += `<div class="flex items-center justify-between">`;
+                        html += `<span class="text-sm font-medium text-indigo-700 dark:text-indigo-300"><i class="fa-solid fa-user mr-1"></i>${tlEmail}</span>`;
+                        html += `</div>`;
+                        html += `<div class="ml-4 mt-1 space-y-1">`;
+                        tls[tlEmail].forEach(tosEmail => {
+                            html += `<div class="flex items-center justify-between text-xs py-1 px-2 bg-emerald-50 dark:bg-emerald-900/30 rounded">`;
+                            html += `<span class="text-emerald-700 dark:text-emerald-300"><i class="fa-solid fa-arrow-right text-emerald-400 mr-1"></i>${tosEmail}</span>`;
+                            html += `<button onclick="removeTOSFromTLClick('${tlEmail}', '${tosEmail}')" class="text-red-500 hover:text-red-700 ml-2"><i class="fa-solid fa-times"></i></button>`;
+                            html += `</div>`;
+                        });
+                        html += `</div></div>`;
+                    }
+                    html += '</div>';
+                }
+
+                display.innerHTML = html;
+            }).getTeamHierarchy();
+        }
+
+        function assignTLToManagerClick() {
+            const managerEmail = document.getElementById('assignManagerSelect').value;
+            const tlEmail = document.getElementById('assignTLForManagerSelect').value;
+
+            if (!managerEmail || !tlEmail) {
+                showToast('Please select both a Manager and a TL', 'error');
+                return;
+            }
+
+            google.script.run.withSuccessHandler(res => {
+                if (res.success) {
+                    showToast('TL assigned to Manager', 'success');
+                    loadTeamHierarchyDisplay();
+                    document.getElementById('assignManagerSelect').value = '';
+                    document.getElementById('assignTLForManagerSelect').value = '';
+                } else {
+                    showToast(res.error || 'Failed to assign', 'error');
+                }
+            }).assignTLToManager(managerEmail, tlEmail);
+        }
+
+        function assignTOSToTLClick() {
+            const tlEmail = document.getElementById('assignTLSelect').value;
+            const tosEmail = document.getElementById('assignTOSSelect').value;
+
+            if (!tlEmail || !tosEmail) {
+                showToast('Please select both a TL and a TOS', 'error');
+                return;
+            }
+
+            google.script.run.withSuccessHandler(res => {
+                if (res.success) {
+                    showToast('TOS assigned to TL', 'success');
+                    loadTeamHierarchyDisplay();
+                    document.getElementById('assignTLSelect').value = '';
+                    document.getElementById('assignTOSSelect').value = '';
+                } else {
+                    showToast(res.error || 'Failed to assign', 'error');
+                }
+            }).assignTOSToTL(tlEmail, tosEmail);
+        }
+
+        function removeTLFromManagerClick(managerEmail, tlEmail) {
+            if (!confirm(`Remove ${tlEmail} from ${managerEmail}'s team?`)) return;
+
+            google.script.run.withSuccessHandler(res => {
+                if (res.success) {
+                    showToast('TL removed from Manager', 'success');
+                    loadTeamHierarchyDisplay();
+                } else {
+                    showToast(res.error || 'Failed to remove', 'error');
+                }
+            }).removeTLFromManager(managerEmail, tlEmail);
+        }
+
+        function removeTOSFromTLClick(tlEmail, tosEmail) {
+            if (!confirm(`Remove ${tosEmail} from ${tlEmail}'s team?`)) return;
+
+            google.script.run.withSuccessHandler(res => {
+                if (res.success) {
+                    showToast('TOS removed from TL', 'success');
+                    loadTeamHierarchyDisplay();
+                } else {
+                    showToast(res.error || 'Failed to remove', 'error');
+                }
+            }).removeTOSFromTL(tlEmail, tosEmail);
         }
 
         // ============================================================

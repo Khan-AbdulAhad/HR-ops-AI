@@ -10215,7 +10215,7 @@ function buildAccessResponse(role, userEmail, isNewUser) {
     },
     'tl': {
       hasOperationalAccess: true,
-      canViewAllAnalytics: true,
+      canViewAllAnalytics: true, // Will be filtered by team
       canManageUsers: false
     },
     'tm': {
@@ -10230,7 +10230,12 @@ function buildAccessResponse(role, userEmail, isNewUser) {
     },
     'manager': {
       hasOperationalAccess: false,
-      canViewAllAnalytics: true,
+      canViewAllAnalytics: true, // Will be filtered by team
+      canManageUsers: false
+    },
+    'tos': {
+      hasOperationalAccess: true,
+      canViewAllAnalytics: false, // Can only see own data
       canManageUsers: false
     },
     'other': {
@@ -10246,6 +10251,14 @@ function buildAccessResponse(role, userEmail, isNewUser) {
   // Get page access settings for this role
   const pageAccess = getPageAccessForRole(normalizedRole);
 
+  // Get team members for roles that use team-based filtering
+  // NOTE: Admin privileges are NEVER affected by team hierarchy placement
+  // Only Manager and TL roles use team-based filtering
+  let teamMembers = [userEmail.toLowerCase()];
+  if (normalizedRole === 'manager' || normalizedRole === 'tl') {
+    teamMembers = getTeamMembersForUser(userEmail, normalizedRole);
+  }
+
   return {
     hasAccess: true,
     accessLevel: normalizedRole,
@@ -10254,7 +10267,8 @@ function buildAccessResponse(role, userEmail, isNewUser) {
     canViewAllAnalytics: perms.canViewAllAnalytics,
     canManageUsers: perms.canManageUsers,
     isNewUser: isNewUser,
-    pageAccess: pageAccess
+    pageAccess: pageAccess,
+    teamMembers: teamMembers // List of emails this user can see data for
   };
 }
 
@@ -10369,11 +10383,13 @@ function searchAnalyticsUsers(searchQuery) {
     return [];
   }
 
-  // Users who can view all analytics can search all emails
-  // Others can only search for their own email
+  const query = String(searchQuery || '').toLowerCase().trim();
+  const teamMembers = access.teamMembers || [access.userEmail.toLowerCase()];
+  const isAdmin = access.accessLevel === 'admin' || access.canManageUsers;
+  const isTeamLead = access.accessLevel === 'manager' || access.accessLevel === 'tl';
+
+  // Users who can't view all analytics can only search for their own email
   if (!access.canViewAllAnalytics) {
-    // Only return user's own email if it matches the search query
-    const query = String(searchQuery || '').toLowerCase().trim();
     const userEmail = access.userEmail.toLowerCase();
     if (!query || userEmail.includes(query)) {
       return [userEmail];
@@ -10381,6 +10397,19 @@ function searchAnalyticsUsers(searchQuery) {
     return [];
   }
 
+  // IMPORTANT: Admin privileges are NEVER affected by team hierarchy
+  // Skip team filtering for admins - they can search all emails
+  if (isAdmin) {
+    // Fall through to admin search below
+  } else if (isTeamLead && teamMembers.length > 0) {
+    // Team leads (Manager/TL) can only search within their team
+    const matchingEmails = teamMembers.filter(email =>
+      !query || email.toLowerCase().includes(query)
+    );
+    return matchingEmails.sort().slice(0, 10);
+  }
+
+  // Admins can search all emails
   try {
     const ss = getAnalyticsSpreadsheet();
     if (!ss) return [];
@@ -10389,7 +10418,6 @@ function searchAnalyticsUsers(searchQuery) {
     if (!sheet || sheet.getLastRow() <= 1) return [];
 
     const data = sheet.getDataRange().getValues();
-    const query = String(searchQuery || '').toLowerCase().trim();
     const uniqueEmails = new Set();
 
     // Collect unique emails that match the search query
@@ -10611,11 +10639,33 @@ function getUserAnalytics(filterEmail, filterJobId, startDate, endDate) {
     endDateFilter.setHours(23, 59, 59, 999);
   }
 
-  // RBAC: Users without canViewAllAnalytics can only see their own analytics
-  // Force email filter to their own email regardless of what was passed
+  // RBAC: Handle team-based access for Managers and TLs
+  // - Admin: ALWAYS has full access (even if placed under a TL in hierarchy)
+  // - Manager/TL: can see their team members' data
+  // - Others: can only see their own data
   const canViewAll = access.canViewAllAnalytics;
-  if (!canViewAll) {
+  const teamMembers = access.teamMembers || [access.userEmail.toLowerCase()];
+  const isAdmin = access.accessLevel === 'admin' || access.canManageUsers;
+  const isTeamLead = access.accessLevel === 'manager' || access.accessLevel === 'tl';
+
+  // Determine which emails this user can see
+  let allowedEmails = null; // null means all emails (for admin with full access)
+
+  // IMPORTANT: Admin privileges are NEVER affected by team hierarchy
+  // Even if an admin is assigned under a TL, they retain full access
+  if (isAdmin) {
+    allowedEmails = null; // Admin can see ALL data
+  } else if (!canViewAll) {
+    // Users without canViewAllAnalytics can only see their own data
+    allowedEmails = [access.userEmail.toLowerCase()];
     emailFilter = access.userEmail.toLowerCase();
+  } else if (isTeamLead && teamMembers.length > 0) {
+    // Team leads can see their team members' data
+    allowedEmails = teamMembers;
+    // If a specific email filter is provided, validate it's in their team
+    if (emailFilter && !teamMembers.includes(emailFilter)) {
+      emailFilter = ''; // Clear invalid filter, will show all team data
+    }
   }
 
   try {
@@ -10641,7 +10691,8 @@ function getUserAnalytics(filterEmail, filterJobId, startDate, endDate) {
       filterApplied: emailFilter || null,
       jobFilterApplied: jobIdFilter || null,
       startDateApplied: startDate || null,
-      endDateApplied: endDate || null
+      endDateApplied: endDate || null,
+      teamMembers: isTeamLead ? teamMembers : null
     };
 
     const sheet = ss.getSheetByName('Activity_Log');
@@ -10660,7 +10711,12 @@ function getUserAnalytics(filterEmail, filterJobId, startDate, endDate) {
       const jobId = String(data[i][3] || '');
       const count = parseInt(data[i][4]) || 1;
 
-      // Apply email filter if specified
+      // Apply team-based access filtering
+      if (allowedEmails !== null && !allowedEmails.includes(userEmail.toLowerCase())) {
+        continue; // Skip if user is not in allowed emails list
+      }
+
+      // Apply specific email filter if specified
       if (emailFilter && userEmail.toLowerCase() !== emailFilter) {
         continue; // Skip this row if it doesn't match the email filter
       }
@@ -11408,7 +11464,7 @@ function addAnalyticsViewer(email, role) {
   }
 
   // Valid roles for RBAC
-  const validRoles = ['admin', 'tl', 'tm', 'ta', 'manager', 'other'];
+  const validRoles = ['admin', 'tl', 'tm', 'ta', 'manager', 'tos', 'other'];
   let accessLevel = String(role || 'other').toLowerCase();
   if (!validRoles.includes(accessLevel)) {
     accessLevel = 'other';
@@ -11520,6 +11576,10 @@ const PAGE_ACCESS_DEFAULTS = {
     outreach: false, negotiation: false, tasks: false, followups: false,
     analytics: true, learning: true, aitesting: false, processmap: false
   },
+  'tos': {
+    outreach: true, negotiation: true, tasks: true, followups: true,
+    analytics: true, learning: true, aitesting: false, processmap: false
+  },
   'other': {
     outreach: true, negotiation: true, tasks: true, followups: true,
     analytics: true, learning: true, aitesting: false, processmap: false
@@ -11527,7 +11587,7 @@ const PAGE_ACCESS_DEFAULTS = {
 };
 
 const ALL_PAGES = ['outreach', 'negotiation', 'tasks', 'followups', 'analytics', 'learning', 'aitesting', 'processmap'];
-const ALL_ROLES = ['admin', 'tl', 'tm', 'ta', 'manager', 'other'];
+const ALL_ROLES = ['admin', 'tl', 'tm', 'ta', 'manager', 'tos', 'other'];
 
 /**
  * Initialize Page_Access_Control sheet with default values
@@ -11709,6 +11769,418 @@ function getPageAccessForRole(role) {
   } catch (e) {
     console.error("Error getting page access for role:", e);
     return PAGE_ACCESS_DEFAULTS[role] || PAGE_ACCESS_DEFAULTS['other'];
+  }
+}
+
+
+// ============================================================
+// TEAM HIERARCHY MANAGEMENT SYSTEM
+// ============================================================
+
+/**
+ * Team Hierarchy Structure:
+ * - Managers can have multiple TLs under them
+ * - TLs can have multiple TOS (Team Operations Staff) under them
+ * - Each level can only see their team's data
+ *
+ * Sheet: Team_Hierarchy
+ * Columns: Manager Email, TL Email, TOS Email
+ * - Row with Manager + TL = TL reports to Manager
+ * - Row with TL + TOS = TOS reports to TL
+ */
+
+/**
+ * Initialize Team_Hierarchy sheet
+ * @returns {Object} Result of the operation
+ */
+function initTeamHierarchy() {
+  try {
+    const ss = getAnalyticsSpreadsheet();
+    if (!ss) return { success: false, error: "Cannot access analytics sheet" };
+
+    let sheet = ss.getSheetByName('Team_Hierarchy');
+    if (!sheet) {
+      sheet = ss.insertSheet('Team_Hierarchy');
+      sheet.appendRow(['Manager Email', 'TL Email', 'TOS Email', 'Created By', 'Created Date']);
+      sheet.setFrozenRows(1);
+      sheet.getRange(1, 1, 1, 5).setFontWeight('bold');
+    }
+
+    return { success: true };
+  } catch (e) {
+    console.error("Error initializing Team_Hierarchy:", e);
+    return { success: false, error: e.message };
+  }
+}
+
+/**
+ * Get the complete team hierarchy
+ * @returns {Object} Team hierarchy data
+ */
+function getTeamHierarchy() {
+  const access = checkAnalyticsAccess();
+  if (!access.canManageUsers) {
+    return { error: "Only admins can view team hierarchy" };
+  }
+
+  try {
+    const ss = getAnalyticsSpreadsheet();
+    if (!ss) return { error: "Cannot access analytics sheet" };
+
+    // Initialize sheet if it doesn't exist
+    initTeamHierarchy();
+
+    const sheet = ss.getSheetByName('Team_Hierarchy');
+    if (!sheet || sheet.getLastRow() <= 1) {
+      return { managers: {}, tls: {} };
+    }
+
+    const data = sheet.getDataRange().getValues();
+    const managers = {}; // manager email -> [tl emails]
+    const tls = {}; // tl email -> [tos emails]
+
+    for (let i = 1; i < data.length; i++) {
+      const managerEmail = String(data[i][0] || '').toLowerCase().trim();
+      const tlEmail = String(data[i][1] || '').toLowerCase().trim();
+      const tosEmail = String(data[i][2] || '').toLowerCase().trim();
+
+      // Manager -> TL relationship
+      if (managerEmail && tlEmail && !tosEmail) {
+        if (!managers[managerEmail]) {
+          managers[managerEmail] = [];
+        }
+        if (!managers[managerEmail].includes(tlEmail)) {
+          managers[managerEmail].push(tlEmail);
+        }
+      }
+
+      // TL -> TOS relationship
+      if (tlEmail && tosEmail) {
+        if (!tls[tlEmail]) {
+          tls[tlEmail] = [];
+        }
+        if (!tls[tlEmail].includes(tosEmail)) {
+          tls[tlEmail].push(tosEmail);
+        }
+      }
+    }
+
+    return { managers, tls };
+  } catch (e) {
+    console.error("Error getting team hierarchy:", e);
+    return { error: e.message };
+  }
+}
+
+/**
+ * Assign a TL under a Manager
+ * @param {string} managerEmail - Manager's email
+ * @param {string} tlEmail - TL's email
+ * @returns {Object} Result of the operation
+ */
+function assignTLToManager(managerEmail, tlEmail) {
+  const access = checkAnalyticsAccess();
+  if (!access.canManageUsers) {
+    return { success: false, error: "Only admins can manage team hierarchy" };
+  }
+
+  if (!managerEmail || !tlEmail) {
+    return { success: false, error: "Both manager and TL emails are required" };
+  }
+
+  managerEmail = managerEmail.toLowerCase().trim();
+  tlEmail = tlEmail.toLowerCase().trim();
+
+  try {
+    const ss = getAnalyticsSpreadsheet();
+    if (!ss) return { success: false, error: "Cannot access analytics sheet" };
+
+    initTeamHierarchy();
+    const sheet = ss.getSheetByName('Team_Hierarchy');
+
+    // Check if assignment already exists
+    const data = sheet.getDataRange().getValues();
+    for (let i = 1; i < data.length; i++) {
+      const existingManager = String(data[i][0] || '').toLowerCase().trim();
+      const existingTL = String(data[i][1] || '').toLowerCase().trim();
+      const existingTOS = String(data[i][2] || '').toLowerCase().trim();
+
+      if (existingManager === managerEmail && existingTL === tlEmail && !existingTOS) {
+        return { success: false, error: "This TL is already assigned to this Manager" };
+      }
+    }
+
+    // Add the assignment
+    const addedBy = Session.getActiveUser().getEmail() || 'Unknown';
+    sheet.appendRow([managerEmail, tlEmail, '', addedBy, new Date()]);
+
+    return { success: true, message: `Assigned ${tlEmail} under ${managerEmail}` };
+  } catch (e) {
+    console.error("Error assigning TL to manager:", e);
+    return { success: false, error: e.message };
+  }
+}
+
+/**
+ * Assign a TOS under a TL
+ * @param {string} tlEmail - TL's email
+ * @param {string} tosEmail - TOS's email
+ * @returns {Object} Result of the operation
+ */
+function assignTOSToTL(tlEmail, tosEmail) {
+  const access = checkAnalyticsAccess();
+  if (!access.canManageUsers) {
+    return { success: false, error: "Only admins can manage team hierarchy" };
+  }
+
+  if (!tlEmail || !tosEmail) {
+    return { success: false, error: "Both TL and TOS emails are required" };
+  }
+
+  tlEmail = tlEmail.toLowerCase().trim();
+  tosEmail = tosEmail.toLowerCase().trim();
+
+  try {
+    const ss = getAnalyticsSpreadsheet();
+    if (!ss) return { success: false, error: "Cannot access analytics sheet" };
+
+    initTeamHierarchy();
+    const sheet = ss.getSheetByName('Team_Hierarchy');
+
+    // Check if assignment already exists
+    const data = sheet.getDataRange().getValues();
+    for (let i = 1; i < data.length; i++) {
+      const existingTL = String(data[i][1] || '').toLowerCase().trim();
+      const existingTOS = String(data[i][2] || '').toLowerCase().trim();
+
+      if (existingTL === tlEmail && existingTOS === tosEmail) {
+        return { success: false, error: "This TOS is already assigned to this TL" };
+      }
+    }
+
+    // Add the assignment (no manager email for TL->TOS relationship)
+    const addedBy = Session.getActiveUser().getEmail() || 'Unknown';
+    sheet.appendRow(['', tlEmail, tosEmail, addedBy, new Date()]);
+
+    return { success: true, message: `Assigned ${tosEmail} under ${tlEmail}` };
+  } catch (e) {
+    console.error("Error assigning TOS to TL:", e);
+    return { success: false, error: e.message };
+  }
+}
+
+/**
+ * Remove a TL from a Manager
+ * @param {string} managerEmail - Manager's email
+ * @param {string} tlEmail - TL's email
+ * @returns {Object} Result of the operation
+ */
+function removeTLFromManager(managerEmail, tlEmail) {
+  const access = checkAnalyticsAccess();
+  if (!access.canManageUsers) {
+    return { success: false, error: "Only admins can manage team hierarchy" };
+  }
+
+  managerEmail = managerEmail.toLowerCase().trim();
+  tlEmail = tlEmail.toLowerCase().trim();
+
+  try {
+    const ss = getAnalyticsSpreadsheet();
+    if (!ss) return { success: false, error: "Cannot access analytics sheet" };
+
+    const sheet = ss.getSheetByName('Team_Hierarchy');
+    if (!sheet) return { success: false, error: "Team_Hierarchy sheet not found" };
+
+    const data = sheet.getDataRange().getValues();
+    let rowToDelete = -1;
+
+    for (let i = 1; i < data.length; i++) {
+      const existingManager = String(data[i][0] || '').toLowerCase().trim();
+      const existingTL = String(data[i][1] || '').toLowerCase().trim();
+      const existingTOS = String(data[i][2] || '').toLowerCase().trim();
+
+      if (existingManager === managerEmail && existingTL === tlEmail && !existingTOS) {
+        rowToDelete = i + 1;
+        break;
+      }
+    }
+
+    if (rowToDelete === -1) {
+      return { success: false, error: "Assignment not found" };
+    }
+
+    sheet.deleteRow(rowToDelete);
+
+    return { success: true, message: `Removed ${tlEmail} from ${managerEmail}'s team` };
+  } catch (e) {
+    console.error("Error removing TL from manager:", e);
+    return { success: false, error: e.message };
+  }
+}
+
+/**
+ * Remove a TOS from a TL
+ * @param {string} tlEmail - TL's email
+ * @param {string} tosEmail - TOS's email
+ * @returns {Object} Result of the operation
+ */
+function removeTOSFromTL(tlEmail, tosEmail) {
+  const access = checkAnalyticsAccess();
+  if (!access.canManageUsers) {
+    return { success: false, error: "Only admins can manage team hierarchy" };
+  }
+
+  tlEmail = tlEmail.toLowerCase().trim();
+  tosEmail = tosEmail.toLowerCase().trim();
+
+  try {
+    const ss = getAnalyticsSpreadsheet();
+    if (!ss) return { success: false, error: "Cannot access analytics sheet" };
+
+    const sheet = ss.getSheetByName('Team_Hierarchy');
+    if (!sheet) return { success: false, error: "Team_Hierarchy sheet not found" };
+
+    const data = sheet.getDataRange().getValues();
+    let rowToDelete = -1;
+
+    for (let i = 1; i < data.length; i++) {
+      const existingTL = String(data[i][1] || '').toLowerCase().trim();
+      const existingTOS = String(data[i][2] || '').toLowerCase().trim();
+
+      if (existingTL === tlEmail && existingTOS === tosEmail) {
+        rowToDelete = i + 1;
+        break;
+      }
+    }
+
+    if (rowToDelete === -1) {
+      return { success: false, error: "Assignment not found" };
+    }
+
+    sheet.deleteRow(rowToDelete);
+
+    return { success: true, message: `Removed ${tosEmail} from ${tlEmail}'s team` };
+  } catch (e) {
+    console.error("Error removing TOS from TL:", e);
+    return { success: false, error: e.message };
+  }
+}
+
+/**
+ * Get team members for a specific user (for data filtering)
+ * Returns all emails that should be visible to this user based on hierarchy
+ * @param {string} userEmail - User's email
+ * @param {string} userRole - User's role (manager, tl, tos)
+ * @returns {Array} List of emails this user can see
+ */
+function getTeamMembersForUser(userEmail, userRole) {
+  try {
+    const ss = getAnalyticsSpreadsheet();
+    if (!ss) return [userEmail];
+
+    const sheet = ss.getSheetByName('Team_Hierarchy');
+    if (!sheet || sheet.getLastRow() <= 1) {
+      return [userEmail]; // No hierarchy, can only see own data
+    }
+
+    const data = sheet.getDataRange().getValues();
+    const visibleEmails = [userEmail.toLowerCase()];
+    const normalizedRole = (userRole || '').toLowerCase();
+
+    if (normalizedRole === 'manager') {
+      // Manager can see all TLs under them and all TOS under those TLs
+      const myTLs = [];
+
+      // Find all TLs under this manager
+      for (let i = 1; i < data.length; i++) {
+        const managerEmail = String(data[i][0] || '').toLowerCase().trim();
+        const tlEmail = String(data[i][1] || '').toLowerCase().trim();
+        const tosEmail = String(data[i][2] || '').toLowerCase().trim();
+
+        if (managerEmail === userEmail.toLowerCase() && tlEmail && !tosEmail) {
+          myTLs.push(tlEmail);
+          if (!visibleEmails.includes(tlEmail)) {
+            visibleEmails.push(tlEmail);
+          }
+        }
+      }
+
+      // Find all TOS under those TLs
+      for (let i = 1; i < data.length; i++) {
+        const tlEmail = String(data[i][1] || '').toLowerCase().trim();
+        const tosEmail = String(data[i][2] || '').toLowerCase().trim();
+
+        if (myTLs.includes(tlEmail) && tosEmail) {
+          if (!visibleEmails.includes(tosEmail)) {
+            visibleEmails.push(tosEmail);
+          }
+        }
+      }
+    } else if (normalizedRole === 'tl') {
+      // TL can see all TOS under them
+      for (let i = 1; i < data.length; i++) {
+        const tlEmail = String(data[i][1] || '').toLowerCase().trim();
+        const tosEmail = String(data[i][2] || '').toLowerCase().trim();
+
+        if (tlEmail === userEmail.toLowerCase() && tosEmail) {
+          if (!visibleEmails.includes(tosEmail)) {
+            visibleEmails.push(tosEmail);
+          }
+        }
+      }
+    }
+    // TOS can only see their own data (already added)
+
+    return visibleEmails;
+  } catch (e) {
+    console.error("Error getting team members for user:", e);
+    return [userEmail];
+  }
+}
+
+/**
+ * Get all users with their roles for team assignment dropdowns
+ * @returns {Object} Users grouped by role
+ */
+function getUsersByRole() {
+  const access = checkAnalyticsAccess();
+  if (!access.canManageUsers) {
+    return { error: "Only admins can view users by role" };
+  }
+
+  try {
+    const ss = getAnalyticsSpreadsheet();
+    if (!ss) return { error: "Cannot access analytics sheet" };
+
+    const sheet = ss.getSheetByName('Analytics_Viewers');
+    if (!sheet || sheet.getLastRow() <= 1) {
+      return { managers: [], tls: [], tos: [] };
+    }
+
+    const data = sheet.getDataRange().getValues();
+    const result = {
+      managers: [],
+      tls: [],
+      tos: []
+    };
+
+    for (let i = 1; i < data.length; i++) {
+      const email = String(data[i][0] || '').toLowerCase().trim();
+      const role = String(data[i][3] || 'other').toLowerCase();
+
+      if (role === 'manager') {
+        result.managers.push(email);
+      } else if (role === 'tl') {
+        result.tls.push(email);
+      } else if (role === 'tos') {
+        result.tos.push(email);
+      }
+    }
+
+    return result;
+  } catch (e) {
+    console.error("Error getting users by role:", e);
+    return { error: e.message };
   }
 }
 
