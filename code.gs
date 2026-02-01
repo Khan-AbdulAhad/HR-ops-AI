@@ -135,7 +135,8 @@ function buildNegotiationReplyPrompt(params) {
     specialRules = '',
     region = '',
     startDates = [],
-    jdLink = ''
+    jdLink = '',
+    pendingDataQuestions = []  // Data questions that still need answers
   } = params;
 
   // SAFETY: Validate that rates are explicitly provided - no silent defaults
@@ -246,6 +247,19 @@ Just state your offer directly: "We can offer $X/hr for this role"
 - If they say "immediately available" → Do NOT ask for a specific start date
 - If they already stated their rate → Do NOT re-ask what rate they expect
 - Only follow up on MISSING information from what was originally asked
+
+=== PENDING INFORMATION TO REQUEST ===
+**CRITICAL: If there are missing items below, include them in your email along with the rate discussion.**
+${typeof pendingDataQuestions !== 'undefined' && pendingDataQuestions && pendingDataQuestions.length > 0
+  ? `The following information is still needed from the candidate:
+${pendingDataQuestions.map((q, i) => (i+1) + '. ' + q.question).join('\n')}
+
+**COMBINED EMAIL APPROACH:**
+- Address the rate negotiation FIRST (accept, counter, or offer)
+- THEN politely request the missing information listed above
+- Example: "Regarding the rate, [rate response]. To proceed with your application, could you also share [missing items]?"
+- Keep the email concise - combine both naturally`
+  : 'No pending information to request - focus on rate negotiation only.'}
 
 === HANDLING SENSITIVE QUESTIONS ===
 If the candidate asks about ANY of the following, DO NOT answer - instead say "I'd be happy to connect you with our team to discuss that further" and use ACTION: ESCALATE:
@@ -5902,6 +5916,19 @@ Just state your offer directly: "We can offer $X/hr for this role"
 - If they say "immediately available" → Do NOT ask for a specific start date
 - If they already stated their rate → Do NOT re-ask what rate they expect
 - Only follow up on MISSING information from what was originally asked
+
+=== PENDING INFORMATION TO REQUEST ===
+**CRITICAL: If there are missing items below, include them in your email along with the rate discussion.**
+${typeof pendingDataQuestions !== 'undefined' && pendingDataQuestions && pendingDataQuestions.length > 0
+  ? `The following information is still needed from the candidate:
+${pendingDataQuestions.map((q, i) => (i+1) + '. ' + q.question).join('\n')}
+
+**COMBINED EMAIL APPROACH:**
+- Address the rate negotiation FIRST (accept, counter, or offer)
+- THEN politely request the missing information listed above
+- Example: "Regarding the rate, [rate response]. To proceed with your application, could you also share [missing items]?"
+- Keep the email concise - combine both naturally`
+  : 'No pending information to request - focus on rate negotiation only.'}
 
 === HANDLING SENSITIVE QUESTIONS ===
 If the candidate asks about ANY of the following, DO NOT answer - instead say "I'd be happy to connect you with our team to discuss that further" and use ACTION: ESCALATE:
