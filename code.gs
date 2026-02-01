@@ -4602,8 +4602,28 @@ function processJobNegotiations(jobId, rules, ss, faqContent, negotiationEnabled
         // IMPORTANT: If data gathering is pending, we should NOT send a separate negotiation email
         // This prevents duplicate emails (one for data gathering, one for negotiation)
         if (saveResult.pendingQuestions && saveResult.pendingQuestions.length > 0 && !saveResult.dataComplete) {
-          // Only send if data gathering is enabled and we haven't sent one recently
-          if (shouldSendMissingInfoFollowUp(jobId, candidateEmail)) {
+          // CRITICAL FIX: Check if candidate mentioned a rate in their message
+          // If they did, we should NOT send a simple data gathering email - instead let the negotiation
+          // logic handle it, which will send a combined "acknowledge rate + request missing info" email
+          const rateDetectionPatterns = [
+            /(?:my\s+)?(?:expected\s+)?rate\s+(?:is|would\s+be)\s+\$?\s*(\d+(?:\.\d+)?)/i,
+            /\$\s*(\d+(?:\.\d+)?)\s*(?:\/\s*hr|\/\s*hour|per\s*hour|an\s*hour)/i,
+            /(\d+(?:\.\d+)?)\s*(?:dollars?\s*(?:per|\/|an)\s*hour)/i,
+            /(?:asking|expect|want|looking\s+for|i\s+can\s+do)\s+\$?\s*(\d+(?:\.\d+)?)/i
+          ];
+
+          let candidateMentionedRate = false;
+          for (const pattern of rateDetectionPatterns) {
+            if (pattern.test(candidateLatestMessage)) {
+              candidateMentionedRate = true;
+              jobStats.log.push({type: 'info', message: `${candidateEmail} - Rate detected in message, skipping simple data gathering to let negotiation logic handle combined response`});
+              break;
+            }
+          }
+
+          // Only send simple data gathering email if candidate did NOT mention a rate
+          // If they mentioned a rate, the negotiation logic below will handle both rate AND data gathering
+          if (!candidateMentionedRate && shouldSendMissingInfoFollowUp(jobId, candidateEmail)) {
             try {
               const missingInfoEmail = generateMissingInfoFollowUp(
                 candidateName,
