@@ -4616,7 +4616,7 @@ function processJobNegotiations(jobId, rules, ss, faqContent, negotiationEnabled
         // IMPORTANT: If data gathering is pending, we should NOT send a separate negotiation email
         // This prevents duplicate emails (one for data gathering, one for negotiation)
         if (saveResult.pendingQuestions && saveResult.pendingQuestions.length > 0 && !saveResult.dataComplete) {
-          // CRITICAL FIX: Check if candidate mentioned a rate in their message
+          // CRITICAL FIX: Check if candidate mentioned a rate in their message OR if rate was already provided
           // If they did, we should NOT send a simple data gathering email - instead let the negotiation
           // logic handle it, which will send a combined "acknowledge rate + request missing info" email
           const rateDetectionPatterns = [
@@ -4627,11 +4627,33 @@ function processJobNegotiations(jobId, rules, ss, faqContent, negotiationEnabled
           ];
 
           let candidateMentionedRate = false;
+
+          // Check 1: Rate in current message
           for (const pattern of rateDetectionPatterns) {
             if (pattern.test(candidateLatestMessage)) {
               candidateMentionedRate = true;
-              jobStats.log.push({type: 'info', message: `${candidateEmail} - Rate detected in message, skipping simple data gathering to let negotiation logic handle combined response`});
+              jobStats.log.push({type: 'info', message: `${candidateEmail} - Rate detected in current message, skipping simple data gathering to let negotiation logic handle combined response`});
               break;
+            }
+          }
+
+          // Check 2: Rate already provided in previous messages (extracted to answers)
+          // This prevents returning early when rate was in a previous message but not the current one
+          if (!candidateMentionedRate && answers && answers['Expected Rate'] &&
+              answers['Expected Rate'] !== 'NOT_PROVIDED' && answers['Expected Rate'] !== 'PARSE_ERROR') {
+            candidateMentionedRate = true;
+            jobStats.log.push({type: 'info', message: `${candidateEmail} - Rate already extracted from previous messages ($${answers['Expected Rate']}), skipping simple data gathering to let negotiation logic handle`});
+          }
+
+          // Check 3: Also check conversation history for rate mentions
+          // This catches cases where rate was mentioned but not extracted to Expected Rate field
+          if (!candidateMentionedRate && conversationHistory) {
+            for (const pattern of rateDetectionPatterns) {
+              if (pattern.test(conversationHistory)) {
+                candidateMentionedRate = true;
+                jobStats.log.push({type: 'info', message: `${candidateEmail} - Rate found in conversation history, skipping simple data gathering to let negotiation logic handle`});
+                break;
+              }
             }
           }
 
