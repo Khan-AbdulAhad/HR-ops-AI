@@ -11216,7 +11216,7 @@ function getTimeToResponseMetrics(filterJobId, startDate, endDate) {
   }
 
   try {
-    const ss = getSpreadsheet();
+    const ss = getCachedSpreadsheet();
     if (!ss) return { error: "Cannot access spreadsheet" };
 
     // Get Email_Logs for outreach timestamps
@@ -11410,7 +11410,7 @@ function getConversionFunnelData(filterJobId, startDate, endDate) {
   }
 
   try {
-    const ss = getSpreadsheet();
+    const ss = getCachedSpreadsheet();
     if (!ss) return { error: "Cannot access spreadsheet" };
 
     // Parse date filters
