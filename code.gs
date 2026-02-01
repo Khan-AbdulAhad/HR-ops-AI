@@ -4922,10 +4922,16 @@ Write ONLY the email, nothing else.
           // Move to completed sheet
           const compSheet = ss.getSheetByName('Negotiation_Completed');
           if (compSheet) {
-            const existingAiNotes = state?.aiNotes || '';
-            const finalNotes = existingAiNotes
-              ? existingAiNotes + ' | AI Auto-Completed after follow-up'
-              : `Rate Agreed${agreedRate ? ` at $${agreedRate}/hr` : ''} - Completed after candidate follow-up`;
+            // Generate accurate acceptance summary - only calls AI if stale text detected (efficient)
+            const rateForSummary = agreedRate ? Number(agreedRate) : 0;
+            const finalNotes = generateAcceptanceSummaryIfNeeded(
+              state?.aiNotes || '',
+              conversationHistory,
+              rateForSummary,
+              candidateEmail,
+              jobId,
+              'AI Auto-Completed after follow-up'
+            );
 
             compSheet.appendRow([
               new Date(),
@@ -5498,11 +5504,15 @@ Write ONLY the email, nothing else.
       updateFollowUpLabels(thread.getId(), 'responded');
 
       // Record directly in Negotiation_Completed (auto-completed, not pending)
-      // Preserve the existing AI Notes/Summary from negotiation process
-      const existingAiNotes = state?.aiNotes || '';
-      const finalNotes = existingAiNotes
-        ? existingAiNotes + ' | AI Auto-Accepted'
-        : `Offer Accepted at $${rate}/hr - AI Auto-Accepted`;
+      // Generate accurate acceptance summary - only calls AI if stale text detected (efficient)
+      const finalNotes = generateAcceptanceSummaryIfNeeded(
+        state?.aiNotes || '',
+        conversationHistory,
+        rate,
+        candidateEmail,
+        jobId,
+        'AI Auto-Accepted'
+      );
 
       const compSheet = ss.getSheetByName('Negotiation_Completed');
       if (compSheet) {
@@ -6316,11 +6326,15 @@ Write ONLY the email, nothing else.
       updateFollowUpLabels(thread.getId(), 'responded');
 
       // Record directly in Negotiation_Completed (auto-completed, not pending)
-      // Preserve the existing AI Notes/Summary from negotiation process
-      const existingAiNotes = state?.aiNotes || '';
-      const finalNotes = existingAiNotes
-        ? existingAiNotes + ' | AI Accepted'
-        : `Offer Accepted at $${rate}/hr - AI Accepted`;
+      // Generate accurate acceptance summary - only calls AI if stale text detected (efficient)
+      const finalNotes = generateAcceptanceSummaryIfNeeded(
+        state?.aiNotes || '',
+        conversationHistory,
+        rate,
+        candidateEmail,
+        jobId,
+        'AI Accepted'
+      );
 
       const compSheet = ss.getSheetByName('Negotiation_Completed');
       if (compSheet) {
@@ -6708,6 +6722,93 @@ Write ONLY the summary, nothing else.
       fallback += ` Data: ${dataGathering.answered.length}/${dataGathering.answered.length + dataGathering.pending.length} collected.`;
     }
     return fallback;
+  }
+}
+
+/**
+ * Lightweight summary generator for acceptance - uses fewer tokens than full summary
+ * Only called when accepting a candidate to update stale "Awaiting response" text
+ *
+ * @param {string} existingNotes - Current AI notes (may contain stale text)
+ * @param {number} rate - Accepted rate
+ * @param {string} candidateName - Candidate's name
+ * @param {string} acceptanceType - Type of acceptance (e.g., "AI Auto-Accepted", "AI Accepted")
+ * @returns {string} Updated notes with accurate acceptance status
+ */
+function updateNotesForAcceptance(existingNotes, rate, candidateName, acceptanceType) {
+  // If no existing notes or very short, just return a simple acceptance note
+  if (!existingNotes || existingNotes.length < 20) {
+    return `Offer Accepted at $${rate}/hr - ${acceptanceType}`;
+  }
+
+  // Check if notes have stale "Awaiting" text that needs updating
+  const hasStaleText = /awaiting.*response|awaiting.*rate/i.test(existingNotes);
+
+  if (!hasStaleText) {
+    // No stale text - just append the acceptance marker
+    return existingNotes + ` | ${acceptanceType}`;
+  }
+
+  // Has stale text - clean it up and update negotiation status
+  let updatedNotes = existingNotes
+    // Replace various "Awaiting" patterns with acceptance status
+    .replace(/Awaiting candidate's response to the offered rate\.?/gi, `Candidate accepted at $${rate}/hr.`)
+    .replace(/Awaiting.*?response.*?(?:offered\s*)?rate\.?/gi, `Candidate accepted at $${rate}/hr.`)
+    .replace(/-\s*Awaiting.*$/gm, `- Accepted at $${rate}/hr | ${acceptanceType}`);
+
+  return updatedNotes + ` | ${acceptanceType}`;
+}
+
+/**
+ * Generate a fresh acceptance summary only when needed (stale notes detected)
+ * More efficient than always regenerating - only calls AI when necessary
+ * Uses a shorter prompt focused on acceptance to minimize token usage
+ *
+ * @param {string} existingNotes - Current AI notes
+ * @param {string} conversationHistory - Full conversation for context
+ * @param {number} rate - Accepted rate
+ * @param {string} candidateEmail - Candidate's email
+ * @param {string} jobId - Job ID
+ * @param {string} acceptanceType - Type of acceptance marker
+ * @returns {string} Fresh or updated summary
+ */
+function generateAcceptanceSummaryIfNeeded(existingNotes, conversationHistory, rate, candidateEmail, jobId, acceptanceType) {
+  // If no existing notes, generate a simple one without AI call
+  if (!existingNotes || existingNotes.length < 20) {
+    return `Offer Accepted at $${rate}/hr - ${acceptanceType}`;
+  }
+
+  // Check if notes have stale negotiation text that would confuse talent ops
+  const hasStaleNegotiationText = /awaiting.*response|awaiting.*rate|pending.*response/i.test(existingNotes);
+
+  if (!hasStaleNegotiationText) {
+    // Notes are fine - just append acceptance marker (no AI call needed)
+    return existingNotes + ` | ${acceptanceType}`;
+  }
+
+  // Stale text detected - generate fresh summary with SHORT prompt (fewer tokens)
+  // This prompt is ~60% shorter than the full comprehensive summary prompt
+  const shortPrompt = `Summarize this completed negotiation in under 80 words.
+
+CONVERSATION:
+${conversationHistory.substring(0, 2000)}
+
+RESULT: Candidate accepted at $${rate}/hr
+
+FORMAT (use these exact emoji headers):
+📧 EMAIL SUMMARY: [1-2 sentences - what candidate said, their tone]
+📝 DATA STATUS: [What info was collected - overlap hours, start date, etc. Say "Confirmed" for provided items]
+💰 NEGOTIATION: Candidate Rate: $[X]/hr, Final Rate: $${rate}/hr - Accepted | ${acceptanceType}
+
+Be specific with numbers. Write ONLY the summary.`;
+
+  try {
+    const response = callAI(shortPrompt);
+    return response.replace(/^["']|["']$/g, '').trim();
+  } catch (e) {
+    console.error("Failed to generate acceptance summary, using fallback:", e);
+    // Fallback: just clean up the stale text without AI
+    return updateNotesForAcceptance(existingNotes, rate, '', acceptanceType);
   }
 }
 
