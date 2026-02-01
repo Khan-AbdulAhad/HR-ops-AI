@@ -3961,7 +3961,7 @@
                 <div class="grid grid-cols-2 gap-1 text-slate-500 dark:text-slate-400">
                     <div><span class="font-medium text-blue-600">Admin</span> - Full access + Manage users</div>
                     <div><span class="font-medium text-indigo-600">TL</span> - Operations + Team analytics</div>
-                    <div><span class="font-medium text-emerald-600">TOS</span> - Operations + Own analytics</div>
+                    <div><span class="font-medium text-emerald-600">Talent Ops</span> - Operations + Own analytics</div>
                     <div><span class="font-medium text-purple-600">TM/TA/Manager</span> - Analytics only</div>
                     <div><span class="font-medium text-slate-600">Other</span> - Operations + Own analytics</div>
                 </div>
@@ -3972,7 +3972,7 @@
                 <input id="newViewerEmail" class="input-field flex-1" placeholder="user@example.com">
                 <select id="newViewerLevel" class="input-field w-28">
                     <option value="other">Other</option>
-                    <option value="tos">TOS</option>
+                    <option value="tos">Talent Ops</option>
                     <option value="tl">TL</option>
                     <option value="tm">TM</option>
                     <option value="ta">TA</option>
@@ -4105,6 +4105,12 @@
                                 <div class="flex flex-col items-center">
                                     <i class="fa-solid fa-clock-rotate-left text-purple-500 mb-1"></i>
                                     <span class="text-xs">Follow-Ups</span>
+                                </div>
+                            </th>
+                            <th class="px-2 py-3 text-center font-semibold text-slate-600 dark:text-slate-300">
+                                <div class="flex flex-col items-center">
+                                    <i class="fa-solid fa-clipboard-list text-emerald-500 mb-1"></i>
+                                    <span class="text-xs">My Jobs</span>
                                 </div>
                             </th>
                             <th class="px-2 py-3 text-center font-semibold text-slate-600 dark:text-slate-300">
@@ -9242,7 +9248,7 @@
                         'tm': 'TM',
                         'ta': 'TA',
                         'manager': 'Manager',
-                        'tos': 'TOS',
+                        'tos': 'Talent Ops',
                         'other': 'Other',
                         'viewer': 'Other' // backwards compat
                     };
@@ -9850,6 +9856,7 @@
             negotiation: 'Job Setup',
             tasks: 'Tasks',
             followups: 'Follow-Ups',
+            myjobs: 'My Jobs',
             analytics: 'Analytics',
             learning: 'AI Learning',
             aitesting: 'AI Testing',
@@ -9861,6 +9868,7 @@
             tm: 'Talent Manager',
             ta: 'Talent Acquisition',
             manager: 'Manager',
+            tos: 'Talent Ops',
             other: 'Other'
         };
         const ROLE_COLORS = {
@@ -9869,6 +9877,7 @@
             tm: 'bg-purple-100 text-purple-700 dark:bg-purple-900/50 dark:text-purple-300',
             ta: 'bg-violet-100 text-violet-700 dark:bg-violet-900/50 dark:text-violet-300',
             manager: 'bg-pink-100 text-pink-700 dark:bg-pink-900/50 dark:text-pink-300',
+            tos: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-300',
             other: 'bg-slate-100 text-slate-700 dark:bg-slate-700 dark:text-slate-300'
         };
 

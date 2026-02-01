@@ -11876,36 +11876,36 @@ function removeAnalyticsViewer(email) {
  */
 const PAGE_ACCESS_DEFAULTS = {
   'admin': {
-    outreach: true, negotiation: true, tasks: true, followups: true,
+    outreach: true, negotiation: true, tasks: true, followups: true, myjobs: true,
     analytics: true, learning: true, aitesting: true, processmap: true
   },
   'tl': {
-    outreach: true, negotiation: true, tasks: true, followups: true,
+    outreach: true, negotiation: true, tasks: true, followups: true, myjobs: true,
     analytics: true, learning: true, aitesting: false, processmap: false
   },
   'tm': {
-    outreach: false, negotiation: false, tasks: false, followups: false,
+    outreach: false, negotiation: false, tasks: false, followups: false, myjobs: false,
     analytics: true, learning: true, aitesting: false, processmap: false
   },
   'ta': {
-    outreach: false, negotiation: false, tasks: false, followups: false,
+    outreach: false, negotiation: false, tasks: false, followups: false, myjobs: false,
     analytics: true, learning: true, aitesting: false, processmap: false
   },
   'manager': {
-    outreach: false, negotiation: false, tasks: false, followups: false,
+    outreach: false, negotiation: false, tasks: false, followups: false, myjobs: false,
     analytics: true, learning: true, aitesting: false, processmap: false
   },
   'tos': {
-    outreach: true, negotiation: true, tasks: true, followups: true,
+    outreach: true, negotiation: true, tasks: true, followups: true, myjobs: true,
     analytics: true, learning: true, aitesting: false, processmap: false
   },
   'other': {
-    outreach: true, negotiation: true, tasks: true, followups: true,
+    outreach: true, negotiation: true, tasks: true, followups: true, myjobs: true,
     analytics: true, learning: true, aitesting: false, processmap: false
   }
 };
 
-const ALL_PAGES = ['outreach', 'negotiation', 'tasks', 'followups', 'analytics', 'learning', 'aitesting', 'processmap'];
+const ALL_PAGES = ['outreach', 'negotiation', 'tasks', 'followups', 'myjobs', 'analytics', 'learning', 'aitesting', 'processmap'];
 const ALL_ROLES = ['admin', 'tl', 'tm', 'ta', 'manager', 'tos', 'other'];
 
 /**
