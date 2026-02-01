@@ -8596,20 +8596,41 @@
 
         function loadAnalyticsCharts(filterJobId, startDate, endDate) {
             google.script.run.withSuccessHandler(chartData => {
+                // Only block on critical errors (access denied, can't access spreadsheet)
                 if (chartData.error) {
                     console.error('Chart data error:', chartData.error);
-                    return;
+                    // Show error toast but don't return - try to render what we can
+                    if (chartData.error === "Access denied" || chartData.error === "Cannot access spreadsheet") {
+                        showToast('Analytics error: ' + chartData.error, 'error');
+                        return;
+                    }
                 }
 
-                // Render all charts with the data
+                // Render all charts with available data
+                // Each chart handles missing/empty data gracefully
                 if (chartData.conversionFunnel) {
                     renderFunnelChart(chartData.conversionFunnel);
                     renderOutcomeChart(chartData.conversionFunnel);
+                } else {
+                    // Show zeros instead of dashes when no funnel data
+                    document.getElementById('funnelOutreach').textContent = '0';
+                    document.getElementById('funnelResponded').textContent = '0';
+                    document.getElementById('funnelNegotiating').textContent = '0';
+                    document.getElementById('funnelAccepted').textContent = '0';
                 }
+
                 if (chartData.timeToResponse) {
                     renderResponseTimeChart(chartData.timeToResponse);
                     renderDayOfWeekChart(chartData.timeToResponse);
+                } else {
+                    // Show zeros/dashes appropriately when no response time data
+                    document.getElementById('avgResponseTime').textContent = '-';
+                    document.getElementById('medianResponseTime').textContent = '-';
+                    document.getElementById('responseRatePercent').textContent = '0%';
                 }
+            }).withFailureHandler(err => {
+                console.error('Failed to load analytics charts:', err);
+                showToast('Failed to load analytics', 'error');
             }).getAnalyticsChartData(filterJobId || '', startDate || '', endDate || '');
         }
 

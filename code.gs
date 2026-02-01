@@ -11216,13 +11216,39 @@ function getTimeToResponseMetrics(filterJobId, startDate, endDate) {
   }
 
   try {
-    const ss = getSpreadsheet();
+    const ss = getCachedSpreadsheet();
     if (!ss) return { error: "Cannot access spreadsheet" };
 
     // Get Email_Logs for outreach timestamps
     const emailLogsSheet = ss.getSheetByName('Email_Logs');
+
+    // Return empty data instead of error when no email logs exist
+    // This allows other analytics charts to still render
     if (!emailLogsSheet || emailLogsSheet.getLastRow() <= 1) {
-      return { error: "No email logs found" };
+      return {
+        totalOutreach: 0,
+        totalResponses: 0,
+        responseRate: 0,
+        avgResponseHours: 0,
+        medianResponseHours: 0,
+        p25ResponseHours: 0,
+        p75ResponseHours: 0,
+        p90ResponseHours: 0,
+        within24h: 0,
+        within48h: 0,
+        within72h: 0,
+        responseTimeBuckets: {
+          'Under 1hr': 0,
+          '1-6hrs': 0,
+          '6-12hrs': 0,
+          '12-24hrs': 0,
+          '24-48hrs': 0,
+          '48-72hrs': 0,
+          '72hrs+': 0
+        },
+        responsesByDay: {},
+        responsesByHour: {}
+      };
     }
 
     // Get Negotiation_State for response timestamps
@@ -11384,7 +11410,7 @@ function getConversionFunnelData(filterJobId, startDate, endDate) {
   }
 
   try {
-    const ss = getSpreadsheet();
+    const ss = getCachedSpreadsheet();
     if (!ss) return { error: "Cannot access spreadsheet" };
 
     // Parse date filters
@@ -11565,10 +11591,16 @@ function getAnalyticsChartData(filterJobId, startDate, endDate) {
   const timeToResponse = getTimeToResponseMetrics(filterJobId, startDate, endDate);
   const conversionFunnel = getConversionFunnelData(filterJobId, startDate, endDate);
 
+  // Return data even if one source has errors - allow partial rendering
+  // Only return error field if BOTH have critical errors (not just empty data)
+  const hasCriticalError = (timeToResponse.error === "Cannot access spreadsheet") ||
+                           (conversionFunnel.error === "Cannot access spreadsheet") ||
+                           (conversionFunnel.error === "Access denied");
+
   return {
     timeToResponse: timeToResponse.error ? null : timeToResponse,
     conversionFunnel: conversionFunnel.error ? null : conversionFunnel,
-    error: timeToResponse.error || conversionFunnel.error || null
+    error: hasCriticalError ? (timeToResponse.error || conversionFunnel.error) : null
   };
 }
 
