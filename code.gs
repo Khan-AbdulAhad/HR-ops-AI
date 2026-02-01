@@ -4922,7 +4922,16 @@ Write ONLY the email, nothing else.
           // Move to completed sheet
           const compSheet = ss.getSheetByName('Negotiation_Completed');
           if (compSheet) {
-            const existingAiNotes = state?.aiNotes || '';
+            let existingAiNotes = state?.aiNotes || '';
+
+            // Replace stale "Awaiting response" text with accurate completion status
+            if (existingAiNotes) {
+              existingAiNotes = existingAiNotes
+                .replace(/Awaiting candidate's response to the offered rate\.?/gi, `Candidate accepted${agreedRate ? ` at $${agreedRate}/hr` : ''}.`)
+                .replace(/Awaiting.*?response.*?rate\.?/gi, `Candidate accepted${agreedRate ? ` at $${agreedRate}/hr` : ''}.`)
+                .replace(/- Awaiting.*$/gm, `- Accepted${agreedRate ? ` at $${agreedRate}/hr` : ''} | AI Auto-Completed`);
+            }
+
             const finalNotes = existingAiNotes
               ? existingAiNotes + ' | AI Auto-Completed after follow-up'
               : `Rate Agreed${agreedRate ? ` at $${agreedRate}/hr` : ''} - Completed after candidate follow-up`;
@@ -6326,8 +6335,17 @@ Write ONLY the email, nothing else.
       updateFollowUpLabels(thread.getId(), 'responded');
 
       // Record directly in Negotiation_Completed (auto-completed, not pending)
-      // Preserve the existing AI Notes/Summary from negotiation process
-      const existingAiNotes = state?.aiNotes || '';
+      // Update the AI Notes to reflect the completed acceptance status
+      let existingAiNotes = state?.aiNotes || '';
+
+      // Replace stale "Awaiting response" text with accurate acceptance status
+      if (existingAiNotes) {
+        existingAiNotes = existingAiNotes
+          .replace(/Awaiting candidate's response to the offered rate\.?/gi, `Candidate accepted at $${rate}/hr.`)
+          .replace(/Awaiting.*?response.*?rate\.?/gi, `Candidate accepted at $${rate}/hr.`)
+          .replace(/- Awaiting.*$/gm, `- Accepted at $${rate}/hr | AI Accepted`);
+      }
+
       const finalNotes = existingAiNotes
         ? existingAiNotes + ' | AI Accepted'
         : `Offer Accepted at $${rate}/hr - AI Accepted`;
