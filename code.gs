@@ -5498,8 +5498,18 @@ Write ONLY the email, nothing else.
       updateFollowUpLabels(thread.getId(), 'responded');
 
       // Record directly in Negotiation_Completed (auto-completed, not pending)
-      // Preserve the existing AI Notes/Summary from negotiation process
-      const existingAiNotes = state?.aiNotes || '';
+      // Update the AI Notes to reflect the completed acceptance status
+      let existingAiNotes = state?.aiNotes || '';
+
+      // Replace stale "Awaiting response" text with accurate acceptance status
+      // This ensures talent ops sees the correct final status, not outdated pending text
+      if (existingAiNotes) {
+        existingAiNotes = existingAiNotes
+          .replace(/Awaiting candidate's response to the offered rate\.?/gi, `Candidate accepted at $${rate}/hr.`)
+          .replace(/Awaiting.*?response.*?rate\.?/gi, `Candidate accepted at $${rate}/hr.`)
+          .replace(/- Awaiting.*$/gm, `- Accepted at $${rate}/hr | AI Auto-Accepted`);
+      }
+
       const finalNotes = existingAiNotes
         ? existingAiNotes + ' | AI Auto-Accepted'
         : `Offer Accepted at $${rate}/hr - AI Auto-Accepted`;
