@@ -5101,6 +5101,53 @@ Return ONLY the JSON object, no other text.
       // Continue with normal negotiation if analysis fails
     }
 
+    // FALLBACK: If AI rate analysis failed to extract proposed_rate, try regex-based extraction
+    // This handles structured/multi-part responses where AI might miss the rate
+    if (!rateAnalysis || rateAnalysis.proposed_rate === null || rateAnalysis.proposed_rate === undefined) {
+      // Regex patterns to extract rate from candidate message
+      // Matches: "$56/hr", "$56 per hour", "rate is $56", "expected rate is $56", "$56/hour", "$56 an hour"
+      const ratePatterns = [
+        /(?:my\s+)?(?:expected\s+)?rate\s+(?:is|would\s+be)\s+\$?\s*(\d+(?:\.\d+)?)/i,
+        /\$\s*(\d+(?:\.\d+)?)\s*(?:\/\s*hr|\/\s*hour|per\s*hour|an\s*hour)/i,
+        /(\d+(?:\.\d+)?)\s*(?:dollars?\s*(?:per|\/|an)\s*hour)/i,
+        /(?:asking|expect|want|looking\s+for)\s+\$?\s*(\d+(?:\.\d+)?)/i
+      ];
+
+      let extractedRate = null;
+      for (const pattern of ratePatterns) {
+        const match = candidateLatestMessage.match(pattern);
+        if (match && match[1]) {
+          extractedRate = parseFloat(match[1]);
+          break;
+        }
+      }
+
+      if (extractedRate !== null && extractedRate > 0) {
+        jobStats.log.push({type: 'info', message: `${candidateEmail} - FALLBACK: Regex extracted rate $${extractedRate}/hr from message`});
+
+        // Update or create rateAnalysis with extracted rate
+        if (rateAnalysis) {
+          rateAnalysis.proposed_rate = extractedRate;
+          // Update action if rate is within budget and action was COUNTER
+          if (extractedRate <= maxRate && rateAnalysis.action === 'COUNTER') {
+            rateAnalysis.action = 'AUTO_ACCEPT';
+            rateAnalysis.reason = 'Fallback extraction: rate within budget';
+          }
+        } else {
+          // Create minimal rateAnalysis from regex extraction
+          rateAnalysis = {
+            proposed_rate: extractedRate,
+            agreed_rate: null,
+            is_accepting_offer: false,
+            is_not_interested: false,
+            action: extractedRate <= maxRate ? 'AUTO_ACCEPT' : 'COUNTER',
+            reason: 'Fallback regex extraction - AI analysis failed'
+          };
+        }
+        jobStats.log.push({type: 'info', message: `${candidateEmail} - FALLBACK: Updated analysis to action=${rateAnalysis.action} with rate=$${extractedRate}`});
+      }
+    }
+
     // FIX: Check attempt limit (2 AI attempts max) AFTER rate analysis
     // This ensures we can detect and process offer acceptance or not-interested even when attempts >= 2
     // Only escalate if candidate did NOT accept the offer AND is not indicating they're not interested
