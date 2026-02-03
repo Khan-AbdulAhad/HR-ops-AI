@@ -11497,6 +11497,139 @@ function getTimeToResponseMetrics(filterJobId, startDate, endDate) {
 }
 
 /**
+ * Get job performance metrics for analytics dashboard
+ * Shows which jobs have the best response and acceptance rates
+ * @param {string} startDate - Optional start date (ISO string)
+ * @param {string} endDate - Optional end date (ISO string)
+ * @returns {Object} Job performance metrics
+ */
+function getJobPerformanceMetrics(startDate, endDate) {
+  const access = checkAnalyticsAccess();
+  if (!access.hasAccess) {
+    return { error: "Access denied" };
+  }
+
+  try {
+    const ss = getCachedSpreadsheet();
+    if (!ss) return { error: "Cannot access spreadsheet" };
+
+    // Parse date filters
+    let startDateFilter = null;
+    let endDateFilter = null;
+    if (startDate) {
+      startDateFilter = new Date(startDate);
+      startDateFilter.setHours(0, 0, 0, 0);
+    }
+    if (endDate) {
+      endDateFilter = new Date(endDate);
+      endDateFilter.setHours(23, 59, 59, 999);
+    }
+
+    // Get Email_Logs for outreach data
+    const emailLogsSheet = ss.getSheetByName('Email_Logs');
+    if (!emailLogsSheet || emailLogsSheet.getLastRow() <= 1) {
+      return { jobs: [], totalJobs: 0, avgResponseRate: 0 };
+    }
+
+    // Get Negotiation_State for response and outcome data
+    const stateSheet = ss.getSheetByName('Negotiation_State');
+
+    const emailData = emailLogsSheet.getDataRange().getValues();
+    const stateData = stateSheet ? stateSheet.getDataRange().getValues() : [];
+
+    // Build job metrics map
+    const jobMetrics = new Map(); // jobId -> { outreach: Set, responses: Set, accepted: Set }
+
+    // Count outreach emails per job
+    for (let i = 1; i < emailData.length; i++) {
+      const timestamp = emailData[i][0];
+      const jobId = String(emailData[i][1] || '').trim();
+      const email = String(emailData[i][2] || '').toLowerCase();
+      const type = String(emailData[i][5] || '');
+
+      // Skip follow-ups, only count initial outreach
+      if (type && type.toLowerCase().includes('follow')) continue;
+      if (!jobId) continue;
+
+      // Apply date filter
+      if (timestamp && startDateFilter && new Date(timestamp) < startDateFilter) continue;
+      if (timestamp && endDateFilter && new Date(timestamp) > endDateFilter) continue;
+
+      if (!jobMetrics.has(jobId)) {
+        jobMetrics.set(jobId, { outreach: new Set(), responses: new Set(), accepted: new Set() });
+      }
+      jobMetrics.get(jobId).outreach.add(email);
+    }
+
+    // Count responses and acceptances per job
+    for (let i = 1; i < stateData.length; i++) {
+      const email = String(stateData[i][0] || '').toLowerCase();
+      const jobId = String(stateData[i][1] || '').trim();
+      const status = String(stateData[i][3] || '').toLowerCase();
+      const lastReplyTime = stateData[i][5];
+
+      if (!jobId || !jobMetrics.has(jobId)) continue;
+
+      // Count as response if they have a reply time
+      if (lastReplyTime) {
+        jobMetrics.get(jobId).responses.add(email);
+      }
+
+      // Count acceptances
+      if (status === 'accepted' || status === 'accept') {
+        jobMetrics.get(jobId).accepted.add(email);
+      }
+    }
+
+    // Calculate metrics for each job
+    const jobsList = [];
+    let totalResponseRate = 0;
+    let jobsWithOutreach = 0;
+
+    jobMetrics.forEach((metrics, jobId) => {
+      const outreachCount = metrics.outreach.size;
+      const responseCount = metrics.responses.size;
+      const acceptedCount = metrics.accepted.size;
+
+      if (outreachCount > 0) {
+        const responseRate = ((responseCount / outreachCount) * 100);
+        const acceptanceRate = responseCount > 0 ? ((acceptedCount / responseCount) * 100) : 0;
+
+        jobsList.push({
+          jobId: jobId,
+          outreach: outreachCount,
+          responses: responseCount,
+          accepted: acceptedCount,
+          responseRate: parseFloat(responseRate.toFixed(1)),
+          acceptanceRate: parseFloat(acceptanceRate.toFixed(1))
+        });
+
+        totalResponseRate += responseRate;
+        jobsWithOutreach++;
+      }
+    });
+
+    // Sort by response rate (descending), then by outreach count
+    jobsList.sort((a, b) => {
+      if (b.responseRate !== a.responseRate) return b.responseRate - a.responseRate;
+      return b.outreach - a.outreach;
+    });
+
+    // Return top 10 jobs
+    const avgResponseRate = jobsWithOutreach > 0 ? (totalResponseRate / jobsWithOutreach).toFixed(1) : 0;
+
+    return {
+      jobs: jobsList.slice(0, 10),
+      totalJobs: jobsList.length,
+      avgResponseRate: parseFloat(avgResponseRate)
+    };
+  } catch (e) {
+    console.error("Error getting job performance metrics:", e);
+    return { error: e.message };
+  }
+}
+
+/**
  * Get conversion funnel data for analytics dashboard
  * Tracks candidates through the recruitment funnel stages
  * @param {string} filterJobId - Optional job ID filter
@@ -11691,6 +11824,7 @@ function getAnalyticsChartData(filterJobId, startDate, endDate) {
 
   const timeToResponse = getTimeToResponseMetrics(filterJobId, startDate, endDate);
   const conversionFunnel = getConversionFunnelData(filterJobId, startDate, endDate);
+  const jobPerformance = getJobPerformanceMetrics(startDate, endDate);
 
   // Return data even if one source has errors - allow partial rendering
   // Only return error field if BOTH have critical errors (not just empty data)
@@ -11701,6 +11835,7 @@ function getAnalyticsChartData(filterJobId, startDate, endDate) {
   return {
     timeToResponse: timeToResponse.error ? null : timeToResponse,
     conversionFunnel: conversionFunnel.error ? null : conversionFunnel,
+    jobPerformance: jobPerformance.error ? null : jobPerformance,
     error: hasCriticalError ? (timeToResponse.error || conversionFunnel.error) : null
   };
 }

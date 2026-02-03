@@ -2142,23 +2142,26 @@
                             </div>
                         </div>
 
-                        <!-- Response by Day of Week Chart -->
+                        <!-- Top Performing Jobs -->
                         <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
                             <div class="flex items-center gap-3 mb-4">
                                 <div class="bg-gradient-to-br from-amber-500 to-orange-600 p-2 rounded-lg">
-                                    <i class="fa-solid fa-calendar-week text-white"></i>
+                                    <i class="fa-solid fa-trophy text-white"></i>
                                 </div>
                                 <div>
-                                    <h4 class="font-bold text-slate-800">Response by Day</h4>
-                                    <p class="text-xs text-slate-500">Best days for candidate responses</p>
+                                    <h4 class="font-bold text-slate-800">Top Performing Jobs</h4>
+                                    <p class="text-xs text-slate-500">Jobs with best response & acceptance rates</p>
                                 </div>
                             </div>
-                            <div class="relative h-56">
-                                <canvas id="dayOfWeekChart"></canvas>
+                            <div id="topJobsList" class="space-y-3 max-h-64 overflow-y-auto">
+                                <div id="topJobsEmpty" class="text-center py-8 text-slate-400">
+                                    <i class="fa-regular fa-briefcase text-2xl mb-2 block"></i>
+                                    <span class="text-sm">No job data yet</span>
+                                </div>
                             </div>
-                            <div id="dayStats" class="text-center mt-4 pt-4 border-t border-slate-100">
-                                <span class="text-xs text-slate-500">Best day: </span>
-                                <span class="text-sm font-bold text-amber-600" id="bestResponseDay">-</span>
+                            <div id="topJobsStats" class="flex justify-between mt-4 pt-4 border-t border-slate-100 text-xs text-slate-500">
+                                <span>Total Jobs: <strong id="totalJobsCount" class="text-slate-700">0</strong></span>
+                                <span>Avg Response Rate: <strong id="avgJobResponseRate" class="text-emerald-600">-</strong></span>
                             </div>
                         </div>
                     </div>
@@ -8592,7 +8595,6 @@
         let funnelChartInstance = null;
         let responseTimeChartInstance = null;
         let outcomeChartInstance = null;
-        let dayOfWeekChartInstance = null;
 
         function loadAnalyticsCharts(filterJobId, startDate, endDate) {
             google.script.run.withSuccessHandler(chartData => {
@@ -8621,12 +8623,20 @@
 
                 if (chartData.timeToResponse) {
                     renderResponseTimeChart(chartData.timeToResponse);
-                    renderDayOfWeekChart(chartData.timeToResponse);
                 } else {
                     // Show zeros/dashes appropriately when no response time data
                     document.getElementById('avgResponseTime').textContent = '-';
                     document.getElementById('medianResponseTime').textContent = '-';
                     document.getElementById('responseRatePercent').textContent = '0%';
+                }
+
+                // Render Top Performing Jobs chart
+                if (chartData.jobPerformance) {
+                    renderTopJobsChart(chartData.jobPerformance);
+                } else {
+                    // Reset to empty state
+                    document.getElementById('totalJobsCount').textContent = '0';
+                    document.getElementById('avgJobResponseRate').textContent = '-';
                 }
             }).withFailureHandler(err => {
                 console.error('Failed to load analytics charts:', err);
@@ -8725,8 +8735,10 @@
             }
 
             const buckets = data.responseTimeBuckets || {};
-            const labels = Object.keys(buckets);
-            const values = Object.values(buckets);
+            // Define labels in ascending order (fastest to slowest response times)
+            const orderedLabels = ['Under 1hr', '1-6hrs', '6-12hrs', '12-24hrs', '24-48hrs', '48-72hrs', '72hrs+'];
+            const labels = orderedLabels;
+            const values = orderedLabels.map(label => buckets[label] || 0);
 
             responseTimeChartInstance = new Chart(ctx, {
                 type: 'bar',
@@ -8853,69 +8865,62 @@
             });
         }
 
-        function renderDayOfWeekChart(data) {
-            const ctx = document.getElementById('dayOfWeekChart');
-            if (!ctx) return;
+        function renderTopJobsChart(data) {
+            const container = document.getElementById('topJobsList');
+            const emptyState = document.getElementById('topJobsEmpty');
+            const totalJobsEl = document.getElementById('totalJobsCount');
+            const avgRateEl = document.getElementById('avgJobResponseRate');
 
-            const responsesByDay = data.responsesByDay || {};
+            if (!container) return;
 
-            // Destroy existing chart
-            if (dayOfWeekChartInstance) {
-                dayOfWeekChartInstance.destroy();
+            const jobs = data.jobs || [];
+            const totalJobs = data.totalJobs || 0;
+            const avgResponseRate = data.avgResponseRate || 0;
+
+            // Update stats
+            if (totalJobsEl) totalJobsEl.textContent = totalJobs;
+            if (avgRateEl) avgRateEl.textContent = avgResponseRate > 0 ? avgResponseRate + '%' : '-';
+
+            // Clear existing content except empty state
+            const existingItems = container.querySelectorAll('.job-item');
+            existingItems.forEach(item => item.remove());
+
+            if (jobs.length === 0) {
+                if (emptyState) emptyState.style.display = 'block';
+                return;
             }
 
-            const dayOrder = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-            const values = dayOrder.map(day => responsesByDay[day] || 0);
+            if (emptyState) emptyState.style.display = 'none';
 
-            // Find best day
-            const maxVal = Math.max(...values);
-            const bestDayIndex = values.indexOf(maxVal);
-            const bestDay = maxVal > 0 ? dayOrder[bestDayIndex] : '-';
-            document.getElementById('bestResponseDay').textContent = bestDay;
+            // Render job items
+            jobs.forEach((job, index) => {
+                const jobItem = document.createElement('div');
+                jobItem.className = 'job-item flex items-center justify-between p-3 bg-slate-50 rounded-lg hover:bg-slate-100 transition-colors';
 
-            // Create gradient colors (darker for higher values)
-            const maxValue = Math.max(...values, 1);
-            const colors = values.map(v => {
-                const intensity = 0.3 + (v / maxValue) * 0.5;
-                return `rgba(245, 158, 11, ${intensity})`;
-            });
+                // Determine badge color based on response rate
+                let badgeColor = 'bg-slate-200 text-slate-600';
+                if (job.responseRate >= 50) badgeColor = 'bg-emerald-100 text-emerald-700';
+                else if (job.responseRate >= 25) badgeColor = 'bg-amber-100 text-amber-700';
+                else if (job.responseRate > 0) badgeColor = 'bg-red-100 text-red-700';
 
-            dayOfWeekChartInstance = new Chart(ctx, {
-                type: 'bar',
-                data: {
-                    labels: dayOrder,
-                    datasets: [{
-                        label: 'Responses',
-                        data: values,
-                        backgroundColor: colors,
-                        borderColor: 'rgb(245, 158, 11)',
-                        borderWidth: 1,
-                        borderRadius: 4
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    plugins: {
-                        legend: { display: false },
-                        tooltip: {
-                            callbacks: {
-                                label: function(context) {
-                                    return `${context.raw} responses`;
-                                }
-                            }
-                        }
-                    },
-                    scales: {
-                        y: {
-                            beginAtZero: true,
-                            grid: { color: 'rgba(0,0,0,0.05)' }
-                        },
-                        x: {
-                            grid: { display: false }
-                        }
-                    }
-                }
+                jobItem.innerHTML = `
+                    <div class="flex items-center gap-3">
+                        <div class="w-6 h-6 flex items-center justify-center rounded-full ${index < 3 ? 'bg-amber-500 text-white' : 'bg-slate-300 text-slate-600'} text-xs font-bold">
+                            ${index + 1}
+                        </div>
+                        <div>
+                            <div class="font-medium text-slate-800 text-sm">${job.jobId}</div>
+                            <div class="text-xs text-slate-500">${job.outreach} outreach / ${job.responses} responses / ${job.accepted} accepted</div>
+                        </div>
+                    </div>
+                    <div class="text-right">
+                        <div class="px-2 py-1 rounded-full text-xs font-semibold ${badgeColor}">
+                            ${job.responseRate}% response
+                        </div>
+                        ${job.accepted > 0 ? `<div class="text-xs text-emerald-600 mt-1">${job.acceptanceRate}% acceptance</div>` : ''}
+                    </div>
+                `;
+                container.appendChild(jobItem);
             });
         }
 
