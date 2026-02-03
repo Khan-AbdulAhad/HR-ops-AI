@@ -5414,14 +5414,19 @@ Return ONLY the JSON object, no other text.
 
       // FIX: Skip auto-accept if we need to counter-offer due to rate exceeding limits
       if (shouldSkipAutoAccept) {
-        jobStats.log.push({type: 'info', message: `${candidateEmail} - Skipping auto-accept, sending counter-offer at regional max $${regionMaxRateLimit}/hr`});
+        // Determine the appropriate counter-offer rate:
+        // - If regional limit was exceeded, counter at regionMaxRateLimit
+        // - If only maxRate was exceeded (no regional limit), counter at maxRate
+        const counterOfferRate = (candidateRegion && regionMaxRateLimit && rate > regionMaxRateLimit)
+          ? regionMaxRateLimit
+          : maxRate;
+        jobStats.log.push({type: 'info', message: `${candidateEmail} - Skipping auto-accept, sending counter-offer at $${counterOfferRate}/hr`});
 
-        // ACTUALLY SEND A COUNTER-OFFER at regional max rate
-        const counterOfferRate = regionMaxRateLimit;
+        // ACTUALLY SEND A COUNTER-OFFER at the appropriate rate
         const counterOfferPrompt = `
 You are a recruiter at Turing. Write a brief negotiation email to ${candidateName.split(' ')[0]}.
 
-The candidate proposed $${rate}/hr, but we cannot go that high for this region.
+The candidate proposed $${rate}/hr, but we cannot go that high for this role.
 
 YOUR COUNTER-OFFER: $${counterOfferRate}/hr
 
@@ -6388,45 +6393,53 @@ Write ONLY the email, nothing else.
       const rateMatch = aiResponse.match(/\[([^\]]+)\]/);
       const rate = rateMatch ? Number(rateMatch[1].replace('$','').replace('/hr','').trim()) : Number(rules.target);
 
-      // SAFETY CHECK: Validate rate against maxRate before accepting
-      if (rate > maxRate) {
-        jobStats.log.push({type: 'warning', message: `${candidateEmail} - SAFETY BLOCK (ACTION:ACCEPT): Rate $${rate}/hr exceeds max $${maxRate}/hr. Escalating instead.`});
-
-        const escalationReason = `AI wanted to accept $${rate}/hr but this exceeds max rate of $${maxRate}/hr`;
-
-        try {
-          updateJobCandidateStatus(ss, jobId, candidateEmail, 'Escalated - Rate Exceeds Max', `$${rate}/hr (max: $${maxRate})`);
-        } catch(detailsErr) {
-          console.error("Failed to update job details sheet:", detailsErr);
-        }
-
-        // Record in completed sheet as escalated
-        const completedSheetAccept = ss.getSheetByName('Negotiation_Completed');
-        completedSheetAccept.appendRow([
-          new Date(),
-          jobId,
-          candidateEmail,
-          candidateName,
-          "Escalated - Rate Exceeds Max",
-          `${escalationReason} | Rate: $${rate}/hr | Max: $${maxRate}/hr`,
-          devId,
-          candidateRegion || ''
-        ]);
-
-        sendEscalationEmail(jobId, candidateName, candidateEmail, thread, escalationReason, rules.escalationEmail);
-        updateFollowUpLabels(thread.getId(), 'responded');
-
-        if(stateRowIndex > -1) {
-          stateSheet.deleteRow(stateRowIndex);
-        }
-
-        jobStats.escalated++;
-        return;
-      }
-
-      // SAFETY CHECK: Validate rate against regional limits
+      // SAFETY CHECK: Validate rate against maxRate and regional limits
       // FIX: Allow counter-offer before escalating if attempts < 2
       let shouldSkipActionAccept = false;
+
+      // First check: rate exceeds maxRate
+      if (rate > maxRate) {
+        if (attempts < 2) {
+          // Don't escalate yet - counter-offer at maxRate instead
+          jobStats.log.push({type: 'info', message: `${candidateEmail} - (ACTION:ACCEPT) Rate $${rate}/hr exceeds max $${maxRate}/hr. Attempt ${attempts + 1}/2 - will counter-offer at $${maxRate}/hr.`});
+          shouldSkipActionAccept = true;
+        } else {
+          jobStats.log.push({type: 'warning', message: `${candidateEmail} - SAFETY BLOCK (ACTION:ACCEPT): Rate $${rate}/hr exceeds max $${maxRate}/hr after ${attempts} attempts. Escalating.`});
+
+          const escalationReason = `Rate $${rate}/hr exceeds max rate of $${maxRate}/hr after ${attempts} negotiation attempts.`;
+
+          try {
+            updateJobCandidateStatus(ss, jobId, candidateEmail, 'Escalated - Rate Exceeds Max', `$${rate}/hr (max: $${maxRate})`);
+          } catch(detailsErr) {
+            console.error("Failed to update job details sheet:", detailsErr);
+          }
+
+          // Record in completed sheet as escalated
+          const completedSheetAccept = ss.getSheetByName('Negotiation_Completed');
+          completedSheetAccept.appendRow([
+            new Date(),
+            jobId,
+            candidateEmail,
+            candidateName,
+            "Escalated - Rate Exceeds Max",
+            `${escalationReason} | Rate: $${rate}/hr | Max: $${maxRate}/hr`,
+            devId,
+            candidateRegion || ''
+          ]);
+
+          sendEscalationEmail(jobId, candidateName, candidateEmail, thread, escalationReason, rules.escalationEmail);
+          updateFollowUpLabels(thread.getId(), 'responded');
+
+          if(stateRowIndex > -1) {
+            stateSheet.deleteRow(stateRowIndex);
+          }
+
+          jobStats.escalated++;
+          return;
+        }
+      }
+
+      // Second check: rate within maxRate but exceeds regional limit
       if (candidateRegion && regionMaxRateLimit && rate > regionMaxRateLimit) {
         if (attempts < 2) {
           // Don't escalate yet - counter-offer at regional max rate instead
@@ -6468,16 +6481,21 @@ Write ONLY the email, nothing else.
         }
       }
 
-      // FIX: Skip ACTION:ACCEPT if we need to counter-offer due to regional limit
+      // FIX: Skip ACTION:ACCEPT if we need to counter-offer due to rate limit
       if (shouldSkipActionAccept) {
-        jobStats.log.push({type: 'info', message: `${candidateEmail} - Skipping ACTION:ACCEPT, sending counter-offer at regional max $${regionMaxRateLimit}/hr`});
+        // Determine the appropriate counter-offer rate:
+        // - If rate exceeds maxRate, counter at maxRate
+        // - If rate exceeds regional limit (but within maxRate), counter at regionMaxRateLimit
+        const counterOfferRate = (rate > maxRate)
+          ? maxRate
+          : regionMaxRateLimit;
+        jobStats.log.push({type: 'info', message: `${candidateEmail} - Skipping ACTION:ACCEPT, sending counter-offer at $${counterOfferRate}/hr`});
 
-        // ACTUALLY SEND A COUNTER-OFFER at regional max rate
-        const counterOfferRate = regionMaxRateLimit;
+        // ACTUALLY SEND A COUNTER-OFFER at the appropriate rate
         const counterOfferPrompt = `
 You are a recruiter at Turing. Write a brief negotiation email to ${candidateName.split(' ')[0]}.
 
-The candidate proposed $${rate}/hr, but we cannot go that high for this region.
+The candidate proposed $${rate}/hr, but we cannot go that high for this role.
 
 YOUR COUNTER-OFFER: $${counterOfferRate}/hr
 
