@@ -5414,8 +5414,77 @@ Return ONLY the JSON object, no other text.
 
       // FIX: Skip auto-accept if we need to counter-offer due to rate exceeding limits
       if (shouldSkipAutoAccept) {
-        jobStats.log.push({type: 'info', message: `${candidateEmail} - Skipping auto-accept, will counter-offer instead`});
-        // Don't accept - fall through to negotiation logic at the end
+        jobStats.log.push({type: 'info', message: `${candidateEmail} - Skipping auto-accept, sending counter-offer at regional max $${regionMaxRateLimit}/hr`});
+
+        // ACTUALLY SEND A COUNTER-OFFER at regional max rate
+        const counterOfferRate = regionMaxRateLimit;
+        const counterOfferPrompt = `
+You are a recruiter at Turing. Write a brief negotiation email to ${candidateName.split(' ')[0]}.
+
+The candidate proposed $${rate}/hr, but we cannot go that high for this region.
+
+YOUR COUNTER-OFFER: $${counterOfferRate}/hr
+
+TASK:
+- Thank them for their response
+- Make a counter-offer of $${counterOfferRate}/hr as the best rate we can offer for this role
+- Be confident and direct: "We can offer $${counterOfferRate}/hr for this role"
+- Keep it professional and concise
+${pendingDataQuestions && pendingDataQuestions.length > 0 ? `
+- Also politely request these missing items: ${pendingDataQuestions.map(q => q.question).join(', ')}` : ''}
+
+FORMAT:
+Hi ${candidateName.split(' ')[0]},
+
+[Brief acknowledgment]
+
+We can offer $${counterOfferRate}/hr for this role - this is the best rate we can provide for this opportunity.
+
+[Call to action]
+
+Best regards,
+${getEffectiveSignature()}
+
+Write ONLY the email, nothing else.
+`;
+
+        try {
+          const counterOfferEmail = callAI(counterOfferPrompt);
+
+          if (!validateEmailForSending(counterOfferEmail, { jobId: jobId })) {
+            console.error(`BLOCKED: Counter-offer email to ${candidateEmail} contained sensitive data.`);
+            return;
+          }
+
+          sendReplyWithSenderName(thread, counterOfferEmail, getEffectiveSenderName());
+
+          const newAttemptCount = attempts + 1;
+
+          // Generate summary for counter-offer
+          const updatedHistory = conversationHistory + "\n---\n[ME]: " + counterOfferEmail.substring(0, 400);
+          let counterSummary = `Attempt ${newAttemptCount}: Counter-offered $${counterOfferRate}/hr (regional max)`;
+          try {
+            counterSummary = generateComprehensiveAISummary(updatedHistory, candidateEmail, jobId, newAttemptCount, 'AI Active');
+          } catch(e) {
+            console.error("Failed to generate summary:", e);
+          }
+
+          if(stateRowIndex > -1) {
+            stateSheet.getRange(stateRowIndex, 3).setValue(newAttemptCount);
+            stateSheet.getRange(stateRowIndex, 4).setValue(`Counter Offer $${counterOfferRate}/hr`);
+            stateSheet.getRange(stateRowIndex, 5).setValue("Active");
+            stateSheet.getRange(stateRowIndex, 6).setValue(new Date());
+            stateSheet.getRange(stateRowIndex, 9).setValue(counterSummary);
+          }
+
+          updateFollowUpLabels(thread.getId(), 'responded');
+          jobStats.replied++;
+          jobStats.log.push({type: 'info', message: `${candidateEmail} - Counter-offered $${counterOfferRate}/hr (regional max) - attempt ${newAttemptCount}/2`});
+          return;
+        } catch(emailErr) {
+          console.error("Failed to send counter-offer email:", emailErr);
+          return;
+        }
       } else {
       // FIX: Check if data gathering is enabled but incomplete
       // If so, record the rate but DON'T mark as Completed - send combined email instead
@@ -5739,8 +5808,77 @@ Write ONLY the email, nothing else.
       // Rate is valid (within maxRate and regional limits) - proceed with acceptance
       // FIX: Skip acceptance if we need to counter-offer due to regional limit
       if (shouldSkipAcceptanceForRegionalLimit) {
-        jobStats.log.push({type: 'info', message: `${candidateEmail} - Skipping acceptance, will counter-offer at regional max of $${regionMaxRateLimit}/hr`});
-        // Don't accept - fall through to negotiation logic at the end
+        jobStats.log.push({type: 'info', message: `${candidateEmail} - Skipping acceptance, sending counter-offer at regional max $${regionMaxRateLimit}/hr`});
+
+        // ACTUALLY SEND A COUNTER-OFFER at regional max rate
+        const counterOfferRate = regionMaxRateLimit;
+        const counterOfferPrompt = `
+You are a recruiter at Turing. Write a brief negotiation email to ${candidateName.split(' ')[0]}.
+
+The candidate proposed $${rate}/hr, but we cannot go that high for this region.
+
+YOUR COUNTER-OFFER: $${counterOfferRate}/hr
+
+TASK:
+- Thank them for their response
+- Make a counter-offer of $${counterOfferRate}/hr as the best rate we can offer for this role
+- Be confident and direct: "We can offer $${counterOfferRate}/hr for this role"
+- Keep it professional and concise
+${pendingDataQuestions && pendingDataQuestions.length > 0 ? `
+- Also politely request these missing items: ${pendingDataQuestions.map(q => q.question).join(', ')}` : ''}
+
+FORMAT:
+Hi ${candidateName.split(' ')[0]},
+
+[Brief acknowledgment]
+
+We can offer $${counterOfferRate}/hr for this role - this is the best rate we can provide for this opportunity.
+
+[Call to action]
+
+Best regards,
+${getEffectiveSignature()}
+
+Write ONLY the email, nothing else.
+`;
+
+        try {
+          const counterOfferEmail = callAI(counterOfferPrompt);
+
+          if (!validateEmailForSending(counterOfferEmail, { jobId: jobId })) {
+            console.error(`BLOCKED: Counter-offer email to ${candidateEmail} contained sensitive data.`);
+            return;
+          }
+
+          sendReplyWithSenderName(thread, counterOfferEmail, getEffectiveSenderName());
+
+          const newAttemptCount = attempts + 1;
+
+          // Generate summary for counter-offer
+          const updatedHistory = conversationHistory + "\n---\n[ME]: " + counterOfferEmail.substring(0, 400);
+          let counterSummary = `Attempt ${newAttemptCount}: Counter-offered $${counterOfferRate}/hr (regional max)`;
+          try {
+            counterSummary = generateComprehensiveAISummary(updatedHistory, candidateEmail, jobId, newAttemptCount, 'AI Active');
+          } catch(e) {
+            console.error("Failed to generate summary:", e);
+          }
+
+          if(stateRowIndex > -1) {
+            stateSheet.getRange(stateRowIndex, 3).setValue(newAttemptCount);
+            stateSheet.getRange(stateRowIndex, 4).setValue(`Counter Offer $${counterOfferRate}/hr`);
+            stateSheet.getRange(stateRowIndex, 5).setValue("Active");
+            stateSheet.getRange(stateRowIndex, 6).setValue(new Date());
+            stateSheet.getRange(stateRowIndex, 9).setValue(counterSummary);
+          }
+
+          updateFollowUpLabels(thread.getId(), 'responded');
+          jobStats.replied++;
+          jobStats.log.push({type: 'info', message: `${candidateEmail} - Counter-offered $${counterOfferRate}/hr (regional max) - attempt ${newAttemptCount}/2`});
+          return;
+        } catch(emailErr) {
+          console.error("Failed to send counter-offer email:", emailErr);
+          return;
+        }
       } else {
       jobStats.log.push({type: 'success', message: `${candidateEmail} - Candidate proposed $${rate}/hr (within max $${maxRate}/hr) - accepting their rate!`});
 
@@ -6332,8 +6470,77 @@ Write ONLY the email, nothing else.
 
       // FIX: Skip ACTION:ACCEPT if we need to counter-offer due to regional limit
       if (shouldSkipActionAccept) {
-        jobStats.log.push({type: 'info', message: `${candidateEmail} - Skipping ACTION:ACCEPT, will counter-offer instead`});
-        // Don't accept - fall through to the main email sending logic which will negotiate
+        jobStats.log.push({type: 'info', message: `${candidateEmail} - Skipping ACTION:ACCEPT, sending counter-offer at regional max $${regionMaxRateLimit}/hr`});
+
+        // ACTUALLY SEND A COUNTER-OFFER at regional max rate
+        const counterOfferRate = regionMaxRateLimit;
+        const counterOfferPrompt = `
+You are a recruiter at Turing. Write a brief negotiation email to ${candidateName.split(' ')[0]}.
+
+The candidate proposed $${rate}/hr, but we cannot go that high for this region.
+
+YOUR COUNTER-OFFER: $${counterOfferRate}/hr
+
+TASK:
+- Thank them for their response
+- Make a counter-offer of $${counterOfferRate}/hr as the best rate we can offer for this role
+- Be confident and direct: "We can offer $${counterOfferRate}/hr for this role"
+- Keep it professional and concise
+${pendingDataQuestions && pendingDataQuestions.length > 0 ? `
+- Also politely request these missing items: ${pendingDataQuestions.map(q => q.question).join(', ')}` : ''}
+
+FORMAT:
+Hi ${candidateName.split(' ')[0]},
+
+[Brief acknowledgment]
+
+We can offer $${counterOfferRate}/hr for this role - this is the best rate we can provide for this opportunity.
+
+[Call to action]
+
+Best regards,
+${getEffectiveSignature()}
+
+Write ONLY the email, nothing else.
+`;
+
+        try {
+          const counterOfferEmail = callAI(counterOfferPrompt);
+
+          if (!validateEmailForSending(counterOfferEmail, { jobId: jobId })) {
+            console.error(`BLOCKED: Counter-offer email to ${candidateEmail} contained sensitive data.`);
+            return;
+          }
+
+          sendReplyWithSenderName(thread, counterOfferEmail, getEffectiveSenderName());
+
+          const newAttemptCount = attempts + 1;
+
+          // Generate summary for counter-offer
+          const updatedHistory = conversationHistory + "\n---\n[ME]: " + counterOfferEmail.substring(0, 400);
+          let counterSummary = `Attempt ${newAttemptCount}: Counter-offered $${counterOfferRate}/hr (regional max)`;
+          try {
+            counterSummary = generateComprehensiveAISummary(updatedHistory, candidateEmail, jobId, newAttemptCount, 'AI Active');
+          } catch(e) {
+            console.error("Failed to generate summary:", e);
+          }
+
+          if(stateRowIndex > -1) {
+            stateSheet.getRange(stateRowIndex, 3).setValue(newAttemptCount);
+            stateSheet.getRange(stateRowIndex, 4).setValue(`Counter Offer $${counterOfferRate}/hr`);
+            stateSheet.getRange(stateRowIndex, 5).setValue("Active");
+            stateSheet.getRange(stateRowIndex, 6).setValue(new Date());
+            stateSheet.getRange(stateRowIndex, 9).setValue(counterSummary);
+          }
+
+          updateFollowUpLabels(thread.getId(), 'responded');
+          jobStats.replied++;
+          jobStats.log.push({type: 'info', message: `${candidateEmail} - Counter-offered $${counterOfferRate}/hr (regional max) - attempt ${newAttemptCount}/2`});
+          return;
+        } catch(emailErr) {
+          console.error("Failed to send counter-offer email:", emailErr);
+          return;
+        }
       } else {
       // FIX: Check if data gathering is enabled but incomplete before completing
       if (hasDataGatheringEnabled && !isDataGatheringComplete && pendingDataQuestions.length > 0) {
