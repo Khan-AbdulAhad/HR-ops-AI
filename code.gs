@@ -4623,7 +4623,8 @@ function processJobNegotiations(jobId, rules, ss, faqContent, negotiationEnabled
             /(?:my\s+)?(?:expected\s+)?rate\s+(?:is|would\s+be)\s+\$?\s*(\d+(?:\.\d+)?)/i,
             /\$\s*(\d+(?:\.\d+)?)\s*(?:\/\s*hr|\/\s*hour|per\s*hour|an\s*hour)/i,
             /(\d+(?:\.\d+)?)\s*(?:dollars?\s*(?:per|\/|an)\s*hour)/i,
-            /(?:asking|expect|want|looking\s+for|i\s+can\s+do)\s+\$?\s*(\d+(?:\.\d+)?)/i
+            /(?:asking|expect|want|looking\s+for|i\s+can\s+do)\s+\$?\s*(\d+(?:\.\d+)?)/i,
+            /(?:can\s+i\s+get|could\s+i\s+get|would\s+i\s+get)\s+\$?\s*(\d+(?:\.\d+)?)/i  // "Can I get $40?"
           ];
 
           let candidateMentionedRate = false;
@@ -5172,7 +5173,8 @@ Return ONLY the JSON object, no other text.
         /(?:my\s+)?(?:expected\s+)?rate\s+(?:is|would\s+be)\s+\$?\s*(\d+(?:\.\d+)?)/i,
         /\$\s*(\d+(?:\.\d+)?)\s*(?:\/\s*hr|\/\s*hour|per\s*hour|an\s*hour)/i,
         /(\d+(?:\.\d+)?)\s*(?:dollars?\s*(?:per|\/|an)\s*hour)/i,
-        /(?:asking|expect|want|looking\s+for)\s+\$?\s*(\d+(?:\.\d+)?)/i
+        /(?:asking|expect|want|looking\s+for|i\s+can\s+do)\s+\$?\s*(\d+(?:\.\d+)?)/i,
+        /(?:can\s+i\s+get|could\s+i\s+get|would\s+i\s+get)\s+\$?\s*(\d+(?:\.\d+)?)/i  // "Can I get $40?"
       ];
 
       let extractedRate = null;
@@ -6096,12 +6098,20 @@ NEVER include or mention ANY of the following in your email:
 6. This is FREELANCE - never mention full-time benefits
 
 Just state your offer directly: "We can offer $${currentOffer}/hr for this role"
+${pendingDataQuestions && pendingDataQuestions.length > 0 ? `
+=== PENDING INFORMATION TO REQUEST ===
+**IMPORTANT: Also request these missing items in your email along with the rate offer.**
+${pendingDataQuestions.map((q, i) => (i+1) + '. ' + q.question).join('\n')}
 
+After making your rate offer, politely ask for these missing details.
+Example: "We can offer $X/hr for this role. To proceed, could you also share [missing items]?"
+` : ''}
 TASK:
 1. Read the candidate's message above carefully
 2. ONLY answer questions they EXPLICITLY asked - if question not in FAQ, politely defer
 3. Make your offer of $${currentOffer}/hr confidently
 4. Keep the tone ${rules.style}
+${pendingDataQuestions && pendingDataQuestions.length > 0 ? '5. Include a request for the pending information listed above' : ''}
 
 FORMAT:
 Hi [First Name],
@@ -6109,6 +6119,7 @@ Hi [First Name],
 [Acknowledge their message]
 
 [Your offer - state directly: "We can offer $X/hr for this role"]
+${pendingDataQuestions && pendingDataQuestions.length > 0 ? '\n[Request the missing information]' : ''}
 
 [If they asked questions from FAQ, answer each on a new line]
 
