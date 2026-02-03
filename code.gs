@@ -4177,13 +4177,17 @@ function sendBulkEmails(recipients, senderName, subject, htmlBody, jobId, opts) 
   // Auto-capture job assignment for the agent
   // This adds the job to the agent's "My Jobs" list if not already there
   // We capture even if all emails were skipped (total > 0), because the agent intends to work on this job
+  console.log('sendBulkEmails: Checking auto-capture - total=' + total + ', count=' + count + ', jobId=' + jobId);
   if (total > 0 || count > 0) {
     try {
-      autoCreateJobAssignment(jobId, ss);
+      const assignResult = autoCreateJobAssignment(jobId, ss);
+      console.log('sendBulkEmails: Auto-capture result for job ' + jobId + ': ' + JSON.stringify(assignResult));
     } catch (assignError) {
       console.error("Failed to auto-capture job assignment:", assignError);
       // Don't fail the whole operation
     }
+  } else {
+    console.log('sendBulkEmails: Skipping auto-capture - no recipients');
   }
 
   // Invalidate cache after adding new tasks
@@ -14621,17 +14625,35 @@ function getMyJobs(filterStatus) {
     ensureSheetsExist(ss);
 
     const sheet = ss.getSheetByName('Job_Assignments');
-    if (!sheet || sheet.getLastRow() <= 1) {
+    if (!sheet) {
+      console.log('getMyJobs: Job_Assignments sheet not found');
+      return { success: true, jobs: [] };
+    }
+
+    const lastRow = sheet.getLastRow();
+    console.log('getMyJobs: Sheet has ' + lastRow + ' rows');
+
+    if (lastRow <= 1) {
+      console.log('getMyJobs: Sheet is empty (only headers or no data)');
       return { success: true, jobs: [] };
     }
 
     const userEmail = Session.getActiveUser().getEmail();
+    console.log('getMyJobs: Looking for jobs for user: ' + userEmail);
+
     const data = sheet.getDataRange().getValues();
+    console.log('getMyJobs: Total rows in sheet: ' + data.length);
     const jobs = [];
 
     for (let i = 1; i < data.length; i++) {
       const row = data[i];
       const agentEmail = String(row[0] || '').toLowerCase();
+      const rowJobId = String(row[1] || '');
+
+      // Log each row for debugging
+      if (i <= 5) { // Only log first 5 to avoid spam
+        console.log('getMyJobs: Row ' + i + ' - agent=' + agentEmail + ', jobId=' + rowJobId);
+      }
 
       // Only show jobs for current user
       if (agentEmail !== userEmail.toLowerCase()) continue;
@@ -14659,6 +14681,7 @@ function getMyJobs(filterStatus) {
       return new Date(b.assignedDate) - new Date(a.assignedDate);
     });
 
+    console.log('getMyJobs: Found ' + jobs.length + ' jobs for user ' + userEmail);
     return { success: true, jobs: jobs };
   } catch (e) {
     console.error('Error in getMyJobs:', e);
@@ -14870,7 +14893,22 @@ function autoCreateJobAssignment(jobId, ss) {
 
     ensureSheetsExist(ss);
     const sheet = ss.getSheetByName('Job_Assignments');
+
+    // Critical: check if sheet exists
+    if (!sheet) {
+      console.error('autoCreateJobAssignment: Job_Assignments sheet not found after ensureSheetsExist');
+      return { success: false, created: false, error: 'Job_Assignments sheet not found' };
+    }
+
     const userEmail = Session.getActiveUser().getEmail();
+    console.log('autoCreateJobAssignment: User email is "' + userEmail + '" for job ' + jobId);
+
+    // Check if userEmail is valid
+    if (!userEmail) {
+      console.error('autoCreateJobAssignment: Could not get user email from Session');
+      return { success: false, created: false, error: 'Could not get user email' };
+    }
+
     const jobIdStr = String(jobId);
 
     // Check if this job is already assigned to this user
