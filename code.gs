@@ -817,7 +817,7 @@ function ensureSheetsExist(ss) {
   // Job_Assignments sheet - for tracking which jobs each agent is working on
   // Agents can mark jobs as Active, Fulfilled, or Stopped
   const jobAssignmentsSheet = ss.getSheetByName('Job_Assignments');
-  if (jobAssignmentsSheet.getLastRow() === 0) {
+  if (jobAssignmentsSheet && jobAssignmentsSheet.getLastRow() === 0) {
     jobAssignmentsSheet.appendRow([
       'Agent Email',     // The TOS handling the job
       'Job ID',          // The job identifier
@@ -4176,7 +4176,8 @@ function sendBulkEmails(recipients, senderName, subject, htmlBody, jobId, opts) 
 
   // Auto-capture job assignment for the agent
   // This adds the job to the agent's "My Jobs" list if not already there
-  if (count > 0) {
+  // We capture even if all emails were skipped (total > 0), because the agent intends to work on this job
+  if (total > 0 || count > 0) {
     try {
       autoCreateJobAssignment(jobId, ss);
     } catch (assignError) {
