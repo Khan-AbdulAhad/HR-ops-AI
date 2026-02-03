@@ -135,7 +135,8 @@ function buildNegotiationReplyPrompt(params) {
     specialRules = '',
     region = '',
     startDates = [],
-    jdLink = ''
+    jdLink = '',
+    pendingDataQuestions = []  // Data questions that still need answers
   } = params;
 
   // SAFETY: Validate that rates are explicitly provided - no silent defaults
@@ -246,6 +247,19 @@ Just state your offer directly: "We can offer $X/hr for this role"
 - If they say "immediately available" → Do NOT ask for a specific start date
 - If they already stated their rate → Do NOT re-ask what rate they expect
 - Only follow up on MISSING information from what was originally asked
+
+=== PENDING INFORMATION TO REQUEST ===
+**CRITICAL: If there are missing items below, include them in your email along with the rate discussion.**
+${typeof pendingDataQuestions !== 'undefined' && pendingDataQuestions && pendingDataQuestions.length > 0
+  ? `The following information is still needed from the candidate:
+${pendingDataQuestions.map((q, i) => (i+1) + '. ' + q.question).join('\n')}
+
+**COMBINED EMAIL APPROACH:**
+- Address the rate negotiation FIRST (accept, counter, or offer)
+- THEN politely request the missing information listed above
+- Example: "Regarding the rate, [rate response]. To proceed with your application, could you also share [missing items]?"
+- Keep the email concise - combine both naturally`
+  : 'No pending information to request - focus on rate negotiation only.'}
 
 === HANDLING SENSITIVE QUESTIONS ===
 If the candidate asks about ANY of the following, DO NOT answer - instead say "I'd be happy to connect you with our team to discuss that further" and use ACTION: ESCALATE:
@@ -4627,8 +4641,50 @@ function processJobNegotiations(jobId, rules, ss, faqContent, negotiationEnabled
         // IMPORTANT: If data gathering is pending, we should NOT send a separate negotiation email
         // This prevents duplicate emails (one for data gathering, one for negotiation)
         if (saveResult.pendingQuestions && saveResult.pendingQuestions.length > 0 && !saveResult.dataComplete) {
-          // Only send if data gathering is enabled and we haven't sent one recently
-          if (shouldSendMissingInfoFollowUp(jobId, candidateEmail)) {
+          // CRITICAL FIX: Check if candidate mentioned a rate in their message OR if rate was already provided
+          // If they did, we should NOT send a simple data gathering email - instead let the negotiation
+          // logic handle it, which will send a combined "acknowledge rate + request missing info" email
+          const rateDetectionPatterns = [
+            /(?:my\s+)?(?:expected\s+)?rate\s+(?:is|would\s+be)\s+\$?\s*(\d+(?:\.\d+)?)/i,
+            /\$\s*(\d+(?:\.\d+)?)\s*(?:\/\s*hr|\/\s*hour|per\s*hour|an\s*hour)/i,
+            /(\d+(?:\.\d+)?)\s*(?:dollars?\s*(?:per|\/|an)\s*hour)/i,
+            /(?:asking|expect|want|looking\s+for|i\s+can\s+do)\s+\$?\s*(\d+(?:\.\d+)?)/i
+          ];
+
+          let candidateMentionedRate = false;
+
+          // Check 1: Rate in current message
+          for (const pattern of rateDetectionPatterns) {
+            if (pattern.test(candidateLatestMessage)) {
+              candidateMentionedRate = true;
+              jobStats.log.push({type: 'info', message: `${candidateEmail} - Rate detected in current message, skipping simple data gathering to let negotiation logic handle combined response`});
+              break;
+            }
+          }
+
+          // Check 2: Rate already provided in previous messages (extracted to answers)
+          // This prevents returning early when rate was in a previous message but not the current one
+          if (!candidateMentionedRate && answers && answers['Expected Rate'] &&
+              answers['Expected Rate'] !== 'NOT_PROVIDED' && answers['Expected Rate'] !== 'PARSE_ERROR') {
+            candidateMentionedRate = true;
+            jobStats.log.push({type: 'info', message: `${candidateEmail} - Rate already extracted from previous messages ($${answers['Expected Rate']}), skipping simple data gathering to let negotiation logic handle`});
+          }
+
+          // Check 3: Also check conversation history for rate mentions
+          // This catches cases where rate was mentioned but not extracted to Expected Rate field
+          if (!candidateMentionedRate && conversationHistory) {
+            for (const pattern of rateDetectionPatterns) {
+              if (pattern.test(conversationHistory)) {
+                candidateMentionedRate = true;
+                jobStats.log.push({type: 'info', message: `${candidateEmail} - Rate found in conversation history, skipping simple data gathering to let negotiation logic handle`});
+                break;
+              }
+            }
+          }
+
+          // Only send simple data gathering email if candidate did NOT mention a rate
+          // If they mentioned a rate, the negotiation logic below will handle both rate AND data gathering
+          if (!candidateMentionedRate && shouldSendMissingInfoFollowUp(jobId, candidateEmail)) {
             try {
               const missingInfoEmail = generateMissingInfoFollowUp(
                 candidateName,
@@ -5907,6 +5963,19 @@ Just state your offer directly: "We can offer $X/hr for this role"
 - If they say "immediately available" → Do NOT ask for a specific start date
 - If they already stated their rate → Do NOT re-ask what rate they expect
 - Only follow up on MISSING information from what was originally asked
+
+=== PENDING INFORMATION TO REQUEST ===
+**CRITICAL: If there are missing items below, include them in your email along with the rate discussion.**
+${typeof pendingDataQuestions !== 'undefined' && pendingDataQuestions && pendingDataQuestions.length > 0
+  ? `The following information is still needed from the candidate:
+${pendingDataQuestions.map((q, i) => (i+1) + '. ' + q.question).join('\n')}
+
+**COMBINED EMAIL APPROACH:**
+- Address the rate negotiation FIRST (accept, counter, or offer)
+- THEN politely request the missing information listed above
+- Example: "Regarding the rate, [rate response]. To proceed with your application, could you also share [missing items]?"
+- Keep the email concise - combine both naturally`
+  : 'No pending information to request - focus on rate negotiation only.'}
 
 === HANDLING SENSITIVE QUESTIONS ===
 If the candidate asks about ANY of the following, DO NOT answer - instead say "I'd be happy to connect you with our team to discuss that further" and use ACTION: ESCALATE:
