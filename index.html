@@ -1902,7 +1902,7 @@
                                     <tr>
                                         <td colspan="6" class="px-6 py-12 text-center text-slate-400">
                                             <i class="fa-solid fa-briefcase text-4xl mb-3 block opacity-30"></i>
-                                            <span class="text-sm">Loading jobs...</span>
+                                            <span class="text-sm">No jobs yet. Click "Add Job" to add one manually, or jobs will be auto-added when you send outreach.</span>
                                         </td>
                                     </tr>
                                 </tbody>
@@ -11186,8 +11186,8 @@
             tbody.innerHTML = `
                 <tr>
                     <td colspan="6" class="px-6 py-12 text-center text-slate-400">
-                        <i class="fa-solid fa-spinner fa-spin text-4xl mb-3 block"></i>
-                        <span class="text-sm">Loading jobs...</span>
+                        <i class="fa-solid fa-spinner fa-spin text-4xl mb-3 block text-indigo-400"></i>
+                        <span class="text-sm">Loading your jobs...</span>
                     </td>
                 </tr>
             `;
@@ -11201,12 +11201,12 @@
                         setCacheValid('myjobs', true);
                     } else {
                         showToast(result.error || 'Failed to load jobs', 'error');
-                        renderEmptyMyJobs('Failed to load jobs');
+                        renderEmptyMyJobs('Failed to load jobs. Please try refreshing.', true);
                     }
                 })
                 .withFailureHandler(function(err) {
                     showToast('Failed to load jobs: ' + err.message, 'error');
-                    renderEmptyMyJobs('Error loading jobs');
+                    renderEmptyMyJobs('Error loading jobs. Please try refreshing.', true);
                 })
                 .getMyJobs('all');
         }
@@ -11218,13 +11218,14 @@
         }
 
         // Render empty state
-        function renderEmptyMyJobs(message) {
+        function renderEmptyMyJobs(message, isError) {
             const tbody = document.getElementById('myJobsTableBody');
+            const icon = isError ? 'fa-exclamation-circle text-red-300' : 'fa-briefcase opacity-30';
             tbody.innerHTML = `
                 <tr>
                     <td colspan="6" class="px-6 py-12 text-center text-slate-400">
-                        <i class="fa-solid fa-briefcase text-4xl mb-3 block opacity-30"></i>
-                        <span class="text-sm">${message || 'No jobs found'}</span>
+                        <i class="fa-solid ${icon} text-4xl mb-3 block"></i>
+                        <span class="text-sm">${message || 'No jobs yet. Click "Add Job" to add one manually, or jobs will be auto-added when you send outreach.'}</span>
                     </td>
                 </tr>
             `;
@@ -11241,6 +11242,17 @@
             document.getElementById('myJobsStoppedCount').textContent = stopped;
         }
 
+        // Escape HTML special characters for safe attribute insertion
+        function escapeHtml(str) {
+            if (!str) return '';
+            return String(str)
+                .replace(/&/g, '&amp;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;');
+        }
+
         // Render jobs table
         function renderMyJobs() {
             const tbody = document.getElementById('myJobsTableBody');
@@ -11252,12 +11264,15 @@
             }
 
             if (filteredJobs.length === 0) {
-                const filterText = myJobsCurrentFilter === 'all' ? '' : myJobsCurrentFilter.toLowerCase() + ' ';
-                renderEmptyMyJobs(`No ${filterText}jobs found. Click "Add Job" to add one manually, or jobs will be auto-added when you send outreach.`);
+                if (myJobsCurrentFilter === 'all') {
+                    renderEmptyMyJobs('No jobs yet. Click "Add Job" to add one manually, or jobs will be auto-added when you send outreach.');
+                } else {
+                    renderEmptyMyJobs(`No ${myJobsCurrentFilter.toLowerCase()} jobs found.`);
+                }
                 return;
             }
 
-            tbody.innerHTML = filteredJobs.map(job => {
+            tbody.innerHTML = filteredJobs.map((job, index) => {
                 const statusClasses = {
                     'Active': 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400',
                     'Fulfilled': 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
@@ -11269,13 +11284,15 @@
                     'Stopped': 'fa-stop-circle'
                 };
 
+                const safeJobId = escapeHtml(job.jobId);
+                const safeNotes = escapeHtml(job.notes);
                 const assignedDate = job.assignedDate ? new Date(job.assignedDate).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }) : '-';
                 const closedDate = job.closedDate ? new Date(job.closedDate).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }) : '-';
 
                 return `
-                    <tr class="hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors">
+                    <tr class="hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors" data-job-index="${index}">
                         <td class="px-6 py-4">
-                            <span class="font-mono font-bold text-indigo-600 dark:text-indigo-400">${job.jobId}</span>
+                            <span class="font-mono font-bold text-indigo-600 dark:text-indigo-400">${safeJobId}</span>
                         </td>
                         <td class="px-6 py-4">
                             <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${statusClasses[job.status] || statusClasses['Active']}">
@@ -11284,27 +11301,27 @@
                             </span>
                         </td>
                         <td class="px-6 py-4 text-slate-600 dark:text-slate-300">
-                            <span class="cursor-pointer hover:text-indigo-600 dark:hover:text-indigo-400" onclick="openEditDateModal('${job.jobId}', '${job.assignedDate || ''}')" title="Click to edit">
+                            <span class="cursor-pointer hover:text-indigo-600 dark:hover:text-indigo-400" onclick="openEditDateModalByIndex(${index})" title="Click to edit">
                                 ${assignedDate}
                                 <i class="fa-solid fa-pen text-xs ml-1 opacity-50"></i>
                             </span>
                         </td>
                         <td class="px-6 py-4 text-slate-600 dark:text-slate-300">${closedDate}</td>
-                        <td class="px-6 py-4 text-slate-500 dark:text-slate-400 max-w-[200px] truncate" title="${job.notes || ''}">${job.notes || '-'}</td>
+                        <td class="px-6 py-4 text-slate-500 dark:text-slate-400 max-w-[200px] truncate" title="${safeNotes}">${safeNotes || '-'}</td>
                         <td class="px-6 py-4">
                             <div class="flex items-center justify-center gap-2">
                                 ${job.status === 'Active' ? `
-                                    <button onclick="openJobStatusModal('${job.jobId}', 'Fulfilled')" class="px-3 py-1.5 text-xs font-medium text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/30 rounded-lg transition-colors" title="Mark as Fulfilled">
+                                    <button onclick="openJobStatusModalByIndex(${index}, 'Fulfilled')" class="px-3 py-1.5 text-xs font-medium text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/30 rounded-lg transition-colors" title="Mark as Fulfilled">
                                         <i class="fa-solid fa-check mr-1"></i>Fulfilled
                                     </button>
-                                    <button onclick="openJobStatusModal('${job.jobId}', 'Stopped')" class="px-3 py-1.5 text-xs font-medium text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg transition-colors" title="Mark as Stopped">
+                                    <button onclick="openJobStatusModalByIndex(${index}, 'Stopped')" class="px-3 py-1.5 text-xs font-medium text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg transition-colors" title="Mark as Stopped">
                                         <i class="fa-solid fa-stop mr-1"></i>Stop
                                     </button>
                                 ` : `
-                                    <button onclick="openJobStatusModal('${job.jobId}', 'Active')" class="px-3 py-1.5 text-xs font-medium text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-900/30 rounded-lg transition-colors" title="Reactivate">
+                                    <button onclick="openJobStatusModalByIndex(${index}, 'Active')" class="px-3 py-1.5 text-xs font-medium text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-900/30 rounded-lg transition-colors" title="Reactivate">
                                         <i class="fa-solid fa-redo mr-1"></i>Reactivate
                                     </button>
-                                    <button onclick="deleteJob('${job.jobId}')" class="px-3 py-1.5 text-xs font-medium text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-colors" title="Remove from list">
+                                    <button onclick="deleteJobByIndex(${index})" class="px-3 py-1.5 text-xs font-medium text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-colors" title="Remove from list">
                                         <i class="fa-solid fa-trash mr-1"></i>
                                     </button>
                                 `}
@@ -11369,6 +11386,47 @@
                     showToast('Failed to add job: ' + err.message, 'error');
                 })
                 .addJobAssignment(jobId, notes);
+        }
+
+        // Helper function to get filtered jobs (same logic as renderMyJobs)
+        function getFilteredJobs() {
+            if (myJobsCurrentFilter !== 'all') {
+                return myJobsData.filter(j => j.status === myJobsCurrentFilter);
+            }
+            return myJobsData;
+        }
+
+        // Open Job Status Modal by index (safe from special characters)
+        function openJobStatusModalByIndex(index, newStatus) {
+            const filteredJobs = getFilteredJobs();
+            if (index < 0 || index >= filteredJobs.length) {
+                showToast('Job not found', 'error');
+                return;
+            }
+            const job = filteredJobs[index];
+            openJobStatusModal(job.jobId, newStatus);
+        }
+
+        // Open Edit Date Modal by index (safe from special characters)
+        function openEditDateModalByIndex(index) {
+            const filteredJobs = getFilteredJobs();
+            if (index < 0 || index >= filteredJobs.length) {
+                showToast('Job not found', 'error');
+                return;
+            }
+            const job = filteredJobs[index];
+            openEditDateModal(job.jobId, job.assignedDate);
+        }
+
+        // Delete Job by index (safe from special characters)
+        function deleteJobByIndex(index) {
+            const filteredJobs = getFilteredJobs();
+            if (index < 0 || index >= filteredJobs.length) {
+                showToast('Job not found', 'error');
+                return;
+            }
+            const job = filteredJobs[index];
+            deleteJob(job.jobId);
         }
 
         // Open Job Status Modal (for confirmation)
