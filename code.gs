@@ -702,8 +702,8 @@ function saveLogSheetUrl(url) {
 }
 
 function ensureSheetsExist(ss) {
-  // Include new sheets: Manual_Sent_Logs, Data_Fetch_Logs, Follow_Up_Queue, Unresponsive_Devs, Email_Mismatch_Reports, AI_Learning_Cases
-  const sheets = ['Email_Logs', 'Email_Templates', 'Negotiation_Config', 'Negotiation_Tasks', 'Negotiation_State', 'Negotiation_FAQs', 'Negotiation_Completed', 'Rate_Tiers', 'Manual_Sent_Logs', 'Data_Fetch_Logs', 'Follow_Up_Queue', 'Unresponsive_Devs', 'Email_Mismatch_Reports', 'AI_Learning_Cases'];
+  // Include new sheets: Manual_Sent_Logs, Data_Fetch_Logs, Follow_Up_Queue, Unresponsive_Devs, Email_Mismatch_Reports, AI_Learning_Cases, Job_Assignments
+  const sheets = ['Email_Logs', 'Email_Templates', 'Negotiation_Config', 'Negotiation_Tasks', 'Negotiation_State', 'Negotiation_FAQs', 'Negotiation_Completed', 'Rate_Tiers', 'Manual_Sent_Logs', 'Data_Fetch_Logs', 'Follow_Up_Queue', 'Unresponsive_Devs', 'Email_Mismatch_Reports', 'AI_Learning_Cases', 'Job_Assignments'];
   sheets.forEach(name => {
     if (!ss.getSheetByName(name)) ss.insertSheet(name);
   });
@@ -797,6 +797,20 @@ function ensureSheetsExist(ss) {
       'Success_Count',       // How many times this learning led to success
       'Effectiveness_Rate',  // Success_Count / Times_Used * 100
       'Last_Used'            // When this learning was last applied
+    ]);
+  }
+
+  // Job_Assignments sheet - for tracking which jobs each agent is working on
+  // Agents can mark jobs as Active, Fulfilled, or Stopped
+  const jobAssignmentsSheet = ss.getSheetByName('Job_Assignments');
+  if (jobAssignmentsSheet.getLastRow() === 0) {
+    jobAssignmentsSheet.appendRow([
+      'Agent Email',     // The TOS handling the job
+      'Job ID',          // The job identifier
+      'Status',          // Active | Fulfilled | Stopped
+      'Assigned Date',   // When agent started on job (auto-captured, editable)
+      'Closed Date',     // When marked fulfilled/stopped (auto-captured)
+      'Notes'            // Optional comments
     ]);
   }
 }
@@ -4144,6 +4158,17 @@ function sendBulkEmails(recipients, senderName, subject, htmlBody, jobId, opts) 
   // Log to central analytics
   if (count > 0) {
     logAnalytics('email_sent', jobId, count, `Initial outreach emails`);
+  }
+
+  // Auto-capture job assignment for the agent
+  // This adds the job to the agent's "My Jobs" list if not already there
+  if (count > 0) {
+    try {
+      autoCreateJobAssignment(jobId, ss);
+    } catch (assignError) {
+      console.error("Failed to auto-capture job assignment:", assignError);
+      // Don't fail the whole operation
+    }
   }
 
   // Invalidate cache after adding new tasks
@@ -11986,36 +12011,36 @@ function removeAnalyticsViewer(email) {
  */
 const PAGE_ACCESS_DEFAULTS = {
   'admin': {
-    outreach: true, negotiation: true, tasks: true, followups: true,
+    outreach: true, negotiation: true, tasks: true, followups: true, myjobs: true,
     analytics: true, learning: true, aitesting: true, processmap: true
   },
   'tl': {
-    outreach: true, negotiation: true, tasks: true, followups: true,
+    outreach: true, negotiation: true, tasks: true, followups: true, myjobs: true,
     analytics: true, learning: true, aitesting: false, processmap: false
   },
   'tm': {
-    outreach: false, negotiation: false, tasks: false, followups: false,
+    outreach: false, negotiation: false, tasks: false, followups: false, myjobs: false,
     analytics: true, learning: true, aitesting: false, processmap: false
   },
   'ta': {
-    outreach: false, negotiation: false, tasks: false, followups: false,
+    outreach: false, negotiation: false, tasks: false, followups: false, myjobs: false,
     analytics: true, learning: true, aitesting: false, processmap: false
   },
   'manager': {
-    outreach: false, negotiation: false, tasks: false, followups: false,
+    outreach: false, negotiation: false, tasks: false, followups: false, myjobs: false,
     analytics: true, learning: true, aitesting: false, processmap: false
   },
   'tos': {
-    outreach: true, negotiation: true, tasks: true, followups: true,
+    outreach: true, negotiation: true, tasks: true, followups: true, myjobs: true,
     analytics: true, learning: true, aitesting: false, processmap: false
   },
   'other': {
-    outreach: true, negotiation: true, tasks: true, followups: true,
+    outreach: true, negotiation: true, tasks: true, followups: true, myjobs: true,
     analytics: true, learning: true, aitesting: false, processmap: false
   }
 };
 
-const ALL_PAGES = ['outreach', 'negotiation', 'tasks', 'followups', 'analytics', 'learning', 'aitesting', 'processmap'];
+const ALL_PAGES = ['outreach', 'negotiation', 'tasks', 'followups', 'myjobs', 'analytics', 'learning', 'aitesting', 'processmap'];
 const ALL_ROLES = ['admin', 'tl', 'tm', 'ta', 'manager', 'tos', 'other'];
 
 /**
@@ -14233,6 +14258,453 @@ function getJobQuestionsInfo(jobId) {
     };
   } catch (e) {
     console.error('Error getting job questions info:', e);
+    return { success: false, error: e.message };
+  }
+}
+
+// ============================================================
+// JOB ASSIGNMENT TRACKING - Track which jobs each agent is working on
+// ============================================================
+
+/**
+ * Get all jobs assigned to the current user
+ * @param {string} filterStatus - Optional: 'Active', 'Fulfilled', 'Stopped', or 'all' (default: 'all')
+ * @returns {Object} { success, jobs: [...] }
+ */
+function getMyJobs(filterStatus) {
+  try {
+    const url = getStoredSheetUrl();
+    if (!url) return { success: false, error: 'No spreadsheet configured' };
+
+    const ss = SpreadsheetApp.openByUrl(url);
+    ensureSheetsExist(ss);
+
+    const sheet = ss.getSheetByName('Job_Assignments');
+    if (!sheet || sheet.getLastRow() <= 1) {
+      return { success: true, jobs: [] };
+    }
+
+    const userEmail = Session.getActiveUser().getEmail();
+    const data = sheet.getDataRange().getValues();
+    const jobs = [];
+
+    for (let i = 1; i < data.length; i++) {
+      const row = data[i];
+      const agentEmail = String(row[0] || '').toLowerCase();
+
+      // Only show jobs for current user
+      if (agentEmail !== userEmail.toLowerCase()) continue;
+
+      const status = String(row[2] || 'Active');
+
+      // Apply status filter if specified
+      if (filterStatus && filterStatus !== 'all' && status !== filterStatus) continue;
+
+      jobs.push({
+        rowIndex: i + 1, // 1-indexed for sheet operations
+        agentEmail: row[0],
+        jobId: String(row[1]),
+        status: status,
+        assignedDate: row[3] ? new Date(row[3]).toISOString() : null,
+        closedDate: row[4] ? new Date(row[4]).toISOString() : null,
+        notes: row[5] || ''
+      });
+    }
+
+    // Sort by status (Active first) then by assigned date (newest first)
+    jobs.sort((a, b) => {
+      if (a.status === 'Active' && b.status !== 'Active') return -1;
+      if (a.status !== 'Active' && b.status === 'Active') return 1;
+      return new Date(b.assignedDate) - new Date(a.assignedDate);
+    });
+
+    return { success: true, jobs: jobs };
+  } catch (e) {
+    console.error('Error in getMyJobs:', e);
+    return { success: false, error: e.message };
+  }
+}
+
+/**
+ * Manually add a job assignment for the current user
+ * @param {string} jobId - The Job ID to add
+ * @param {string} notes - Optional notes
+ * @returns {Object} { success, message }
+ */
+function addJobAssignment(jobId, notes) {
+  try {
+    if (!jobId) return { success: false, error: 'Job ID is required' };
+
+    const url = getStoredSheetUrl();
+    if (!url) return { success: false, error: 'No spreadsheet configured' };
+
+    const ss = SpreadsheetApp.openByUrl(url);
+    ensureSheetsExist(ss);
+
+    const sheet = ss.getSheetByName('Job_Assignments');
+    const userEmail = Session.getActiveUser().getEmail();
+    const jobIdStr = String(jobId);
+
+    // Check if this job is already assigned to this user
+    if (sheet.getLastRow() > 1) {
+      const data = sheet.getDataRange().getValues();
+      for (let i = 1; i < data.length; i++) {
+        if (String(data[i][0]).toLowerCase() === userEmail.toLowerCase() &&
+            String(data[i][1]) === jobIdStr) {
+          return { success: false, error: `Job ${jobId} is already in your list` };
+        }
+      }
+    }
+
+    // Add new job assignment
+    sheet.appendRow([
+      userEmail,
+      jobIdStr,
+      'Active',
+      new Date(), // Assigned Date
+      '',         // Closed Date (empty)
+      notes || ''
+    ]);
+
+    // Log to analytics
+    logAnalytics('job_assigned', jobIdStr, 1, 'Manual assignment');
+
+    return { success: true, message: `Job ${jobId} added to your list` };
+  } catch (e) {
+    console.error('Error in addJobAssignment:', e);
+    return { success: false, error: e.message };
+  }
+}
+
+/**
+ * Update the status of a job assignment (Fulfilled or Stopped)
+ * @param {string} jobId - The Job ID
+ * @param {string} newStatus - 'Fulfilled' or 'Stopped'
+ * @returns {Object} { success, message }
+ */
+function updateJobStatus(jobId, newStatus) {
+  try {
+    if (!jobId) return { success: false, error: 'Job ID is required' };
+    if (!['Active', 'Fulfilled', 'Stopped'].includes(newStatus)) {
+      return { success: false, error: 'Invalid status. Must be Active, Fulfilled, or Stopped' };
+    }
+
+    const url = getStoredSheetUrl();
+    if (!url) return { success: false, error: 'No spreadsheet configured' };
+
+    const ss = SpreadsheetApp.openByUrl(url);
+    const sheet = ss.getSheetByName('Job_Assignments');
+    if (!sheet) return { success: false, error: 'Job_Assignments sheet not found' };
+
+    const userEmail = Session.getActiveUser().getEmail();
+    const jobIdStr = String(jobId);
+    const data = sheet.getDataRange().getValues();
+
+    for (let i = 1; i < data.length; i++) {
+      if (String(data[i][0]).toLowerCase() === userEmail.toLowerCase() &&
+          String(data[i][1]) === jobIdStr) {
+
+        // Update status (column 3)
+        sheet.getRange(i + 1, 3).setValue(newStatus);
+
+        // If marking as Fulfilled or Stopped, set Closed Date (column 5)
+        if (newStatus === 'Fulfilled' || newStatus === 'Stopped') {
+          sheet.getRange(i + 1, 5).setValue(new Date());
+        } else {
+          // If marking as Active again, clear Closed Date
+          sheet.getRange(i + 1, 5).setValue('');
+        }
+
+        // Log to analytics
+        const action = newStatus === 'Fulfilled' ? 'job_fulfilled' :
+                       newStatus === 'Stopped' ? 'job_stopped' : 'job_reactivated';
+        logAnalytics(action, jobIdStr, 1, `Status changed to ${newStatus}`);
+
+        return { success: true, message: `Job ${jobId} marked as ${newStatus}` };
+      }
+    }
+
+    return { success: false, error: `Job ${jobId} not found in your list` };
+  } catch (e) {
+    console.error('Error in updateJobStatus:', e);
+    return { success: false, error: e.message };
+  }
+}
+
+/**
+ * Update the assigned date of a job
+ * @param {string} jobId - The Job ID
+ * @param {string} newDate - The new assigned date (ISO string or date string)
+ * @returns {Object} { success, message }
+ */
+function updateJobAssignedDate(jobId, newDate) {
+  try {
+    if (!jobId) return { success: false, error: 'Job ID is required' };
+    if (!newDate) return { success: false, error: 'Date is required' };
+
+    const url = getStoredSheetUrl();
+    if (!url) return { success: false, error: 'No spreadsheet configured' };
+
+    const ss = SpreadsheetApp.openByUrl(url);
+    const sheet = ss.getSheetByName('Job_Assignments');
+    if (!sheet) return { success: false, error: 'Job_Assignments sheet not found' };
+
+    const userEmail = Session.getActiveUser().getEmail();
+    const jobIdStr = String(jobId);
+    const data = sheet.getDataRange().getValues();
+
+    for (let i = 1; i < data.length; i++) {
+      if (String(data[i][0]).toLowerCase() === userEmail.toLowerCase() &&
+          String(data[i][1]) === jobIdStr) {
+
+        // Update assigned date (column 4)
+        sheet.getRange(i + 1, 4).setValue(new Date(newDate));
+
+        return { success: true, message: `Assigned date updated for Job ${jobId}` };
+      }
+    }
+
+    return { success: false, error: `Job ${jobId} not found in your list` };
+  } catch (e) {
+    console.error('Error in updateJobAssignedDate:', e);
+    return { success: false, error: e.message };
+  }
+}
+
+/**
+ * Update notes for a job assignment
+ * @param {string} jobId - The Job ID
+ * @param {string} notes - The new notes
+ * @returns {Object} { success, message }
+ */
+function updateJobNotes(jobId, notes) {
+  try {
+    if (!jobId) return { success: false, error: 'Job ID is required' };
+
+    const url = getStoredSheetUrl();
+    if (!url) return { success: false, error: 'No spreadsheet configured' };
+
+    const ss = SpreadsheetApp.openByUrl(url);
+    const sheet = ss.getSheetByName('Job_Assignments');
+    if (!sheet) return { success: false, error: 'Job_Assignments sheet not found' };
+
+    const userEmail = Session.getActiveUser().getEmail();
+    const jobIdStr = String(jobId);
+    const data = sheet.getDataRange().getValues();
+
+    for (let i = 1; i < data.length; i++) {
+      if (String(data[i][0]).toLowerCase() === userEmail.toLowerCase() &&
+          String(data[i][1]) === jobIdStr) {
+
+        // Update notes (column 6)
+        sheet.getRange(i + 1, 6).setValue(notes || '');
+
+        return { success: true, message: `Notes updated for Job ${jobId}` };
+      }
+    }
+
+    return { success: false, error: `Job ${jobId} not found in your list` };
+  } catch (e) {
+    console.error('Error in updateJobNotes:', e);
+    return { success: false, error: e.message };
+  }
+}
+
+/**
+ * Auto-create job assignment when agent sends outreach (called from sendBulkEmails)
+ * Only creates if job doesn't already exist for this user
+ * @param {string} jobId - The Job ID
+ * @param {SpreadsheetApp.Spreadsheet} ss - The spreadsheet (optional, will fetch if not provided)
+ * @returns {Object} { success, created, message }
+ */
+function autoCreateJobAssignment(jobId, ss) {
+  try {
+    if (!jobId) return { success: false, created: false, error: 'Job ID is required' };
+
+    if (!ss) {
+      const url = getStoredSheetUrl();
+      if (!url) return { success: false, created: false, error: 'No spreadsheet configured' };
+      ss = SpreadsheetApp.openByUrl(url);
+    }
+
+    ensureSheetsExist(ss);
+    const sheet = ss.getSheetByName('Job_Assignments');
+    const userEmail = Session.getActiveUser().getEmail();
+    const jobIdStr = String(jobId);
+
+    // Check if this job is already assigned to this user
+    if (sheet.getLastRow() > 1) {
+      const data = sheet.getDataRange().getValues();
+      for (let i = 1; i < data.length; i++) {
+        if (String(data[i][0]).toLowerCase() === userEmail.toLowerCase() &&
+            String(data[i][1]) === jobIdStr) {
+          return { success: true, created: false, message: 'Job already exists' };
+        }
+      }
+    }
+
+    // Add new job assignment (auto-captured from outreach)
+    sheet.appendRow([
+      userEmail,
+      jobIdStr,
+      'Active',
+      new Date(), // Assigned Date
+      '',         // Closed Date (empty)
+      'Auto-captured from outreach'
+    ]);
+
+    // Log to analytics
+    logAnalytics('job_assigned', jobIdStr, 1, 'Auto-captured from outreach');
+
+    return { success: true, created: true, message: `Job ${jobId} auto-added to your list` };
+  } catch (e) {
+    console.error('Error in autoCreateJobAssignment:', e);
+    return { success: false, created: false, error: e.message };
+  }
+}
+
+/**
+ * Get job assignment metrics for analytics dashboard
+ * Returns per-agent breakdown for leads/managers
+ * @returns {Object} { success, metrics: { byAgent: [...], totals: {...} } }
+ */
+function getJobAssignmentMetrics() {
+  try {
+    const access = checkAnalyticsAccess();
+    const userEmail = Session.getActiveUser().getEmail();
+
+    const url = getStoredSheetUrl();
+    if (!url) return { success: false, error: 'No spreadsheet configured' };
+
+    const ss = SpreadsheetApp.openByUrl(url);
+    ensureSheetsExist(ss);
+
+    const sheet = ss.getSheetByName('Job_Assignments');
+    if (!sheet || sheet.getLastRow() <= 1) {
+      return {
+        success: true,
+        metrics: {
+          byAgent: [],
+          totals: { active: 0, fulfilled: 0, stopped: 0, total: 0 }
+        }
+      };
+    }
+
+    const data = sheet.getDataRange().getValues();
+    const agentStats = {};
+    let totals = { active: 0, fulfilled: 0, stopped: 0, total: 0 };
+
+    // Get team members if user is TL/Manager
+    let teamMembers = [];
+    if (access.teamMembers && access.teamMembers.length > 0) {
+      teamMembers = access.teamMembers.map(m => m.toLowerCase());
+    }
+
+    for (let i = 1; i < data.length; i++) {
+      const agentEmail = String(data[i][0] || '').toLowerCase();
+      const status = String(data[i][2] || 'Active');
+
+      // Filter based on access level
+      if (!access.canViewAllAnalytics) {
+        // TL/Manager can see their team, others can only see themselves
+        if (teamMembers.length > 0) {
+          if (!teamMembers.includes(agentEmail) && agentEmail !== userEmail.toLowerCase()) continue;
+        } else if (agentEmail !== userEmail.toLowerCase()) {
+          continue;
+        }
+      }
+
+      if (!agentStats[agentEmail]) {
+        agentStats[agentEmail] = {
+          agentEmail: data[i][0],
+          active: 0,
+          fulfilled: 0,
+          stopped: 0,
+          total: 0,
+          jobs: []
+        };
+      }
+
+      agentStats[agentEmail].total++;
+      totals.total++;
+
+      if (status === 'Active') {
+        agentStats[agentEmail].active++;
+        totals.active++;
+      } else if (status === 'Fulfilled') {
+        agentStats[agentEmail].fulfilled++;
+        totals.fulfilled++;
+      } else if (status === 'Stopped') {
+        agentStats[agentEmail].stopped++;
+        totals.stopped++;
+      }
+
+      // Include job details for expanded view
+      agentStats[agentEmail].jobs.push({
+        jobId: String(data[i][1]),
+        status: status,
+        assignedDate: data[i][3] ? new Date(data[i][3]).toISOString() : null,
+        closedDate: data[i][4] ? new Date(data[i][4]).toISOString() : null
+      });
+    }
+
+    // Convert to array and sort by active jobs (descending)
+    const byAgent = Object.values(agentStats).sort((a, b) => b.active - a.active);
+
+    return {
+      success: true,
+      metrics: {
+        byAgent: byAgent,
+        totals: totals
+      }
+    };
+  } catch (e) {
+    console.error('Error in getJobAssignmentMetrics:', e);
+    return { success: false, error: e.message };
+  }
+}
+
+/**
+ * Delete a job assignment (only if status is not Active)
+ * @param {string} jobId - The Job ID
+ * @returns {Object} { success, message }
+ */
+function deleteJobAssignment(jobId) {
+  try {
+    if (!jobId) return { success: false, error: 'Job ID is required' };
+
+    const url = getStoredSheetUrl();
+    if (!url) return { success: false, error: 'No spreadsheet configured' };
+
+    const ss = SpreadsheetApp.openByUrl(url);
+    const sheet = ss.getSheetByName('Job_Assignments');
+    if (!sheet) return { success: false, error: 'Job_Assignments sheet not found' };
+
+    const userEmail = Session.getActiveUser().getEmail();
+    const jobIdStr = String(jobId);
+    const data = sheet.getDataRange().getValues();
+
+    for (let i = 1; i < data.length; i++) {
+      if (String(data[i][0]).toLowerCase() === userEmail.toLowerCase() &&
+          String(data[i][1]) === jobIdStr) {
+
+        const status = String(data[i][2] || 'Active');
+
+        // Don't allow deleting active jobs - they should be marked as Stopped first
+        if (status === 'Active') {
+          return { success: false, error: 'Cannot delete an Active job. Mark it as Stopped first.' };
+        }
+
+        // Delete the row
+        sheet.deleteRow(i + 1);
+
+        return { success: true, message: `Job ${jobId} removed from your list` };
+      }
+    }
+
+    return { success: false, error: `Job ${jobId} not found in your list` };
+  } catch (e) {
+    console.error('Error in deleteJobAssignment:', e);
     return { success: false, error: e.message };
   }
 }

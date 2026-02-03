@@ -1064,6 +1064,11 @@
                 <span>Follow-Ups</span>
             </div>
 
+            <div id="navTabMyjobs" class="nav-tab operational-tab" onclick="switchTab('myjobs', this)">
+                <i class="fa-solid fa-clipboard-list w-5 text-center"></i>
+                <span>My Jobs</span>
+            </div>
+
             <div id="navTabAnalytics" class="nav-tab" onclick="switchTab('analytics', this)">
                 <i class="fa-solid fa-chart-line w-5 text-center"></i>
                 <span>Analytics</span>
@@ -1810,6 +1815,194 @@
                     </div>
                 </div>
 
+                <!-- TAB: MY JOBS - Track job assignments for each agent -->
+                <div id="tab-myjobs" class="tab-content hidden-tab">
+                    <div class="flex flex-col gap-4 mb-6">
+                        <div class="flex justify-between items-center">
+                            <h3 class="text-xl font-bold text-slate-800 dark:text-white">My Jobs</h3>
+                            <div class="flex gap-2">
+                                <button onclick="refreshMyJobs()" class="refresh-btn bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 px-3 py-2 rounded-lg text-sm hover:bg-slate-50 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200">
+                                    <i class="fa-solid fa-rotate mr-1"></i> Refresh
+                                </button>
+                                <button onclick="openAddJobModal()" class="bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-indigo-700">
+                                    <i class="fa-solid fa-plus mr-1"></i> Add Job
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Quick Stats -->
+                        <div class="grid grid-cols-3 gap-4">
+                            <div class="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 p-4">
+                                <div class="flex items-center gap-3">
+                                    <div class="bg-emerald-100 dark:bg-emerald-900/30 p-2 rounded-lg">
+                                        <i class="fa-solid fa-briefcase text-emerald-600 dark:text-emerald-400"></i>
+                                    </div>
+                                    <div>
+                                        <p class="text-xs font-bold text-emerald-500 uppercase tracking-wider">Active Jobs</p>
+                                        <h2 class="text-2xl font-extrabold text-slate-800 dark:text-white" id="myJobsActiveCount">0</h2>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 p-4">
+                                <div class="flex items-center gap-3">
+                                    <div class="bg-blue-100 dark:bg-blue-900/30 p-2 rounded-lg">
+                                        <i class="fa-solid fa-check-circle text-blue-600 dark:text-blue-400"></i>
+                                    </div>
+                                    <div>
+                                        <p class="text-xs font-bold text-blue-500 uppercase tracking-wider">Fulfilled</p>
+                                        <h2 class="text-2xl font-extrabold text-slate-800 dark:text-white" id="myJobsFulfilledCount">0</h2>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 p-4">
+                                <div class="flex items-center gap-3">
+                                    <div class="bg-slate-100 dark:bg-slate-700 p-2 rounded-lg">
+                                        <i class="fa-solid fa-stop-circle text-slate-500 dark:text-slate-400"></i>
+                                    </div>
+                                    <div>
+                                        <p class="text-xs font-bold text-slate-500 uppercase tracking-wider">Stopped</p>
+                                        <h2 class="text-2xl font-extrabold text-slate-800 dark:text-white" id="myJobsStoppedCount">0</h2>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Filter Tabs -->
+                        <div class="flex gap-2 bg-white dark:bg-slate-800 p-2 rounded-lg border border-slate-200 dark:border-slate-700">
+                            <button onclick="filterMyJobs('all')" class="my-jobs-filter-btn px-4 py-2 rounded-lg text-sm font-medium transition-colors bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200" data-filter="all">
+                                All Jobs
+                            </button>
+                            <button onclick="filterMyJobs('Active')" class="my-jobs-filter-btn px-4 py-2 rounded-lg text-sm font-medium transition-colors text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-700" data-filter="Active">
+                                <i class="fa-solid fa-briefcase mr-1 text-emerald-500"></i> Active
+                            </button>
+                            <button onclick="filterMyJobs('Fulfilled')" class="my-jobs-filter-btn px-4 py-2 rounded-lg text-sm font-medium transition-colors text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-700" data-filter="Fulfilled">
+                                <i class="fa-solid fa-check-circle mr-1 text-blue-500"></i> Fulfilled
+                            </button>
+                            <button onclick="filterMyJobs('Stopped')" class="my-jobs-filter-btn px-4 py-2 rounded-lg text-sm font-medium transition-colors text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-700" data-filter="Stopped">
+                                <i class="fa-solid fa-stop-circle mr-1 text-slate-400"></i> Stopped
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Jobs Table -->
+                    <div class="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden">
+                        <div class="overflow-x-auto">
+                            <table class="w-full text-left text-sm">
+                                <thead class="bg-slate-50 dark:bg-slate-900 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase">
+                                    <tr>
+                                        <th class="px-6 py-3">Job ID</th>
+                                        <th class="px-6 py-3">Status</th>
+                                        <th class="px-6 py-3">Assigned Date</th>
+                                        <th class="px-6 py-3">Closed Date</th>
+                                        <th class="px-6 py-3">Notes</th>
+                                        <th class="px-6 py-3 text-center">Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="myJobsTableBody" class="divide-y divide-slate-100 dark:divide-slate-700">
+                                    <tr>
+                                        <td colspan="6" class="px-6 py-12 text-center text-slate-400">
+                                            <i class="fa-solid fa-briefcase text-4xl mb-3 block opacity-30"></i>
+                                            <span class="text-sm">Loading jobs...</span>
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Add Job Modal -->
+                <div id="addJobModal" class="fixed inset-0 bg-black/50 z-50 hidden flex items-center justify-center p-4">
+                    <div class="bg-white dark:bg-slate-800 rounded-xl shadow-xl w-full max-w-md">
+                        <div class="p-6 border-b border-slate-200 dark:border-slate-700">
+                            <div class="flex justify-between items-center">
+                                <h3 class="text-lg font-bold text-slate-800 dark:text-white">Add New Job</h3>
+                                <button onclick="closeAddJobModal()" class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-300">
+                                    <i class="fa-solid fa-times"></i>
+                                </button>
+                            </div>
+                        </div>
+                        <div class="p-6 space-y-4">
+                            <div>
+                                <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">Job ID <span class="text-red-500">*</span></label>
+                                <input type="number" id="addJobIdInput" class="w-full px-4 py-2 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 bg-white dark:bg-slate-700 text-slate-800 dark:text-white" placeholder="e.g., 51000">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">Notes (optional)</label>
+                                <textarea id="addJobNotesInput" rows="3" class="w-full px-4 py-2 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 bg-white dark:bg-slate-700 text-slate-800 dark:text-white" placeholder="Optional notes about this job..."></textarea>
+                            </div>
+                        </div>
+                        <div class="p-6 border-t border-slate-200 dark:border-slate-700 flex justify-end gap-3">
+                            <button onclick="closeAddJobModal()" class="px-4 py-2 text-sm font-medium text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white">Cancel</button>
+                            <button onclick="submitAddJob()" class="px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700">
+                                <i class="fa-solid fa-plus mr-1"></i> Add Job
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Job Status Confirmation Modal -->
+                <div id="jobStatusModal" class="fixed inset-0 bg-black/50 z-50 hidden flex items-center justify-center p-4">
+                    <div class="bg-white dark:bg-slate-800 rounded-xl shadow-xl w-full max-w-md">
+                        <div class="p-6 border-b border-slate-200 dark:border-slate-700">
+                            <div class="flex justify-between items-center">
+                                <h3 class="text-lg font-bold text-slate-800 dark:text-white" id="jobStatusModalTitle">Confirm Status Change</h3>
+                                <button onclick="closeJobStatusModal()" class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-300">
+                                    <i class="fa-solid fa-times"></i>
+                                </button>
+                            </div>
+                        </div>
+                        <div class="p-6">
+                            <div class="flex items-center gap-4 mb-4">
+                                <div id="jobStatusModalIcon" class="w-12 h-12 rounded-full bg-blue-100 flex items-center justify-center">
+                                    <i class="fa-solid fa-check text-2xl text-blue-600"></i>
+                                </div>
+                                <div>
+                                    <p class="text-slate-600 dark:text-slate-300" id="jobStatusModalMessage">Are you sure you want to mark this job as fulfilled?</p>
+                                    <p class="text-sm text-slate-500 dark:text-slate-400 mt-1">Job ID: <span class="font-mono font-bold" id="jobStatusModalJobId">-</span></p>
+                                </div>
+                            </div>
+                            <div class="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg p-3 text-sm text-amber-700 dark:text-amber-400">
+                                <i class="fa-solid fa-exclamation-triangle mr-2"></i>
+                                <span id="jobStatusModalWarning">This action will update the job status. The closed date will be recorded automatically.</span>
+                            </div>
+                        </div>
+                        <div class="p-6 border-t border-slate-200 dark:border-slate-700 flex justify-end gap-3">
+                            <button onclick="closeJobStatusModal()" class="px-4 py-2 text-sm font-medium text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white">Cancel</button>
+                            <button onclick="confirmJobStatusChange()" id="jobStatusModalConfirmBtn" class="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700">
+                                Confirm
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Edit Assigned Date Modal -->
+                <div id="editDateModal" class="fixed inset-0 bg-black/50 z-50 hidden flex items-center justify-center p-4">
+                    <div class="bg-white dark:bg-slate-800 rounded-xl shadow-xl w-full max-w-md">
+                        <div class="p-6 border-b border-slate-200 dark:border-slate-700">
+                            <div class="flex justify-between items-center">
+                                <h3 class="text-lg font-bold text-slate-800 dark:text-white">Edit Assigned Date</h3>
+                                <button onclick="closeEditDateModal()" class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-300">
+                                    <i class="fa-solid fa-times"></i>
+                                </button>
+                            </div>
+                        </div>
+                        <div class="p-6 space-y-4">
+                            <p class="text-slate-600 dark:text-slate-300">Job ID: <span class="font-mono font-bold" id="editDateJobId">-</span></p>
+                            <div>
+                                <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">Assigned Date</label>
+                                <input type="date" id="editDateInput" class="w-full px-4 py-2 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 bg-white dark:bg-slate-700 text-slate-800 dark:text-white">
+                            </div>
+                        </div>
+                        <div class="p-6 border-t border-slate-200 dark:border-slate-700 flex justify-end gap-3">
+                            <button onclick="closeEditDateModal()" class="px-4 py-2 text-sm font-medium text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white">Cancel</button>
+                            <button onclick="submitEditDate()" class="px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700">
+                                Save
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- TAB 5: ANALYTICS -->
                 <div id="tab-analytics" class="tab-content hidden-tab">
                     <div class="flex flex-col gap-4 mb-6">
@@ -2239,6 +2432,67 @@
                                     <span class="text-sm">No completions yet</span>
                                 </div>
                             </div>
+                        </div>
+                    </div>
+
+                    <!-- Team Job Metrics Section - Shows job assignments per agent -->
+                    <div class="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden mt-6">
+                        <div class="px-6 py-4 border-b border-slate-100 dark:border-slate-700">
+                            <div class="flex items-center justify-between">
+                                <div class="flex items-center gap-3">
+                                    <div class="bg-gradient-to-br from-indigo-500 to-purple-600 p-2 rounded-lg">
+                                        <i class="fa-solid fa-clipboard-list text-white"></i>
+                                    </div>
+                                    <div>
+                                        <h4 class="font-bold text-slate-800 dark:text-white">Team Job Assignments</h4>
+                                        <p class="text-xs text-slate-500 dark:text-slate-400">Active, fulfilled, and stopped jobs per team member</p>
+                                    </div>
+                                </div>
+                                <button onclick="refreshJobMetrics()" class="text-xs px-3 py-1.5 bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 text-slate-600 dark:text-slate-300 rounded-lg transition-colors">
+                                    <i class="fa-solid fa-sync-alt mr-1"></i> Refresh
+                                </button>
+                            </div>
+                        </div>
+                        <!-- Job Metrics Summary Cards -->
+                        <div class="grid grid-cols-4 gap-4 p-4 bg-slate-50 dark:bg-slate-900/50 border-b border-slate-100 dark:border-slate-700">
+                            <div class="text-center">
+                                <div class="text-2xl font-bold text-emerald-600 dark:text-emerald-400" id="jobMetricsTotalActive">-</div>
+                                <div class="text-xs text-slate-500 dark:text-slate-400">Active Jobs</div>
+                            </div>
+                            <div class="text-center">
+                                <div class="text-2xl font-bold text-blue-600 dark:text-blue-400" id="jobMetricsTotalFulfilled">-</div>
+                                <div class="text-xs text-slate-500 dark:text-slate-400">Fulfilled</div>
+                            </div>
+                            <div class="text-center">
+                                <div class="text-2xl font-bold text-slate-500 dark:text-slate-400" id="jobMetricsTotalStopped">-</div>
+                                <div class="text-xs text-slate-500 dark:text-slate-400">Stopped</div>
+                            </div>
+                            <div class="text-center">
+                                <div class="text-2xl font-bold text-indigo-600 dark:text-indigo-400" id="jobMetricsTotalAll">-</div>
+                                <div class="text-xs text-slate-500 dark:text-slate-400">Total Jobs</div>
+                            </div>
+                        </div>
+                        <!-- Job Metrics Table -->
+                        <div class="overflow-x-auto">
+                            <table class="w-full text-left text-sm">
+                                <thead class="bg-slate-50 dark:bg-slate-900 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase">
+                                    <tr>
+                                        <th class="px-6 py-3">Agent</th>
+                                        <th class="px-6 py-3 text-center">Active</th>
+                                        <th class="px-6 py-3 text-center">Fulfilled</th>
+                                        <th class="px-6 py-3 text-center">Stopped</th>
+                                        <th class="px-6 py-3 text-center">Total</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="jobMetricsTableBody" class="divide-y divide-slate-100 dark:divide-slate-700">
+                                    <tr>
+                                        <td colspan="5" class="px-6 py-8 text-center text-slate-400">
+                                            <i class="fa-solid fa-clipboard-list text-2xl mb-2 block opacity-30"></i>
+                                            <span class="text-sm">Loading job metrics...</span>
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
                         </div>
                     </div>
 
@@ -3710,7 +3964,7 @@
                 <div class="grid grid-cols-2 gap-1 text-slate-500 dark:text-slate-400">
                     <div><span class="font-medium text-blue-600">Admin</span> - Full access + Manage users</div>
                     <div><span class="font-medium text-indigo-600">TL</span> - Operations + Team analytics</div>
-                    <div><span class="font-medium text-emerald-600">TOS</span> - Operations + Own analytics</div>
+                    <div><span class="font-medium text-emerald-600">Talent Ops</span> - Operations + Own analytics</div>
                     <div><span class="font-medium text-purple-600">TM/TA/Manager</span> - Analytics only</div>
                     <div><span class="font-medium text-slate-600">Other</span> - Operations + Own analytics</div>
                 </div>
@@ -3721,7 +3975,7 @@
                 <input id="newViewerEmail" class="input-field flex-1" placeholder="user@example.com">
                 <select id="newViewerLevel" class="input-field w-28">
                     <option value="other">Other</option>
-                    <option value="tos">TOS</option>
+                    <option value="tos">Talent Ops</option>
                     <option value="tl">TL</option>
                     <option value="tm">TM</option>
                     <option value="ta">TA</option>
@@ -3854,6 +4108,12 @@
                                 <div class="flex flex-col items-center">
                                     <i class="fa-solid fa-clock-rotate-left text-purple-500 mb-1"></i>
                                     <span class="text-xs">Follow-Ups</span>
+                                </div>
+                            </th>
+                            <th class="px-2 py-3 text-center font-semibold text-slate-600 dark:text-slate-300">
+                                <div class="flex flex-col items-center">
+                                    <i class="fa-solid fa-clipboard-list text-emerald-500 mb-1"></i>
+                                    <span class="text-xs">My Jobs</span>
                                 </div>
                             </th>
                             <th class="px-2 py-3 text-center font-semibold text-slate-600 dark:text-slate-300">
@@ -4195,6 +4455,7 @@
                 'negotiation': 'Setup Job Details',
                 'tasks': 'Task List',
                 'followups': 'Follow-Ups',
+                'myjobs': 'My Jobs',
                 'analytics': 'Analytics',
                 'learning': 'AI Learning Center',
                 'aitesting': 'AI Testing', // AI TESTING FEATURE - DELETE FOR PRODUCTION
@@ -4210,6 +4471,11 @@
             // Load learning cases when switching to learning tab
             if (tabName === 'learning') {
                 loadLearningCases();
+            }
+
+            // Load My Jobs when switching to myjobs tab
+            if (tabName === 'myjobs') {
+                if (!isCacheValid('myjobs')) loadMyJobs();
             }
 
             // Trigger data loads only if cache is invalid
@@ -8490,6 +8756,9 @@
 
             // Load chart data
             loadAnalyticsCharts(filterJobId, startDate, endDate);
+
+            // Load team job metrics (shows job assignments per agent)
+            loadJobMetrics();
         }
 
         // ============================================
@@ -8984,7 +9253,7 @@
                         'tm': 'TM',
                         'ta': 'TA',
                         'manager': 'Manager',
-                        'tos': 'TOS',
+                        'tos': 'Talent Ops',
                         'other': 'Other',
                         'viewer': 'Other' // backwards compat
                     };
@@ -9592,6 +9861,7 @@
             negotiation: 'Job Setup',
             tasks: 'Tasks',
             followups: 'Follow-Ups',
+            myjobs: 'My Jobs',
             analytics: 'Analytics',
             learning: 'AI Learning',
             aitesting: 'AI Testing',
@@ -9603,6 +9873,7 @@
             tm: 'Talent Manager',
             ta: 'Talent Acquisition',
             manager: 'Manager',
+            tos: 'Talent Ops',
             other: 'Other'
         };
         const ROLE_COLORS = {
@@ -9611,6 +9882,7 @@
             tm: 'bg-purple-100 text-purple-700 dark:bg-purple-900/50 dark:text-purple-300',
             ta: 'bg-violet-100 text-violet-700 dark:bg-violet-900/50 dark:text-violet-300',
             manager: 'bg-pink-100 text-pink-700 dark:bg-pink-900/50 dark:text-pink-300',
+            tos: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-300',
             other: 'bg-slate-100 text-slate-700 dark:bg-slate-700 dark:text-slate-300'
         };
 
@@ -10902,6 +11174,453 @@
             } catch (e) {
                 return '';
             }
+        }
+
+        // ============================================================
+        // MY JOBS - Job Assignment Tracking Functions
+        // ============================================================
+
+        let myJobsData = [];
+        let myJobsCurrentFilter = 'all';
+        let pendingStatusChange = null;
+        let pendingDateEdit = null;
+
+        // Load My Jobs data
+        function loadMyJobs() {
+            const tbody = document.getElementById('myJobsTableBody');
+            tbody.innerHTML = `
+                <tr>
+                    <td colspan="6" class="px-6 py-12 text-center text-slate-400">
+                        <i class="fa-solid fa-spinner fa-spin text-4xl mb-3 block"></i>
+                        <span class="text-sm">Loading jobs...</span>
+                    </td>
+                </tr>
+            `;
+
+            google.script.run
+                .withSuccessHandler(function(result) {
+                    if (result.success) {
+                        myJobsData = result.jobs || [];
+                        renderMyJobs();
+                        updateMyJobsStats();
+                        setCacheValid('myjobs', true);
+                    } else {
+                        showToast(result.error || 'Failed to load jobs', 'error');
+                        renderEmptyMyJobs('Failed to load jobs');
+                    }
+                })
+                .withFailureHandler(function(err) {
+                    showToast('Failed to load jobs: ' + err.message, 'error');
+                    renderEmptyMyJobs('Error loading jobs');
+                })
+                .getMyJobs('all');
+        }
+
+        // Refresh My Jobs
+        function refreshMyJobs() {
+            setCacheValid('myjobs', false);
+            loadMyJobs();
+        }
+
+        // Render empty state
+        function renderEmptyMyJobs(message) {
+            const tbody = document.getElementById('myJobsTableBody');
+            tbody.innerHTML = `
+                <tr>
+                    <td colspan="6" class="px-6 py-12 text-center text-slate-400">
+                        <i class="fa-solid fa-briefcase text-4xl mb-3 block opacity-30"></i>
+                        <span class="text-sm">${message || 'No jobs found'}</span>
+                    </td>
+                </tr>
+            `;
+        }
+
+        // Update stats counters
+        function updateMyJobsStats() {
+            const active = myJobsData.filter(j => j.status === 'Active').length;
+            const fulfilled = myJobsData.filter(j => j.status === 'Fulfilled').length;
+            const stopped = myJobsData.filter(j => j.status === 'Stopped').length;
+
+            document.getElementById('myJobsActiveCount').textContent = active;
+            document.getElementById('myJobsFulfilledCount').textContent = fulfilled;
+            document.getElementById('myJobsStoppedCount').textContent = stopped;
+        }
+
+        // Render jobs table
+        function renderMyJobs() {
+            const tbody = document.getElementById('myJobsTableBody');
+
+            // Filter jobs based on current filter
+            let filteredJobs = myJobsData;
+            if (myJobsCurrentFilter !== 'all') {
+                filteredJobs = myJobsData.filter(j => j.status === myJobsCurrentFilter);
+            }
+
+            if (filteredJobs.length === 0) {
+                const filterText = myJobsCurrentFilter === 'all' ? '' : myJobsCurrentFilter.toLowerCase() + ' ';
+                renderEmptyMyJobs(`No ${filterText}jobs found. Click "Add Job" to add one manually, or jobs will be auto-added when you send outreach.`);
+                return;
+            }
+
+            tbody.innerHTML = filteredJobs.map(job => {
+                const statusClasses = {
+                    'Active': 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400',
+                    'Fulfilled': 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
+                    'Stopped': 'bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-400'
+                };
+                const statusIcons = {
+                    'Active': 'fa-briefcase',
+                    'Fulfilled': 'fa-check-circle',
+                    'Stopped': 'fa-stop-circle'
+                };
+
+                const assignedDate = job.assignedDate ? new Date(job.assignedDate).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }) : '-';
+                const closedDate = job.closedDate ? new Date(job.closedDate).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }) : '-';
+
+                return `
+                    <tr class="hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors">
+                        <td class="px-6 py-4">
+                            <span class="font-mono font-bold text-indigo-600 dark:text-indigo-400">${job.jobId}</span>
+                        </td>
+                        <td class="px-6 py-4">
+                            <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${statusClasses[job.status] || statusClasses['Active']}">
+                                <i class="fa-solid ${statusIcons[job.status] || statusIcons['Active']}"></i>
+                                ${job.status}
+                            </span>
+                        </td>
+                        <td class="px-6 py-4 text-slate-600 dark:text-slate-300">
+                            <span class="cursor-pointer hover:text-indigo-600 dark:hover:text-indigo-400" onclick="openEditDateModal('${job.jobId}', '${job.assignedDate || ''}')" title="Click to edit">
+                                ${assignedDate}
+                                <i class="fa-solid fa-pen text-xs ml-1 opacity-50"></i>
+                            </span>
+                        </td>
+                        <td class="px-6 py-4 text-slate-600 dark:text-slate-300">${closedDate}</td>
+                        <td class="px-6 py-4 text-slate-500 dark:text-slate-400 max-w-[200px] truncate" title="${job.notes || ''}">${job.notes || '-'}</td>
+                        <td class="px-6 py-4">
+                            <div class="flex items-center justify-center gap-2">
+                                ${job.status === 'Active' ? `
+                                    <button onclick="openJobStatusModal('${job.jobId}', 'Fulfilled')" class="px-3 py-1.5 text-xs font-medium text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/30 rounded-lg transition-colors" title="Mark as Fulfilled">
+                                        <i class="fa-solid fa-check mr-1"></i>Fulfilled
+                                    </button>
+                                    <button onclick="openJobStatusModal('${job.jobId}', 'Stopped')" class="px-3 py-1.5 text-xs font-medium text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg transition-colors" title="Mark as Stopped">
+                                        <i class="fa-solid fa-stop mr-1"></i>Stop
+                                    </button>
+                                ` : `
+                                    <button onclick="openJobStatusModal('${job.jobId}', 'Active')" class="px-3 py-1.5 text-xs font-medium text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-900/30 rounded-lg transition-colors" title="Reactivate">
+                                        <i class="fa-solid fa-redo mr-1"></i>Reactivate
+                                    </button>
+                                    <button onclick="deleteJob('${job.jobId}')" class="px-3 py-1.5 text-xs font-medium text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-colors" title="Remove from list">
+                                        <i class="fa-solid fa-trash mr-1"></i>
+                                    </button>
+                                `}
+                            </div>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        // Filter jobs by status
+        function filterMyJobs(filter) {
+            myJobsCurrentFilter = filter;
+
+            // Update filter button styles
+            document.querySelectorAll('.my-jobs-filter-btn').forEach(btn => {
+                if (btn.dataset.filter === filter) {
+                    btn.classList.add('bg-slate-100', 'dark:bg-slate-700', 'text-slate-700', 'dark:text-slate-200');
+                    btn.classList.remove('text-slate-500');
+                } else {
+                    btn.classList.remove('bg-slate-100', 'dark:bg-slate-700', 'text-slate-700', 'dark:text-slate-200');
+                    btn.classList.add('text-slate-500');
+                }
+            });
+
+            renderMyJobs();
+        }
+
+        // Open Add Job Modal
+        function openAddJobModal() {
+            document.getElementById('addJobIdInput').value = '';
+            document.getElementById('addJobNotesInput').value = '';
+            document.getElementById('addJobModal').classList.remove('hidden');
+        }
+
+        // Close Add Job Modal
+        function closeAddJobModal() {
+            document.getElementById('addJobModal').classList.add('hidden');
+        }
+
+        // Submit Add Job
+        function submitAddJob() {
+            const jobId = document.getElementById('addJobIdInput').value.trim();
+            const notes = document.getElementById('addJobNotesInput').value.trim();
+
+            if (!jobId) {
+                showToast('Please enter a Job ID', 'error');
+                return;
+            }
+
+            google.script.run
+                .withSuccessHandler(function(result) {
+                    if (result.success) {
+                        showToast(result.message || 'Job added successfully', 'success');
+                        closeAddJobModal();
+                        refreshMyJobs();
+                    } else {
+                        showToast(result.error || 'Failed to add job', 'error');
+                    }
+                })
+                .withFailureHandler(function(err) {
+                    showToast('Failed to add job: ' + err.message, 'error');
+                })
+                .addJobAssignment(jobId, notes);
+        }
+
+        // Open Job Status Modal (for confirmation)
+        function openJobStatusModal(jobId, newStatus) {
+            pendingStatusChange = { jobId, newStatus };
+
+            document.getElementById('jobStatusModalJobId').textContent = jobId;
+
+            const iconContainer = document.getElementById('jobStatusModalIcon');
+            const confirmBtn = document.getElementById('jobStatusModalConfirmBtn');
+            const message = document.getElementById('jobStatusModalMessage');
+            const title = document.getElementById('jobStatusModalTitle');
+            const warning = document.getElementById('jobStatusModalWarning');
+
+            if (newStatus === 'Fulfilled') {
+                title.textContent = 'Mark Job as Fulfilled';
+                message.textContent = 'Are you sure this job has been fulfilled?';
+                warning.textContent = 'This indicates the position has been filled. The closed date will be recorded automatically.';
+                iconContainer.className = 'w-12 h-12 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center';
+                iconContainer.innerHTML = '<i class="fa-solid fa-check text-2xl text-blue-600 dark:text-blue-400"></i>';
+                confirmBtn.className = 'px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700';
+                confirmBtn.innerHTML = '<i class="fa-solid fa-check mr-1"></i> Mark Fulfilled';
+            } else if (newStatus === 'Stopped') {
+                title.textContent = 'Stop Working on Job';
+                message.textContent = 'Are you sure you want to stop working on this job?';
+                warning.textContent = 'This indicates you are no longer handling this job (cancelled, reassigned, etc.). The closed date will be recorded automatically.';
+                iconContainer.className = 'w-12 h-12 rounded-full bg-slate-100 dark:bg-slate-700 flex items-center justify-center';
+                iconContainer.innerHTML = '<i class="fa-solid fa-stop text-2xl text-slate-500 dark:text-slate-400"></i>';
+                confirmBtn.className = 'px-4 py-2 bg-slate-600 text-white text-sm font-medium rounded-lg hover:bg-slate-700';
+                confirmBtn.innerHTML = '<i class="fa-solid fa-stop mr-1"></i> Stop Job';
+            } else if (newStatus === 'Active') {
+                title.textContent = 'Reactivate Job';
+                message.textContent = 'Are you sure you want to reactivate this job?';
+                warning.textContent = 'This will move the job back to your active list and clear the closed date.';
+                iconContainer.className = 'w-12 h-12 rounded-full bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center';
+                iconContainer.innerHTML = '<i class="fa-solid fa-redo text-2xl text-emerald-600 dark:text-emerald-400"></i>';
+                confirmBtn.className = 'px-4 py-2 bg-emerald-600 text-white text-sm font-medium rounded-lg hover:bg-emerald-700';
+                confirmBtn.innerHTML = '<i class="fa-solid fa-redo mr-1"></i> Reactivate';
+            }
+
+            document.getElementById('jobStatusModal').classList.remove('hidden');
+        }
+
+        // Close Job Status Modal
+        function closeJobStatusModal() {
+            document.getElementById('jobStatusModal').classList.add('hidden');
+            pendingStatusChange = null;
+        }
+
+        // Confirm Job Status Change
+        function confirmJobStatusChange() {
+            if (!pendingStatusChange) return;
+
+            const { jobId, newStatus } = pendingStatusChange;
+
+            google.script.run
+                .withSuccessHandler(function(result) {
+                    if (result.success) {
+                        showToast(result.message || `Job ${jobId} marked as ${newStatus}`, 'success');
+                        closeJobStatusModal();
+                        refreshMyJobs();
+                    } else {
+                        showToast(result.error || 'Failed to update job status', 'error');
+                    }
+                })
+                .withFailureHandler(function(err) {
+                    showToast('Failed to update job status: ' + err.message, 'error');
+                })
+                .updateJobStatus(jobId, newStatus);
+        }
+
+        // Open Edit Date Modal
+        function openEditDateModal(jobId, currentDate) {
+            pendingDateEdit = jobId;
+            document.getElementById('editDateJobId').textContent = jobId;
+
+            if (currentDate) {
+                const date = new Date(currentDate);
+                const formattedDate = date.toISOString().split('T')[0];
+                document.getElementById('editDateInput').value = formattedDate;
+            } else {
+                document.getElementById('editDateInput').value = '';
+            }
+
+            document.getElementById('editDateModal').classList.remove('hidden');
+        }
+
+        // Close Edit Date Modal
+        function closeEditDateModal() {
+            document.getElementById('editDateModal').classList.add('hidden');
+            pendingDateEdit = null;
+        }
+
+        // Submit Edit Date
+        function submitEditDate() {
+            if (!pendingDateEdit) return;
+
+            const jobId = pendingDateEdit;
+            const newDate = document.getElementById('editDateInput').value;
+
+            if (!newDate) {
+                showToast('Please select a date', 'error');
+                return;
+            }
+
+            google.script.run
+                .withSuccessHandler(function(result) {
+                    if (result.success) {
+                        showToast(result.message || 'Assigned date updated', 'success');
+                        closeEditDateModal();
+                        refreshMyJobs();
+                    } else {
+                        showToast(result.error || 'Failed to update date', 'error');
+                    }
+                })
+                .withFailureHandler(function(err) {
+                    showToast('Failed to update date: ' + err.message, 'error');
+                })
+                .updateJobAssignedDate(jobId, newDate);
+        }
+
+        // Delete Job
+        function deleteJob(jobId) {
+            if (!confirm(`Are you sure you want to remove Job ${jobId} from your list?`)) {
+                return;
+            }
+
+            google.script.run
+                .withSuccessHandler(function(result) {
+                    if (result.success) {
+                        showToast(result.message || 'Job removed', 'success');
+                        refreshMyJobs();
+                    } else {
+                        showToast(result.error || 'Failed to remove job', 'error');
+                    }
+                })
+                .withFailureHandler(function(err) {
+                    showToast('Failed to remove job: ' + err.message, 'error');
+                })
+                .deleteJobAssignment(jobId);
+        }
+
+        // ============================================================
+        // JOB METRICS - Analytics for Leads/Managers
+        // ============================================================
+
+        // Load Job Metrics for Analytics Tab
+        function loadJobMetrics() {
+            google.script.run
+                .withSuccessHandler(function(result) {
+                    if (result.success) {
+                        renderJobMetrics(result.metrics);
+                    } else {
+                        renderJobMetricsError(result.error || 'Failed to load metrics');
+                    }
+                })
+                .withFailureHandler(function(err) {
+                    renderJobMetricsError('Error: ' + err.message);
+                })
+                .getJobAssignmentMetrics();
+        }
+
+        // Refresh Job Metrics
+        function refreshJobMetrics() {
+            const tbody = document.getElementById('jobMetricsTableBody');
+            tbody.innerHTML = `
+                <tr>
+                    <td colspan="5" class="px-6 py-8 text-center text-slate-400">
+                        <i class="fa-solid fa-spinner fa-spin text-2xl mb-2 block"></i>
+                        <span class="text-sm">Loading job metrics...</span>
+                    </td>
+                </tr>
+            `;
+            loadJobMetrics();
+        }
+
+        // Render Job Metrics
+        function renderJobMetrics(metrics) {
+            // Update totals
+            document.getElementById('jobMetricsTotalActive').textContent = metrics.totals.active || 0;
+            document.getElementById('jobMetricsTotalFulfilled').textContent = metrics.totals.fulfilled || 0;
+            document.getElementById('jobMetricsTotalStopped').textContent = metrics.totals.stopped || 0;
+            document.getElementById('jobMetricsTotalAll').textContent = metrics.totals.total || 0;
+
+            const tbody = document.getElementById('jobMetricsTableBody');
+
+            if (!metrics.byAgent || metrics.byAgent.length === 0) {
+                tbody.innerHTML = `
+                    <tr>
+                        <td colspan="5" class="px-6 py-8 text-center text-slate-400">
+                            <i class="fa-solid fa-clipboard-list text-2xl mb-2 block opacity-30"></i>
+                            <span class="text-sm">No job assignments found</span>
+                        </td>
+                    </tr>
+                `;
+                return;
+            }
+
+            tbody.innerHTML = metrics.byAgent.map(agent => {
+                const agentName = agent.agentEmail.split('@')[0];
+                return `
+                    <tr class="hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors">
+                        <td class="px-6 py-4">
+                            <div class="flex items-center gap-3">
+                                <div class="w-8 h-8 rounded-full bg-indigo-100 dark:bg-indigo-900/30 flex items-center justify-center">
+                                    <span class="text-xs font-bold text-indigo-600 dark:text-indigo-400">${agentName.charAt(0).toUpperCase()}</span>
+                                </div>
+                                <div>
+                                    <div class="font-medium text-slate-800 dark:text-white">${agentName}</div>
+                                    <div class="text-xs text-slate-500 dark:text-slate-400">${agent.agentEmail}</div>
+                                </div>
+                            </div>
+                        </td>
+                        <td class="px-6 py-4 text-center">
+                            <span class="inline-flex items-center justify-center min-w-[2rem] px-2 py-1 rounded-full text-sm font-bold ${agent.active > 0 ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400' : 'text-slate-400'}">
+                                ${agent.active}
+                            </span>
+                        </td>
+                        <td class="px-6 py-4 text-center">
+                            <span class="inline-flex items-center justify-center min-w-[2rem] px-2 py-1 rounded-full text-sm font-bold ${agent.fulfilled > 0 ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400' : 'text-slate-400'}">
+                                ${agent.fulfilled}
+                            </span>
+                        </td>
+                        <td class="px-6 py-4 text-center">
+                            <span class="inline-flex items-center justify-center min-w-[2rem] px-2 py-1 rounded-full text-sm font-bold ${agent.stopped > 0 ? 'bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-400' : 'text-slate-400'}">
+                                ${agent.stopped}
+                            </span>
+                        </td>
+                        <td class="px-6 py-4 text-center">
+                            <span class="font-bold text-slate-700 dark:text-slate-300">${agent.total}</span>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        // Render error state for job metrics
+        function renderJobMetricsError(message) {
+            const tbody = document.getElementById('jobMetricsTableBody');
+            tbody.innerHTML = `
+                <tr>
+                    <td colspan="5" class="px-6 py-8 text-center text-red-400">
+                        <i class="fa-solid fa-exclamation-circle text-2xl mb-2 block"></i>
+                        <span class="text-sm">${message}</span>
+                    </td>
+                </tr>
+            `;
         }
 
     </script>
