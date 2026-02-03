@@ -1821,8 +1821,8 @@
                         <div class="flex justify-between items-center">
                             <h3 class="text-xl font-bold text-slate-800 dark:text-white">My Jobs</h3>
                             <div class="flex gap-2">
-                                <button onclick="refreshMyJobs()" class="refresh-btn bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 px-3 py-2 rounded-lg text-sm hover:bg-slate-50 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200">
-                                    <i class="fa-solid fa-rotate mr-1"></i> Refresh
+                                <button id="myJobsRefreshBtn" onclick="refreshMyJobs()" class="refresh-btn bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 px-3 py-2 rounded-lg text-sm hover:bg-slate-50 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200">
+                                    <i id="myJobsRefreshIcon" class="fa-solid fa-rotate mr-1"></i> Refresh
                                 </button>
                                 <button onclick="openAddJobModal()" class="bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-indigo-700">
                                     <i class="fa-solid fa-plus mr-1"></i> Add Job
@@ -11181,19 +11181,34 @@
         let pendingDateEdit = null;
 
         // Load My Jobs data
-        function loadMyJobs() {
-            const tbody = document.getElementById('myJobsTableBody');
-            tbody.innerHTML = `
-                <tr>
-                    <td colspan="6" class="px-6 py-12 text-center text-slate-400">
-                        <i class="fa-solid fa-spinner fa-spin text-4xl mb-3 block text-indigo-400"></i>
-                        <span class="text-sm">Loading your jobs...</span>
-                    </td>
-                </tr>
-            `;
+        function loadMyJobs(showTableLoading = true) {
+            // Add spin animation to refresh button
+            const refreshIcon = document.getElementById('myJobsRefreshIcon');
+            const refreshBtn = document.getElementById('myJobsRefreshBtn');
+            if (refreshIcon) refreshIcon.classList.add('fa-spin');
+            if (refreshBtn) refreshBtn.disabled = true;
+
+            // Show loading in table if requested
+            if (showTableLoading) {
+                const tbody = document.getElementById('myJobsTableBody');
+                if (tbody) {
+                    tbody.innerHTML = `
+                        <tr>
+                            <td colspan="6" class="px-6 py-12 text-center text-slate-400">
+                                <i class="fa-solid fa-spinner fa-spin text-4xl mb-3 block text-indigo-400"></i>
+                                <span class="text-sm">Loading your jobs...</span>
+                            </td>
+                        </tr>
+                    `;
+                }
+            }
 
             google.script.run
                 .withSuccessHandler(function(result) {
+                    // Stop spin animation
+                    if (refreshIcon) refreshIcon.classList.remove('fa-spin');
+                    if (refreshBtn) refreshBtn.disabled = false;
+
                     if (result.success) {
                         myJobsData = result.jobs || [];
                         renderMyJobs();
@@ -11205,16 +11220,20 @@
                     }
                 })
                 .withFailureHandler(function(err) {
+                    // Stop spin animation
+                    if (refreshIcon) refreshIcon.classList.remove('fa-spin');
+                    if (refreshBtn) refreshBtn.disabled = false;
+
                     showToast('Failed to load jobs: ' + err.message, 'error');
                     renderEmptyMyJobs('Error loading jobs. Please try refreshing.', true);
                 })
                 .getMyJobs('all');
         }
 
-        // Refresh My Jobs
+        // Refresh My Jobs with animation
         function refreshMyJobs() {
             setCacheValid('myjobs', false);
-            loadMyJobs();
+            loadMyJobs(true);
         }
 
         // Render empty state
