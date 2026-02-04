@@ -5011,7 +5011,7 @@
             // Apply country filters (OR logic, AND with other filters)
             if (activeFilters.country.size > 0) {
                 filtered = filtered.filter(d => {
-                    const country = d.developer_country || '';
+                    const country = d.developer_country || d.region || '';
                     return activeFilters.country.has(country);
                 });
             }
@@ -5095,7 +5095,7 @@
             searchInput.value = '';
 
             // Get unique countries from fullTableData
-            const countries = [...new Set(fullTableData.map(d => d.developer_country || '').filter(c => c !== ''))].sort();
+            const countries = [...new Set(fullTableData.map(d => d.developer_country || d.region || '').filter(c => c !== ''))].sort();
 
             if (countries.length === 0) {
                 container.innerHTML = '<div class="text-xs text-slate-400 p-2 text-center">No countries available</div>';
@@ -5443,7 +5443,7 @@
                         <span class="font-bold text-slate-800 dark:text-slate-200">${d.full_name}</span>
                     </td>
                     <td class="px-6 py-4 text-slate-500 dark:text-slate-400">${d.email}</td>
-                    <td class="px-6 py-4 text-xs text-slate-600 dark:text-slate-400">${d.developer_country || '-'}</td>
+                    <td class="px-6 py-4 text-xs text-slate-600 dark:text-slate-400">${d.developer_country || d.region || '-'}</td>
                     <td class="px-6 py-4 text-xs text-slate-500 dark:text-slate-400 font-mono">${phoneDisplay}</td>
                     <td class="px-6 py-4">${statusBadge}</td>
                     <td class="px-6 py-4">${typeBadge}</td>
@@ -5534,7 +5534,7 @@
                 // Clean values to prevent tab/newline issues
                 const cleanValue = (val) => (val || '').toString().replace(/[\t\n\r]/g, ' ');
 
-                tsv += `${cleanValue(d.developer_id)}\t${cleanValue(d.full_name)}\t${cleanValue(d.email)}\t${cleanValue(d.developer_country)}\t${cleanValue(phoneDisplay)}\t${cleanValue(d.status)}\t${cleanValue(typeDisplay)}\t${cleanValue(d.agency_name)}\t${cleanValue(historyDisplay)}\n`;
+                tsv += `${cleanValue(d.developer_id)}\t${cleanValue(d.full_name)}\t${cleanValue(d.email)}\t${cleanValue(d.developer_country || d.region)}\t${cleanValue(phoneDisplay)}\t${cleanValue(d.status)}\t${cleanValue(typeDisplay)}\t${cleanValue(d.agency_name)}\t${cleanValue(historyDisplay)}\n`;
             });
 
             navigator.clipboard.writeText(tsv).then(() => {
@@ -5576,7 +5576,7 @@
                 if (d.is_sent && !d.is_manual_sent) historyDisplay = `Sent (${d.sent_count || 1})`;
                 else if (d.is_manual_sent) historyDisplay = `M.Sent (${d.manual_sent_count || 1})`;
 
-                csv += `${escapeCSV(d.developer_id)},${escapeCSV(d.full_name)},${escapeCSV(d.email)},${escapeCSV(d.developer_country)},${escapeCSV(phoneDisplay)},${escapeCSV(d.status)},${escapeCSV(typeDisplay)},${escapeCSV(d.agency_name)},${escapeCSV(historyDisplay)}\n`;
+                csv += `${escapeCSV(d.developer_id)},${escapeCSV(d.full_name)},${escapeCSV(d.email)},${escapeCSV(d.developer_country || d.region)},${escapeCSV(phoneDisplay)},${escapeCSV(d.status)},${escapeCSV(typeDisplay)},${escapeCSV(d.agency_name)},${escapeCSV(historyDisplay)}\n`;
             });
 
             const blob = new Blob([csv], { type: 'text/csv' });
