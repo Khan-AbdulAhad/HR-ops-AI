@@ -11743,8 +11743,12 @@ function getTimeToResponseMetrics(filterJobId, startDate, endDate) {
     // Get Negotiation_State for response timestamps
     const stateSheet = ss.getSheetByName('Negotiation_State');
 
+    // Also get Negotiation_Completed for auto-accepted candidates who bypassed state
+    const completedSheet = ss.getSheetByName('Negotiation_Completed');
+
     const emailData = emailLogsSheet.getDataRange().getValues();
     const stateData = stateSheet ? stateSheet.getDataRange().getValues() : [];
+    const completedData = completedSheet ? completedSheet.getDataRange().getValues() : [];
 
     // Parse date filters
     let startDateFilter = null;
@@ -11784,6 +11788,8 @@ function getTimeToResponseMetrics(filterJobId, startDate, endDate) {
 
     // Build map of email -> first response timestamp by job
     const responseMap = new Map(); // key: "email|jobId" -> timestamp
+
+    // First, check Negotiation_State for response times
     for (let i = 1; i < stateData.length; i++) {
       const email = String(stateData[i][0] || '').toLowerCase();
       const jobId = String(stateData[i][1] || '');
@@ -11795,6 +11801,27 @@ function getTimeToResponseMetrics(filterJobId, startDate, endDate) {
       const key = `${email}|${jobId}`;
       if (!responseMap.has(key) && lastReplyTime) {
         responseMap.set(key, new Date(lastReplyTime));
+      }
+    }
+
+    // Also check Negotiation_Completed for auto-accepted candidates who bypassed state sheet
+    // Columns: [0]=Timestamp, [1]=Job ID, [2]=Email, [3]=Name, [4]=Final Status
+    for (let i = 1; i < completedData.length; i++) {
+      const completedTimestamp = completedData[i][0];
+      const jobId = String(completedData[i][1] || '');
+      const email = String(completedData[i][2] || '').toLowerCase();
+      const finalStatus = String(completedData[i][4] || '').toLowerCase();
+
+      // Apply job filter
+      if (filterJobId && jobId !== filterJobId) continue;
+
+      // Only count accepted/completed candidates as "responded"
+      if (!finalStatus.includes('accept') && !finalStatus.includes('complete')) continue;
+
+      const key = `${email}|${jobId}`;
+      // Only add if not already in responseMap (state sheet takes precedence)
+      if (!responseMap.has(key) && completedTimestamp) {
+        responseMap.set(key, new Date(completedTimestamp));
       }
     }
 
@@ -12086,14 +12113,38 @@ function getConversionFunnelData(filterJobId, startDate, endDate) {
       if (email) outreachEmails.add(email);
     }
 
-    // Count responded (have entries in Negotiation_State)
+    // Count responded (have entries in Negotiation_State OR Negotiation_Completed)
+    // This includes auto-accepted candidates who bypassed the state sheet
     const respondedEmails = new Set();
+
+    // First, count from Negotiation_State (active negotiations)
     for (let i = 1; i < stateData.length; i++) {
       const email = String(stateData[i][0] || '').toLowerCase();
       const jobId = String(stateData[i][1] || '');
 
       if (filterJobId && jobId !== filterJobId) continue;
       if (email) respondedEmails.add(email);
+    }
+
+    // Also count from Negotiation_Completed (candidates who responded and completed)
+    // This catches auto-accepted candidates who bypassed Negotiation_State
+    // Columns: [0]=Timestamp, [1]=Job ID, [2]=Email, [3]=Name, [4]=Final Status
+    for (let i = 1; i < completedData.length; i++) {
+      const timestamp = completedData[i][0];
+      const jobId = String(completedData[i][1] || '');
+      const email = String(completedData[i][2] || '').toLowerCase();
+      const status = String(completedData[i][4] || '').toLowerCase();
+
+      if (filterJobId && jobId !== filterJobId) continue;
+      if (timestamp && startDateFilter && new Date(timestamp) < startDateFilter) continue;
+      if (timestamp && endDateFilter && new Date(timestamp) > endDateFilter) continue;
+
+      // Count accepted, rejected, and not interested as "responded" (they all replied to us)
+      // Don't count escalated as "responded" since they may not have replied
+      if (email && (status.includes('accept') || status.includes('complete') ||
+          status.includes('reject') || status.includes('declined') || status.includes('not interested'))) {
+        respondedEmails.add(email);
+      }
     }
 
     // Count negotiating (status is active/pending in state)
@@ -12150,7 +12201,8 @@ function getConversionFunnelData(filterJobId, startDate, endDate) {
     const totalOutreach = outreachEmails.size;
     const totalResponded = respondedEmails.size;
     const totalNegotiating = negotiatingEmails.size;
-    const totalAccepted = accepted;
+    // Use unique email count to prevent double-counting if same candidate has multiple completion entries
+    const totalAccepted = acceptedEmails.size;
 
     const responseRate = totalOutreach > 0 ? ((totalResponded / totalOutreach) * 100).toFixed(1) : 0;
     const negotiationRate = totalResponded > 0 ? ((totalNegotiating / totalResponded) * 100).toFixed(1) : 0;
