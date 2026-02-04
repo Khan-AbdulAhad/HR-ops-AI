@@ -1291,8 +1291,8 @@
                             </div>
                         </div>
                         
-                        <!-- Selection Indicator -->
-                        <div id="selectionIndicator" class="hidden items-center gap-2 text-sm text-blue-600 bg-blue-50 p-2 rounded border border-blue-100">
+                        <!-- Selection Indicator (Fixed Toast - no layout shift) -->
+                        <div id="selectionIndicator" class="fixed top-4 left-1/2 -translate-x-1/2 z-50 items-center gap-2 text-sm text-blue-600 bg-blue-50 px-4 py-2.5 rounded-lg border border-blue-200 shadow-lg opacity-0 pointer-events-none transition-all duration-300 ease-out transform -translate-y-2">
                             <i class="fa-solid fa-circle-check"></i> <span id="quickSelectedCount">0</span> selected
                         </div>
 
@@ -5484,14 +5484,14 @@
                 bar.classList.add('hidden');
             }
 
-            // Show/hide selection indicator
+            // Show/hide selection indicator (toast animation - no layout shift)
             const indicator = document.getElementById('selectionIndicator');
             if(count > 0) {
-                indicator.classList.remove('hidden');
-                indicator.classList.add('flex');
+                indicator.classList.add('flex', 'opacity-100', 'translate-y-0');
+                indicator.classList.remove('opacity-0', '-translate-y-2', 'pointer-events-none');
             } else {
-                indicator.classList.add('hidden');
-                indicator.classList.remove('flex');
+                indicator.classList.remove('flex', 'opacity-100', 'translate-y-0');
+                indicator.classList.add('opacity-0', '-translate-y-2', 'pointer-events-none');
             }
         }
         function deselectAll() {
