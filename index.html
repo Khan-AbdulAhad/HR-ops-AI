@@ -4306,13 +4306,28 @@
             tasks: { data: null, lastLoaded: 0 },
             followups: { data: null, lastLoaded: 0 },
             analytics: { data: null, lastLoaded: 0 },
-            triggers: { data: null, lastLoaded: 0 }
+            triggers: { data: null, lastLoaded: 0 },
+            myjobs: { data: null, lastLoaded: 0 }
         };
         const CACHE_DURATION = 60000; // Cache for 60 seconds
 
         function isCacheValid(cacheKey) {
             const cache = dataCache[cacheKey];
+            if (!cache) return false; // Safety check for undefined cache keys
             return cache.data !== null && (Date.now() - cache.lastLoaded) < CACHE_DURATION;
+        }
+
+        function setCacheValid(cacheKey, valid) {
+            if (!dataCache[cacheKey]) {
+                dataCache[cacheKey] = { data: null, lastLoaded: 0 };
+            }
+            if (valid) {
+                dataCache[cacheKey].data = true;
+                dataCache[cacheKey].lastLoaded = Date.now();
+            } else {
+                dataCache[cacheKey].data = null;
+                dataCache[cacheKey].lastLoaded = 0;
+            }
         }
 
         // Multi-select filter state
@@ -11186,12 +11201,18 @@
         let pendingDateEdit = null;
 
         // Load My Jobs data
-        function loadMyJobs(showTableLoading = true) {
+        function loadMyJobs(showTableLoading = true, isManualRefresh = false) {
             // Add spin animation to refresh button
             const refreshIcon = document.getElementById('myJobsRefreshIcon');
             const refreshBtn = document.getElementById('myJobsRefreshBtn');
+
             if (refreshIcon) refreshIcon.classList.add('fa-spin');
-            if (refreshBtn) refreshBtn.disabled = true;
+            if (refreshBtn) {
+                refreshBtn.disabled = true;
+                // Enhanced animation: change button appearance during refresh
+                refreshBtn.innerHTML = '<i id="myJobsRefreshIcon" class="fa-solid fa-rotate fa-spin mr-1"></i> Refreshing...';
+                refreshBtn.classList.add('animate-pulse', 'bg-indigo-50', 'dark:bg-indigo-900/30', 'border-indigo-300', 'dark:border-indigo-700');
+            }
 
             // Show loading in table if requested
             if (showTableLoading) {
@@ -11210,24 +11231,36 @@
 
             google.script.run
                 .withSuccessHandler(function(result) {
-                    // Stop spin animation
-                    if (refreshIcon) refreshIcon.classList.remove('fa-spin');
-                    if (refreshBtn) refreshBtn.disabled = false;
+                    // Reset refresh button to original state
+                    if (refreshBtn) {
+                        refreshBtn.disabled = false;
+                        refreshBtn.innerHTML = '<i id="myJobsRefreshIcon" class="fa-solid fa-rotate mr-1"></i> Refresh';
+                        refreshBtn.classList.remove('animate-pulse', 'bg-indigo-50', 'dark:bg-indigo-900/30', 'border-indigo-300', 'dark:border-indigo-700');
+                    }
 
                     if (result.success) {
                         myJobsData = result.jobs || [];
                         renderMyJobs();
                         updateMyJobsStats();
                         setCacheValid('myjobs', true);
+
+                        // Show success toast on manual refresh
+                        if (isManualRefresh) {
+                            const jobCount = myJobsData.length;
+                            showToast(`Jobs refreshed! ${jobCount} job${jobCount !== 1 ? 's' : ''} found.`, 'success');
+                        }
                     } else {
                         showToast(result.error || 'Failed to load jobs', 'error');
                         renderEmptyMyJobs('Failed to load jobs. Please try refreshing.', true);
                     }
                 })
                 .withFailureHandler(function(err) {
-                    // Stop spin animation
-                    if (refreshIcon) refreshIcon.classList.remove('fa-spin');
-                    if (refreshBtn) refreshBtn.disabled = false;
+                    // Reset refresh button to original state
+                    if (refreshBtn) {
+                        refreshBtn.disabled = false;
+                        refreshBtn.innerHTML = '<i id="myJobsRefreshIcon" class="fa-solid fa-rotate mr-1"></i> Refresh';
+                        refreshBtn.classList.remove('animate-pulse', 'bg-indigo-50', 'dark:bg-indigo-900/30', 'border-indigo-300', 'dark:border-indigo-700');
+                    }
 
                     showToast('Failed to load jobs: ' + err.message, 'error');
                     renderEmptyMyJobs('Error loading jobs. Please try refreshing.', true);
@@ -11238,7 +11271,7 @@
         // Refresh My Jobs with animation
         function refreshMyJobs() {
             setCacheValid('myjobs', false);
-            loadMyJobs(true);
+            loadMyJobs(true, true); // Pass true for isManualRefresh to show toast
         }
 
         // Render empty state
