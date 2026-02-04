@@ -2003,6 +2003,107 @@
                     </div>
                 </div>
 
+                <!-- Edit Notes Modal -->
+                <div id="editNotesModal" class="fixed inset-0 bg-black/50 z-50 hidden flex items-center justify-center p-4">
+                    <div class="bg-white dark:bg-slate-800 rounded-xl shadow-xl w-full max-w-lg">
+                        <div class="p-6 border-b border-slate-200 dark:border-slate-700">
+                            <div class="flex justify-between items-center">
+                                <h3 class="text-lg font-bold text-slate-800 dark:text-white">
+                                    <i class="fa-solid fa-pen-to-square mr-2 text-indigo-500"></i>Edit Notes
+                                </h3>
+                                <button onclick="closeEditNotesModal()" class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-300">
+                                    <i class="fa-solid fa-times"></i>
+                                </button>
+                            </div>
+                        </div>
+                        <div class="p-6 space-y-4">
+                            <p class="text-slate-600 dark:text-slate-300">Job ID: <span class="font-mono font-bold text-indigo-600 dark:text-indigo-400" id="editNotesJobId">-</span></p>
+                            <div>
+                                <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">Notes</label>
+                                <!-- Formatting Toolbar -->
+                                <div class="flex items-center gap-1 p-2 bg-slate-100 dark:bg-slate-700 rounded-t-lg border border-b-0 border-slate-300 dark:border-slate-600">
+                                    <button type="button" onclick="insertNotesFormat('bullet')" class="p-2 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600 rounded transition-colors" title="Bullet Point">
+                                        <i class="fa-solid fa-list-ul"></i>
+                                    </button>
+                                    <button type="button" onclick="insertNotesFormat('numbered')" class="p-2 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600 rounded transition-colors" title="Numbered List">
+                                        <i class="fa-solid fa-list-ol"></i>
+                                    </button>
+                                    <button type="button" onclick="insertNotesFormat('checkbox')" class="p-2 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600 rounded transition-colors" title="Checkbox">
+                                        <i class="fa-solid fa-square-check"></i>
+                                    </button>
+                                    <div class="w-px h-5 bg-slate-300 dark:bg-slate-500 mx-1"></div>
+                                    <button type="button" onclick="insertNotesFormat('bold')" class="p-2 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600 rounded transition-colors font-bold" title="Bold">
+                                        B
+                                    </button>
+                                    <button type="button" onclick="insertNotesFormat('italic')" class="p-2 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600 rounded transition-colors italic" title="Italic">
+                                        I
+                                    </button>
+                                    <div class="w-px h-5 bg-slate-300 dark:bg-slate-500 mx-1"></div>
+                                    <button type="button" onclick="insertNotesFormat('heading')" class="p-2 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600 rounded transition-colors" title="Heading">
+                                        <i class="fa-solid fa-heading"></i>
+                                    </button>
+                                    <button type="button" onclick="insertNotesFormat('divider')" class="p-2 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600 rounded transition-colors" title="Divider">
+                                        <i class="fa-solid fa-minus"></i>
+                                    </button>
+                                    <div class="flex-1"></div>
+                                    <span class="text-xs text-slate-400 dark:text-slate-500">Markdown supported</span>
+                                </div>
+                                <textarea id="editNotesInput" rows="8" class="w-full px-4 py-3 border border-slate-300 dark:border-slate-600 rounded-b-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 bg-white dark:bg-slate-700 text-slate-800 dark:text-white font-mono text-sm" placeholder="Add notes about this job...&#10;&#10;Tips:&#10;• Use bullet points with • or -&#10;• Use **bold** or *italic*&#10;• Use [ ] for checkboxes"></textarea>
+                            </div>
+                        </div>
+                        <div class="p-6 border-t border-slate-200 dark:border-slate-700 flex justify-between">
+                            <button onclick="previewNotes()" class="px-4 py-2 text-sm font-medium text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg transition-colors">
+                                <i class="fa-solid fa-eye mr-1"></i>Preview
+                            </button>
+                            <div class="flex gap-3">
+                                <button onclick="closeEditNotesModal()" class="px-4 py-2 text-sm font-medium text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white">Cancel</button>
+                                <button onclick="submitEditNotes()" class="px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700">
+                                    <i class="fa-solid fa-save mr-1"></i>Save
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- View Notes Modal -->
+                <div id="viewNotesModal" class="fixed inset-0 bg-black/50 z-50 hidden flex items-center justify-center p-4">
+                    <div class="bg-white dark:bg-slate-800 rounded-xl shadow-xl w-full max-w-lg max-h-[80vh] flex flex-col">
+                        <div class="p-6 border-b border-slate-200 dark:border-slate-700">
+                            <div class="flex justify-between items-center">
+                                <h3 class="text-lg font-bold text-slate-800 dark:text-white">
+                                    <i class="fa-solid fa-file-lines mr-2 text-indigo-500"></i>Job Notes
+                                </h3>
+                                <button onclick="closeViewNotesModal()" class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-300">
+                                    <i class="fa-solid fa-times"></i>
+                                </button>
+                            </div>
+                        </div>
+                        <div class="p-6 flex-1 overflow-auto">
+                            <div class="flex items-center justify-between mb-4">
+                                <p class="text-slate-600 dark:text-slate-300">Job ID: <span class="font-mono font-bold text-indigo-600 dark:text-indigo-400" id="viewNotesJobId">-</span></p>
+                                <div class="flex gap-2">
+                                    <button onclick="copyNotesToClipboard()" class="px-3 py-1.5 text-xs font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg transition-colors" title="Copy to clipboard">
+                                        <i class="fa-solid fa-copy mr-1"></i>Copy
+                                    </button>
+                                    <button onclick="editFromView()" class="px-3 py-1.5 text-xs font-medium text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 rounded-lg transition-colors" title="Edit notes">
+                                        <i class="fa-solid fa-pen mr-1"></i>Edit
+                                    </button>
+                                </div>
+                            </div>
+                            <div id="viewNotesContent" class="prose prose-sm dark:prose-invert max-w-none p-4 bg-slate-50 dark:bg-slate-700/50 rounded-lg border border-slate-200 dark:border-slate-600 min-h-[150px]">
+                                <!-- Rendered notes content -->
+                            </div>
+                            <!-- Raw notes for copying (hidden) -->
+                            <textarea id="viewNotesRaw" class="hidden"></textarea>
+                        </div>
+                        <div class="p-6 border-t border-slate-200 dark:border-slate-700 flex justify-end">
+                            <button onclick="closeViewNotesModal()" class="px-4 py-2 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 text-sm font-medium rounded-lg hover:bg-slate-200 dark:hover:bg-slate-600">
+                                Close
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- TAB 5: ANALYTICS -->
                 <div id="tab-analytics" class="tab-content hidden-tab">
                     <div class="flex flex-col gap-4 mb-6">
@@ -11364,7 +11465,25 @@
                             </span>
                         </td>
                         <td class="px-6 py-4 text-slate-600 dark:text-slate-300">${closedDate}</td>
-                        <td class="px-6 py-4 text-slate-500 dark:text-slate-400 max-w-[200px] truncate" title="${safeNotes}">${safeNotes || '-'}</td>
+                        <td class="px-6 py-4 text-slate-500 dark:text-slate-400 max-w-[250px]">
+                            ${safeNotes ? `
+                                <div class="flex items-center gap-2">
+                                    <span class="truncate flex-1 text-sm" title="${safeNotes}">${safeNotes.substring(0, 50)}${safeNotes.length > 50 ? '...' : ''}</span>
+                                    <div class="flex items-center gap-1 flex-shrink-0">
+                                        <button onclick="openViewNotesModalByIndex(${index})" class="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 rounded transition-colors" title="View notes">
+                                            <i class="fa-solid fa-eye text-xs"></i>
+                                        </button>
+                                        <button onclick="openEditNotesModalByIndex(${index})" class="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 rounded transition-colors" title="Edit notes">
+                                            <i class="fa-solid fa-pen text-xs"></i>
+                                        </button>
+                                    </div>
+                                </div>
+                            ` : `
+                                <button onclick="openEditNotesModalByIndex(${index})" class="text-sm text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors" title="Add notes">
+                                    <i class="fa-solid fa-plus mr-1"></i>Add notes
+                                </button>
+                            `}
+                        </td>
                         <td class="px-6 py-4">
                             <div class="flex items-center justify-center gap-2">
                                 ${job.status === 'Active' ? `
@@ -11603,6 +11722,253 @@
                     showToast('Failed to update date: ' + err.message, 'error');
                 })
                 .updateJobAssignedDate(jobId, newDate);
+        }
+
+        // Track pending notes edit
+        let pendingNotesEdit = null;
+        let currentViewJobId = null;
+        let currentViewNotes = null;
+
+        // Open Edit Notes Modal by index (safe from special characters)
+        function openEditNotesModalByIndex(index) {
+            const filteredJobs = getFilteredJobs();
+            if (index < 0 || index >= filteredJobs.length) {
+                showToast('Job not found', 'error');
+                return;
+            }
+            const job = filteredJobs[index];
+            openEditNotesModal(job.jobId, job.notes);
+        }
+
+        // Open Edit Notes Modal
+        function openEditNotesModal(jobId, currentNotes) {
+            pendingNotesEdit = jobId;
+            document.getElementById('editNotesJobId').textContent = jobId;
+            document.getElementById('editNotesInput').value = currentNotes || '';
+            document.getElementById('editNotesModal').classList.remove('hidden');
+        }
+
+        // Close Edit Notes Modal
+        function closeEditNotesModal() {
+            document.getElementById('editNotesModal').classList.add('hidden');
+            pendingNotesEdit = null;
+        }
+
+        // Insert formatting into notes textarea
+        function insertNotesFormat(format) {
+            const textarea = document.getElementById('editNotesInput');
+            const start = textarea.selectionStart;
+            const end = textarea.selectionEnd;
+            const text = textarea.value;
+            const selectedText = text.substring(start, end);
+            let insertText = '';
+            let cursorOffset = 0;
+
+            switch (format) {
+                case 'bullet':
+                    if (selectedText) {
+                        // Convert selected lines to bullet points
+                        insertText = selectedText.split('\n').map(line => '• ' + line).join('\n');
+                    } else {
+                        insertText = '• ';
+                        cursorOffset = 2;
+                    }
+                    break;
+                case 'numbered':
+                    if (selectedText) {
+                        insertText = selectedText.split('\n').map((line, i) => (i + 1) + '. ' + line).join('\n');
+                    } else {
+                        insertText = '1. ';
+                        cursorOffset = 3;
+                    }
+                    break;
+                case 'checkbox':
+                    if (selectedText) {
+                        insertText = selectedText.split('\n').map(line => '[ ] ' + line).join('\n');
+                    } else {
+                        insertText = '[ ] ';
+                        cursorOffset = 4;
+                    }
+                    break;
+                case 'bold':
+                    if (selectedText) {
+                        insertText = '**' + selectedText + '**';
+                    } else {
+                        insertText = '**bold**';
+                        cursorOffset = 2;
+                    }
+                    break;
+                case 'italic':
+                    if (selectedText) {
+                        insertText = '*' + selectedText + '*';
+                    } else {
+                        insertText = '*italic*';
+                        cursorOffset = 1;
+                    }
+                    break;
+                case 'heading':
+                    if (selectedText) {
+                        insertText = '## ' + selectedText;
+                    } else {
+                        insertText = '## Heading';
+                        cursorOffset = 3;
+                    }
+                    break;
+                case 'divider':
+                    insertText = '\n---\n';
+                    cursorOffset = 5;
+                    break;
+            }
+
+            // Insert the text
+            textarea.value = text.substring(0, start) + insertText + text.substring(end);
+
+            // Set cursor position
+            if (selectedText) {
+                textarea.selectionStart = start;
+                textarea.selectionEnd = start + insertText.length;
+            } else {
+                textarea.selectionStart = textarea.selectionEnd = start + cursorOffset;
+            }
+
+            textarea.focus();
+        }
+
+        // Preview notes with rendered markdown
+        function previewNotes() {
+            const notes = document.getElementById('editNotesInput').value;
+            const jobId = pendingNotesEdit;
+
+            currentViewJobId = jobId;
+            currentViewNotes = notes;
+
+            document.getElementById('viewNotesJobId').textContent = jobId;
+            document.getElementById('viewNotesRaw').value = notes;
+            document.getElementById('viewNotesContent').innerHTML = renderNotesMarkdown(notes);
+            document.getElementById('viewNotesModal').classList.remove('hidden');
+        }
+
+        // Open View Notes Modal by index
+        function openViewNotesModalByIndex(index) {
+            const filteredJobs = getFilteredJobs();
+            if (index < 0 || index >= filteredJobs.length) {
+                showToast('Job not found', 'error');
+                return;
+            }
+            const job = filteredJobs[index];
+            openViewNotesModal(job.jobId, job.notes);
+        }
+
+        // Open View Notes Modal
+        function openViewNotesModal(jobId, notes) {
+            currentViewJobId = jobId;
+            currentViewNotes = notes;
+
+            document.getElementById('viewNotesJobId').textContent = jobId;
+            document.getElementById('viewNotesRaw').value = notes || '';
+            document.getElementById('viewNotesContent').innerHTML = renderNotesMarkdown(notes || '');
+            document.getElementById('viewNotesModal').classList.remove('hidden');
+        }
+
+        // Close View Notes Modal
+        function closeViewNotesModal() {
+            document.getElementById('viewNotesModal').classList.add('hidden');
+            currentViewJobId = null;
+            currentViewNotes = null;
+        }
+
+        // Edit from view modal
+        function editFromView() {
+            closeViewNotesModal();
+            openEditNotesModal(currentViewJobId, currentViewNotes);
+        }
+
+        // Copy notes to clipboard
+        function copyNotesToClipboard() {
+            const notes = document.getElementById('viewNotesRaw').value;
+
+            if (!notes) {
+                showToast('No notes to copy', 'warning');
+                return;
+            }
+
+            navigator.clipboard.writeText(notes).then(() => {
+                showToast('Notes copied to clipboard', 'success');
+            }).catch(err => {
+                // Fallback for older browsers
+                const textarea = document.getElementById('viewNotesRaw');
+                textarea.classList.remove('hidden');
+                textarea.select();
+                document.execCommand('copy');
+                textarea.classList.add('hidden');
+                showToast('Notes copied to clipboard', 'success');
+            });
+        }
+
+        // Render markdown-like notes to HTML
+        function renderNotesMarkdown(text) {
+            if (!text || text.trim() === '') {
+                return '<p class="text-slate-400 dark:text-slate-500 italic">No notes added yet.</p>';
+            }
+
+            let html = escapeHtml(text);
+
+            // Process headings (## Heading)
+            html = html.replace(/^## (.+)$/gm, '<h3 class="text-lg font-bold text-slate-800 dark:text-white mt-3 mb-2">$1</h3>');
+            html = html.replace(/^# (.+)$/gm, '<h2 class="text-xl font-bold text-slate-800 dark:text-white mt-3 mb-2">$1</h2>');
+
+            // Process horizontal rules
+            html = html.replace(/^---$/gm, '<hr class="my-3 border-slate-300 dark:border-slate-600">');
+
+            // Process checkboxes [x] and [ ]
+            html = html.replace(/\[x\] (.+)/gi, '<div class="flex items-start gap-2 my-1"><i class="fa-solid fa-square-check text-green-500 mt-0.5"></i><span class="line-through text-slate-500">$1</span></div>');
+            html = html.replace(/\[ \] (.+)/g, '<div class="flex items-start gap-2 my-1"><i class="fa-regular fa-square text-slate-400 mt-0.5"></i><span>$1</span></div>');
+
+            // Process bullet points (• or -)
+            html = html.replace(/^[•\-] (.+)$/gm, '<div class="flex items-start gap-2 my-1"><span class="text-indigo-500 mt-0.5">•</span><span>$1</span></div>');
+
+            // Process numbered lists
+            html = html.replace(/^(\d+)\. (.+)$/gm, '<div class="flex items-start gap-2 my-1"><span class="text-indigo-500 font-medium min-w-[20px]">$1.</span><span>$2</span></div>');
+
+            // Process bold **text**
+            html = html.replace(/\*\*(.+?)\*\*/g, '<strong class="font-bold">$1</strong>');
+
+            // Process italic *text*
+            html = html.replace(/\*(.+?)\*/g, '<em class="italic">$1</em>');
+
+            // Process line breaks
+            html = html.replace(/\n/g, '<br>');
+
+            // Clean up excessive breaks after block elements
+            html = html.replace(/<\/div><br>/g, '</div>');
+            html = html.replace(/<\/h[23]><br>/g, '</h$1>');
+            html = html.replace(/<hr[^>]*><br>/g, '<hr class="my-3 border-slate-300 dark:border-slate-600">');
+
+            return '<div class="notes-content">' + html + '</div>';
+        }
+
+        // Submit Edit Notes
+        function submitEditNotes() {
+            if (!pendingNotesEdit) return;
+
+            const jobId = pendingNotesEdit;
+            const newNotes = document.getElementById('editNotesInput').value.trim();
+
+            google.script.run
+                .withSuccessHandler(function(result) {
+                    if (result.success) {
+                        showToast(result.message || 'Notes updated', 'success');
+                        closeEditNotesModal();
+                        closeViewNotesModal();
+                        refreshMyJobs();
+                    } else {
+                        showToast(result.error || 'Failed to update notes', 'error');
+                    }
+                })
+                .withFailureHandler(function(err) {
+                    showToast('Failed to update notes: ' + err.message, 'error');
+                })
+                .updateJobNotes(jobId, newNotes);
         }
 
         // Delete Job
