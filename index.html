@@ -9041,11 +9041,11 @@
             const ctx = document.getElementById('funnelChart');
             if (!ctx) return;
 
-            // Update stats
-            document.getElementById('funnelOutreach').textContent = data.totalOutreach || 0;
-            document.getElementById('funnelResponded').textContent = data.totalResponded || 0;
-            document.getElementById('funnelNegotiating').textContent = data.totalNegotiating || 0;
-            document.getElementById('funnelAccepted').textContent = data.totalAccepted || 0;
+            // Update stats with current state counts (matching the funnel chart)
+            document.getElementById('funnelOutreach').textContent = data.currentOutreach ?? data.totalOutreach ?? 0;
+            document.getElementById('funnelResponded').textContent = data.currentResponded ?? data.totalResponded ?? 0;
+            document.getElementById('funnelNegotiating').textContent = data.currentNegotiating ?? data.totalNegotiating ?? 0;
+            document.getElementById('funnelAccepted').textContent = data.currentAccepted ?? data.totalAccepted ?? 0;
 
             // Destroy existing chart
             if (funnelChartInstance) {
