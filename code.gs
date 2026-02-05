@@ -13891,6 +13891,342 @@ function testDataExtraction(testData) {
     return { error: 'Failed to extract data: ' + e.message };
   }
 }
+/**
+ * Test: Verify negotiation is properly disabled when toggle is OFF
+ * This test confirms that when negotiation is disabled, the AI will NOT negotiate
+ * even if follow-up or data gathering are enabled.
+ *
+ * @returns {Object} Test results with pass/fail status
+ */
+function runNegotiationToggleTests() {
+  try {
+    const access = checkAnalyticsAccess();
+    if (!access.hasAccess || access.accessLevel !== 'admin') {
+      return { error: 'Admin access required for testing' };
+    }
+
+    const results = [];
+
+    // Helper to analyze if response contains negotiation content
+    function responseContainsNegotiation(response) {
+      const patterns = [
+        /\$\d+\s*\/?\s*(hr|hour)/i,   // "$50/hr" pattern
+        /we can offer/i,
+        /offer.*\$\d+/i,
+        /rate.*\$\d+/i,
+        /counter.*\$\d+/i,
+      ];
+      return patterns.some(p => p.test(response));
+    }
+
+    // ========================================
+    // TEST 1: Negotiation OFF + Follow-up ON
+    // ========================================
+    console.log('Running Test 1: Negotiation OFF + Follow-up ON');
+    const test1 = testAiEmailResponse({
+      type: 'multifunction',
+      devName: 'Test User',
+      devEmail: 'test@example.com',
+      devCountry: 'United States',
+      jobId: '51000',
+      jobDesc: 'Senior Software Engineer',
+      candidateReply: 'I am interested and my rate is $55/hr',
+      targetRate: 50,
+      maxRate: 60,
+      attempt: 1,
+      followUpNumber: 1,
+      pendingQuestions: '',
+      functions: {
+        negotiation: false,  // DISABLED
+        followup: true,
+        datagathering: false
+      }
+    });
+
+    const test1Pass = !test1.error &&
+      !test1.activeTypes?.includes('negotiation') &&
+      !responseContainsNegotiation(test1.aiResponse || '');
+
+    results.push({
+      name: 'Negotiation OFF + Follow-up ON',
+      passed: test1Pass,
+      activeTypes: test1.activeTypes,
+      hasNegotiationContent: responseContainsNegotiation(test1.aiResponse || ''),
+      responsePreview: (test1.aiResponse || '').substring(0, 150) + '...'
+    });
+
+    // ========================================
+    // TEST 2: Negotiation OFF + Data Gathering ON
+    // ========================================
+    console.log('Running Test 2: Negotiation OFF + Data Gathering ON');
+    const test2 = testAiEmailResponse({
+      type: 'multifunction',
+      devName: 'Test User',
+      devEmail: 'test@example.com',
+      devCountry: 'India',
+      jobId: '51000',
+      jobDesc: 'Senior Software Engineer',
+      candidateReply: 'My rate is $55/hr. Here is my LinkedIn: linkedin.com/in/test',
+      targetRate: 50,
+      maxRate: 60,
+      attempt: 1,
+      pendingQuestions: 'Expected availability, Resume/CV link',
+      functions: {
+        negotiation: false,  // DISABLED
+        followup: false,
+        datagathering: true
+      }
+    });
+
+    const test2Pass = !test2.error &&
+      !test2.activeTypes?.includes('negotiation') &&
+      !responseContainsNegotiation(test2.aiResponse || '');
+
+    results.push({
+      name: 'Negotiation OFF + Data Gathering ON',
+      passed: test2Pass,
+      activeTypes: test2.activeTypes,
+      hasNegotiationContent: responseContainsNegotiation(test2.aiResponse || ''),
+      responsePreview: (test2.aiResponse || '').substring(0, 150) + '...'
+    });
+
+    // ========================================
+    // TEST 3: Negotiation OFF + Both Enabled
+    // ========================================
+    console.log('Running Test 3: Negotiation OFF + Both Enabled');
+    const test3 = testAiEmailResponse({
+      type: 'multifunction',
+      devName: 'Test User',
+      devEmail: 'test@example.com',
+      devCountry: 'United States',
+      jobId: '51000',
+      jobDesc: 'Senior Software Engineer',
+      candidateReply: 'I want $60/hr for this role. Is that acceptable?',
+      targetRate: 50,
+      maxRate: 60,
+      pendingQuestions: 'LinkedIn URL, Start date',
+      functions: {
+        negotiation: false,  // DISABLED
+        followup: true,
+        datagathering: true
+      }
+    });
+
+    const test3Pass = !test3.error &&
+      !test3.activeTypes?.includes('negotiation') &&
+      !responseContainsNegotiation(test3.aiResponse || '');
+
+    results.push({
+      name: 'Negotiation OFF + Both Enabled',
+      passed: test3Pass,
+      activeTypes: test3.activeTypes,
+      hasNegotiationContent: responseContainsNegotiation(test3.aiResponse || ''),
+      responsePreview: (test3.aiResponse || '').substring(0, 150) + '...'
+    });
+
+    // ========================================
+    // EDGE CASE 1: Candidate asks about rate
+    // ========================================
+    console.log('Running Edge Case 1: Candidate asks rate');
+    const edge1 = testAiEmailResponse({
+      type: 'multifunction',
+      devName: 'Test User',
+      devEmail: 'test@example.com',
+      jobId: '51000',
+      jobDesc: 'Senior Software Engineer',
+      candidateReply: 'What is the hourly rate for this position?',
+      targetRate: 50,
+      maxRate: 60,
+      pendingQuestions: 'LinkedIn URL',
+      functions: {
+        negotiation: false,  // DISABLED
+        followup: true,
+        datagathering: true
+      }
+    });
+
+    // Should NOT reveal specific rate
+    const edge1HasSpecificRate = /\$\d+\s*\/?\s*(hr|hour)/i.test(edge1.aiResponse || '');
+    const edge1Pass = !edge1.error && !edge1HasSpecificRate;
+
+    results.push({
+      name: 'Edge: Candidate asks rate (neg OFF)',
+      passed: edge1Pass,
+      activeTypes: edge1.activeTypes,
+      hasSpecificRate: edge1HasSpecificRate,
+      responsePreview: (edge1.aiResponse || '').substring(0, 150) + '...'
+    });
+
+    // ========================================
+    // EDGE CASE 2: Previous negotiation context
+    // ========================================
+    console.log('Running Edge Case 2: Previous negotiation context');
+    const edge2 = testAiEmailResponse({
+      type: 'multifunction',
+      devName: 'Test User',
+      devEmail: 'test@example.com',
+      jobId: '51000',
+      jobDesc: 'Senior Software Engineer',
+      candidateReply: 'I thought about your offer of $45/hr. I can accept $50/hr.',
+      targetRate: 50,
+      maxRate: 60,
+      pendingQuestions: 'Start date',
+      functions: {
+        negotiation: false,  // DISABLED NOW
+        followup: true,
+        datagathering: true
+      },
+      conversationContext: {
+        negotiationState: {
+          attempt: 2,
+          lastRate: 45,
+          maxOffered: 50,
+          rateAgreed: false
+        }
+      }
+    });
+
+    const edge2Pass = !edge2.error && !edge2.activeTypes?.includes('negotiation');
+
+    results.push({
+      name: 'Edge: Previous negotiation context (neg now OFF)',
+      passed: edge2Pass,
+      activeTypes: edge2.activeTypes,
+      hasNegotiationContent: responseContainsNegotiation(edge2.aiResponse || ''),
+      responsePreview: (edge2.aiResponse || '').substring(0, 150) + '...'
+    });
+
+    // ========================================
+    // EDGE CASE 3: Rate below max, neg OFF
+    // ========================================
+    console.log('Running Edge Case 3: Rate below max, neg OFF');
+    const edge3 = testAiEmailResponse({
+      type: 'multifunction',
+      devName: 'Test User',
+      devEmail: 'test@example.com',
+      jobId: '51000',
+      jobDesc: 'Senior Software Engineer',
+      candidateReply: 'I would be happy with $35/hr',  // Below max of $60
+      targetRate: 50,
+      maxRate: 60,
+      pendingQuestions: 'LinkedIn URL, Availability',
+      functions: {
+        negotiation: false,  // DISABLED
+        followup: false,
+        datagathering: true
+      }
+    });
+
+    // Should NOT accept the rate since negotiation is off
+    const edge3AcceptsRate = /accept.*\$35|confirmed.*\$35|great.*\$35|proceed.*\$35|noted.*\$35/i.test(edge3.aiResponse || '');
+    const edge3Pass = !edge3.error && !edge3.activeTypes?.includes('negotiation') && !edge3AcceptsRate;
+
+    results.push({
+      name: 'Edge: Rate below max (neg OFF) - should NOT accept',
+      passed: edge3Pass,
+      activeTypes: edge3.activeTypes,
+      acceptsRate: edge3AcceptsRate,
+      responsePreview: (edge3.aiResponse || '').substring(0, 150) + '...'
+    });
+
+    // ========================================
+    // EDGE CASE 4: Toggle changed mid-conversation
+    // ========================================
+    console.log('Running Edge Case 4: Toggle changed mid-conversation');
+    const edge4 = testAiEmailResponse({
+      type: 'multifunction',
+      devName: 'Test User',
+      devEmail: 'test@example.com',
+      jobId: '51000',
+      jobDesc: 'Senior Software Engineer',
+      candidateReply: 'Your offer of $45/hr is too low. I need $55/hr.',
+      targetRate: 50,
+      maxRate: 60,
+      pendingQuestions: 'LinkedIn URL',
+      functions: {
+        negotiation: false,  // NOW DISABLED (was enabled)
+        followup: true,
+        datagathering: true
+      },
+      conversationHistory: 'Previous: AI offered $45/hr. Candidate: Too low, need $55/hr.',
+      conversationContext: {
+        negotiationState: {
+          attempt: 1,
+          lastRate: 45,
+          rateAgreed: false
+        }
+      }
+    });
+
+    // Should NOT counter offer
+    const edge4MakesOffer = /offer.*\$\d+|we can.*\$\d+|counter.*\$/i.test(edge4.aiResponse || '');
+    const edge4Pass = !edge4.error && !edge4.activeTypes?.includes('negotiation') && !edge4MakesOffer;
+
+    results.push({
+      name: 'Edge: Toggle changed mid-convo (neg now OFF)',
+      passed: edge4Pass,
+      activeTypes: edge4.activeTypes,
+      makesOffer: edge4MakesOffer,
+      responsePreview: (edge4.aiResponse || '').substring(0, 150) + '...'
+    });
+
+    // ========================================
+    // EDGE CASE 5: Rate in pending questions
+    // ========================================
+    console.log('Running Edge Case 5: Rate in pending questions');
+    const edge5 = testAiEmailResponse({
+      type: 'multifunction',
+      devName: 'Test User',
+      devEmail: 'test@example.com',
+      jobId: '51000',
+      jobDesc: 'Senior Software Engineer',
+      candidateReply: 'I am interested in the role.',
+      targetRate: 50,
+      maxRate: 60,
+      pendingQuestions: 'LinkedIn URL, Expected hourly rate, Availability',
+      functions: {
+        negotiation: false,  // DISABLED
+        followup: false,
+        datagathering: true
+      }
+    });
+
+    // When negotiation is OFF, should it still ask about rate in data gathering?
+    // This is a grey area - documenting behavior
+    const edge5AsksRate = /what.*rate|rate.*expect|hourly.*expect/i.test(edge5.aiResponse || '');
+
+    results.push({
+      name: 'Edge: Rate in pending questions (neg OFF)',
+      passed: !edge5.error, // Just check no error - behavior may vary
+      activeTypes: edge5.activeTypes,
+      asksAboutRate: edge5AsksRate,
+      note: 'Data gathering may still ask about rate as a data field',
+      responsePreview: (edge5.aiResponse || '').substring(0, 150) + '...'
+    });
+
+    // ========================================
+    // SUMMARY
+    // ========================================
+    const passed = results.filter(r => r.passed).length;
+    const failed = results.filter(r => !r.passed).length;
+
+    return {
+      success: true,
+      summary: {
+        total: results.length,
+        passed: passed,
+        failed: failed,
+        allPassed: failed === 0
+      },
+      results: results
+    };
+
+  } catch (e) {
+    console.error('Error in runNegotiationToggleTests:', e);
+    return { error: 'Test execution failed: ' + e.message };
+  }
+}
+
 // ===== AI TESTING FEATURE - DELETE FOR PRODUCTION (END) =====
 
 // ===== PROCESS MAP FUNCTIONS =====
