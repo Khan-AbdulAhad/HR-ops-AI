@@ -4674,6 +4674,16 @@
                 if (statusLower.includes('accepted') || tagsLower.includes('completed')) {
                     badges.push('<span class="inline-flex items-center justify-center w-6 h-6 rounded-full text-[10px] font-bold bg-green-100 text-green-700 border border-green-200" title="Completed"><i class="fa-solid fa-check text-[8px]"></i></span>');
                 }
+
+                // Incomplete Data: Show warning badge when candidate hasn't provided all required data after follow-ups
+                if (statusLower.includes('incomplete data') || tagsLower.includes('incomplete')) {
+                    badges.push('<span class="inline-flex items-center justify-center w-6 h-6 rounded-full text-[10px] font-bold bg-red-100 text-red-700 border border-red-200" title="Incomplete Data - Needs Human Review"><i class="fa-solid fa-exclamation text-[8px]"></i></span>');
+                }
+
+                // Data Follow-up in progress: Show when data follow-ups are being sent
+                if (statusLower.includes('data follow') || tagsLower.includes('data follow')) {
+                    badges.push('<span class="inline-flex items-center justify-center w-6 h-6 rounded-full text-[10px] font-bold bg-orange-100 text-orange-700 border border-orange-200" title="Data Follow-up In Progress">DF</span>');
+                }
             }
 
             return badges.length > 0 ? '<div class="flex gap-1">' + badges.join('') + '</div>' : '';

@@ -117,6 +117,92 @@ ${getEffectiveSignature()}
 }
 
 /**
+ * Builds the data gathering follow-up email prompt for candidates who responded with incomplete data
+ * @param {Object} params - { name, jobDescription, followUpNumber, pendingQuestions, answeredQuestions }
+ * @returns {string} The prompt for AI
+ */
+function buildDataGatheringFollowUpEmailPrompt(params) {
+  const { name, jobDescription, followUpNumber, pendingQuestions, answeredQuestions } = params;
+  const firstName = name ? name.split(' ')[0] : 'there';
+
+  // Build context about what's been collected vs what's still needed
+  const answeredContext = answeredQuestions && answeredQuestions.length > 0
+    ? `Information already received:\n${answeredQuestions.map(a => `- ${a.question}: ${a.answer}`).join('\n')}`
+    : '';
+
+  const pendingContext = pendingQuestions && pendingQuestions.length > 0
+    ? `Information still needed:\n${pendingQuestions.map(q => `- ${q}`).join('\n')}`
+    : '';
+
+  let urgencyLevel = '';
+  if (followUpNumber === 1) {
+    urgencyLevel = `
+- This is the FIRST data follow-up
+- Be friendly and casual
+- Politely remind them we're still waiting for some information
+- Thank them for what they've already provided (if any)
+- Keep it short and non-pushy (3-4 sentences max)`;
+  } else if (followUpNumber === 2) {
+    urgencyLevel = `
+- This is the SECOND data follow-up
+- Be professional but slightly more direct
+- Mention you wanted to follow up on the pending information
+- Emphasize this helps move their candidacy forward
+- Keep it brief (3-4 sentences max)`;
+  } else {
+    urgencyLevel = `
+- This is the THIRD and FINAL data follow-up
+- Be professional and clear this is the last reminder
+- Mention that without this information, you won't be able to proceed
+- Keep it respectful but firm (3-4 sentences max)`;
+  }
+
+  return `
+You are a recruiter at Turing sending a follow-up email to collect missing information. The candidate has responded but didn't provide all the required information.
+
+CONTEXT:
+- Candidate Name: ${name}
+${jobDescription ? `- Role Overview: ${jobDescription.substring(0, 300)}...` : ''}
+- This is data follow-up ${followUpNumber} of 3
+
+${answeredContext}
+
+${pendingContext}
+
+FOLLOW-UP GUIDELINES:
+${urgencyLevel}
+
+=== CRITICAL CONFIDENTIALITY RULES ===
+NEVER include any of the following in your email:
+- Job IDs, reference numbers, or internal identifiers
+- Any rates, budgets, or compensation figures (unless specifically asking for their rate expectation)
+- Internal status, pipeline stage, or outreach history
+- Dev IDs, thread IDs, or any system identifiers
+- Information about how many times we've contacted them or our internal processes
+
+=== IMPORTANT BEHAVIORAL GUIDELINES ===
+**Apply these naturally without stating them explicitly:**
+
+1. **This Conversation Does Not Mean Selection**
+   - This is just collecting information, NOT an offer
+   - Keep tone as "collecting information to evaluate" not "finalizing onboarding"
+
+2. **Never Suggest Phone Calls or Meetings**
+   - Keep the conversation email-based
+   - Do NOT offer to schedule a call or suggest a meeting
+
+3. **Be Specific About What's Needed**
+   - Clearly list the specific information you still need
+   - Make it easy for them to respond with the missing details
+
+Write ONLY the email body (no subject line). Start with "Hi ${firstName}," and end with:
+
+Best regards,
+${getEffectiveSignature()}
+`;
+}
+
+/**
  * Builds the negotiation reply prompt - SAME structure as production processJobNegotiations()
  * @param {Object} params - { candidateName, jobDescription, targetRate, maxRate, attempt, candidateMessage, style, faqContent, conversationContext, region }
  * @returns {string} The prompt for AI
@@ -773,10 +859,11 @@ function ensureSheetsExist(ss) {
   const dataFetchSheet = ss.getSheetByName('Data_Fetch_Logs');
   if (dataFetchSheet.getLastRow() === 0) dataFetchSheet.appendRow(['Timestamp', 'Source', 'Context', 'Data Size (Bytes)', 'Duration (ms)', 'Details', 'User']);
 
-  // Follow_Up_Queue sheet - for tracking automated follow-ups (12hr and 28hr)
+  // Follow_Up_Queue sheet - for tracking automated follow-ups (12hr and 28hr) AND data gathering follow-ups
   // Column 11 (K) = Manual Override - when TRUE, prevents automatic status changes from processor
+  // Columns 12-15 track data gathering follow-ups for candidates who responded with incomplete data
   const followUpSheet = ss.getSheetByName('Follow_Up_Queue');
-  if (followUpSheet.getLastRow() === 0) followUpSheet.appendRow(['Email', 'Job ID', 'Thread ID', 'Name', 'Dev ID', 'Initial Send Time', 'Follow Up 1 Sent', 'Follow Up 2 Sent', 'Status', 'Last Updated', 'Manual Override']);
+  if (followUpSheet.getLastRow() === 0) followUpSheet.appendRow(['Email', 'Job ID', 'Thread ID', 'Name', 'Dev ID', 'Initial Send Time', 'Follow Up 1 Sent', 'Follow Up 2 Sent', 'Status', 'Last Updated', 'Manual Override', 'Data Follow Up 1 Sent', 'Data Follow Up 2 Sent', 'Data Follow Up 3 Sent', 'Last Response Time']);
 
   // Unresponsive_Devs sheet - for tracking developers who didn't respond after all follow-ups
   const unresponsiveSheet = ss.getSheetByName('Unresponsive_Devs');
@@ -7349,8 +7436,16 @@ function generateMissingSummaries(ss) {
 
 /**
  * Extended version of generateComprehensiveAISummary that includes follow-up status
+ * @param {string} conversationHistory - The email conversation history
+ * @param {string} candidateEmail - Candidate's email
+ * @param {string} jobId - Job ID
+ * @param {number} attempts - Number of AI attempts
+ * @param {string} currentStatus - Current negotiation status
+ * @param {Object} dataGathering - Data gathering info (optional, will fetch if not provided)
+ * @param {string} followUpContext - General follow-up context
+ * @param {Object} dataFollowUpContext - Data gathering follow-up context (optional)
  */
-function generateComprehensiveAISummaryWithFollowUp(conversationHistory, candidateEmail, jobId, attempts, currentStatus, dataGathering, followUpContext) {
+function generateComprehensiveAISummaryWithFollowUp(conversationHistory, candidateEmail, jobId, attempts, currentStatus, dataGathering, followUpContext, dataFollowUpContext) {
   // Fetch data gathering info if not provided
   if (!dataGathering) {
     dataGathering = getJobCandidateData(jobId, candidateEmail);
@@ -7370,6 +7465,22 @@ ${pendingList ? '\nSTILL NEEDED:\n' + pendingList : ''}`;
     }
   }
 
+  // Build data follow-up status context
+  let dataFollowUpSummary = '';
+  if (dataFollowUpContext) {
+    const { dataFollowUp1Sent, dataFollowUp2Sent, dataFollowUp3Sent, lastResponseTime, pendingQuestions } = dataFollowUpContext;
+    const followUpsCount = (dataFollowUp1Sent ? 1 : 0) + (dataFollowUp2Sent ? 1 : 0) + (dataFollowUp3Sent ? 1 : 0);
+
+    if (followUpsCount > 0 || pendingQuestions?.length > 0) {
+      dataFollowUpSummary = `
+📤 DATA FOLLOW-UP STATUS:
+- Follow-ups sent for incomplete data: ${followUpsCount}/3
+${lastResponseTime ? `- Last response from candidate: ${new Date(lastResponseTime).toLocaleString()}` : ''}
+${pendingQuestions?.length > 0 ? `- Still awaiting: ${pendingQuestions.join(', ')}` : ''}
+${dataFollowUp3Sent ? '⚠️ Final data follow-up sent - may be marked as Incomplete Data soon if no response' : ''}`;
+    }
+  }
+
   const prompt = `
 You are creating a COMPREHENSIVE summary for a recruiter so they don't need to read the emails.
 
@@ -7378,6 +7489,7 @@ ${conversationHistory}
 
 ${followUpContext ? followUpContext + '\n' : ''}
 ${dataGatheringSummary ? 'CANDIDATE DATA STATUS:\n' + dataGatheringSummary : ''}
+${dataFollowUpSummary ? '\n' + dataFollowUpSummary : ''}
 
 CONTEXT:
 - Candidate Email: ${candidateEmail}
@@ -7399,6 +7511,13 @@ ${followUpContext ? `
 - Note if candidate is unresponsive or has responded
 ` : ''}
 
+${dataFollowUpSummary ? `
+📤 DATA FOLLOW-UP STATUS:
+- Include how many data follow-ups have been sent (X/3)
+- Note which specific information is still missing
+- If final follow-up sent, mention candidate may be marked as "Incomplete Data" soon
+` : ''}
+
 📝 DATA STATUS:
 - IMPORTANT: Only mention fields that were ACTUALLY ASKED FOR in the recruiter's emails
 - List what specific info was requested vs. what the candidate provided
@@ -7410,7 +7529,7 @@ ${followUpContext ? `
 - SKIP this section entirely if no rate, salary, or compensation was mentioned in the conversation
 - If rate was discussed: What rate are they asking for? What offers were made? Are they flexible or firm?
 
-Keep the TOTAL summary under 120 words. Be SPECIFIC with numbers and details.
+Keep the TOTAL summary under 150 words. Be SPECIFIC with numbers and details.
 DO NOT use generic phrases like "discussed rate" - say the exact rate.
 Format with emojis as section headers for easy scanning.
 If the conversation is purely about scheduling (dates/times), DO NOT include negotiation status.
@@ -9110,12 +9229,17 @@ function getThreadUrl(threadId) {
 const FOLLOW_UP_CONFIG_DEFAULTS = {
   FOLLOW_UP_1_HOURS: 12,  // First follow-up after 12 hours
   FOLLOW_UP_2_HOURS: 28,  // Second follow-up after 28 hours (third total reachout)
-  UNRESPONSIVE_HOURS: 76  // Mark as unresponsive 48 hours after 2nd follow-up (28 + 48 = 76 hours)
+  UNRESPONSIVE_HOURS: 76,  // Mark as unresponsive 48 hours after 2nd follow-up (28 + 48 = 76 hours)
+  // Data gathering follow-up timing (for incomplete data after candidate responds)
+  DATA_FOLLOW_UP_1_HOURS: 12,  // First data follow-up after 12 hours of no response
+  DATA_FOLLOW_UP_2_HOURS: 28,  // Second data follow-up after 28 hours
+  DATA_FOLLOW_UP_3_HOURS: 48,  // Third data follow-up after 48 hours
+  DATA_INCOMPLETE_HOURS: 72    // Mark as incomplete data 24 hours after 3rd follow-up (48 + 24 = 72 hours)
 };
 
 /**
  * Get the follow-up timing configuration
- * @returns {object} The timing configuration with FOLLOW_UP_1_HOURS, FOLLOW_UP_2_HOURS, UNRESPONSIVE_HOURS
+ * @returns {object} The timing configuration with FOLLOW_UP_1_HOURS, FOLLOW_UP_2_HOURS, UNRESPONSIVE_HOURS, and data gathering follow-up timings
  */
 function getFollowUpTimingConfig() {
   const stored = PropertiesService.getScriptProperties().getProperty('FOLLOW_UP_TIMING_CONFIG');
@@ -9125,7 +9249,12 @@ function getFollowUpTimingConfig() {
       return {
         FOLLOW_UP_1_HOURS: config.FOLLOW_UP_1_HOURS || FOLLOW_UP_CONFIG_DEFAULTS.FOLLOW_UP_1_HOURS,
         FOLLOW_UP_2_HOURS: config.FOLLOW_UP_2_HOURS || FOLLOW_UP_CONFIG_DEFAULTS.FOLLOW_UP_2_HOURS,
-        UNRESPONSIVE_HOURS: config.UNRESPONSIVE_HOURS || FOLLOW_UP_CONFIG_DEFAULTS.UNRESPONSIVE_HOURS
+        UNRESPONSIVE_HOURS: config.UNRESPONSIVE_HOURS || FOLLOW_UP_CONFIG_DEFAULTS.UNRESPONSIVE_HOURS,
+        // Data gathering follow-up timing
+        DATA_FOLLOW_UP_1_HOURS: config.DATA_FOLLOW_UP_1_HOURS || FOLLOW_UP_CONFIG_DEFAULTS.DATA_FOLLOW_UP_1_HOURS,
+        DATA_FOLLOW_UP_2_HOURS: config.DATA_FOLLOW_UP_2_HOURS || FOLLOW_UP_CONFIG_DEFAULTS.DATA_FOLLOW_UP_2_HOURS,
+        DATA_FOLLOW_UP_3_HOURS: config.DATA_FOLLOW_UP_3_HOURS || FOLLOW_UP_CONFIG_DEFAULTS.DATA_FOLLOW_UP_3_HOURS,
+        DATA_INCOMPLETE_HOURS: config.DATA_INCOMPLETE_HOURS || FOLLOW_UP_CONFIG_DEFAULTS.DATA_INCOMPLETE_HOURS
       };
     } catch (e) {
       console.error('Error parsing follow-up timing config:', e);
@@ -9176,7 +9305,12 @@ function saveFollowUpTimingConfig(config) {
 const FOLLOW_UP_CONFIG = {
   get FOLLOW_UP_1_HOURS() { return getFollowUpTimingConfig().FOLLOW_UP_1_HOURS; },
   get FOLLOW_UP_2_HOURS() { return getFollowUpTimingConfig().FOLLOW_UP_2_HOURS; },
-  get UNRESPONSIVE_HOURS() { return getFollowUpTimingConfig().UNRESPONSIVE_HOURS; }
+  get UNRESPONSIVE_HOURS() { return getFollowUpTimingConfig().UNRESPONSIVE_HOURS; },
+  // Data gathering follow-up timing getters
+  get DATA_FOLLOW_UP_1_HOURS() { return getFollowUpTimingConfig().DATA_FOLLOW_UP_1_HOURS; },
+  get DATA_FOLLOW_UP_2_HOURS() { return getFollowUpTimingConfig().DATA_FOLLOW_UP_2_HOURS; },
+  get DATA_FOLLOW_UP_3_HOURS() { return getFollowUpTimingConfig().DATA_FOLLOW_UP_3_HOURS; },
+  get DATA_INCOMPLETE_HOURS() { return getFollowUpTimingConfig().DATA_INCOMPLETE_HOURS; }
 };
 
 // Gmail labels for follow-up tracking
@@ -9184,7 +9318,12 @@ const FOLLOW_UP_LABELS = {
   AWAITING_RESPONSE: 'Awaiting-Response',
   FOLLOW_UP_1_SENT: 'Follow-Up-1-Sent',
   FOLLOW_UP_2_SENT: 'Follow-Up-2-Sent',
-  UNRESPONSIVE: 'Unresponsive'
+  UNRESPONSIVE: 'Unresponsive',
+  // Data gathering follow-up labels
+  DATA_FOLLOW_UP_1_SENT: 'Data-Follow-Up-1-Sent',
+  DATA_FOLLOW_UP_2_SENT: 'Data-Follow-Up-2-Sent',
+  DATA_FOLLOW_UP_3_SENT: 'Data-Follow-Up-3-Sent',
+  INCOMPLETE_DATA: 'Incomplete-Data'
 };
 
 /**
@@ -9772,7 +9911,479 @@ function runFollowUpProcessor() {
   console.log("Starting follow-up processor...");
   const result = processFollowUpQueue();
   console.log(`Follow-up processing complete. Results:`, result);
-  return result;
+
+  // Also process data gathering follow-ups
+  console.log("Starting data gathering follow-up processor...");
+  const dataResult = processDataGatheringFollowUps();
+  console.log(`Data gathering follow-up processing complete. Results:`, dataResult);
+
+  return {
+    outreach: result,
+    dataGathering: dataResult
+  };
+}
+
+/**
+ * Send a data gathering follow-up email to a candidate who responded with incomplete data
+ * @param {string} email - Candidate's email
+ * @param {string} jobId - Job ID
+ * @param {string} threadId - Gmail thread ID
+ * @param {string} name - Candidate's name
+ * @param {number} followUpNumber - Which follow-up this is (1, 2, or 3)
+ * @param {Array} pendingQuestions - Array of question strings still needing answers
+ * @param {Array} answeredQuestions - Array of {question, answer} objects already collected
+ * @returns {Object} { success: boolean, error?: string }
+ */
+function sendDataGatheringFollowUpEmail(email, jobId, threadId, name, followUpNumber, pendingQuestions, answeredQuestions) {
+  try {
+    // SAFETY: Validate that data gathering is enabled for this job
+    const jobConfig = getNegotiationConfig(jobId);
+    if (!jobConfig || jobConfig.dataGathering === false) {
+      console.log(`Data gathering follow-up to ${email} blocked: Data gathering disabled for Job ${jobId}`);
+      return { success: false, error: 'Data gathering is disabled for this job' };
+    }
+
+    // SAFETY: Validate required parameters
+    if (!email || !threadId) {
+      console.error(`Data gathering follow-up blocked: Missing required parameters (email: ${!!email}, threadId: ${!!threadId})`);
+      return { success: false, error: 'Missing required email or thread ID' };
+    }
+
+    const jobDescription = jobConfig ? jobConfig.jobDescription : '';
+
+    // Generate follow-up email content using the data gathering prompt builder
+    const prompt = buildDataGatheringFollowUpEmailPrompt({
+      name: name,
+      jobDescription: jobDescription,
+      followUpNumber: followUpNumber,
+      pendingQuestions: pendingQuestions,
+      answeredQuestions: answeredQuestions
+    });
+
+    const emailBody = callAI(prompt);
+
+    // SECURITY: Validate email content before sending
+    const isContentSafe = validateEmailForSending(emailBody, {
+      jobId: jobId,
+      devId: null
+    });
+
+    if (!isContentSafe) {
+      console.error(`BLOCKED: Data gathering follow-up email to ${email} contained sensitive data. Email not sent.`);
+      return { success: false, error: "Email blocked due to sensitive content detection." };
+    }
+
+    // Get the thread and send reply
+    if (threadId) {
+      const thread = GmailApp.getThreadById(threadId);
+      if (thread) {
+        // CRITICAL SAFETY CHECK: Only send to AI-Managed threads
+        const threadLabels = thread.getLabels().map(l => l.getName());
+        if (!threadLabels.includes(AI_MANAGED_LABEL)) {
+          console.error(`BLOCKED: Data gathering follow-up to ${email} - thread missing "${AI_MANAGED_LABEL}" label`);
+          return { success: false, error: `Thread missing ${AI_MANAGED_LABEL} label - not sent via app` };
+        }
+
+        // Use the custom sender reply function
+        sendReplyWithSenderName(thread, emailBody, getEffectiveSenderName());
+
+        // Update Gmail labels
+        updateDataGatheringFollowUpLabels(threadId, followUpNumber);
+
+        // Log the follow-up
+        const url = getStoredSheetUrl();
+        if (url) {
+          const ss = SpreadsheetApp.openByUrl(url);
+          const logSheet = ss.getSheetByName('Email_Logs');
+          if (logSheet) {
+            let region = '';
+            const stateSheet = ss.getSheetByName('Negotiation_State');
+            if (stateSheet) {
+              const stateData = stateSheet.getDataRange().getValues();
+              const cleanEmail = String(email).toLowerCase();
+              for (let i = 1; i < stateData.length; i++) {
+                if (String(stateData[i][0]).toLowerCase() === cleanEmail && String(stateData[i][1]) === String(jobId)) {
+                  region = stateData[i][10] || '';
+                  break;
+                }
+              }
+            }
+            logSheet.appendRow([new Date(), jobId, email, name, threadId, `Data Follow-up ${followUpNumber}`, region]);
+          }
+        }
+
+        // Log to analytics
+        logAnalytics('data_follow_up_sent', jobId, 1, `Data Follow-up ${followUpNumber}`);
+
+        return { success: true };
+      }
+    }
+
+    return { success: false, error: "Could not find thread to reply to" };
+
+  } catch (e) {
+    console.error(`Error sending data gathering follow-up email to ${email}:`, e);
+    return { success: false, error: e.message };
+  }
+}
+
+/**
+ * Update Gmail labels for data gathering follow-up status
+ * @param {string} threadId - Gmail thread ID
+ * @param {number} followUpNumber - Which data follow-up was sent (1, 2, or 3)
+ */
+function updateDataGatheringFollowUpLabels(threadId, followUpNumber) {
+  if (!threadId) return;
+
+  try {
+    const thread = GmailApp.getThreadById(threadId);
+    if (!thread) return;
+
+    // Get or create data follow-up labels
+    const dataFollowUp1Label = GmailApp.getUserLabelByName(FOLLOW_UP_LABELS.DATA_FOLLOW_UP_1_SENT) ||
+                               GmailApp.createLabel(FOLLOW_UP_LABELS.DATA_FOLLOW_UP_1_SENT);
+    const dataFollowUp2Label = GmailApp.getUserLabelByName(FOLLOW_UP_LABELS.DATA_FOLLOW_UP_2_SENT) ||
+                               GmailApp.createLabel(FOLLOW_UP_LABELS.DATA_FOLLOW_UP_2_SENT);
+    const dataFollowUp3Label = GmailApp.getUserLabelByName(FOLLOW_UP_LABELS.DATA_FOLLOW_UP_3_SENT) ||
+                               GmailApp.createLabel(FOLLOW_UP_LABELS.DATA_FOLLOW_UP_3_SENT);
+    const incompleteDataLabel = GmailApp.getUserLabelByName(FOLLOW_UP_LABELS.INCOMPLETE_DATA) ||
+                                GmailApp.createLabel(FOLLOW_UP_LABELS.INCOMPLETE_DATA);
+
+    // Apply the appropriate label based on follow-up number
+    if (followUpNumber === 1) {
+      thread.addLabel(dataFollowUp1Label);
+    } else if (followUpNumber === 2) {
+      try { thread.removeLabel(dataFollowUp1Label); } catch (e) {}
+      thread.addLabel(dataFollowUp2Label);
+    } else if (followUpNumber === 3) {
+      try { thread.removeLabel(dataFollowUp1Label); } catch (e) {}
+      try { thread.removeLabel(dataFollowUp2Label); } catch (e) {}
+      thread.addLabel(dataFollowUp3Label);
+    } else if (followUpNumber === 'incomplete') {
+      try { thread.removeLabel(dataFollowUp1Label); } catch (e) {}
+      try { thread.removeLabel(dataFollowUp2Label); } catch (e) {}
+      try { thread.removeLabel(dataFollowUp3Label); } catch (e) {}
+      thread.addLabel(incompleteDataLabel);
+    }
+  } catch (e) {
+    console.error(`Error updating data gathering follow-up labels:`, e);
+  }
+}
+
+/**
+ * Process data gathering follow-ups for candidates who responded with incomplete data
+ * Checks Job Details sheets for candidates with pending data questions and no recent response
+ * @returns {Object} { processed, dataFollowUp1Sent, dataFollowUp2Sent, dataFollowUp3Sent, incompleteMarked, log }
+ */
+function processDataGatheringFollowUps() {
+  const url = getStoredSheetUrl();
+  if (!url) return { processed: 0, dataFollowUp1Sent: 0, dataFollowUp2Sent: 0, dataFollowUp3Sent: 0, incompleteMarked: 0, log: [] };
+
+  const log = [];
+  let dataFollowUp1Sent = 0;
+  let dataFollowUp2Sent = 0;
+  let dataFollowUp3Sent = 0;
+  let incompleteMarked = 0;
+  let processed = 0;
+
+  try {
+    const ss = SpreadsheetApp.openByUrl(url);
+    ensureSheetsExist(ss);
+
+    const followUpSheet = ss.getSheetByName('Follow_Up_Queue');
+    if (!followUpSheet) {
+      log.push({ type: 'warning', message: 'Follow_Up_Queue sheet not found' });
+      return { processed: 0, dataFollowUp1Sent: 0, dataFollowUp2Sent: 0, dataFollowUp3Sent: 0, incompleteMarked: 0, log };
+    }
+
+    // Get Negotiation_State to find candidates with incomplete data
+    const stateSheet = ss.getSheetByName('Negotiation_State');
+    if (!stateSheet) {
+      log.push({ type: 'warning', message: 'Negotiation_State sheet not found' });
+      return { processed: 0, dataFollowUp1Sent: 0, dataFollowUp2Sent: 0, dataFollowUp3Sent: 0, incompleteMarked: 0, log };
+    }
+
+    const stateData = stateSheet.getDataRange().getValues();
+    const followUpData = followUpSheet.getDataRange().getValues();
+    const now = new Date();
+    const myEmail = Session.getActiveUser().getEmail().toLowerCase();
+
+    // Build a map of follow-up queue entries for quick lookup
+    const followUpMap = new Map();
+    for (let i = 1; i < followUpData.length; i++) {
+      const email = String(followUpData[i][0]).toLowerCase().trim();
+      const jobId = String(followUpData[i][1]);
+      const key = `${email}|${jobId}`;
+      followUpMap.set(key, {
+        rowIndex: i + 1,
+        threadId: followUpData[i][2],
+        name: followUpData[i][3],
+        devId: followUpData[i][4],
+        status: followUpData[i][8],
+        lastResponseTime: followUpData[i][14] ? new Date(followUpData[i][14]) : null,
+        dataFollowUp1Sent: followUpData[i][11] === true || followUpData[i][11] === 'TRUE',
+        dataFollowUp2Sent: followUpData[i][12] === true || followUpData[i][12] === 'TRUE',
+        dataFollowUp3Sent: followUpData[i][13] === true || followUpData[i][13] === 'TRUE'
+      });
+    }
+
+    // Process each candidate in Negotiation_State
+    for (let i = 1; i < stateData.length; i++) {
+      const email = String(stateData[i][0]).toLowerCase().trim();
+      const jobId = String(stateData[i][1]);
+      const threadId = stateData[i][2];
+      const status = String(stateData[i][4] || '').toLowerCase();
+      const lastUpdated = stateData[i][8] ? new Date(stateData[i][8]) : null;
+
+      // Skip if already completed, unresponsive, or escalated
+      if (status.includes('completed') || status.includes('unresponsive') ||
+          status.includes('escalated') || status.includes('accepted') ||
+          status.includes('incomplete data')) {
+        continue;
+      }
+
+      // Check if data gathering is enabled for this job
+      const jobConfig = getNegotiationConfig(jobId);
+      if (!jobConfig || jobConfig.dataGathering === false) {
+        continue;
+      }
+
+      // Get candidate's data gathering status
+      const dataGathering = getJobCandidateData(jobId, email);
+      if (!dataGathering) {
+        continue;
+      }
+
+      // Skip if all data is complete
+      if (dataGathering.pending.length === 0) {
+        continue;
+      }
+
+      // Skip if candidate hasn't responded at all yet (handled by regular follow-ups)
+      if (dataGathering.answered.length === 0 && !status.includes('pending')) {
+        continue;
+      }
+
+      // Now we have a candidate with INCOMPLETE data who HAS responded
+      const key = `${email}|${jobId}`;
+      let followUpEntry = followUpMap.get(key);
+
+      // Check for new response in thread
+      let candidateLastResponseTime = lastUpdated;
+      if (threadId) {
+        try {
+          const thread = GmailApp.getThreadById(threadId);
+          if (thread) {
+            const messages = thread.getMessages();
+            // Find the most recent candidate message
+            for (let m = messages.length - 1; m >= 0; m--) {
+              const msg = messages[m];
+              const sender = msg.getFrom().toLowerCase();
+              const senderEmailMatch = sender.match(/<([^>]+)>/) || [null, sender.replace(/.*<|>.*/g, '').trim()];
+              const senderEmail = senderEmailMatch[1] || sender.trim();
+
+              // Check if from candidate
+              if (senderEmail.includes(email) || email.includes(senderEmail)) {
+                const msgDate = msg.getDate();
+                if (!candidateLastResponseTime || msgDate > candidateLastResponseTime) {
+                  candidateLastResponseTime = msgDate;
+                }
+                break;
+              }
+            }
+          }
+        } catch (e) {
+          console.error(`Error checking thread for ${email}:`, e);
+        }
+      }
+
+      if (!candidateLastResponseTime) {
+        continue; // No response timestamp, skip
+      }
+
+      // Calculate hours since last response
+      const hoursSinceLastResponse = (now - candidateLastResponseTime) / (1000 * 60 * 60);
+
+      // Get or create follow-up entry
+      if (!followUpEntry) {
+        // Entry doesn't exist in follow-up queue, need to add tracking
+        // We'll update the existing entry if found, or log for manual review
+        log.push({ type: 'info', message: `${email} has incomplete data but no follow-up queue entry` });
+        continue;
+      }
+
+      // Update last response time if we detected a new one
+      if (candidateLastResponseTime && (!followUpEntry.lastResponseTime || candidateLastResponseTime > followUpEntry.lastResponseTime)) {
+        followUpSheet.getRange(followUpEntry.rowIndex, 15).setValue(candidateLastResponseTime);
+        followUpEntry.lastResponseTime = candidateLastResponseTime;
+
+        // Reset data follow-up flags if candidate responded
+        if (followUpEntry.dataFollowUp1Sent || followUpEntry.dataFollowUp2Sent || followUpEntry.dataFollowUp3Sent) {
+          followUpSheet.getRange(followUpEntry.rowIndex, 12).setValue(false);
+          followUpSheet.getRange(followUpEntry.rowIndex, 13).setValue(false);
+          followUpSheet.getRange(followUpEntry.rowIndex, 14).setValue(false);
+          followUpEntry.dataFollowUp1Sent = false;
+          followUpEntry.dataFollowUp2Sent = false;
+          followUpEntry.dataFollowUp3Sent = false;
+          log.push({ type: 'info', message: `${email} responded - reset data follow-up flags` });
+        }
+
+        // Re-check if data is now complete after response
+        const updatedDataGathering = getJobCandidateData(jobId, email);
+        if (updatedDataGathering && updatedDataGathering.pending.length === 0) {
+          log.push({ type: 'success', message: `${email} - data gathering now complete!` });
+          continue;
+        }
+      }
+
+      // Skip if status is already 'Incomplete Data'
+      if (followUpEntry.status === 'Incomplete Data') {
+        continue;
+      }
+
+      const name = followUpEntry.name || stateData[i][3] || '';
+
+      // Check if all 3 data follow-ups are done - mark as incomplete data
+      if (followUpEntry.dataFollowUp1Sent && followUpEntry.dataFollowUp2Sent && followUpEntry.dataFollowUp3Sent) {
+        if (hoursSinceLastResponse >= FOLLOW_UP_CONFIG.DATA_INCOMPLETE_HOURS) {
+          // Mark as Incomplete Data
+          followUpSheet.getRange(followUpEntry.rowIndex, 9).setValue('Incomplete Data');
+          followUpSheet.getRange(followUpEntry.rowIndex, 10).setValue(new Date());
+          updateDataGatheringFollowUpLabels(threadId, 'incomplete');
+
+          // Also update Negotiation_State status
+          stateSheet.getRange(i + 1, 5).setValue('Incomplete Data');
+
+          // Update Job Details status
+          updateJobCandidateStatus(ss, jobId, email, 'Incomplete Data', null);
+
+          incompleteMarked++;
+          log.push({ type: 'warning', message: `${email} marked as Incomplete Data after 3 follow-ups (${hoursSinceLastResponse.toFixed(1)}hrs since last response)` });
+          processed++;
+          continue;
+        }
+      }
+
+      // Check if data follow-up 3 is due (48 hours)
+      if (followUpEntry.dataFollowUp1Sent && followUpEntry.dataFollowUp2Sent && !followUpEntry.dataFollowUp3Sent &&
+          hoursSinceLastResponse >= FOLLOW_UP_CONFIG.DATA_FOLLOW_UP_3_HOURS) {
+        const result = sendDataGatheringFollowUpEmail(
+          email, jobId, threadId, name, 3,
+          dataGathering.pending,
+          dataGathering.answered
+        );
+        if (result.success) {
+          followUpSheet.getRange(followUpEntry.rowIndex, 14).setValue(true); // Data Follow Up 3 Sent
+          followUpSheet.getRange(followUpEntry.rowIndex, 10).setValue(new Date());
+          dataFollowUp3Sent++;
+          log.push({ type: 'success', message: `Sent 3rd data follow-up to ${email} (${hoursSinceLastResponse.toFixed(1)}hrs) - Missing: ${dataGathering.pending.join(', ')}` });
+        } else {
+          log.push({ type: 'error', message: `Failed 3rd data follow-up to ${email}: ${result.error}` });
+        }
+        processed++;
+        continue;
+      }
+
+      // Check if data follow-up 2 is due (28 hours)
+      if (followUpEntry.dataFollowUp1Sent && !followUpEntry.dataFollowUp2Sent &&
+          hoursSinceLastResponse >= FOLLOW_UP_CONFIG.DATA_FOLLOW_UP_2_HOURS) {
+        const result = sendDataGatheringFollowUpEmail(
+          email, jobId, threadId, name, 2,
+          dataGathering.pending,
+          dataGathering.answered
+        );
+        if (result.success) {
+          followUpSheet.getRange(followUpEntry.rowIndex, 13).setValue(true); // Data Follow Up 2 Sent
+          followUpSheet.getRange(followUpEntry.rowIndex, 10).setValue(new Date());
+          dataFollowUp2Sent++;
+          log.push({ type: 'success', message: `Sent 2nd data follow-up to ${email} (${hoursSinceLastResponse.toFixed(1)}hrs) - Missing: ${dataGathering.pending.join(', ')}` });
+        } else {
+          log.push({ type: 'error', message: `Failed 2nd data follow-up to ${email}: ${result.error}` });
+        }
+        processed++;
+        continue;
+      }
+
+      // Check if data follow-up 1 is due (12 hours)
+      if (!followUpEntry.dataFollowUp1Sent &&
+          hoursSinceLastResponse >= FOLLOW_UP_CONFIG.DATA_FOLLOW_UP_1_HOURS) {
+        const result = sendDataGatheringFollowUpEmail(
+          email, jobId, threadId, name, 1,
+          dataGathering.pending,
+          dataGathering.answered
+        );
+        if (result.success) {
+          followUpSheet.getRange(followUpEntry.rowIndex, 12).setValue(true); // Data Follow Up 1 Sent
+          followUpSheet.getRange(followUpEntry.rowIndex, 10).setValue(new Date());
+          dataFollowUp1Sent++;
+          log.push({ type: 'success', message: `Sent 1st data follow-up to ${email} (${hoursSinceLastResponse.toFixed(1)}hrs) - Missing: ${dataGathering.pending.join(', ')}` });
+        } else {
+          log.push({ type: 'error', message: `Failed 1st data follow-up to ${email}: ${result.error}` });
+        }
+        processed++;
+      }
+    }
+
+    SpreadsheetApp.flush();
+
+    log.push({ type: 'info', message: `Data gathering follow-ups: Processed ${processed}. 1st: ${dataFollowUp1Sent}, 2nd: ${dataFollowUp2Sent}, 3rd: ${dataFollowUp3Sent}, Incomplete: ${incompleteMarked}` });
+
+    return {
+      processed,
+      dataFollowUp1Sent,
+      dataFollowUp2Sent,
+      dataFollowUp3Sent,
+      incompleteMarked,
+      log
+    };
+
+  } catch (e) {
+    console.error("Error processing data gathering follow-ups:", e);
+    return { processed: 0, dataFollowUp1Sent: 0, dataFollowUp2Sent: 0, dataFollowUp3Sent: 0, incompleteMarked: 0, log: [{ type: 'error', message: e.message }] };
+  }
+}
+
+/**
+ * Update candidate status in Job Details sheet
+ * @param {Spreadsheet} ss - Spreadsheet object
+ * @param {string} jobId - Job ID
+ * @param {string} email - Candidate email
+ * @param {string} newStatus - New status to set
+ * @param {string|null} agreedRate - Optional agreed rate
+ */
+function updateJobCandidateStatus(ss, jobId, email, newStatus, agreedRate) {
+  try {
+    const jobsSs = getCachedJobsSpreadsheet();
+    if (!jobsSs) return;
+
+    const sheetName = `Job_${jobId}_Details`;
+    const sheet = jobsSs.getSheetByName(sheetName);
+    if (!sheet || sheet.getLastRow() < 2) return;
+
+    const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+    const data = sheet.getDataRange().getValues();
+    const cleanEmail = String(email).toLowerCase().trim();
+
+    const emailColIdx = headers.indexOf('Email');
+    const statusColIdx = headers.indexOf('Status');
+    const agreedRateColIdx = headers.indexOf('Final Agreed Rate') !== -1
+      ? headers.indexOf('Final Agreed Rate')
+      : headers.indexOf('Agreed Rate');
+
+    for (let i = 1; i < data.length; i++) {
+      if (String(data[i][emailColIdx]).toLowerCase().trim() === cleanEmail) {
+        if (statusColIdx !== -1 && newStatus) {
+          sheet.getRange(i + 1, statusColIdx + 1).setValue(newStatus);
+        }
+        if (agreedRateColIdx !== -1 && agreedRate) {
+          sheet.getRange(i + 1, agreedRateColIdx + 1).setValue(agreedRate);
+        }
+        break;
+      }
+    }
+  } catch (e) {
+    console.error("Error updating job candidate status:", e);
+  }
 }
 
 /**
@@ -14581,6 +15192,36 @@ function sendSupplementaryDataRequest(jobId, candidateEmails, additionalQuestion
 
         // Send the email as a reply in the thread
         sendReplyWithSenderName(thread, emailBody, getEffectiveSenderName());
+
+        // Update Follow_Up_Queue to track this supplementary request for data follow-ups
+        // Reset data follow-up flags and update last response time to start the follow-up cycle
+        try {
+          const url = getStoredSheetUrl();
+          if (url) {
+            const ss = SpreadsheetApp.openByUrl(url);
+            const followUpSheet = ss.getSheetByName('Follow_Up_Queue');
+            if (followUpSheet) {
+              const followUpData = followUpSheet.getDataRange().getValues();
+              const cleanEmail = String(candidate.email).toLowerCase().trim();
+              for (let fi = 1; fi < followUpData.length; fi++) {
+                if (String(followUpData[fi][0]).toLowerCase().trim() === cleanEmail &&
+                    String(followUpData[fi][1]) === String(jobId)) {
+                  // Found the entry - reset data follow-up flags and update response time
+                  // This restarts the follow-up cycle for the new supplementary data request
+                  followUpSheet.getRange(fi + 1, 12).setValue(false); // Data Follow Up 1 Sent
+                  followUpSheet.getRange(fi + 1, 13).setValue(false); // Data Follow Up 2 Sent
+                  followUpSheet.getRange(fi + 1, 14).setValue(false); // Data Follow Up 3 Sent
+                  followUpSheet.getRange(fi + 1, 15).setValue(new Date()); // Last Response Time = now (to start timer)
+                  followUpSheet.getRange(fi + 1, 10).setValue(new Date()); // Last Updated
+                  console.log(`Reset data follow-up flags for ${candidate.email} after supplementary request`);
+                  break;
+                }
+              }
+            }
+          }
+        } catch (updateErr) {
+          console.warn(`Could not update follow-up queue for ${candidate.email}:`, updateErr);
+        }
 
         console.log(`Sent supplementary data request to ${candidate.email}`);
         sentCount++;
