@@ -10157,6 +10157,12 @@ const REQUIRED_TRIGGERS = [
     type: 'hourly',
     description: 'Processes follow-up emails (1st at 12hrs, 2nd at 28hrs)',
     everyHours: 1
+  },
+  {
+    functionName: 'runOnboardingIssueScan',
+    type: 'hourly',
+    description: 'Scans for onboarding issues from completed candidates (every 6hrs)',
+    everyHours: 6
   }
 ];
 
@@ -12421,41 +12427,41 @@ function removeAnalyticsViewer(email) {
 
 /**
  * Define all available pages and their default access per role
- * Pages: outreach, negotiation, tasks, followups, analytics, learning, aitesting, processmap
+ * Pages: outreach, negotiation, tasks, followups, analytics, learning, aitesting, onboardingissues
  * Roles: admin, tl, tm, ta, manager, other
  */
 const PAGE_ACCESS_DEFAULTS = {
   'admin': {
     outreach: true, negotiation: true, tasks: true, followups: true, myjobs: true,
-    analytics: true, learning: true, aitesting: true, processmap: true
+    analytics: true, learning: true, aitesting: true, onboardingissues: true
   },
   'tl': {
     outreach: true, negotiation: true, tasks: true, followups: true, myjobs: true,
-    analytics: true, learning: true, aitesting: false, processmap: false
+    analytics: true, learning: true, aitesting: false, onboardingissues: false
   },
   'tm': {
     outreach: false, negotiation: false, tasks: false, followups: false, myjobs: false,
-    analytics: true, learning: true, aitesting: false, processmap: false
+    analytics: true, learning: true, aitesting: false, onboardingissues: false
   },
   'ta': {
     outreach: false, negotiation: false, tasks: false, followups: false, myjobs: false,
-    analytics: true, learning: true, aitesting: false, processmap: false
+    analytics: true, learning: true, aitesting: false, onboardingissues: false
   },
   'manager': {
     outreach: false, negotiation: false, tasks: false, followups: false, myjobs: false,
-    analytics: true, learning: true, aitesting: false, processmap: false
+    analytics: true, learning: true, aitesting: false, onboardingissues: false
   },
   'tos': {
     outreach: true, negotiation: true, tasks: true, followups: true, myjobs: true,
-    analytics: true, learning: true, aitesting: false, processmap: false
+    analytics: true, learning: true, aitesting: false, onboardingissues: false
   },
   'other': {
     outreach: true, negotiation: true, tasks: true, followups: true, myjobs: true,
-    analytics: true, learning: true, aitesting: false, processmap: false
+    analytics: true, learning: true, aitesting: false, onboardingissues: false
   }
 };
 
-const ALL_PAGES = ['outreach', 'negotiation', 'tasks', 'followups', 'myjobs', 'analytics', 'learning', 'aitesting', 'processmap'];
+const ALL_PAGES = ['outreach', 'negotiation', 'tasks', 'followups', 'myjobs', 'analytics', 'learning', 'aitesting', 'onboardingissues'];
 const ALL_ROLES = ['admin', 'tl', 'tm', 'ta', 'manager', 'tos', 'other'];
 
 /**
@@ -13900,289 +13906,671 @@ function testDataExtraction(testData) {
  * Admin-only function that provides system status, statistics, and activity
  * @returns {Object} Process map status data
  */
-function getProcessMapStatus() {
+// ============================================================
+// ONBOARDING ISSUES TRACKING SYSTEM
+// Tracks and manages issues raised by completed candidates
+// during onboarding (Slack, Gmail, Jibble, ID Verification, etc.)
+// IMPORTANT: AI is READ-ONLY here - it only summarizes and categorizes.
+// AI must NEVER send any emails or replies to candidates from this system.
+// ============================================================
+
+const ONBOARDING_ISSUES_SHEET_NAME = 'Onboarding_Issues';
+const ONBOARDING_MONITORED_JOBS_SHEET_NAME = 'Onboarding_Monitored_Jobs';
+const OI_PREDEFINED_CATEGORIES = ['Slack', 'Gmail', 'Jibble', 'ID Verification', 'Other'];
+
+/**
+ * Ensure the Onboarding_Issues sheet exists in the Analytics spreadsheet
+ * Columns: Issue ID, Dev ID, Email, Name, Job ID, Category, Summary, Email Snippet, Status,
+ *          Reported At, Status Updated At, Resolved At, Thread ID, Detected At
+ */
+function ensureOnboardingIssuesSheet(ss) {
+  let sheet = ss.getSheetByName(ONBOARDING_ISSUES_SHEET_NAME);
+  if (!sheet) {
+    sheet = ss.insertSheet(ONBOARDING_ISSUES_SHEET_NAME);
+    sheet.appendRow([
+      'Issue ID', 'Dev ID', 'Email', 'Name', 'Job ID', 'Category', 'Summary',
+      'Email Snippet', 'Status', 'Reported At', 'Status Updated At', 'Resolved At',
+      'Thread ID', 'Detected At'
+    ]);
+    sheet.setFrozenRows(1);
+    sheet.getRange(1, 1, 1, 14).setFontWeight('bold');
+  }
+  return sheet;
+}
+
+/**
+ * Ensure the Onboarding_Monitored_Jobs sheet exists
+ * Columns: User Email, Job ID, Added At
+ */
+function ensureMonitoredJobsSheet(ss) {
+  let sheet = ss.getSheetByName(ONBOARDING_MONITORED_JOBS_SHEET_NAME);
+  if (!sheet) {
+    sheet = ss.insertSheet(ONBOARDING_MONITORED_JOBS_SHEET_NAME);
+    sheet.appendRow(['User Email', 'Job ID', 'Added At']);
+    sheet.setFrozenRows(1);
+    sheet.getRange(1, 1, 1, 3).setFontWeight('bold');
+  }
+  return sheet;
+}
+
+/**
+ * Get all onboarding issues and monitored job IDs for the current user
+ * @returns {Object} { success, issues: [], monitoredJobIds: [] }
+ */
+function getOnboardingIssues() {
   try {
-    // Check admin access
     const access = checkAnalyticsAccess();
     if (!access.hasAccess || access.accessLevel !== 'admin') {
-      return { error: 'Admin access required' };
+      return { success: false, error: 'Admin access required' };
     }
 
-    const result = {
-      triggers: {},
-      sheets: {},
-      gmail: {},
-      openai: {},
-      todayStats: {},
-      queueStatus: {},
-      recentActivity: []
-    };
+    const ss = getAnalyticsSpreadsheet();
+    if (!ss) return { success: false, error: 'Analytics spreadsheet not found' };
 
-    // Get trigger status
-    try {
-      const triggerResult = getTriggerStatus();
-
-      if (triggerResult.success && triggerResult.status) {
-        const triggers = triggerResult.status.triggers || [];
-
-        // Check Auto Negotiator trigger
-        const negotiatorTrigger = triggers.find(t => t.functionName === 'runAutoNegotiator');
-        if (negotiatorTrigger && negotiatorTrigger.exists) {
-          result.triggers.negotiator = { status: 'ok', message: 'Active' };
-        } else {
-          result.triggers.negotiator = { status: 'error', message: 'Missing' };
-        }
-
-        // Check Follow-Up Processor trigger
-        const followupTrigger = triggers.find(t => t.functionName === 'runFollowUpProcessor');
-        if (followupTrigger && followupTrigger.exists) {
-          result.triggers.followup = { status: 'ok', message: 'Active' };
-        } else {
-          result.triggers.followup = { status: 'error', message: 'Missing' };
-        }
-      } else {
-        result.triggers.negotiator = { status: 'error', message: 'Check failed' };
-        result.triggers.followup = { status: 'error', message: 'Check failed' };
+    // Get issues
+    const issueSheet = ensureOnboardingIssuesSheet(ss);
+    const issues = [];
+    const lastRow = issueSheet.getLastRow();
+    if (lastRow > 1) {
+      const data = issueSheet.getRange(2, 1, lastRow - 1, 14).getValues();
+      for (let i = 0; i < data.length; i++) {
+        issues.push({
+          issueId: String(data[i][0] || ''),
+          devId: String(data[i][1] || ''),
+          email: String(data[i][2] || ''),
+          name: String(data[i][3] || ''),
+          jobId: String(data[i][4] || ''),
+          category: String(data[i][5] || 'Other'),
+          summary: String(data[i][6] || ''),
+          emailSnippet: String(data[i][7] || ''),
+          status: String(data[i][8] || 'New'),
+          reportedAt: data[i][9] ? new Date(data[i][9]).toISOString() : null,
+          statusUpdatedAt: data[i][10] ? new Date(data[i][10]).toISOString() : null,
+          resolvedAt: data[i][11] ? new Date(data[i][11]).toISOString() : null,
+          threadId: String(data[i][12] || ''),
+          detectedAt: data[i][13] ? new Date(data[i][13]).toISOString() : null
+        });
       }
-    } catch (triggerErr) {
-      console.error('Error checking triggers:', triggerErr);
-      result.triggers.negotiator = { status: 'error', message: 'Check failed' };
-      result.triggers.followup = { status: 'error', message: 'Check failed' };
     }
 
-    // Check Sheets access
-    try {
-      const ss = getCachedSpreadsheet();
-      if (ss) {
-        result.sheets = { status: 'ok', message: 'Connected' };
-      } else {
-        result.sheets = { status: 'error', message: 'Not configured' };
+    // Get monitored job IDs
+    const userEmail = Session.getActiveUser().getEmail();
+    const monitoredSheet = ensureMonitoredJobsSheet(ss);
+    const monitoredJobIds = [];
+    const mLastRow = monitoredSheet.getLastRow();
+    if (mLastRow > 1) {
+      const mData = monitoredSheet.getRange(2, 1, mLastRow - 1, 3).getValues();
+      for (let i = 0; i < mData.length; i++) {
+        if (String(mData[i][0]).toLowerCase() === userEmail.toLowerCase()) {
+          monitoredJobIds.push(String(mData[i][1]));
+        }
       }
-    } catch (sheetErr) {
-      result.sheets = { status: 'error', message: 'Connection failed' };
     }
 
-    // Check Gmail access
-    try {
-      GmailApp.getInboxUnreadCount(); // Simple check
-      result.gmail = { status: 'ok', message: 'Connected' };
-    } catch (gmailErr) {
-      result.gmail = { status: 'error', message: 'Auth required' };
-    }
-
-    // Check OpenAI API (check if key exists, don't make actual call)
-    try {
-      const apiKey = PropertiesService.getScriptProperties().getProperty('OPENAI_API_KEY');
-      if (apiKey && apiKey.length > 10) {
-        result.openai = { status: 'ok', message: 'Configured' };
-      } else {
-        result.openai = { status: 'error', message: 'Key missing' };
-      }
-    } catch (openaiErr) {
-      result.openai = { status: 'error', message: 'Check failed' };
-    }
-
-    // Get today's statistics
-    try {
-      const ss = getCachedSpreadsheet();
-      if (ss) {
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-
-        // Emails sent today (from Email_Logs)
-        // Email_Logs columns: [0]=Timestamp, [1]=Job ID, [2]=Email, [3]=Name, [4]=Thread ID, [5]=Type, [6]=Country
-        const emailLogsSheet = ss.getSheetByName('Email_Logs');
-        let emailsSentToday = 0;
-        if (emailLogsSheet) {
-          const emailData = emailLogsSheet.getDataRange().getValues();
-          for (let i = 1; i < emailData.length; i++) {
-            const timestamp = emailData[i][0]; // Timestamp is column 0
-            if (timestamp) {
-              const rowDate = new Date(timestamp);
-              if (rowDate >= today) emailsSentToday++;
-            }
-          }
-        }
-        result.todayStats.emailsSent = emailsSentToday;
-
-        // Get negotiation stats (from Negotiation_State)
-        // Negotiation_State columns: [0]=Email, [1]=Job ID, [2]=Attempt Count, [3]=Last Offer, [4]=Status, [5]=Last Reply Time, [6]=Dev ID, [7]=Name, [8]=AI Notes, [9]=Thread ID, [10]=Region
-        const stateSheet = ss.getSheetByName('Negotiation_State');
-        let aiReplies = 0;
-        let escalated = 0;
-        let activeNegotiations = 0;
-        if (stateSheet) {
-          const stateData = stateSheet.getDataRange().getValues();
-          for (let i = 1; i < stateData.length; i++) {
-            const status = String(stateData[i][4] || '').toLowerCase(); // Status is column 4
-            const attempts = parseInt(stateData[i][2]) || 0; // Attempt Count is column 2
-
-            if (status === 'active' || status === 'pending') {
-              activeNegotiations++;
-            }
-
-            // Count AI attempts from today (based on last updated timestamp if available)
-            if (attempts > 0) {
-              aiReplies += attempts;
-            }
-
-            if (status === 'escalated' || status === 'human') {
-              escalated++;
-            }
-          }
-        }
-        result.todayStats.aiReplies = aiReplies;
-        result.todayStats.escalated = escalated;
-        result.queueStatus.activeNegotiations = activeNegotiations;
-
-        // Get follow-up stats
-        const followUpSheet = ss.getSheetByName('Follow_Up_Queue');
-        let pendingFollowups = 0;
-        let followupsSentToday = 0;
-        if (followUpSheet) {
-          const followUpData = followUpSheet.getDataRange().getValues();
-          for (let i = 1; i < followUpData.length; i++) {
-            const status = String(followUpData[i][5] || '').toLowerCase();
-            if (status === 'pending') pendingFollowups++;
-          }
-        }
-        result.todayStats.followupsSent = followupsSentToday;
-        result.queueStatus.pendingFollowups = pendingFollowups;
-
-        // Get task/human review count
-        const taskSheet = ss.getSheetByName('Negotiation_Tasks');
-        let humanReview = 0;
-        if (taskSheet) {
-          const taskData = taskSheet.getDataRange().getValues();
-          humanReview = Math.max(0, taskData.length - 1); // Subtract header
-        }
-        result.queueStatus.humanReview = humanReview;
-
-        // Get completed count (from Negotiation_Completed)
-        const completedSheet = ss.getSheetByName('Negotiation_Completed');
-        let completedToday = 0;
-        if (completedSheet) {
-          const completedData = completedSheet.getDataRange().getValues();
-          for (let i = 1; i < completedData.length; i++) {
-            const timestamp = completedData[i][3]; // Completion timestamp
-            if (timestamp) {
-              const rowDate = new Date(timestamp);
-              if (rowDate >= today) completedToday++;
-            }
-          }
-        }
-        result.todayStats.completed = completedToday;
-
-        // Get unresponsive count
-        const unresponsiveSheet = ss.getSheetByName('Unresponsive_Devs');
-        let unresponsiveToday = 0;
-        if (unresponsiveSheet) {
-          const unresponsiveData = unresponsiveSheet.getDataRange().getValues();
-          for (let i = 1; i < unresponsiveData.length; i++) {
-            const timestamp = unresponsiveData[i][2]; // Timestamp column
-            if (timestamp) {
-              const rowDate = new Date(timestamp);
-              if (rowDate >= today) unresponsiveToday++;
-            }
-          }
-        }
-        result.todayStats.unresponsive = unresponsiveToday;
-
-        // Get configured jobs count
-        const configSheet = ss.getSheetByName('Negotiation_Config');
-        let configuredJobs = 0;
-        if (configSheet) {
-          const configData = configSheet.getDataRange().getValues();
-          configuredJobs = Math.max(0, configData.length - 1);
-        }
-        result.queueStatus.configuredJobs = configuredJobs;
-      }
-    } catch (statsErr) {
-      console.error('Error getting stats:', statsErr);
-    }
-
-    // Get recent activity (last 24 hours from Email_Logs and other sources)
-    try {
-      const ss = getCachedSpreadsheet();
-      if (ss) {
-        const activities = [];
-        const yesterday = new Date();
-        yesterday.setHours(yesterday.getHours() - 24);
-
-        // Recent emails
-        // Email_Logs columns: [0]=Timestamp, [1]=Job ID, [2]=Email, [3]=Name, [4]=Thread ID, [5]=Type, [6]=Country
-        const emailLogsSheet = ss.getSheetByName('Email_Logs');
-        if (emailLogsSheet) {
-          const emailData = emailLogsSheet.getDataRange().getValues();
-          for (let i = Math.max(1, emailData.length - 20); i < emailData.length; i++) {
-            const timestamp = emailData[i][0]; // Timestamp is column 0
-            const jobId = emailData[i][1];     // Job ID is column 1
-            const email = emailData[i][2];     // Email is column 2
-            const type = emailData[i][5];      // Type is column 5
-
-            if (timestamp && new Date(timestamp) >= yesterday) {
-              activities.push({
-                type: type === 'follow-up' ? 'followup' : 'email',
-                message: `${type === 'follow-up' ? 'Follow-up' : 'Email'} sent to ${email} (Job ${jobId})`,
-                timestamp: new Date(timestamp).toISOString()
-              });
-            }
-          }
-        }
-
-        // Recent escalations from Negotiation_Tasks
-        // Negotiation_Tasks columns: [0]=Timestamp, [1]=Job ID, [2]=Name, [3]=Email, [4]=Agreed Rate, [5]=Status, [6]=Dev ID, [7]=Thread ID, [8]=Region
-        const taskSheet = ss.getSheetByName('Negotiation_Tasks');
-        if (taskSheet) {
-          const taskData = taskSheet.getDataRange().getValues();
-          for (let i = Math.max(1, taskData.length - 10); i < taskData.length; i++) {
-            const timestamp = taskData[i][0]; // Timestamp is column 0
-            const jobId = taskData[i][1];     // Job ID is column 1
-            const email = taskData[i][3];     // Email is column 3
-
-            if (timestamp && new Date(timestamp) >= yesterday) {
-              activities.push({
-                type: 'escalation',
-                message: `Escalated to human: ${email} (Job ${jobId})`,
-                timestamp: new Date(timestamp).toISOString()
-              });
-            }
-          }
-        }
-
-        // Recent completions
-        // Negotiation_Completed columns: [0]=Timestamp, [1]=Job ID, [2]=Email, [3]=Name, [4]=Final Status, [5]=Notes, [6]=Dev ID, [7]=Region
-        const completedSheet = ss.getSheetByName('Negotiation_Completed');
-        if (completedSheet) {
-          const completedData = completedSheet.getDataRange().getValues();
-          for (let i = Math.max(1, completedData.length - 10); i < completedData.length; i++) {
-            const timestamp = completedData[i][0];    // Timestamp is column 0
-            const email = completedData[i][2];        // Email is column 2
-            const finalStatus = completedData[i][4];  // Final Status is column 4
-
-            if (timestamp && new Date(timestamp) >= yesterday) {
-              activities.push({
-                type: 'completed',
-                message: `Completed: ${email} - ${finalStatus}`,
-                timestamp: new Date(timestamp).toISOString()
-              });
-            }
-          }
-        }
-
-        // Sort by timestamp descending and limit to 15
-        activities.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
-        result.recentActivity = activities.slice(0, 15);
-      }
-    } catch (activityErr) {
-      console.error('Error getting activity:', activityErr);
-    }
-
-    return result;
-
+    return { success: true, issues: issues, monitoredJobIds: monitoredJobIds };
   } catch (e) {
-    console.error('Error in getProcessMapStatus:', e);
-    return { error: 'Failed to get process status: ' + e.message };
+    console.error('Error in getOnboardingIssues:', e);
+    return { success: false, error: e.message };
+  }
+}
+
+/**
+ * Update the status of an onboarding issue
+ * @param {string} issueId - The issue ID to update
+ * @param {string} newStatus - New status (Escalated, Waiting on Candidate, Resolved)
+ * @returns {Object} { success }
+ */
+function updateOnboardingIssueStatus(issueId, newStatus) {
+  try {
+    const access = checkAnalyticsAccess();
+    if (!access.hasAccess || access.accessLevel !== 'admin') {
+      return { success: false, error: 'Admin access required' };
+    }
+
+    const validStatuses = ['New', 'Escalated', 'Waiting on Candidate', 'Resolved'];
+    if (!validStatuses.includes(newStatus)) {
+      return { success: false, error: 'Invalid status: ' + newStatus };
+    }
+
+    const ss = getAnalyticsSpreadsheet();
+    const sheet = ensureOnboardingIssuesSheet(ss);
+    const lastRow = sheet.getLastRow();
+    if (lastRow <= 1) return { success: false, error: 'No issues found' };
+
+    const data = sheet.getRange(2, 1, lastRow - 1, 14).getValues();
+    for (let i = 0; i < data.length; i++) {
+      if (String(data[i][0]) === String(issueId)) {
+        const rowIdx = i + 2;
+        const now = new Date();
+        // Update Status (col 9)
+        sheet.getRange(rowIdx, 9).setValue(newStatus);
+        // Update Status Updated At (col 11)
+        sheet.getRange(rowIdx, 11).setValue(now);
+        // If resolved, set Resolved At (col 12)
+        if (newStatus === 'Resolved') {
+          sheet.getRange(rowIdx, 12).setValue(now);
+        } else {
+          // Clear resolved timestamp if un-resolving
+          sheet.getRange(rowIdx, 12).setValue('');
+        }
+        return { success: true };
+      }
+    }
+
+    return { success: false, error: 'Issue not found: ' + issueId };
+  } catch (e) {
+    console.error('Error in updateOnboardingIssueStatus:', e);
+    return { success: false, error: e.message };
+  }
+}
+
+/**
+ * Scan Gmail for onboarding issues from completed candidates
+ * Checks emails received after a candidate was marked completed.
+ * AI is used ONLY to categorize and summarize - NEVER to send replies.
+ *
+ * @param {string|null} startDate - Start date for manual scan (YYYY-MM-DD) or null for auto (24h)
+ * @param {string|null} endDate - End date for manual scan (YYYY-MM-DD) or null for auto (24h)
+ * @returns {Object} { success, newIssuesCount }
+ */
+function scanOnboardingIssues(startDate, endDate) {
+  try {
+    const access = checkAnalyticsAccess();
+    if (!access.hasAccess || access.accessLevel !== 'admin') {
+      return { success: false, error: 'Admin access required' };
+    }
+
+    const ss = getAnalyticsSpreadsheet();
+    if (!ss) return { success: false, error: 'Analytics spreadsheet not found' };
+
+    const mainSs = getCachedSpreadsheet();
+    if (!mainSs) return { success: false, error: 'Main spreadsheet not configured' };
+
+    // Determine date range
+    let scanAfter, scanBefore;
+    if (startDate && endDate) {
+      scanAfter = new Date(startDate);
+      scanAfter.setHours(0, 0, 0, 0);
+      scanBefore = new Date(endDate);
+      scanBefore.setHours(23, 59, 59, 999);
+    } else {
+      // Auto-scan: last 24 hours
+      scanBefore = new Date();
+      scanAfter = new Date();
+      scanAfter.setHours(scanAfter.getHours() - 24);
+    }
+
+    // Get monitored job IDs for current user
+    const userEmail = Session.getActiveUser().getEmail();
+    const monitoredSheet = ensureMonitoredJobsSheet(ss);
+    const monitoredJobIds = [];
+    const mLastRow = monitoredSheet.getLastRow();
+    if (mLastRow > 1) {
+      const mData = monitoredSheet.getRange(2, 1, mLastRow - 1, 3).getValues();
+      for (let i = 0; i < mData.length; i++) {
+        if (String(mData[i][0]).toLowerCase() === userEmail.toLowerCase()) {
+          monitoredJobIds.push(String(mData[i][1]));
+        }
+      }
+    }
+
+    if (monitoredJobIds.length === 0) {
+      return { success: false, error: 'No job IDs being monitored. Add Job IDs first.' };
+    }
+
+    // Get completed candidates for monitored jobs
+    const completedSheet = mainSs.getSheetByName('Negotiation_Completed');
+    if (!completedSheet || completedSheet.getLastRow() <= 1) {
+      return { success: true, newIssuesCount: 0 };
+    }
+
+    const completedData = completedSheet.getDataRange().getValues();
+    // Negotiation_Completed columns: [0]=Timestamp, [1]=Job ID, [2]=Email, [3]=Name, [4]=Final Status, [5]=Notes, [6]=Dev ID, [7]=Region
+    const completedCandidates = [];
+    for (let i = 1; i < completedData.length; i++) {
+      const jobId = String(completedData[i][1] || '');
+      if (monitoredJobIds.includes(jobId)) {
+        completedCandidates.push({
+          completedAt: completedData[i][0] ? new Date(completedData[i][0]) : null,
+          jobId: jobId,
+          email: String(completedData[i][2] || ''),
+          name: String(completedData[i][3] || ''),
+          devId: String(completedData[i][6] || '')
+        });
+      }
+    }
+
+    if (completedCandidates.length === 0) {
+      return { success: true, newIssuesCount: 0 };
+    }
+
+    // Get existing issues to avoid duplicates
+    const issueSheet = ensureOnboardingIssuesSheet(ss);
+    const existingIssueKeys = new Set();
+    const issLastRow = issueSheet.getLastRow();
+    if (issLastRow > 1) {
+      const issData = issueSheet.getRange(2, 1, issLastRow - 1, 14).getValues();
+      for (let i = 0; i < issData.length; i++) {
+        // Use threadId + email as unique key
+        existingIssueKeys.add(String(issData[i][12]) + '|' + String(issData[i][2]));
+      }
+    }
+
+    // Search Gmail for each monitored job's completed candidates
+    let newIssuesCount = 0;
+    const newIssues = [];
+
+    for (const candidate of completedCandidates) {
+      if (!candidate.email || !candidate.completedAt) continue;
+
+      try {
+        // Search for threads with this job label that have messages after completion
+        const searchQuery = `label:Job-${candidate.jobId} label:Completed from:${candidate.email} after:${formatDateForGmail(scanAfter)}`;
+        const threads = GmailApp.search(searchQuery, 0, 10);
+
+        for (const thread of threads) {
+          const messages = thread.getMessages();
+          // Find messages from the candidate that are after the completion date
+          for (const msg of messages) {
+            const msgDate = msg.getDate();
+            const msgFrom = msg.getFrom() || '';
+
+            // Only process candidate messages that are:
+            // 1. After the completion date
+            // 2. Within our scan date range
+            // 3. Actually FROM the candidate (not our replies)
+            if (msgDate > candidate.completedAt &&
+                msgDate >= scanAfter && msgDate <= scanBefore &&
+                msgFrom.toLowerCase().includes(candidate.email.toLowerCase())) {
+
+              const threadId = thread.getId();
+              const issueKey = threadId + '|' + candidate.email;
+
+              // Skip if we already have this issue
+              if (existingIssueKeys.has(issueKey)) continue;
+              existingIssueKeys.add(issueKey);
+
+              const emailBody = msg.getPlainBody() || '';
+              const snippet = emailBody.substring(0, 500);
+
+              // Use AI to categorize and summarize (READ-ONLY - no email sending)
+              let category = 'Other';
+              let summary = snippet.substring(0, 200);
+
+              try {
+                const aiResult = categorizeOnboardingIssue(emailBody, candidate.name);
+                if (aiResult) {
+                  category = aiResult.category || 'Other';
+                  summary = aiResult.summary || summary;
+                }
+              } catch (aiErr) {
+                console.error('AI categorization failed for ' + candidate.email + ':', aiErr);
+              }
+
+              const issueId = 'OI-' + Date.now() + '-' + Math.random().toString(36).substring(2, 7);
+
+              newIssues.push([
+                issueId,
+                candidate.devId,
+                candidate.email,
+                candidate.name,
+                candidate.jobId,
+                category,
+                summary,
+                snippet,
+                'New',
+                msgDate,         // Reported At (when candidate sent the email)
+                '',              // Status Updated At
+                '',              // Resolved At
+                threadId,
+                new Date()       // Detected At
+              ]);
+
+              newIssuesCount++;
+              break; // One issue per thread per candidate
+            }
+          }
+        }
+      } catch (searchErr) {
+        console.error('Error searching Gmail for ' + candidate.email + ':', searchErr);
+      }
+    }
+
+    // Write new issues to sheet
+    if (newIssues.length > 0) {
+      issueSheet.getRange(issueSheet.getLastRow() + 1, 1, newIssues.length, 14).setValues(newIssues);
+    }
+
+    // Log scan to analytics
+    logAnalytics('onboarding_scan', 'system', newIssuesCount, 'Scanned ' + completedCandidates.length + ' candidates, found ' + newIssuesCount + ' new issues');
+
+    return { success: true, newIssuesCount: newIssuesCount };
+  } catch (e) {
+    console.error('Error in scanOnboardingIssues:', e);
+    return { success: false, error: e.message };
+  }
+}
+
+/**
+ * Format a Date for Gmail search query (YYYY/MM/DD)
+ */
+function formatDateForGmail(date) {
+  return date.getFullYear() + '/' + String(date.getMonth() + 1).padStart(2, '0') + '/' + String(date.getDate()).padStart(2, '0');
+}
+
+/**
+ * Use AI to categorize an onboarding issue email (READ-ONLY, no email sending)
+ * @param {string} emailBody - The email body text
+ * @param {string} candidateName - The candidate's name
+ * @returns {Object} { category, summary }
+ */
+function categorizeOnboardingIssue(emailBody, candidateName) {
+  const prompt = `You are analyzing a post-onboarding email from a candidate named "${candidateName}".
+This candidate has already been marked as completed in the recruitment process and is now raising a concern/issue.
+
+IMPORTANT: You are ONLY categorizing and summarizing. Do NOT generate any reply or response.
+
+Categorize the email into ONE of these categories:
+- "Slack" - Issues with Slack login, credentials, workspace access, channel access
+- "Gmail" - Issues with Gmail/email setup, credentials, access problems
+- "Jibble" - Issues with Jibble time tracking tool setup, login, or usage
+- "ID Verification" - Issues with identity verification, document submission, KYC
+- "Other" - Any other onboarding issue not fitting the above categories
+
+Also provide a brief summary (1-2 sentences max) of what the candidate is asking about.
+
+Email content:
+"""
+${emailBody.substring(0, 1500)}
+"""
+
+Respond in this exact JSON format only:
+{"category": "one of the categories above", "summary": "brief summary of the issue"}`;
+
+  try {
+    const aiResponse = callAI(prompt);
+    if (!aiResponse || aiResponse.includes('ESCALATE')) return null;
+
+    // Parse JSON from AI response
+    const jsonMatch = aiResponse.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      const parsed = JSON.parse(jsonMatch[0]);
+      // Validate category
+      if (!OI_PREDEFINED_CATEGORIES.includes(parsed.category)) {
+        parsed.category = 'Other';
+      }
+      return parsed;
+    }
+  } catch (e) {
+    console.error('Error parsing AI categorization:', e);
+  }
+  return null;
+}
+
+/**
+ * Add a job ID to monitor for onboarding issues
+ * @param {string} jobId - The job ID to add
+ * @returns {Object} { success }
+ */
+function addMonitoredJobForOnboarding(jobId) {
+  try {
+    if (!jobId) return { success: false, error: 'Job ID required' };
+
+    const ss = getAnalyticsSpreadsheet();
+    const sheet = ensureMonitoredJobsSheet(ss);
+    const userEmail = Session.getActiveUser().getEmail();
+
+    // Check for duplicate
+    const lastRow = sheet.getLastRow();
+    if (lastRow > 1) {
+      const data = sheet.getRange(2, 1, lastRow - 1, 3).getValues();
+      for (let i = 0; i < data.length; i++) {
+        if (String(data[i][0]).toLowerCase() === userEmail.toLowerCase() &&
+            String(data[i][1]) === String(jobId)) {
+          return { success: false, error: 'Job ' + jobId + ' is already being monitored' };
+        }
+      }
+    }
+
+    sheet.appendRow([userEmail, String(jobId), new Date()]);
+    return { success: true };
+  } catch (e) {
+    console.error('Error in addMonitoredJobForOnboarding:', e);
+    return { success: false, error: e.message };
+  }
+}
+
+/**
+ * Remove a job ID from monitoring
+ * @param {string} jobId - The job ID to remove
+ * @returns {Object} { success }
+ */
+function removeMonitoredJobForOnboarding(jobId) {
+  try {
+    const ss = getAnalyticsSpreadsheet();
+    const sheet = ensureMonitoredJobsSheet(ss);
+    const userEmail = Session.getActiveUser().getEmail();
+    const lastRow = sheet.getLastRow();
+
+    if (lastRow <= 1) return { success: true };
+
+    const data = sheet.getRange(2, 1, lastRow - 1, 3).getValues();
+    for (let i = data.length - 1; i >= 0; i--) {
+      if (String(data[i][0]).toLowerCase() === userEmail.toLowerCase() &&
+          String(data[i][1]) === String(jobId)) {
+        sheet.deleteRow(i + 2);
+        return { success: true };
+      }
+    }
+
+    return { success: true };
+  } catch (e) {
+    console.error('Error in removeMonitoredJobForOnboarding:', e);
+    return { success: false, error: e.message };
+  }
+}
+
+/**
+ * Load job IDs from "My Jobs" into the onboarding monitoring list
+ * Imports all active jobs from Job_Assignments for the current user
+ * @returns {Object} { success, jobIds: [] }
+ */
+function loadMyJobsForOnboardingMonitoring() {
+  try {
+    const access = checkAnalyticsAccess();
+    if (!access.hasAccess || access.accessLevel !== 'admin') {
+      return { success: false, error: 'Admin access required' };
+    }
+
+    const mainUrl = getStoredSheetUrl();
+    if (!mainUrl) return { success: false, error: 'No spreadsheet configured' };
+
+    const mainSs = SpreadsheetApp.openByUrl(mainUrl);
+    const jobSheet = mainSs.getSheetByName('Job_Assignments');
+    if (!jobSheet) return { success: true, jobIds: [] };
+
+    const userEmail = Session.getActiveUser().getEmail();
+    const lastRow = jobSheet.getLastRow();
+    if (lastRow <= 1) return { success: true, jobIds: [] };
+
+    const jobData = jobSheet.getDataRange().getValues();
+    const jobIds = [];
+
+    for (let i = 1; i < jobData.length; i++) {
+      const agentEmail = String(jobData[i][0] || '').toLowerCase();
+      const jobId = String(jobData[i][1] || '');
+      const status = String(jobData[i][2] || '');
+
+      if (agentEmail === userEmail.toLowerCase() && status === 'Active' && jobId) {
+        jobIds.push(jobId);
+      }
+    }
+
+    // Sync to monitored jobs sheet
+    const analyticsSs = getAnalyticsSpreadsheet();
+    const monitoredSheet = ensureMonitoredJobsSheet(analyticsSs);
+
+    // Remove existing entries for this user
+    const mLastRow = monitoredSheet.getLastRow();
+    if (mLastRow > 1) {
+      const mData = monitoredSheet.getRange(2, 1, mLastRow - 1, 3).getValues();
+      for (let i = mData.length - 1; i >= 0; i--) {
+        if (String(mData[i][0]).toLowerCase() === userEmail.toLowerCase()) {
+          monitoredSheet.deleteRow(i + 2);
+        }
+      }
+    }
+
+    // Add all active jobs
+    const now = new Date();
+    for (const jid of jobIds) {
+      monitoredSheet.appendRow([userEmail, jid, now]);
+    }
+
+    return { success: true, jobIds: jobIds };
+  } catch (e) {
+    console.error('Error in loadMyJobsForOnboardingMonitoring:', e);
+    return { success: false, error: e.message };
+  }
+}
+
+/**
+ * Auto-scan trigger function - runs every 6 hours
+ * Scans for onboarding issues in the last 24 hours for all users with monitored jobs
+ */
+function runOnboardingIssueScan() {
+  try {
+    console.log('[Onboarding Scan] Starting auto-scan...');
+    const ss = getAnalyticsSpreadsheet();
+    if (!ss) {
+      console.error('[Onboarding Scan] Analytics spreadsheet not found');
+      return;
+    }
+
+    const mainSs = getCachedSpreadsheet();
+    if (!mainSs) {
+      console.error('[Onboarding Scan] Main spreadsheet not configured');
+      return;
+    }
+
+    // Get all monitored job IDs (from all users)
+    const monitoredSheet = ensureMonitoredJobsSheet(ss);
+    const allMonitoredJobIds = new Set();
+    const mLastRow = monitoredSheet.getLastRow();
+    if (mLastRow > 1) {
+      const mData = monitoredSheet.getRange(2, 1, mLastRow - 1, 3).getValues();
+      for (let i = 0; i < mData.length; i++) {
+        if (mData[i][1]) allMonitoredJobIds.add(String(mData[i][1]));
+      }
+    }
+
+    if (allMonitoredJobIds.size === 0) {
+      console.log('[Onboarding Scan] No monitored jobs found');
+      return;
+    }
+
+    // Get completed candidates for all monitored jobs
+    const completedSheet = mainSs.getSheetByName('Negotiation_Completed');
+    if (!completedSheet || completedSheet.getLastRow() <= 1) {
+      console.log('[Onboarding Scan] No completed candidates found');
+      return;
+    }
+
+    const completedData = completedSheet.getDataRange().getValues();
+    const completedCandidates = [];
+    for (let i = 1; i < completedData.length; i++) {
+      const jobId = String(completedData[i][1] || '');
+      if (allMonitoredJobIds.has(jobId)) {
+        completedCandidates.push({
+          completedAt: completedData[i][0] ? new Date(completedData[i][0]) : null,
+          jobId: jobId,
+          email: String(completedData[i][2] || ''),
+          name: String(completedData[i][3] || ''),
+          devId: String(completedData[i][6] || '')
+        });
+      }
+    }
+
+    // Scan last 24 hours
+    const scanBefore = new Date();
+    const scanAfter = new Date();
+    scanAfter.setHours(scanAfter.getHours() - 24);
+
+    // Get existing issues to avoid duplicates
+    const issueSheet = ensureOnboardingIssuesSheet(ss);
+    const existingIssueKeys = new Set();
+    const issLastRow = issueSheet.getLastRow();
+    if (issLastRow > 1) {
+      const issData = issueSheet.getRange(2, 1, issLastRow - 1, 14).getValues();
+      for (let i = 0; i < issData.length; i++) {
+        existingIssueKeys.add(String(issData[i][12]) + '|' + String(issData[i][2]));
+      }
+    }
+
+    let newIssuesCount = 0;
+    const newIssues = [];
+
+    for (const candidate of completedCandidates) {
+      if (!candidate.email || !candidate.completedAt) continue;
+
+      try {
+        const searchQuery = `label:Job-${candidate.jobId} label:Completed from:${candidate.email} after:${formatDateForGmail(scanAfter)}`;
+        const threads = GmailApp.search(searchQuery, 0, 10);
+
+        for (const thread of threads) {
+          const messages = thread.getMessages();
+          for (const msg of messages) {
+            const msgDate = msg.getDate();
+            const msgFrom = msg.getFrom() || '';
+
+            if (msgDate > candidate.completedAt &&
+                msgDate >= scanAfter && msgDate <= scanBefore &&
+                msgFrom.toLowerCase().includes(candidate.email.toLowerCase())) {
+
+              const threadId = thread.getId();
+              const issueKey = threadId + '|' + candidate.email;
+              if (existingIssueKeys.has(issueKey)) continue;
+              existingIssueKeys.add(issueKey);
+
+              const emailBody = msg.getPlainBody() || '';
+              const snippet = emailBody.substring(0, 500);
+
+              let category = 'Other';
+              let summary = snippet.substring(0, 200);
+              try {
+                const aiResult = categorizeOnboardingIssue(emailBody, candidate.name);
+                if (aiResult) {
+                  category = aiResult.category || 'Other';
+                  summary = aiResult.summary || summary;
+                }
+              } catch (aiErr) {
+                console.error('[Onboarding Scan] AI categorization failed:', aiErr);
+              }
+
+              const issueId = 'OI-' + Date.now() + '-' + Math.random().toString(36).substring(2, 7);
+              newIssues.push([
+                issueId, candidate.devId, candidate.email, candidate.name,
+                candidate.jobId, category, summary, snippet, 'New',
+                msgDate, '', '', threadId, new Date()
+              ]);
+              newIssuesCount++;
+              break;
+            }
+          }
+        }
+      } catch (searchErr) {
+        console.error('[Onboarding Scan] Search error for ' + candidate.email + ':', searchErr);
+      }
+    }
+
+    if (newIssues.length > 0) {
+      issueSheet.getRange(issueSheet.getLastRow() + 1, 1, newIssues.length, 14).setValues(newIssues);
+    }
+
+    console.log('[Onboarding Scan] Complete. Found ' + newIssuesCount + ' new issues from ' + completedCandidates.length + ' candidates');
+    logAnalytics('onboarding_auto_scan', 'system', newIssuesCount, 'Auto-scan: ' + completedCandidates.length + ' candidates, ' + newIssuesCount + ' new issues');
+  } catch (e) {
+    console.error('[Onboarding Scan] Error:', e);
   }
 }
 

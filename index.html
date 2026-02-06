@@ -279,6 +279,43 @@
         .filter-chip.direct:hover { background: #c7d2fe; border-color: #a5b4fc; }
         .filter-chip.direct.active { background: #4f46e5; color: white; border-color: #4338ca; box-shadow: 0 4px 6px -1px rgba(79,70,229,0.3); }
         
+        /* Onboarding Issues Styles */
+        .oi-status-chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.375rem;
+            padding: 0.375rem 0.75rem;
+            border-radius: 9999px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            cursor: pointer;
+            border: 2px solid #e2e8f0;
+            background: #f8fafc;
+            color: #64748b;
+            transition: all 0.2s ease;
+        }
+        .oi-status-chip:hover { background: #e2e8f0; transform: translateY(-1px); }
+        .oi-status-chip.active { background: #334155; color: white; border-color: #1e293b; box-shadow: 0 2px 6px rgba(0,0,0,0.15); }
+        .dark .oi-status-chip { border-color: #475569; background: #1e293b; color: #94a3b8; }
+        .dark .oi-status-chip:hover { background: #334155; }
+        .dark .oi-status-chip.active { background: #3b82f6; color: white; border-color: #2563eb; }
+
+        .oi-action-btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 28px;
+            height: 28px;
+            border-radius: 0.375rem;
+            border: none;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+        .oi-action-btn:hover { transform: translateY(-1px); box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .oi-action-btn:active { transform: scale(0.92); }
+        .oi-action-btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+        .oi-btn-loading { pointer-events: none; }
+
         /* Log Entries */
         .log-entry { padding: 0.5rem; margin-bottom: 0.25rem; border-radius: 0.25rem; font-size: 0.75rem; }
         .log-info { background: #eff6ff; color: #1d4ed8; }
@@ -1086,10 +1123,10 @@
             </div>
             <!-- AI TESTING FEATURE - DELETE FOR PRODUCTION (END NAV) -->
 
-            <!-- PROCESS MAP - ADMIN ONLY -->
-            <div id="processMapNavTab" class="nav-tab hidden" onclick="switchTab('processmap', this)">
-                <i class="fa-solid fa-diagram-project w-5 text-center"></i>
-                <span>Process Map</span>
+            <!-- ONBOARDING ISSUES - ADMIN ONLY -->
+            <div id="onboardingIssuesNavTab" class="nav-tab hidden" onclick="switchTab('onboardingissues', this)">
+                <i class="fa-solid fa-triangle-exclamation w-5 text-center"></i>
+                <span>Onboarding Issues</span>
             </div>
         </nav>
 
@@ -3123,575 +3160,208 @@
                 <!-- AI TESTING FEATURE - DELETE FOR PRODUCTION (END TAB CONTENT) -->
 
                 <!-- TAB 7: PROCESS MAP (ADMIN ONLY) -->
-                <div id="tab-processmap" class="tab-content hidden-tab">
+                <div id="tab-onboardingissues" class="tab-content hidden-tab">
+                    <!-- Header -->
                     <div class="mb-6">
-                        <div class="flex justify-between items-center">
+                        <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
                             <div>
-                                <h3 class="text-xl font-bold text-slate-800 dark:text-white mb-1">System Process Map</h3>
-                                <p class="text-sm text-slate-500">Visual flowchart of the HR-Ops-AI system workflow with real-time status indicators.</p>
+                                <h3 class="text-xl font-bold text-slate-800 dark:text-white mb-1">Onboarding Issues</h3>
+                                <p class="text-sm text-slate-500">Track and manage issues raised by completed candidates during onboarding.</p>
                             </div>
-                            <button onclick="refreshProcessMap()" id="refreshProcessMapBtn" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2">
-                                <i class="fa-solid fa-sync"></i> Refresh Status
+                            <div class="flex gap-2">
+                                <button onclick="openManualScanModal()" id="manualScanBtn" class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 transition-all duration-200 active:scale-95">
+                                    <i class="fa-solid fa-magnifying-glass"></i> Manual Scan
+                                </button>
+                                <button onclick="runOnboardingScanNow()" id="scanNowBtn" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 transition-all duration-200 active:scale-95">
+                                    <i class="fa-solid fa-sync"></i> Scan Now (24h)
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Stats Cards -->
+                    <div class="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
+                        <div class="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 p-4">
+                            <div class="flex items-center gap-3">
+                                <div class="w-10 h-10 rounded-lg bg-red-100 dark:bg-red-900/30 flex items-center justify-center">
+                                    <i class="fa-solid fa-circle-exclamation text-red-500"></i>
+                                </div>
+                                <div>
+                                    <div class="text-2xl font-bold text-slate-800 dark:text-white" id="oiStatNew">0</div>
+                                    <div class="text-xs text-slate-500">New Issues</div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 p-4">
+                            <div class="flex items-center gap-3">
+                                <div class="w-10 h-10 rounded-lg bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center">
+                                    <i class="fa-solid fa-arrow-up text-amber-500"></i>
+                                </div>
+                                <div>
+                                    <div class="text-2xl font-bold text-slate-800 dark:text-white" id="oiStatEscalated">0</div>
+                                    <div class="text-xs text-slate-500">Escalated</div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 p-4">
+                            <div class="flex items-center gap-3">
+                                <div class="w-10 h-10 rounded-lg bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center">
+                                    <i class="fa-solid fa-hourglass-half text-blue-500"></i>
+                                </div>
+                                <div>
+                                    <div class="text-2xl font-bold text-slate-800 dark:text-white" id="oiStatWaiting">0</div>
+                                    <div class="text-xs text-slate-500">Waiting</div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 p-4">
+                            <div class="flex items-center gap-3">
+                                <div class="w-10 h-10 rounded-lg bg-green-100 dark:bg-green-900/30 flex items-center justify-center">
+                                    <i class="fa-solid fa-check-circle text-green-500"></i>
+                                </div>
+                                <div>
+                                    <div class="text-2xl font-bold text-slate-800 dark:text-white" id="oiStatResolved">0</div>
+                                    <div class="text-xs text-slate-500">Resolved</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Search & Filters -->
+                    <div class="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 p-4 mb-6">
+                        <div class="flex flex-col lg:flex-row gap-4">
+                            <!-- Search -->
+                            <div class="flex-1">
+                                <div class="relative">
+                                    <i class="fa-solid fa-search absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm"></i>
+                                    <input id="oiSearchInput" type="text" placeholder="Search by email, Dev ID, or name (comma-separated for multiple)"
+                                           class="input-field pl-9 w-full" oninput="filterOnboardingIssues()">
+                                </div>
+                            </div>
+                            <!-- Job ID Filter -->
+                            <div class="w-48">
+                                <select id="oiJobFilter" class="input-field w-full" onchange="filterOnboardingIssues()">
+                                    <option value="">All Jobs</option>
+                                </select>
+                            </div>
+                            <!-- Category Filter -->
+                            <div class="w-48">
+                                <select id="oiCategoryFilter" class="input-field w-full" onchange="filterOnboardingIssues()">
+                                    <option value="">All Categories</option>
+                                    <option value="Slack">Slack</option>
+                                    <option value="Gmail">Gmail</option>
+                                    <option value="Jibble">Jibble</option>
+                                    <option value="ID Verification">ID Verification</option>
+                                    <option value="Other">Other</option>
+                                </select>
+                            </div>
+                        </div>
+                        <!-- Status Filter Chips -->
+                        <div class="flex flex-wrap gap-2 mt-3">
+                            <button class="oi-status-chip active" data-status="" onclick="setOIStatusFilter(this, '')">All</button>
+                            <button class="oi-status-chip" data-status="New" onclick="setOIStatusFilter(this, 'New')">
+                                <span class="w-2 h-2 rounded-full bg-red-500 inline-block"></span> New
+                            </button>
+                            <button class="oi-status-chip" data-status="Escalated" onclick="setOIStatusFilter(this, 'Escalated')">
+                                <span class="w-2 h-2 rounded-full bg-amber-500 inline-block"></span> Escalated
+                            </button>
+                            <button class="oi-status-chip" data-status="Waiting on Candidate" onclick="setOIStatusFilter(this, 'Waiting on Candidate')">
+                                <span class="w-2 h-2 rounded-full bg-blue-500 inline-block"></span> Waiting on Candidate
+                            </button>
+                            <button class="oi-status-chip" data-status="Resolved" onclick="setOIStatusFilter(this, 'Resolved')">
+                                <span class="w-2 h-2 rounded-full bg-green-500 inline-block"></span> Resolved
                             </button>
                         </div>
                     </div>
 
-                    <!-- Legend -->
-                    <div class="mb-6 flex flex-wrap gap-4 items-center">
-                        <div class="text-xs font-bold uppercase text-slate-500">Status Legend:</div>
-                        <div class="flex items-center gap-2">
-                            <span class="w-3 h-3 rounded-full bg-green-500 animate-pulse"></span>
-                            <span class="text-xs text-slate-600 dark:text-slate-400">Working</span>
+                    <!-- Monitored Job IDs Section -->
+                    <div class="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 p-4 mb-6">
+                        <div class="flex items-center justify-between mb-3">
+                            <h4 class="font-semibold text-sm text-slate-700 dark:text-slate-300 flex items-center gap-2">
+                                <i class="fa-solid fa-eye text-indigo-500"></i> Monitored Job IDs
+                                <span class="text-xs text-slate-400 font-normal">(from My Jobs)</span>
+                            </h4>
+                            <div class="flex gap-2">
+                                <input id="oiAddJobInput" type="text" placeholder="Add Job ID" class="input-field w-32 text-sm py-1">
+                                <button onclick="addMonitoredJobId()" class="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1 rounded-lg text-xs font-medium transition-all duration-200 active:scale-95">
+                                    <i class="fa-solid fa-plus"></i> Add
+                                </button>
+                                <button onclick="loadMonitoredJobsFromMyJobs()" id="loadMyJobsBtn" class="bg-slate-600 hover:bg-slate-700 text-white px-3 py-1 rounded-lg text-xs font-medium transition-all duration-200 active:scale-95">
+                                    <i class="fa-solid fa-download"></i> Load My Jobs
+                                </button>
+                            </div>
                         </div>
-                        <div class="flex items-center gap-2">
-                            <span class="w-3 h-3 rounded-full bg-amber-500"></span>
-                            <span class="text-xs text-slate-600 dark:text-slate-400">Idle / Waiting</span>
-                        </div>
-                        <div class="flex items-center gap-2">
-                            <span class="w-3 h-3 rounded-full bg-red-500 animate-pulse"></span>
-                            <span class="text-xs text-slate-600 dark:text-slate-400">Error / Needs Attention</span>
-                        </div>
-                        <div class="flex items-center gap-2">
-                            <span class="w-3 h-3 rounded-full bg-slate-400"></span>
-                            <span class="text-xs text-slate-600 dark:text-slate-400">Disabled / Not Configured</span>
+                        <div id="monitoredJobsList" class="flex flex-wrap gap-2">
+                            <span class="text-xs text-slate-400 italic">No jobs monitored. Click "Load My Jobs" to import from your jobs list.</span>
                         </div>
                     </div>
 
-                    <!-- Main Flowchart Grid -->
-                    <div class="grid grid-cols-1 xl:grid-cols-4 gap-6">
-
-                        <!-- PHASE 1: Data Fetching & Email Sending -->
-                        <div class="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 p-5">
-                            <div class="flex items-center gap-2 mb-4">
-                                <div class="w-8 h-8 rounded-full bg-blue-100 dark:bg-blue-900 flex items-center justify-center">
-                                    <span class="text-blue-600 dark:text-blue-400 font-bold text-sm">1</span>
-                                </div>
-                                <h4 class="font-bold text-slate-800 dark:text-white">Data Fetching & Outreach</h4>
-                            </div>
-
-                            <!-- Flow Steps -->
-                            <div class="space-y-3">
-                                <!-- User Action -->
-                                <div class="process-node process-node-user">
-                                    <i class="fa-solid fa-user text-blue-500"></i>
-                                    <span>User enters Job ID</span>
-                                </div>
-                                <div class="process-arrow"><i class="fa-solid fa-arrow-down text-slate-400"></i></div>
-
-                                <!-- BigQuery Fetch -->
-                                <div id="node-bigquery" class="process-node process-node-action pm-tooltip">
-                                    <span class="pm-tooltip-text">Fetches candidate data from Turing's database based on Job ID and pipeline stages</span>
-                                    <div class="flex items-center gap-2">
-                                        <span id="status-bigquery" class="status-light status-idle"></span>
-                                        <i class="fa-solid fa-database text-purple-500"></i>
-                                        <span class="process-tooltip-wrapper">
-                                            BigQuery Fetch
-                                            <span class="process-tooltip">
-                                                <div class="tooltip-title">BigQuery Data Warehouse</div>
-                                                Google's serverless data warehouse that stores candidate profiles. Queries candidate data based on Job ID filters.
-                                            </span>
-                                        </span>
-                                    </div>
-                                    <div class="text-xs text-slate-500 mt-1" id="bigquery-detail">
-                                        <span class="process-tooltip-wrapper func-name">
-                                            getDevelopers()
-                                            <span class="process-tooltip">
-                                                <div class="tooltip-title">getDevelopers()</div>
-                                                Queries BigQuery to fetch developer candidates matching the job requirements. Returns name, email, skills, and rate expectations.
-                                            </span>
-                                        </span>
-                                    </div>
-                                </div>
-                                <div class="process-arrow"><i class="fa-solid fa-arrow-down text-slate-400"></i></div>
-
-                                <!-- Decision: Data Found? -->
-                                <div class="process-node process-node-decision">
-                                    <i class="fa-solid fa-code-branch text-amber-500"></i>
-                                    <span>Candidates Found?</span>
-                                </div>
-                                <div class="flex gap-4 text-xs">
-                                    <div class="flex-1 text-center">
-                                        <div class="text-green-600 font-medium">Yes</div>
-                                        <i class="fa-solid fa-arrow-down text-green-400"></i>
-                                    </div>
-                                    <div class="flex-1 text-center">
-                                        <div class="text-red-500 font-medium">No</div>
-                                        <i class="fa-solid fa-arrow-right text-red-400"></i>
-                                        <span class="text-slate-400">Stop</span>
-                                    </div>
-                                </div>
-
-                                <!-- Email Sending -->
-                                <div id="node-email-send" class="process-node process-node-action pm-tooltip">
-                                    <span class="pm-tooltip-text">Sends personalized emails to selected candidates in batches of 15</span>
-                                    <div class="flex items-center gap-2">
-                                        <span id="status-email-send" class="status-light status-idle"></span>
-                                        <i class="fa-solid fa-envelope text-green-500"></i>
-                                        <span>Send Emails</span>
-                                    </div>
-                                </div>
-                                <div class="process-arrow"><i class="fa-solid fa-arrow-down text-slate-400"></i></div>
-
-                                <!-- Outputs -->
-                                <div class="grid grid-cols-2 gap-2">
-                                    <div class="process-node-mini pm-tooltip">
-                                        <span class="pm-tooltip-text">Records all sent emails with timestamps</span>
-                                        <i class="fa-solid fa-list-check text-blue-400 text-xs"></i>
-                                        <span class="text-xs node-label">Email_Logs</span>
-                                        <span class="process-tooltip">
-                                            <div class="tooltip-title">Email_Logs Sheet</div>
-                                            Records all sent emails with timestamps, recipient info, and thread IDs for tracking.
-                                        </span>
-                                    </div>
-                                    <div class="process-node-mini pm-tooltip">
-                                        <span class="pm-tooltip-text">Tracks negotiation progress for each candidate</span>
-                                        <i class="fa-solid fa-brain text-purple-400 text-xs"></i>
-                                        <span class="text-xs">Nego_State</span>
-                                    </div>
-                                    <div class="process-node-mini pm-tooltip">
-                                        <span class="pm-tooltip-text">Queue for automated follow-up reminders</span>
-                                        <i class="fa-solid fa-clock text-amber-400 text-xs"></i>
-                                        <span class="text-xs">FollowUp_Q</span>
-                                    </div>
-                                    <div class="process-node-mini pm-tooltip">
-                                        <span class="pm-tooltip-text">Stores candidate responses and details per job</span>
-                                        <i class="fa-solid fa-table text-green-400 text-xs"></i>
-                                        <span class="text-xs node-label">Job_Details</span>
-                                        <span class="process-tooltip">
-                                            <div class="tooltip-title">Job_Details Sheet</div>
-                                            Stores job requirements including target rates, required skills, and negotiation parameters.
-                                        </span>
-                                    </div>
-                                </div>
-                            </div>
+                    <!-- Issues Table -->
+                    <div class="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden">
+                        <div class="overflow-x-auto">
+                            <table class="w-full" id="onboardingIssuesTable">
+                                <thead>
+                                    <tr class="bg-slate-50 dark:bg-slate-900/50 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                                        <th class="px-4 py-3">Candidate</th>
+                                        <th class="px-4 py-3">Job ID</th>
+                                        <th class="px-4 py-3">Category</th>
+                                        <th class="px-4 py-3">Summary</th>
+                                        <th class="px-4 py-3">Status</th>
+                                        <th class="px-4 py-3">Reported</th>
+                                        <th class="px-4 py-3">Resolution Time</th>
+                                        <th class="px-4 py-3 text-center">Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="oiTableBody">
+                                    <tr>
+                                        <td colspan="8" class="text-center py-12 text-slate-400">
+                                            <i class="fa-solid fa-inbox text-3xl mb-3 block"></i>
+                                            <span class="text-sm">No onboarding issues found. Add Job IDs and run a scan to detect issues.</span>
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
                         </div>
+                    </div>
 
-                        <!-- PHASE 2: Auto Negotiation -->
-                        <div class="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 p-5">
-                            <div class="flex items-center gap-2 mb-4">
-                                <div class="w-8 h-8 rounded-full bg-purple-100 dark:bg-purple-900 flex items-center justify-center">
-                                    <span class="text-purple-600 dark:text-purple-400 font-bold text-sm">2</span>
+                    <!-- Manual Scan Modal (inline) -->
+                    <div id="manualScanModal" class="hidden fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center">
+                        <div class="bg-white dark:bg-slate-800 p-6 rounded-xl shadow-xl w-full max-w-md">
+                            <h3 class="font-bold text-lg mb-4 text-slate-800 dark:text-white flex items-center gap-2">
+                                <i class="fa-solid fa-magnifying-glass text-indigo-500"></i> Manual Issue Scan
+                            </h3>
+                            <div class="space-y-4">
+                                <div>
+                                    <label class="block text-xs font-bold uppercase text-slate-500 mb-1">Start Date</label>
+                                    <input id="manualScanStartDate" type="date" class="input-field w-full">
                                 </div>
-                                <h4 class="font-bold text-slate-800 dark:text-white">Auto Negotiation</h4>
-                                <span class="ml-auto text-xs bg-purple-100 dark:bg-purple-900 text-purple-600 dark:text-purple-400 px-2 py-1 rounded-full">Hourly</span>
-                            </div>
-
-                            <!-- Flow Steps -->
-                            <div class="space-y-3">
-                                <!-- Trigger -->
-                                <div id="node-auto-negotiator" class="process-node process-node-trigger pm-tooltip">
-                                    <span class="pm-tooltip-text">Runs every hour to automatically handle candidate replies and send AI-powered negotiation responses</span>
-                                    <div class="flex items-center gap-2">
-                                        <span id="status-auto-negotiator" class="status-light status-idle"></span>
-                                        <i class="fa-solid fa-clock text-purple-500"></i>
-                                        <span class="process-tooltip-wrapper func-name">
-                                            runAutoNegotiator()
-                                            <span class="process-tooltip">
-                                                <div class="tooltip-title">runAutoNegotiator()</div>
-                                                Main orchestrator for AI negotiations. Runs hourly via time-based trigger. Syncs emails, processes replies, and sends AI responses.
-                                            </span>
-                                        </span>
-                                    </div>
-                                    <div class="text-xs text-slate-500 mt-1" id="auto-negotiator-detail">Trigger: Every hour</div>
-                                </div>
-                                <div class="process-arrow"><i class="fa-solid fa-arrow-down text-slate-400"></i></div>
-
-                                <!-- Sync Gmail -->
-                                <div class="process-node process-node-action pm-tooltip">
-                                    <span class="pm-tooltip-text">Checks Gmail for completed negotiations and syncs their status</span>
-                                    <div class="flex items-center gap-2">
-                                        <i class="fa-solid fa-sync text-blue-500"></i>
-                                        <span>syncCompletedFromGmail()</span>
-                                    </div>
-                                </div>
-                                <div class="process-arrow"><i class="fa-solid fa-arrow-down text-slate-400"></i></div>
-
-                                <!-- Decision: Reply? -->
-                                <div class="process-node process-node-decision">
-                                    <i class="fa-solid fa-code-branch text-amber-500"></i>
-                                    <span>Candidate Replied?</span>
-                                </div>
-                                <div class="flex gap-4 text-xs mb-2">
-                                    <div class="flex-1 text-center">
-                                        <div class="text-green-600 font-medium">Yes</div>
-                                        <i class="fa-solid fa-arrow-down text-green-400"></i>
-                                    </div>
-                                    <div class="flex-1 text-center">
-                                        <div class="text-red-500 font-medium">No</div>
-                                        <span class="text-slate-400 text-xs">Skip</span>
-                                    </div>
-                                </div>
-
-                                <!-- Decision: Attempts? -->
-                                <div class="process-node process-node-decision">
-                                    <i class="fa-solid fa-code-branch text-amber-500"></i>
-                                    <span>Attempts &lt; 2?</span>
-                                </div>
-                                <div class="flex gap-2 text-xs">
-                                    <div class="flex-1 text-center">
-                                        <div class="text-green-600 font-medium">Yes</div>
-                                        <i class="fa-solid fa-arrow-down text-green-400"></i>
-                                    </div>
-                                    <div class="flex-1 text-center">
-                                        <div class="text-red-500 font-medium">No</div>
-                                        <i class="fa-solid fa-arrow-right text-red-400"></i>
-                                    </div>
-                                </div>
-
-                                <!-- Two outcomes -->
-                                <div class="grid grid-cols-2 gap-2">
-                                    <!-- AI Reply -->
-                                    <div id="node-openai" class="process-node process-node-action p-2 pm-tooltip">
-                                        <span class="pm-tooltip-text">AI generates a personalized negotiation reply using OpenAI</span>
-                                        <div class="flex items-center gap-1">
-                                            <span id="status-openai" class="status-light status-idle"></span>
-                                            <i class="fa-solid fa-robot text-green-500 text-xs"></i>
-                                            <span class="text-xs">AI Reply</span>
-                                        </div>
-                                        <div class="text-[10px] text-slate-500">OpenAI</div>
-                                    </div>
-                                    <!-- Escalate -->
-                                    <div class="process-node process-node-output p-2 pm-tooltip">
-                                        <span class="pm-tooltip-text">After 2 AI attempts, task moves to human for manual review</span>
-                                        <div class="flex items-center gap-1">
-                                            <i class="fa-solid fa-user-tie text-amber-500 text-xs"></i>
-                                            <span class="text-xs">Escalate</span>
-                                        </div>
-                                        <div class="text-[10px] text-slate-500">Human</div>
-                                    </div>
-                                </div>
-
-                                <!-- Rate Logic -->
-                                <div class="mt-3 p-2 bg-slate-50 dark:bg-slate-900 rounded-lg text-xs">
-                                    <div class="font-medium text-slate-600 dark:text-slate-400 mb-1">Rate Offers:</div>
-                                    <div class="text-slate-500">1st: 70% of target</div>
-                                    <div class="text-slate-500">2nd: 100% of target</div>
+                                <div>
+                                    <label class="block text-xs font-bold uppercase text-slate-500 mb-1">End Date</label>
+                                    <input id="manualScanEndDate" type="date" class="input-field w-full">
                                 </div>
                             </div>
-                        </div>
-
-                        <!-- PHASE 3: Follow-Up Processing -->
-                        <div class="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 p-5">
-                            <div class="flex items-center gap-2 mb-4">
-                                <div class="w-8 h-8 rounded-full bg-amber-100 dark:bg-amber-900 flex items-center justify-center">
-                                    <span class="text-amber-600 dark:text-amber-400 font-bold text-sm">3</span>
-                                </div>
-                                <h4 class="font-bold text-slate-800 dark:text-white">Follow-Up Processor</h4>
-                                <span class="ml-auto text-xs bg-amber-100 dark:bg-amber-900 text-amber-600 dark:text-amber-400 px-2 py-1 rounded-full">Hourly</span>
-                            </div>
-
-                            <!-- Flow Steps -->
-                            <div class="space-y-3">
-                                <!-- Trigger -->
-                                <div id="node-followup-processor" class="process-node process-node-trigger pm-tooltip">
-                                    <span class="pm-tooltip-text">Runs every hour to send follow-up emails to candidates who haven't responded</span>
-                                    <div class="flex items-center gap-2">
-                                        <span id="status-followup-processor" class="status-light status-idle"></span>
-                                        <i class="fa-solid fa-clock text-amber-500"></i>
-                                        <span class="process-tooltip-wrapper func-name">
-                                            runFollowUpProcessor()
-                                            <span class="process-tooltip">
-                                                <div class="tooltip-title">runFollowUpProcessor()</div>
-                                                Processes the follow-up queue hourly. Checks time since initial contact and sends appropriate follow-up emails.
-                                            </span>
-                                        </span>
-                                    </div>
-                                    <div class="text-xs text-slate-500 mt-1" id="followup-processor-detail">Trigger: Every hour</div>
-                                </div>
-                                <div class="process-arrow"><i class="fa-solid fa-arrow-down text-slate-400"></i></div>
-
-                                <!-- Load Queue -->
-                                <div class="process-node process-node-action pm-tooltip">
-                                    <span class="pm-tooltip-text">Loads list of candidates waiting for follow-up</span>
-                                    <div class="flex items-center gap-2">
-                                        <i class="fa-solid fa-table text-blue-500"></i>
-                                        <span class="process-tooltip-wrapper">
-                                            Load Follow_Up_Queue
-                                            <span class="process-tooltip">
-                                                <div class="tooltip-title">Follow-Up Queue Sheet</div>
-                                                Loads pending candidates from the Follow_Up_Queue sheet. Filters by time thresholds for follow-up eligibility.
-                                            </span>
-                                        </span>
-                                    </div>
-                                </div>
-                                <div class="process-arrow"><i class="fa-solid fa-arrow-down text-slate-400"></i></div>
-
-                                <!-- Decision: Response? -->
-                                <div class="process-node process-node-decision">
-                                    <i class="fa-solid fa-code-branch text-amber-500"></i>
-                                    <span>Candidate Responded?</span>
-                                </div>
-                                <div class="flex gap-4 text-xs">
-                                    <div class="flex-1 text-center">
-                                        <div class="text-green-600 font-medium">Yes</div>
-                                        <i class="fa-solid fa-arrow-down text-green-400"></i>
-                                        <div class="process-node-mini mt-1">
-                                            <i class="fa-solid fa-check text-green-400 text-xs"></i>
-                                            <span class="text-xs">Responded</span>
-                                        </div>
-                                    </div>
-                                    <div class="flex-1 text-center">
-                                        <div class="text-red-500 font-medium">No</div>
-                                        <i class="fa-solid fa-arrow-down text-red-400"></i>
-                                    </div>
-                                </div>
-
-                                <!-- Time-based decisions -->
-                                <div class="mt-2 p-3 bg-slate-50 dark:bg-slate-900 rounded-lg">
-                                    <div class="text-xs font-medium text-slate-600 dark:text-slate-400 mb-2">Time Since Initial:</div>
-                                    <div class="space-y-2 text-xs">
-                                        <div class="flex items-center gap-2">
-                                            <span class="w-16 font-mono text-slate-500">12h+</span>
-                                            <i class="fa-solid fa-arrow-right text-slate-400 text-xs"></i>
-                                            <span class="px-2 py-0.5 bg-blue-100 dark:bg-blue-900 text-blue-600 dark:text-blue-400 rounded">1st Follow-Up</span>
-                                        </div>
-                                        <div class="flex items-center gap-2">
-                                            <span class="w-16 font-mono text-slate-500">28h+</span>
-                                            <i class="fa-solid fa-arrow-right text-slate-400 text-xs"></i>
-                                            <span class="px-2 py-0.5 bg-amber-100 dark:bg-amber-900 text-amber-600 dark:text-amber-400 rounded">2nd Follow-Up</span>
-                                        </div>
-                                        <div class="flex items-center gap-2">
-                                            <span class="w-16 font-mono text-slate-500">76h+</span>
-                                            <i class="fa-solid fa-arrow-right text-slate-400 text-xs"></i>
-                                            <span class="px-2 py-0.5 bg-red-100 dark:bg-red-900 text-red-600 dark:text-red-400 rounded">Unresponsive</span>
-                                        </div>
-                                    </div>
-                                </div>
-
-                                <!-- Follow-up emails -->
-                                <div id="node-followup-email" class="process-node process-node-action pm-tooltip">
-                                    <span class="pm-tooltip-text">Sends AI-generated follow-up reminder to the candidate</span>
-                                    <div class="flex items-center gap-2">
-                                        <span id="status-followup-email" class="status-light status-idle"></span>
-                                        <i class="fa-solid fa-paper-plane text-blue-500"></i>
-                                        <span class="process-tooltip-wrapper">
-                                            Send Follow-Up
-                                            <span class="process-tooltip">
-                                                <div class="tooltip-title">Follow-Up Email</div>
-                                                Sends reminder emails to non-responsive candidates. Timing based on hours since initial contact (12h, 28h, 76h).
-                                            </span>
-                                        </span>
-                                    </div>
-                                    <div class="text-xs text-slate-500 mt-1">
-                                        <span class="process-tooltip-wrapper func-name">
-                                            sendFollowUpEmail()
-                                            <span class="process-tooltip">
-                                                <div class="tooltip-title">sendFollowUpEmail()</div>
-                                                Composes and sends follow-up emails. Uses templates based on follow-up number (1st, 2nd, or final).
-                                            </span>
-                                        </span>
-                                    </div>
-                                    <div class="text-xs text-slate-500 mt-1">Auto-generated email</div>
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- PHASE 4: Human Review & Completion -->
-                        <div class="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 p-5">
-                            <div class="flex items-center gap-2 mb-4">
-                                <div class="w-8 h-8 rounded-full bg-green-100 dark:bg-green-900 flex items-center justify-center">
-                                    <span class="text-green-600 dark:text-green-400 font-bold text-sm">4</span>
-                                </div>
-                                <h4 class="font-bold text-slate-800 dark:text-white">Human Review</h4>
-                                <span class="ml-auto text-xs bg-green-100 dark:bg-green-900 text-green-600 dark:text-green-400 px-2 py-1 rounded-full">Manual</span>
-                            </div>
-
-                            <!-- Flow Steps -->
-                            <div class="space-y-3">
-                                <!-- Task List -->
-                                <div class="process-node process-node-user">
-                                    <i class="fa-solid fa-clipboard-check text-green-500"></i>
-                                    <span>Task List (UI)</span>
-                                </div>
-                                <div class="process-arrow"><i class="fa-solid fa-arrow-down text-slate-400"></i></div>
-
-                                <!-- Sources -->
-                                <div class="grid grid-cols-2 gap-2 mb-2">
-                                    <div class="process-node-mini pm-tooltip">
-                                        <span class="pm-tooltip-text">Tasks moved here after 2 AI attempts failed</span>
-                                        <i class="fa-solid fa-user-tag text-purple-400 text-xs"></i>
-                                        <span class="text-xs node-label">Escalated</span>
-                                        <span class="process-tooltip">
-                                            <div class="tooltip-title">Escalated Tasks</div>
-                                            Candidates escalated after 2 AI negotiation attempts. Requires human intervention.
-                                        </span>
-                                    </div>
-                                    <div class="process-node-mini pm-tooltip">
-                                        <span class="pm-tooltip-text">Gmail label marking threads that need human attention</span>
-                                        <i class="fa-solid fa-bell text-amber-400 text-xs"></i>
-                                        <span class="text-xs">Human-Nego</span>
-                                    </div>
-                                </div>
-
-                                <!-- User reviews -->
-                                <div class="process-node process-node-user">
-                                    <i class="fa-solid fa-user-check text-blue-500"></i>
-                                    <span>Admin Reviews Task</span>
-                                </div>
-                                <div class="process-arrow"><i class="fa-solid fa-arrow-down text-slate-400"></i></div>
-
-                                <!-- Decision: Outcome -->
-                                <div class="process-node process-node-decision">
-                                    <i class="fa-solid fa-code-branch text-amber-500"></i>
-                                    <span>Final Decision?</span>
-                                </div>
-
-                                <!-- Outcomes -->
-                                <div class="grid grid-cols-2 gap-2">
-                                    <div class="process-node-mini bg-green-50 dark:bg-green-900/30 border-green-200 dark:border-green-800">
-                                        <i class="fa-solid fa-check text-green-500 text-xs"></i>
-                                        <span class="text-xs text-green-700 dark:text-green-400">Accepted</span>
-                                    </div>
-                                    <div class="process-node-mini bg-red-50 dark:bg-red-900/30 border-red-200 dark:border-red-800">
-                                        <i class="fa-solid fa-times text-red-500 text-xs"></i>
-                                        <span class="text-xs text-red-700 dark:text-red-400">Rejected</span>
-                                    </div>
-                                    <div class="process-node-mini bg-amber-50 dark:bg-amber-900/30 border-amber-200 dark:border-amber-800">
-                                        <i class="fa-solid fa-user-minus text-amber-500 text-xs"></i>
-                                        <span class="text-xs text-amber-700 dark:text-amber-400">Withdrew</span>
-                                    </div>
-                                    <div class="process-node-mini bg-slate-50 dark:bg-slate-900/30 border-slate-200 dark:border-slate-700">
-                                        <i class="fa-solid fa-ellipsis text-slate-500 text-xs"></i>
-                                        <span class="text-xs text-slate-700 dark:text-slate-400">Other</span>
-                                    </div>
-                                </div>
-                                <div class="process-arrow"><i class="fa-solid fa-arrow-down text-slate-400"></i></div>
-
-                                <!-- Complete -->
-                                <div id="node-complete" class="process-node process-node-action pm-tooltip">
-                                    <span class="pm-tooltip-text">Marks the negotiation as finished and archives the record</span>
-                                    <div class="flex items-center gap-2">
-                                        <span id="status-complete" class="status-light status-idle"></span>
-                                        <i class="fa-solid fa-flag-checkered text-green-500"></i>
-                                        <span>Complete</span>
-                                    </div>
-                                    <div class="text-xs text-slate-500 mt-1">Finish & Archive</div>
-                                </div>
-
-                                <!-- Final outputs -->
-                                <div class="grid grid-cols-2 gap-2 mt-2">
-                                    <div class="process-node-mini pm-tooltip">
-                                        <span class="pm-tooltip-text">Archive sheet storing all finished negotiations</span>
-                                        <i class="fa-solid fa-archive text-slate-400 text-xs"></i>
-                                        <span class="text-xs">Completed</span>
-                                    </div>
-                                    <div class="process-node-mini pm-tooltip">
-                                        <span class="pm-tooltip-text">"Completed" label applied to Gmail thread for easy filtering</span>
-                                        <i class="fa-solid fa-tag text-blue-400 text-xs"></i>
-                                        <span class="text-xs">Gmail Tag</span>
-                                    </div>
-                                </div>
+                            <div class="flex gap-3 mt-6">
+                                <button onclick="closeManualScanModal()" class="flex-1 bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300 py-2 rounded-lg text-sm font-medium transition-all duration-200 active:scale-95">Cancel</button>
+                                <button onclick="executeManualScan()" id="executeManualScanBtn" class="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white py-2 rounded-lg text-sm font-medium transition-all duration-200 active:scale-95 flex items-center justify-center gap-2">
+                                    <i class="fa-solid fa-play"></i> Start Scan
+                                </button>
                             </div>
                         </div>
                     </div>
 
-                    <!-- Status Dashboard -->
-                    <div class="mt-6 grid grid-cols-1 lg:grid-cols-3 gap-6">
-                        <!-- System Status -->
-                        <div class="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 p-5">
-                            <h4 class="font-bold text-slate-800 dark:text-white mb-4 flex items-center gap-2">
-                                <i class="fa-solid fa-heartbeat text-red-500"></i> System Status
-                            </h4>
-                            <div id="systemStatusContainer" class="space-y-3">
-                                <div class="status-row">
-                                    <span id="status-light-trigger-negotiator" class="status-light status-checking"></span>
-                                    <span class="status-label">Auto Negotiator Trigger</span>
-                                    <span id="status-text-trigger-negotiator" class="status-value">Checking...</span>
-                                </div>
-                                <div class="status-row">
-                                    <span id="status-light-trigger-followup" class="status-light status-checking"></span>
-                                    <span class="status-label">Follow-Up Processor Trigger</span>
-                                    <span id="status-text-trigger-followup" class="status-value">Checking...</span>
-                                </div>
-                                <div class="status-row">
-                                    <span id="status-light-sheets" class="status-light status-checking"></span>
-                                    <span class="status-label">Database Sheets</span>
-                                    <span id="status-text-sheets" class="status-value">Checking...</span>
-                                </div>
-                                <div class="status-row">
-                                    <span id="status-light-gmail" class="status-light status-checking"></span>
-                                    <span class="status-label">Gmail API</span>
-                                    <span id="status-text-gmail" class="status-value">Checking...</span>
-                                </div>
-                                <div class="status-row">
-                                    <span id="status-light-openai" class="status-light status-checking"></span>
-                                    <span class="status-label">OpenAI API</span>
-                                    <span id="status-text-openai" class="status-value">Checking...</span>
-                                </div>
+                    <!-- Issue Detail Modal -->
+                    <div id="issueDetailModal" class="hidden fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center">
+                        <div class="bg-white dark:bg-slate-800 p-6 rounded-xl shadow-xl w-full max-w-2xl max-h-[80vh] overflow-y-auto">
+                            <div class="flex justify-between items-start mb-4">
+                                <h3 class="font-bold text-lg text-slate-800 dark:text-white flex items-center gap-2">
+                                    <i class="fa-solid fa-circle-info text-blue-500"></i> Issue Details
+                                </h3>
+                                <button onclick="closeIssueDetailModal()" class="text-slate-400 hover:text-slate-600 transition-colors">
+                                    <i class="fa-solid fa-times text-lg"></i>
+                                </button>
                             </div>
-                        </div>
-
-                        <!-- Today's Statistics -->
-                        <div class="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 p-5">
-                            <h4 class="font-bold text-slate-800 dark:text-white mb-4 flex items-center gap-2">
-                                <i class="fa-solid fa-chart-pie text-blue-500"></i> Today's Activity
-                            </h4>
-                            <div id="todayStatsContainer" class="grid grid-cols-2 gap-3">
-                                <div class="stat-box">
-                                    <div class="stat-value" id="stat-emails-sent">-</div>
-                                    <div class="stat-label">Emails Sent</div>
-                                </div>
-                                <div class="stat-box">
-                                    <div class="stat-value" id="stat-ai-replies">-</div>
-                                    <div class="stat-label">AI Replies</div>
-                                </div>
-                                <div class="stat-box">
-                                    <div class="stat-value" id="stat-escalated">-</div>
-                                    <div class="stat-label">Escalated</div>
-                                </div>
-                                <div class="stat-box">
-                                    <div class="stat-value" id="stat-followups-sent">-</div>
-                                    <div class="stat-label">Follow-Ups Sent</div>
-                                </div>
-                                <div class="stat-box">
-                                    <div class="stat-value" id="stat-completed">-</div>
-                                    <div class="stat-label">Completed</div>
-                                </div>
-                                <div class="stat-box">
-                                    <div class="stat-value" id="stat-unresponsive">-</div>
-                                    <div class="stat-label">Unresponsive</div>
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- Queue Status -->
-                        <div class="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 p-5">
-                            <h4 class="font-bold text-slate-800 dark:text-white mb-4 flex items-center gap-2">
-                                <i class="fa-solid fa-layer-group text-purple-500"></i> Queue Status
-                            </h4>
-                            <div id="queueStatusContainer" class="space-y-3">
-                                <div class="flex justify-between items-center py-2 border-b border-slate-100 dark:border-slate-700">
-                                    <span class="text-sm text-slate-600 dark:text-slate-400">Active Negotiations</span>
-                                    <span id="queue-negotiations" class="font-bold text-slate-800 dark:text-white">-</span>
-                                </div>
-                                <div class="flex justify-between items-center py-2 border-b border-slate-100 dark:border-slate-700">
-                                    <span class="text-sm text-slate-600 dark:text-slate-400">Pending Follow-Ups</span>
-                                    <span id="queue-followups" class="font-bold text-slate-800 dark:text-white">-</span>
-                                </div>
-                                <div class="flex justify-between items-center py-2 border-b border-slate-100 dark:border-slate-700">
-                                    <span class="text-sm text-slate-600 dark:text-slate-400">Awaiting Human Review</span>
-                                    <span id="queue-human" class="font-bold text-slate-800 dark:text-white">-</span>
-                                </div>
-                                <div class="flex justify-between items-center py-2">
-                                    <span class="text-sm text-slate-600 dark:text-slate-400">Configured Jobs</span>
-                                    <span id="queue-jobs" class="font-bold text-slate-800 dark:text-white">-</span>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Recent Activity Log -->
-                    <div class="mt-6 bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 p-5">
-                        <div class="flex justify-between items-center mb-4">
-                            <h4 class="font-bold text-slate-800 dark:text-white flex items-center gap-2">
-                                <i class="fa-solid fa-history text-amber-500"></i> Recent Activity
-                            </h4>
-                            <span class="text-xs text-slate-500">Last 24 hours</span>
-                        </div>
-                        <div id="activityLogContainer" class="max-h-48 overflow-y-auto space-y-2">
-                            <div class="text-center py-6 text-slate-400">
-                                <i class="fa-solid fa-spinner fa-spin text-xl mb-2 block"></i>
-                                <span class="text-sm">Loading activity...</span>
+                            <div id="issueDetailContent" class="space-y-4">
+                                <!-- Populated dynamically -->
                             </div>
                         </div>
                     </div>
@@ -4575,13 +4245,13 @@
                 'analytics': 'Analytics',
                 'learning': 'AI Learning Center',
                 'aitesting': 'AI Testing', // AI TESTING FEATURE - DELETE FOR PRODUCTION
-                'processmap': 'System Process Map'
+                'onboardingissues': 'Onboarding Issues'
             };
             document.getElementById('headerTitle').textContent = titles[tabName] || 'Dashboard';
 
-            // Load process map data when switching to that tab
-            if (tabName === 'processmap') {
-                loadProcessMapData();
+            // Load onboarding issues data when switching to that tab
+            if (tabName === 'onboardingissues') {
+                loadOnboardingIssues();
             }
 
             // Load learning cases when switching to learning tab
@@ -7980,7 +7650,7 @@
             userEmail: '',
             pageAccess: {                // Dynamic page access per role
                 outreach: true, negotiation: true, tasks: true, followups: true,
-                analytics: true, learning: true, aitesting: false, processmap: false
+                analytics: true, learning: true, aitesting: false, onboardingissues: false
             }
         };
 
@@ -8153,12 +7823,12 @@
             }
             // AI TESTING FEATURE - DELETE FOR PRODUCTION (END)
 
-            // Process Map - Admin Only
-            const processMapNavTab = document.getElementById('processMapNavTab');
+            // Onboarding Issues - Admin Only
+            const onboardingIssuesNavTab = document.getElementById('onboardingIssuesNavTab');
             if (userPermissions.isAdmin) {
-                if (processMapNavTab) processMapNavTab.classList.remove('hidden');
+                if (onboardingIssuesNavTab) onboardingIssuesNavTab.classList.remove('hidden');
             } else {
-                if (processMapNavTab) processMapNavTab.classList.add('hidden');
+                if (onboardingIssuesNavTab) onboardingIssuesNavTab.classList.add('hidden');
             }
         }
 
@@ -8177,7 +7847,7 @@
                 'navTabAnalytics': 'analytics',
                 'navTabLearning': 'learning',
                 'aiTestingNavTab': 'aitesting',
-                'processMapNavTab': 'processmap',
+                'onboardingIssuesNavTab': 'onboardingissues',
                 'navTabConfig': 'outreach' // Config follows outreach access (operational)
             };
 
@@ -9981,7 +9651,7 @@
             analytics: 'Analytics',
             learning: 'AI Learning',
             aitesting: 'AI Testing',
-            processmap: 'Process Map'
+            onboardingissues: 'Onboarding Issues'
         };
         const ROLE_NAMES = {
             admin: 'Admin',
@@ -11079,154 +10749,463 @@
 
         // ===== PROCESS MAP FUNCTIONS =====
 
-        // Load all process map data
-        function loadProcessMapData() {
-            refreshProcessMap();
-        }
+        // ===== ONBOARDING ISSUES =====
+        let onboardingIssuesData = [];
+        let onboardingIssuesFiltered = [];
+        let monitoredJobIds = [];
+        let oiCurrentStatusFilter = '';
 
-        // Refresh all process map status indicators
-        function refreshProcessMap() {
-            const btn = document.getElementById('refreshProcessMapBtn');
-            if (btn) {
-                btn.disabled = true;
-                btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Refreshing...';
-            }
+        const OI_PREDEFINED_CATEGORIES = ['Slack', 'Gmail', 'Jibble', 'ID Verification', 'Other'];
 
-            // Call server-side function to get process status
+        // Load onboarding issues from server
+        function loadOnboardingIssues() {
             google.script.run
-                .withSuccessHandler(function(data) {
-                    if (data && !data.error) {
-                        updateProcessMapUI(data);
+                .withSuccessHandler(function(result) {
+                    if (result && result.success) {
+                        onboardingIssuesData = result.issues || [];
+                        monitoredJobIds = result.monitoredJobIds || [];
+                        renderMonitoredJobs();
+                        populateOIJobFilter();
+                        filterOnboardingIssues();
+                        updateOIStats();
                     } else {
-                        console.error('Failed to load process map data:', data?.error);
-                        showToast('Failed to load process status', 'error');
-                    }
-                    if (btn) {
-                        btn.disabled = false;
-                        btn.innerHTML = '<i class="fa-solid fa-sync"></i> Refresh Status';
+                        showToast(result?.error || 'Failed to load onboarding issues', 'error');
                     }
                 })
                 .withFailureHandler(function(err) {
-                    console.error('Error loading process map:', err);
-                    showToast('Error loading process status', 'error');
-                    if (btn) {
-                        btn.disabled = false;
-                        btn.innerHTML = '<i class="fa-solid fa-sync"></i> Refresh Status';
-                    }
+                    showToast('Error loading onboarding issues: ' + err, 'error');
                 })
-                .getProcessMapStatus();
+                .getOnboardingIssues();
         }
 
-        // Update the Process Map UI with data
-        function updateProcessMapUI(data) {
-            // Update System Status lights
-            updateStatusLight('status-light-trigger-negotiator', 'status-text-trigger-negotiator', data.triggers?.negotiator);
-            updateStatusLight('status-light-trigger-followup', 'status-text-trigger-followup', data.triggers?.followup);
-            updateStatusLight('status-light-sheets', 'status-text-sheets', data.sheets);
-            updateStatusLight('status-light-gmail', 'status-text-gmail', data.gmail);
-            updateStatusLight('status-light-openai', 'status-text-openai', data.openai);
-
-            // Update Today's Statistics
-            if (data.todayStats) {
-                document.getElementById('stat-emails-sent').textContent = data.todayStats.emailsSent || 0;
-                document.getElementById('stat-ai-replies').textContent = data.todayStats.aiReplies || 0;
-                document.getElementById('stat-escalated').textContent = data.todayStats.escalated || 0;
-                document.getElementById('stat-followups-sent').textContent = data.todayStats.followupsSent || 0;
-                document.getElementById('stat-completed').textContent = data.todayStats.completed || 0;
-                document.getElementById('stat-unresponsive').textContent = data.todayStats.unresponsive || 0;
-            }
-
-            // Update Queue Status
-            if (data.queueStatus) {
-                document.getElementById('queue-negotiations').textContent = data.queueStatus.activeNegotiations || 0;
-                document.getElementById('queue-followups').textContent = data.queueStatus.pendingFollowups || 0;
-                document.getElementById('queue-human').textContent = data.queueStatus.humanReview || 0;
-                document.getElementById('queue-jobs').textContent = data.queueStatus.configuredJobs || 0;
-            }
-
-            // Update Activity Log
-            if (data.recentActivity) {
-                renderActivityLog(data.recentActivity);
-            }
-
-            // Update flowchart node status lights
-            updateFlowchartNodes(data);
+        // Update stats cards
+        function updateOIStats() {
+            let newCount = 0, escalatedCount = 0, waitingCount = 0, resolvedCount = 0;
+            onboardingIssuesData.forEach(function(issue) {
+                const s = (issue.status || 'New').trim();
+                if (s === 'New') newCount++;
+                else if (s === 'Escalated') escalatedCount++;
+                else if (s === 'Waiting on Candidate') waitingCount++;
+                else if (s === 'Resolved') resolvedCount++;
+            });
+            document.getElementById('oiStatNew').textContent = newCount;
+            document.getElementById('oiStatEscalated').textContent = escalatedCount;
+            document.getElementById('oiStatWaiting').textContent = waitingCount;
+            document.getElementById('oiStatResolved').textContent = resolvedCount;
         }
 
-        // Update individual status light
-        function updateStatusLight(lightId, textId, statusData) {
-            const light = document.getElementById(lightId);
-            const text = document.getElementById(textId);
+        // Populate the Job ID filter dropdown
+        function populateOIJobFilter() {
+            const select = document.getElementById('oiJobFilter');
+            const current = select.value;
+            const jobIds = new Set();
+            onboardingIssuesData.forEach(function(i) { if (i.jobId) jobIds.add(String(i.jobId)); });
+            monitoredJobIds.forEach(function(j) { jobIds.add(String(j)); });
+            select.innerHTML = '<option value="">All Jobs</option>';
+            Array.from(jobIds).sort().forEach(function(jid) {
+                const opt = document.createElement('option');
+                opt.value = jid;
+                opt.textContent = 'Job ' + jid;
+                select.appendChild(opt);
+            });
+            select.value = current;
+        }
 
-            if (!light || !text) return;
+        // Filter issues by search, status, job, category
+        function filterOnboardingIssues() {
+            const search = (document.getElementById('oiSearchInput').value || '').toLowerCase().trim();
+            const jobFilter = document.getElementById('oiJobFilter').value;
+            const catFilter = document.getElementById('oiCategoryFilter').value;
+            const searchTerms = search ? search.split(',').map(function(s) { return s.trim(); }).filter(Boolean) : [];
 
-            // Remove all status classes
-            light.classList.remove('status-ok', 'status-idle', 'status-error', 'status-disabled', 'status-checking');
+            onboardingIssuesFiltered = onboardingIssuesData.filter(function(issue) {
+                // Status filter
+                if (oiCurrentStatusFilter && (issue.status || 'New') !== oiCurrentStatusFilter) return false;
+                // Job filter
+                if (jobFilter && String(issue.jobId) !== jobFilter) return false;
+                // Category filter
+                if (catFilter && issue.category !== catFilter) return false;
+                // Search filter
+                if (searchTerms.length > 0) {
+                    const haystack = ((issue.email || '') + ' ' + (issue.devId || '') + ' ' + (issue.name || '')).toLowerCase();
+                    return searchTerms.some(function(term) { return haystack.includes(term); });
+                }
+                return true;
+            });
 
-            if (!statusData) {
-                light.classList.add('status-disabled');
-                text.textContent = 'Unknown';
+            // Sort: New/unactioned first, then Escalated, Waiting, Resolved last
+            const statusOrder = { 'New': 0, 'Escalated': 1, 'Waiting on Candidate': 2, 'Resolved': 3 };
+            onboardingIssuesFiltered.sort(function(a, b) {
+                const sa = statusOrder[a.status || 'New'] ?? 0;
+                const sb = statusOrder[b.status || 'New'] ?? 0;
+                if (sa !== sb) return sa - sb;
+                return new Date(b.reportedAt || 0) - new Date(a.reportedAt || 0);
+            });
+
+            renderOITable();
+        }
+
+        // Set status filter chip
+        function setOIStatusFilter(btn, status) {
+            oiCurrentStatusFilter = status;
+            document.querySelectorAll('.oi-status-chip').forEach(function(c) { c.classList.remove('active'); });
+            btn.classList.add('active');
+            filterOnboardingIssues();
+        }
+
+        // Render the issues table
+        function renderOITable() {
+            const tbody = document.getElementById('oiTableBody');
+            if (!onboardingIssuesFiltered.length) {
+                tbody.innerHTML = '<tr><td colspan="8" class="text-center py-12 text-slate-400"><i class="fa-solid fa-inbox text-3xl mb-3 block"></i><span class="text-sm">No onboarding issues found matching your filters.</span></td></tr>';
                 return;
             }
 
-            if (statusData.status === 'ok') {
-                light.classList.add('status-ok');
-                text.textContent = statusData.message || 'Active';
-            } else if (statusData.status === 'idle') {
-                light.classList.add('status-idle');
-                text.textContent = statusData.message || 'Idle';
-            } else if (statusData.status === 'error') {
-                light.classList.add('status-error');
-                text.textContent = statusData.message || 'Error';
-            } else if (statusData.status === 'disabled') {
-                light.classList.add('status-disabled');
-                text.textContent = statusData.message || 'Disabled';
-            } else {
-                light.classList.add('status-idle');
-                text.textContent = statusData.message || '-';
-            }
+            tbody.innerHTML = onboardingIssuesFiltered.map(function(issue, idx) {
+                const status = issue.status || 'New';
+                const isNew = status === 'New';
+                const isResolved = status === 'Resolved';
+                const rowClass = isNew ? 'bg-red-50/50 dark:bg-red-900/10 border-l-4 border-l-red-400' : isResolved ? 'opacity-70' : '';
+                const statusBadge = getOIStatusBadge(status);
+                const catBadge = getOICategoryBadge(issue.category);
+                const reported = issue.reportedAt ? formatTimeAgo(issue.reportedAt) : '-';
+                const resTime = issue.resolvedAt && issue.reportedAt
+                    ? formatDuration(new Date(issue.resolvedAt) - new Date(issue.reportedAt))
+                    : (issue.reportedAt ? '<span class="text-xs text-amber-500">Open</span>' : '-');
+
+                return '<tr class="border-b border-slate-100 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors ' + rowClass + '">' +
+                    '<td class="px-4 py-3"><div class="font-medium text-sm text-slate-800 dark:text-white">' + escapeHtml(issue.name || 'Unknown') + '</div>' +
+                    '<div class="text-xs text-slate-500">' + escapeHtml(issue.email || '') + '</div>' +
+                    '<div class="text-xs text-slate-400">Dev: ' + escapeHtml(issue.devId || 'N/A') + '</div></td>' +
+                    '<td class="px-4 py-3 text-sm font-mono text-slate-600 dark:text-slate-400">' + escapeHtml(String(issue.jobId || '-')) + '</td>' +
+                    '<td class="px-4 py-3">' + catBadge + '</td>' +
+                    '<td class="px-4 py-3"><div class="text-sm text-slate-700 dark:text-slate-300 max-w-xs truncate cursor-pointer" onclick="viewIssueDetail(' + idx + ')" title="Click to view details">' + escapeHtml(issue.summary || 'No summary') + '</div></td>' +
+                    '<td class="px-4 py-3">' + statusBadge + '</td>' +
+                    '<td class="px-4 py-3 text-xs text-slate-500 whitespace-nowrap">' + reported + '</td>' +
+                    '<td class="px-4 py-3 text-xs text-slate-500 whitespace-nowrap">' + resTime + '</td>' +
+                    '<td class="px-4 py-3"><div class="flex items-center justify-center gap-1">' +
+                    buildOIActionButtons(issue, idx) +
+                    '</div></td></tr>';
+            }).join('');
         }
 
-        // Update flowchart node status lights
-        function updateFlowchartNodes(data) {
-            // Auto Negotiator node
-            const negotiatorLight = document.getElementById('status-auto-negotiator');
-            if (negotiatorLight) {
-                negotiatorLight.classList.remove('status-ok', 'status-idle', 'status-error', 'status-disabled');
-                if (data.triggers?.negotiator?.status === 'ok') {
-                    negotiatorLight.classList.add('status-ok');
-                } else if (data.triggers?.negotiator?.status === 'error') {
-                    negotiatorLight.classList.add('status-error');
-                } else {
-                    negotiatorLight.classList.add('status-idle');
-                }
+        // Build action buttons based on current status
+        function buildOIActionButtons(issue, idx) {
+            const status = issue.status || 'New';
+            let html = '';
+            if (status !== 'Escalated') {
+                html += '<button onclick="updateIssueStatus(' + idx + ', \'Escalated\', this)" class="oi-action-btn bg-amber-100 text-amber-700 hover:bg-amber-200 dark:bg-amber-900/30 dark:text-amber-400" title="Escalate"><i class="fa-solid fa-arrow-up text-xs"></i></button>';
+            }
+            if (status !== 'Waiting on Candidate') {
+                html += '<button onclick="updateIssueStatus(' + idx + ', \'Waiting on Candidate\', this)" class="oi-action-btn bg-blue-100 text-blue-700 hover:bg-blue-200 dark:bg-blue-900/30 dark:text-blue-400" title="Waiting on Candidate"><i class="fa-solid fa-hourglass-half text-xs"></i></button>';
+            }
+            if (status !== 'Resolved') {
+                html += '<button onclick="updateIssueStatus(' + idx + ', \'Resolved\', this)" class="oi-action-btn bg-green-100 text-green-700 hover:bg-green-200 dark:bg-green-900/30 dark:text-green-400" title="Resolve"><i class="fa-solid fa-check text-xs"></i></button>';
+            }
+            html += '<button onclick="viewIssueDetail(' + idx + ')" class="oi-action-btn bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-700 dark:text-slate-400" title="View Details"><i class="fa-solid fa-eye text-xs"></i></button>';
+            return html;
+        }
+
+        // Get status badge HTML
+        function getOIStatusBadge(status) {
+            const map = {
+                'New': '<span class="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"><span class="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse"></span>New</span>',
+                'Escalated': '<span class="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400"><span class="w-1.5 h-1.5 rounded-full bg-amber-500"></span>Escalated</span>',
+                'Waiting on Candidate': '<span class="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400"><span class="w-1.5 h-1.5 rounded-full bg-blue-500"></span>Waiting</span>',
+                'Resolved': '<span class="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400"><span class="w-1.5 h-1.5 rounded-full bg-green-500"></span>Resolved</span>'
+            };
+            return map[status] || map['New'];
+        }
+
+        // Get category badge HTML
+        function getOICategoryBadge(category) {
+            const colors = {
+                'Slack': 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400',
+                'Gmail': 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
+                'Jibble': 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
+                'ID Verification': 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400',
+                'Other': 'bg-slate-100 text-slate-700 dark:bg-slate-700 dark:text-slate-300'
+            };
+            const cls = colors[category] || colors['Other'];
+            return '<span class="inline-flex px-2 py-1 rounded-full text-xs font-medium ' + cls + '">' + escapeHtml(category || 'Unknown') + '</span>';
+        }
+
+        // Format milliseconds duration to human readable
+        function formatDuration(ms) {
+            if (!ms || ms < 0) return '-';
+            var hours = Math.floor(ms / 3600000);
+            var minutes = Math.floor((ms % 3600000) / 60000);
+            if (hours > 24) {
+                var days = Math.floor(hours / 24);
+                return days + 'd ' + (hours % 24) + 'h';
+            }
+            return hours + 'h ' + minutes + 'm';
+        }
+
+        // Update issue status via server
+        function updateIssueStatus(filteredIdx, newStatus, btnEl) {
+            var issue = onboardingIssuesFiltered[filteredIdx];
+            if (!issue) return;
+
+            // Disable button and show loading animation
+            if (btnEl) {
+                btnEl.disabled = true;
+                btnEl.classList.add('oi-btn-loading');
+                var origHTML = btnEl.innerHTML;
+                btnEl.innerHTML = '<i class="fa-solid fa-spinner fa-spin text-xs"></i>';
             }
 
-            // Follow-up Processor node
-            const followupLight = document.getElementById('status-followup-processor');
-            if (followupLight) {
-                followupLight.classList.remove('status-ok', 'status-idle', 'status-error', 'status-disabled');
-                if (data.triggers?.followup?.status === 'ok') {
-                    followupLight.classList.add('status-ok');
-                } else if (data.triggers?.followup?.status === 'error') {
-                    followupLight.classList.add('status-error');
-                } else {
-                    followupLight.classList.add('status-idle');
-                }
+            google.script.run
+                .withSuccessHandler(function(result) {
+                    if (result && result.success) {
+                        // Update local data
+                        var realIdx = onboardingIssuesData.findIndex(function(d) { return d.issueId === issue.issueId; });
+                        if (realIdx >= 0) {
+                            onboardingIssuesData[realIdx].status = newStatus;
+                            if (newStatus === 'Resolved') {
+                                onboardingIssuesData[realIdx].resolvedAt = new Date().toISOString();
+                            }
+                        }
+                        filterOnboardingIssues();
+                        updateOIStats();
+                        showToast('Issue marked as ' + newStatus, 'success');
+                    } else {
+                        showToast(result?.error || 'Failed to update status', 'error');
+                        // Restore button
+                        if (btnEl) {
+                            btnEl.disabled = false;
+                            btnEl.classList.remove('oi-btn-loading');
+                            btnEl.innerHTML = origHTML;
+                        }
+                    }
+                })
+                .withFailureHandler(function(err) {
+                    showToast('Error updating status: ' + err, 'error');
+                    if (btnEl) {
+                        btnEl.disabled = false;
+                        btnEl.classList.remove('oi-btn-loading');
+                        btnEl.innerHTML = origHTML;
+                    }
+                })
+                .updateOnboardingIssueStatus(issue.issueId, newStatus);
+        }
+
+        // Run scan now (24h auto-scan)
+        function runOnboardingScanNow() {
+            var btn = document.getElementById('scanNowBtn');
+            if (btn.disabled) return;
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Scanning...';
+
+            google.script.run
+                .withSuccessHandler(function(result) {
+                    btn.disabled = false;
+                    btn.innerHTML = '<i class="fa-solid fa-sync"></i> Scan Now (24h)';
+                    if (result && result.success) {
+                        showToast('Scan complete! Found ' + (result.newIssuesCount || 0) + ' new issue(s).', 'success');
+                        loadOnboardingIssues();
+                    } else {
+                        showToast(result?.error || 'Scan failed', 'error');
+                    }
+                })
+                .withFailureHandler(function(err) {
+                    btn.disabled = false;
+                    btn.innerHTML = '<i class="fa-solid fa-sync"></i> Scan Now (24h)';
+                    showToast('Scan error: ' + err, 'error');
+                })
+                .scanOnboardingIssues(null, null);
+        }
+
+        // Manual scan modal
+        function openManualScanModal() {
+            var today = new Date().toISOString().split('T')[0];
+            document.getElementById('manualScanEndDate').value = today;
+            var weekAgo = new Date();
+            weekAgo.setDate(weekAgo.getDate() - 7);
+            document.getElementById('manualScanStartDate').value = weekAgo.toISOString().split('T')[0];
+            document.getElementById('manualScanModal').classList.remove('hidden');
+        }
+
+        function closeManualScanModal() {
+            document.getElementById('manualScanModal').classList.add('hidden');
+        }
+
+        function executeManualScan() {
+            var startDate = document.getElementById('manualScanStartDate').value;
+            var endDate = document.getElementById('manualScanEndDate').value;
+            if (!startDate || !endDate) {
+                showToast('Please select both start and end dates', 'error');
+                return;
             }
 
-            // OpenAI node
-            const openaiLight = document.getElementById('status-openai');
-            if (openaiLight) {
-                openaiLight.classList.remove('status-ok', 'status-idle', 'status-error', 'status-disabled');
-                if (data.openai?.status === 'ok') {
-                    openaiLight.classList.add('status-ok');
-                } else if (data.openai?.status === 'error') {
-                    openaiLight.classList.add('status-error');
-                } else {
-                    openaiLight.classList.add('status-idle');
-                }
+            var btn = document.getElementById('executeManualScanBtn');
+            if (btn.disabled) return;
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Scanning...';
+
+            google.script.run
+                .withSuccessHandler(function(result) {
+                    btn.disabled = false;
+                    btn.innerHTML = '<i class="fa-solid fa-play"></i> Start Scan';
+                    if (result && result.success) {
+                        showToast('Manual scan complete! Found ' + (result.newIssuesCount || 0) + ' new issue(s).', 'success');
+                        closeManualScanModal();
+                        loadOnboardingIssues();
+                    } else {
+                        showToast(result?.error || 'Scan failed', 'error');
+                    }
+                })
+                .withFailureHandler(function(err) {
+                    btn.disabled = false;
+                    btn.innerHTML = '<i class="fa-solid fa-play"></i> Start Scan';
+                    showToast('Scan error: ' + err, 'error');
+                })
+                .scanOnboardingIssues(startDate, endDate);
+        }
+
+        // Monitored Job IDs management
+        function renderMonitoredJobs() {
+            var container = document.getElementById('monitoredJobsList');
+            if (!monitoredJobIds.length) {
+                container.innerHTML = '<span class="text-xs text-slate-400 italic">No jobs monitored. Click "Load My Jobs" to import from your jobs list.</span>';
+                return;
             }
+            container.innerHTML = monitoredJobIds.map(function(jid) {
+                return '<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400">' +
+                    'Job ' + escapeHtml(String(jid)) +
+                    '<button onclick="removeMonitoredJob(\'' + jid + '\')" class="ml-0.5 hover:text-red-500 transition-colors"><i class="fa-solid fa-times text-[10px]"></i></button>' +
+                    '</span>';
+            }).join('');
+        }
+
+        function addMonitoredJobId() {
+            var input = document.getElementById('oiAddJobInput');
+            var jobId = (input.value || '').trim();
+            if (!jobId) { showToast('Enter a Job ID', 'error'); return; }
+            if (monitoredJobIds.includes(jobId)) { showToast('Job already monitored', 'error'); return; }
+
+            var btn = input.nextElementSibling;
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin text-xs"></i>';
+
+            google.script.run
+                .withSuccessHandler(function(result) {
+                    btn.disabled = false;
+                    btn.innerHTML = '<i class="fa-solid fa-plus"></i> Add';
+                    if (result && result.success) {
+                        monitoredJobIds.push(jobId);
+                        input.value = '';
+                        renderMonitoredJobs();
+                        populateOIJobFilter();
+                        showToast('Job ' + jobId + ' added to monitoring', 'success');
+                    } else {
+                        showToast(result?.error || 'Failed to add job', 'error');
+                    }
+                })
+                .withFailureHandler(function(err) {
+                    btn.disabled = false;
+                    btn.innerHTML = '<i class="fa-solid fa-plus"></i> Add';
+                    showToast('Error: ' + err, 'error');
+                })
+                .addMonitoredJobForOnboarding(jobId);
+        }
+
+        function removeMonitoredJob(jobId) {
+            google.script.run
+                .withSuccessHandler(function(result) {
+                    if (result && result.success) {
+                        monitoredJobIds = monitoredJobIds.filter(function(j) { return j !== jobId; });
+                        renderMonitoredJobs();
+                        populateOIJobFilter();
+                        showToast('Job ' + jobId + ' removed from monitoring', 'success');
+                    }
+                })
+                .withFailureHandler(function(err) {
+                    showToast('Error: ' + err, 'error');
+                })
+                .removeMonitoredJobForOnboarding(jobId);
+        }
+
+        function loadMonitoredJobsFromMyJobs() {
+            var btn = document.getElementById('loadMyJobsBtn');
+            if (btn.disabled) return;
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin text-xs"></i> Loading...';
+
+            google.script.run
+                .withSuccessHandler(function(result) {
+                    btn.disabled = false;
+                    btn.innerHTML = '<i class="fa-solid fa-download"></i> Load My Jobs';
+                    if (result && result.success) {
+                        monitoredJobIds = result.jobIds || [];
+                        renderMonitoredJobs();
+                        populateOIJobFilter();
+                        showToast('Loaded ' + monitoredJobIds.length + ' job(s) from My Jobs', 'success');
+                    } else {
+                        showToast(result?.error || 'Failed to load jobs', 'error');
+                    }
+                })
+                .withFailureHandler(function(err) {
+                    btn.disabled = false;
+                    btn.innerHTML = '<i class="fa-solid fa-download"></i> Load My Jobs';
+                    showToast('Error: ' + err, 'error');
+                })
+                .loadMyJobsForOnboardingMonitoring();
+        }
+
+        // View issue detail modal
+        function viewIssueDetail(filteredIdx) {
+            var issue = onboardingIssuesFiltered[filteredIdx];
+            if (!issue) return;
+
+            var content = document.getElementById('issueDetailContent');
+            var resTime = issue.resolvedAt && issue.reportedAt
+                ? formatDuration(new Date(issue.resolvedAt) - new Date(issue.reportedAt))
+                : 'Not yet resolved';
+
+            content.innerHTML =
+                '<div class="grid grid-cols-2 gap-4">' +
+                    '<div><div class="text-xs text-slate-500 uppercase font-bold mb-1">Candidate</div><div class="text-sm font-medium text-slate-800 dark:text-white">' + escapeHtml(issue.name || 'Unknown') + '</div></div>' +
+                    '<div><div class="text-xs text-slate-500 uppercase font-bold mb-1">Dev ID</div><div class="text-sm font-mono text-slate-800 dark:text-white">' + escapeHtml(issue.devId || 'N/A') + '</div></div>' +
+                    '<div><div class="text-xs text-slate-500 uppercase font-bold mb-1">Email</div><div class="text-sm text-slate-800 dark:text-white">' + escapeHtml(issue.email || '') + '</div></div>' +
+                    '<div><div class="text-xs text-slate-500 uppercase font-bold mb-1">Job ID</div><div class="text-sm font-mono text-slate-800 dark:text-white">' + escapeHtml(String(issue.jobId || '-')) + '</div></div>' +
+                    '<div><div class="text-xs text-slate-500 uppercase font-bold mb-1">Category</div><div>' + getOICategoryBadge(issue.category) + '</div></div>' +
+                    '<div><div class="text-xs text-slate-500 uppercase font-bold mb-1">Status</div><div>' + getOIStatusBadge(issue.status || 'New') + '</div></div>' +
+                    '<div><div class="text-xs text-slate-500 uppercase font-bold mb-1">Reported</div><div class="text-sm text-slate-800 dark:text-white">' + (issue.reportedAt ? new Date(issue.reportedAt).toLocaleString() : '-') + '</div></div>' +
+                    '<div><div class="text-xs text-slate-500 uppercase font-bold mb-1">Resolution Time</div><div class="text-sm text-slate-800 dark:text-white">' + resTime + '</div></div>' +
+                '</div>' +
+                '<div class="mt-4 border-t border-slate-200 dark:border-slate-700 pt-4">' +
+                    '<div class="text-xs text-slate-500 uppercase font-bold mb-2">AI Summary</div>' +
+                    '<div class="text-sm text-slate-700 dark:text-slate-300 bg-slate-50 dark:bg-slate-900 rounded-lg p-3 whitespace-pre-wrap">' + escapeHtml(issue.summary || 'No summary available') + '</div>' +
+                '</div>' +
+                (issue.emailSnippet ? '<div class="mt-4 border-t border-slate-200 dark:border-slate-700 pt-4">' +
+                    '<div class="text-xs text-slate-500 uppercase font-bold mb-2">Email Snippet</div>' +
+                    '<div class="text-sm text-slate-600 dark:text-slate-400 bg-slate-50 dark:bg-slate-900 rounded-lg p-3 max-h-40 overflow-y-auto whitespace-pre-wrap">' + escapeHtml(issue.emailSnippet) + '</div>' +
+                '</div>' : '') +
+                '<div class="mt-4 flex gap-2">' +
+                    buildOIDetailActionButtons(issue, filteredIdx) +
+                '</div>';
+
+            document.getElementById('issueDetailModal').classList.remove('hidden');
+        }
+
+        function buildOIDetailActionButtons(issue, filteredIdx) {
+            var status = issue.status || 'New';
+            var html = '';
+            if (status !== 'Escalated') {
+                html += '<button onclick="updateIssueStatus(' + filteredIdx + ', \'Escalated\', this); closeIssueDetailModal();" class="flex-1 bg-amber-100 text-amber-700 hover:bg-amber-200 dark:bg-amber-900/30 dark:text-amber-400 py-2 rounded-lg text-sm font-medium transition-all duration-200 active:scale-95 flex items-center justify-center gap-2"><i class="fa-solid fa-arrow-up"></i> Escalate</button>';
+            }
+            if (status !== 'Waiting on Candidate') {
+                html += '<button onclick="updateIssueStatus(' + filteredIdx + ', \'Waiting on Candidate\', this); closeIssueDetailModal();" class="flex-1 bg-blue-100 text-blue-700 hover:bg-blue-200 dark:bg-blue-900/30 dark:text-blue-400 py-2 rounded-lg text-sm font-medium transition-all duration-200 active:scale-95 flex items-center justify-center gap-2"><i class="fa-solid fa-hourglass-half"></i> Waiting</button>';
+            }
+            if (status !== 'Resolved') {
+                html += '<button onclick="updateIssueStatus(' + filteredIdx + ', \'Resolved\', this); closeIssueDetailModal();" class="flex-1 bg-green-100 text-green-700 hover:bg-green-200 dark:bg-green-900/30 dark:text-green-400 py-2 rounded-lg text-sm font-medium transition-all duration-200 active:scale-95 flex items-center justify-center gap-2"><i class="fa-solid fa-check"></i> Resolve</button>';
+            }
+            return html;
+        }
+
+        function closeIssueDetailModal() {
+            document.getElementById('issueDetailModal').classList.add('hidden');
         }
 
         // Render the activity log
