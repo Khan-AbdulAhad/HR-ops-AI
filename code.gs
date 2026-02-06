@@ -14854,10 +14854,8 @@ function scanOnboardingIssues(startDate, endDate) {
       if (!candidate.email || !candidate.completedAt) continue;
 
       try {
-        // Search for threads with this job label that have messages from the candidate after the scan date
-        // Note: We don't require label:Completed because the candidate is already confirmed completed
-        // from the Negotiation_Completed sheet, and new threads (e.g. onboarding questions) won't have that label
-        const searchQuery = `label:Job-${candidate.jobId} from:${candidate.email} after:${formatDateForGmail(scanAfter)}`;
+        // Search for threads with this job label that have messages after completion
+        const searchQuery = `label:Job-${candidate.jobId} label:Completed from:${candidate.email} after:${formatDateForGmail(scanAfter)}`;
         const threads = GmailApp.search(searchQuery, 0, 10);
 
         for (const thread of threads) {
@@ -15206,7 +15204,7 @@ function runOnboardingIssueScan() {
       if (!candidate.email || !candidate.completedAt) continue;
 
       try {
-        const searchQuery = `label:Job-${candidate.jobId} from:${candidate.email} after:${formatDateForGmail(scanAfter)}`;
+        const searchQuery = `label:Job-${candidate.jobId} label:Completed from:${candidate.email} after:${formatDateForGmail(scanAfter)}`;
         const threads = GmailApp.search(searchQuery, 0, 10);
 
         for (const thread of threads) {
