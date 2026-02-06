@@ -222,6 +222,13 @@
             animation: successPulse 0.6s ease-out;
         }
 
+        /* Disabled button state for loading feedback */
+        button:disabled {
+            opacity: 0.7;
+            cursor: not-allowed;
+            pointer-events: none;
+        }
+
         /* Collapsible & Slide Panel */
         .collapsible-content { transition: max-height 0.3s ease, opacity 0.3s ease; overflow: hidden; }
         .collapsible-content.collapsed { max-height: 0 !important; opacity: 0; padding-top: 0 !important; padding-bottom: 0 !important; }
@@ -1861,7 +1868,7 @@
                                 <button id="myJobsRefreshBtn" onclick="refreshMyJobs()" class="refresh-btn bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 px-3 py-2 rounded-lg text-sm hover:bg-slate-50 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200">
                                     <i id="myJobsRefreshIcon" class="fa-solid fa-rotate mr-1"></i> Refresh
                                 </button>
-                                <button onclick="openAddJobModal()" class="bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-indigo-700">
+                                <button onclick="openAddJobModal()" class="bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-indigo-700 transition-all duration-200 active:scale-95">
                                     <i class="fa-solid fa-plus mr-1"></i> Add Job
                                 </button>
                             </div>
@@ -1906,16 +1913,16 @@
 
                         <!-- Filter Tabs -->
                         <div class="flex gap-2 bg-white dark:bg-slate-800 p-2 rounded-lg border border-slate-200 dark:border-slate-700">
-                            <button onclick="filterMyJobs('all')" class="my-jobs-filter-btn px-4 py-2 rounded-lg text-sm font-medium transition-colors bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200" data-filter="all">
+                            <button onclick="filterMyJobs('all')" class="my-jobs-filter-btn px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 active:scale-95 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200" data-filter="all">
                                 All Jobs
                             </button>
-                            <button onclick="filterMyJobs('Active')" class="my-jobs-filter-btn px-4 py-2 rounded-lg text-sm font-medium transition-colors text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-700" data-filter="Active">
+                            <button onclick="filterMyJobs('Active')" class="my-jobs-filter-btn px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 active:scale-95 text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-700" data-filter="Active">
                                 <i class="fa-solid fa-briefcase mr-1 text-emerald-500"></i> Active
                             </button>
-                            <button onclick="filterMyJobs('Fulfilled')" class="my-jobs-filter-btn px-4 py-2 rounded-lg text-sm font-medium transition-colors text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-700" data-filter="Fulfilled">
+                            <button onclick="filterMyJobs('Fulfilled')" class="my-jobs-filter-btn px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 active:scale-95 text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-700" data-filter="Fulfilled">
                                 <i class="fa-solid fa-check-circle mr-1 text-blue-500"></i> Fulfilled
                             </button>
-                            <button onclick="filterMyJobs('Stopped')" class="my-jobs-filter-btn px-4 py-2 rounded-lg text-sm font-medium transition-colors text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-700" data-filter="Stopped">
+                            <button onclick="filterMyJobs('Stopped')" class="my-jobs-filter-btn px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 active:scale-95 text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-700" data-filter="Stopped">
                                 <i class="fa-solid fa-stop-circle mr-1 text-slate-400"></i> Stopped
                             </button>
                         </div>
@@ -1970,8 +1977,8 @@
                             </div>
                         </div>
                         <div class="p-6 border-t border-slate-200 dark:border-slate-700 flex justify-end gap-3">
-                            <button onclick="closeAddJobModal()" class="px-4 py-2 text-sm font-medium text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white">Cancel</button>
-                            <button onclick="submitAddJob()" class="px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700">
+                            <button onclick="closeAddJobModal()" class="px-4 py-2 text-sm font-medium text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white rounded-lg transition-all duration-200 active:scale-95 hover:bg-slate-100 dark:hover:bg-slate-700">Cancel</button>
+                            <button id="addJobSubmitBtn" onclick="submitAddJob()" class="px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 transition-all duration-200 active:scale-95">
                                 <i class="fa-solid fa-plus mr-1"></i> Add Job
                             </button>
                         </div>
@@ -2005,8 +2012,8 @@
                             </div>
                         </div>
                         <div class="p-6 border-t border-slate-200 dark:border-slate-700 flex justify-end gap-3">
-                            <button onclick="closeJobStatusModal()" class="px-4 py-2 text-sm font-medium text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white">Cancel</button>
-                            <button onclick="confirmJobStatusChange()" id="jobStatusModalConfirmBtn" class="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700">
+                            <button onclick="closeJobStatusModal()" class="px-4 py-2 text-sm font-medium text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white rounded-lg transition-all duration-200 active:scale-95 hover:bg-slate-100 dark:hover:bg-slate-700">Cancel</button>
+                            <button onclick="confirmJobStatusChange()" id="jobStatusModalConfirmBtn" class="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-all duration-200 active:scale-95">
                                 Confirm
                             </button>
                         </div>
@@ -2032,9 +2039,9 @@
                             </div>
                         </div>
                         <div class="p-6 border-t border-slate-200 dark:border-slate-700 flex justify-end gap-3">
-                            <button onclick="closeEditDateModal()" class="px-4 py-2 text-sm font-medium text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white">Cancel</button>
-                            <button onclick="submitEditDate()" class="px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700">
-                                Save
+                            <button onclick="closeEditDateModal()" class="px-4 py-2 text-sm font-medium text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white rounded-lg transition-all duration-200 active:scale-95 hover:bg-slate-100 dark:hover:bg-slate-700">Cancel</button>
+                            <button id="editDateSubmitBtn" onclick="submitEditDate()" class="px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 transition-all duration-200 active:scale-95">
+                                <i class="fa-solid fa-save mr-1"></i> Save
                             </button>
                         </div>
                     </div>
@@ -2089,12 +2096,12 @@
                             </div>
                         </div>
                         <div class="p-6 border-t border-slate-200 dark:border-slate-700 flex justify-between">
-                            <button onclick="previewNotes()" class="px-4 py-2 text-sm font-medium text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg transition-colors">
+                            <button onclick="previewNotes()" class="px-4 py-2 text-sm font-medium text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg transition-all duration-200 active:scale-95">
                                 <i class="fa-solid fa-eye mr-1"></i>Preview
                             </button>
                             <div class="flex gap-3">
-                                <button onclick="closeEditNotesModal()" class="px-4 py-2 text-sm font-medium text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white">Cancel</button>
-                                <button onclick="submitEditNotes()" class="px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700">
+                                <button onclick="closeEditNotesModal()" class="px-4 py-2 text-sm font-medium text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white rounded-lg transition-all duration-200 active:scale-95 hover:bg-slate-100 dark:hover:bg-slate-700">Cancel</button>
+                                <button id="editNotesSubmitBtn" onclick="submitEditNotes()" class="px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 transition-all duration-200 active:scale-95">
                                     <i class="fa-solid fa-save mr-1"></i>Save
                                 </button>
                             </div>
@@ -11117,9 +11124,9 @@
                 return;
             }
             container.innerHTML = monitoredJobIds.map(function(jid) {
-                return '<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400">' +
+                return '<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400 transition-all duration-200">' +
                     'Job ' + escapeHtml(String(jid)) +
-                    '<button onclick="removeMonitoredJob(\'' + jid + '\')" class="ml-0.5 hover:text-red-500 transition-colors"><i class="fa-solid fa-times text-[10px]"></i></button>' +
+                    '<button onclick="removeMonitoredJob(\'' + jid + '\')" class="ml-0.5 hover:text-red-500 hover:bg-red-100 dark:hover:bg-red-900/30 rounded-full p-0.5 transition-all duration-200 active:scale-75" title="Remove job"><i class="fa-solid fa-times text-[10px]"></i></button>' +
                     '</span>';
             }).join('');
         }
@@ -11157,17 +11164,38 @@
         }
 
         function removeMonitoredJob(jobId) {
+            // Optimistic update: remove chip immediately for instant feedback
+            var removedIndex = monitoredJobIds.indexOf(jobId);
+            monitoredJobIds = monitoredJobIds.filter(function(j) { return j !== jobId; });
+            renderMonitoredJobs();
+            populateOIJobFilter();
+
             google.script.run
                 .withSuccessHandler(function(result) {
                     if (result && result.success) {
-                        monitoredJobIds = monitoredJobIds.filter(function(j) { return j !== jobId; });
+                        showToast('Job ' + jobId + ' removed from monitoring', 'success');
+                    } else {
+                        // Restore on failure
+                        if (removedIndex >= 0) {
+                            monitoredJobIds.splice(removedIndex, 0, jobId);
+                        } else {
+                            monitoredJobIds.push(jobId);
+                        }
                         renderMonitoredJobs();
                         populateOIJobFilter();
-                        showToast('Job ' + jobId + ' removed from monitoring', 'success');
+                        showToast('Failed to remove job ' + jobId, 'error');
                     }
                 })
                 .withFailureHandler(function(err) {
-                    showToast('Error: ' + err, 'error');
+                    // Restore on failure
+                    if (removedIndex >= 0) {
+                        monitoredJobIds.splice(removedIndex, 0, jobId);
+                    } else {
+                        monitoredJobIds.push(jobId);
+                    }
+                    renderMonitoredJobs();
+                    populateOIJobFilter();
+                    showToast('Error removing job: ' + err, 'error');
                 })
                 .removeMonitoredJobForOnboarding(jobId);
         }
@@ -11609,16 +11637,16 @@
                                 <div class="flex items-center gap-2">
                                     <span class="truncate flex-1 text-sm" title="${safeNotes}">${safeNotes.substring(0, 50)}${safeNotes.length > 50 ? '...' : ''}</span>
                                     <div class="flex items-center gap-1 flex-shrink-0">
-                                        <button onclick="openViewNotesModalByIndex(${index})" class="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 rounded transition-colors" title="View notes">
+                                        <button onclick="openViewNotesModalByIndex(${index})" class="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 rounded transition-all duration-200 active:scale-90" title="View notes">
                                             <i class="fa-solid fa-eye text-xs"></i>
                                         </button>
-                                        <button onclick="openEditNotesModalByIndex(${index})" class="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 rounded transition-colors" title="Edit notes">
+                                        <button onclick="openEditNotesModalByIndex(${index})" class="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 rounded transition-all duration-200 active:scale-90" title="Edit notes">
                                             <i class="fa-solid fa-pen text-xs"></i>
                                         </button>
                                     </div>
                                 </div>
                             ` : `
-                                <button onclick="openEditNotesModalByIndex(${index})" class="text-sm text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors" title="Add notes">
+                                <button onclick="openEditNotesModalByIndex(${index})" class="text-sm text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition-all duration-200 active:scale-95" title="Add notes">
                                     <i class="fa-solid fa-plus mr-1"></i>Add notes
                                 </button>
                             `}
@@ -11626,17 +11654,17 @@
                         <td class="px-6 py-4">
                             <div class="flex items-center justify-center gap-2">
                                 ${job.status === 'Active' ? `
-                                    <button onclick="openJobStatusModalByIndex(${index}, 'Fulfilled')" class="px-3 py-1.5 text-xs font-medium text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/30 rounded-lg transition-colors" title="Mark as Fulfilled">
+                                    <button onclick="openJobStatusModalByIndex(${index}, 'Fulfilled')" class="px-3 py-1.5 text-xs font-medium text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/30 rounded-lg transition-all duration-200 active:scale-90" title="Mark as Fulfilled">
                                         <i class="fa-solid fa-check mr-1"></i>Fulfilled
                                     </button>
-                                    <button onclick="openJobStatusModalByIndex(${index}, 'Stopped')" class="px-3 py-1.5 text-xs font-medium text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg transition-colors" title="Mark as Stopped">
+                                    <button onclick="openJobStatusModalByIndex(${index}, 'Stopped')" class="px-3 py-1.5 text-xs font-medium text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg transition-all duration-200 active:scale-90" title="Mark as Stopped">
                                         <i class="fa-solid fa-stop mr-1"></i>Stop
                                     </button>
                                 ` : `
-                                    <button onclick="openJobStatusModalByIndex(${index}, 'Active')" class="px-3 py-1.5 text-xs font-medium text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-900/30 rounded-lg transition-colors" title="Reactivate">
+                                    <button onclick="openJobStatusModalByIndex(${index}, 'Active')" class="px-3 py-1.5 text-xs font-medium text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-900/30 rounded-lg transition-all duration-200 active:scale-90" title="Reactivate">
                                         <i class="fa-solid fa-redo mr-1"></i>Reactivate
                                     </button>
-                                    <button onclick="deleteJobByIndex(${index})" class="px-3 py-1.5 text-xs font-medium text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-colors" title="Remove from list">
+                                    <button onclick="deleteJobByIndex(${index})" class="px-3 py-1.5 text-xs font-medium text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-all duration-200 active:scale-90" title="Remove from list">
                                         <i class="fa-solid fa-trash mr-1"></i>
                                     </button>
                                 `}
@@ -11687,8 +11715,18 @@
                 return;
             }
 
+            const btn = document.getElementById('addJobSubmitBtn');
+            if (btn) {
+                btn.disabled = true;
+                btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin mr-1"></i> Adding...';
+            }
+
             google.script.run
                 .withSuccessHandler(function(result) {
+                    if (btn) {
+                        btn.disabled = false;
+                        btn.innerHTML = '<i class="fa-solid fa-plus mr-1"></i> Add Job';
+                    }
                     if (result.success) {
                         showToast(result.message || 'Job added successfully', 'success');
                         closeAddJobModal();
@@ -11698,6 +11736,10 @@
                     }
                 })
                 .withFailureHandler(function(err) {
+                    if (btn) {
+                        btn.disabled = false;
+                        btn.innerHTML = '<i class="fa-solid fa-plus mr-1"></i> Add Job';
+                    }
                     showToast('Failed to add job: ' + err.message, 'error');
                 })
                 .addJobAssignment(jobId, notes);
@@ -11796,9 +11838,20 @@
             if (!pendingStatusChange) return;
 
             const { jobId, newStatus } = pendingStatusChange;
+            const btn = document.getElementById('jobStatusModalConfirmBtn');
+            const originalBtnHtml = btn ? btn.innerHTML : '';
+
+            if (btn) {
+                btn.disabled = true;
+                btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin mr-1"></i> Updating...';
+            }
 
             google.script.run
                 .withSuccessHandler(function(result) {
+                    if (btn) {
+                        btn.disabled = false;
+                        btn.innerHTML = originalBtnHtml;
+                    }
                     if (result.success) {
                         showToast(result.message || `Job ${jobId} marked as ${newStatus}`, 'success');
                         closeJobStatusModal();
@@ -11808,6 +11861,10 @@
                     }
                 })
                 .withFailureHandler(function(err) {
+                    if (btn) {
+                        btn.disabled = false;
+                        btn.innerHTML = originalBtnHtml;
+                    }
                     showToast('Failed to update job status: ' + err.message, 'error');
                 })
                 .updateJobStatus(jobId, newStatus);
@@ -11847,8 +11904,18 @@
                 return;
             }
 
+            const btn = document.getElementById('editDateSubmitBtn');
+            if (btn) {
+                btn.disabled = true;
+                btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin mr-1"></i> Saving...';
+            }
+
             google.script.run
                 .withSuccessHandler(function(result) {
+                    if (btn) {
+                        btn.disabled = false;
+                        btn.innerHTML = '<i class="fa-solid fa-save mr-1"></i> Save';
+                    }
                     if (result.success) {
                         showToast(result.message || 'Assigned date updated', 'success');
                         closeEditDateModal();
@@ -11858,6 +11925,10 @@
                     }
                 })
                 .withFailureHandler(function(err) {
+                    if (btn) {
+                        btn.disabled = false;
+                        btn.innerHTML = '<i class="fa-solid fa-save mr-1"></i> Save';
+                    }
                     showToast('Failed to update date: ' + err.message, 'error');
                 })
                 .updateJobAssignedDate(jobId, newDate);
@@ -12093,8 +12164,18 @@
             const jobId = pendingNotesEdit;
             const newNotes = document.getElementById('editNotesInput').value.trim();
 
+            const btn = document.getElementById('editNotesSubmitBtn');
+            if (btn) {
+                btn.disabled = true;
+                btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin mr-1"></i> Saving...';
+            }
+
             google.script.run
                 .withSuccessHandler(function(result) {
+                    if (btn) {
+                        btn.disabled = false;
+                        btn.innerHTML = '<i class="fa-solid fa-save mr-1"></i>Save';
+                    }
                     if (result.success) {
                         showToast(result.message || 'Notes updated', 'success');
                         closeEditNotesModal();
@@ -12105,6 +12186,10 @@
                     }
                 })
                 .withFailureHandler(function(err) {
+                    if (btn) {
+                        btn.disabled = false;
+                        btn.innerHTML = '<i class="fa-solid fa-save mr-1"></i>Save';
+                    }
                     showToast('Failed to update notes: ' + err.message, 'error');
                 })
                 .updateJobNotes(jobId, newNotes);
@@ -12116,16 +12201,37 @@
                 return;
             }
 
+            // Find and fade out the row for immediate visual feedback
+            var rows = document.querySelectorAll('#myJobsTableBody tr');
+            rows.forEach(function(row) {
+                var jobCell = row.querySelector('td:first-child span');
+                if (jobCell && jobCell.textContent.trim() === String(jobId)) {
+                    row.style.transition = 'opacity 0.3s ease, transform 0.3s ease';
+                    row.style.opacity = '0.4';
+                    row.style.transform = 'translateX(10px)';
+                }
+            });
+
             google.script.run
                 .withSuccessHandler(function(result) {
                     if (result.success) {
                         showToast(result.message || 'Job removed', 'success');
                         refreshMyJobs();
                     } else {
+                        // Restore row on failure
+                        rows.forEach(function(row) {
+                            row.style.opacity = '1';
+                            row.style.transform = 'translateX(0)';
+                        });
                         showToast(result.error || 'Failed to remove job', 'error');
                     }
                 })
                 .withFailureHandler(function(err) {
+                    // Restore row on failure
+                    rows.forEach(function(row) {
+                        row.style.opacity = '1';
+                        row.style.transform = 'translateX(0)';
+                    });
                     showToast('Failed to remove job: ' + err.message, 'error');
                 })
                 .deleteJobAssignment(jobId);
