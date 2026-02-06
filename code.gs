@@ -12094,7 +12094,7 @@ function getConversionFunnelData(filterJobId, startDate, endDate) {
     const unresponsiveSheet = ss.getSheetByName('Unresponsive_Devs');
     const unresponsiveData = unresponsiveSheet ? unresponsiveSheet.getDataRange().getValues() : [];
 
-    // Count unique outreach emails
+    // Count unique outreach emails (total contacted)
     const outreachEmails = new Set();
     for (let i = 1; i < emailData.length; i++) {
       const timestamp = emailData[i][0];
@@ -12113,22 +12113,16 @@ function getConversionFunnelData(filterJobId, startDate, endDate) {
       if (email) outreachEmails.add(email);
     }
 
-    // Count responded (have entries in Negotiation_State OR Negotiation_Completed)
-    // This includes auto-accepted candidates who bypassed the state sheet
-    const respondedEmails = new Set();
-
-    // First, count from Negotiation_State (active negotiations)
-    for (let i = 1; i < stateData.length; i++) {
-      const email = String(stateData[i][0] || '').toLowerCase();
-      const jobId = String(stateData[i][1] || '');
-
-      if (filterJobId && jobId !== filterJobId) continue;
-      if (email) respondedEmails.add(email);
-    }
-
-    // Also count from Negotiation_Completed (candidates who responded and completed)
-    // This catches auto-accepted candidates who bypassed Negotiation_State
+    // Count completed outcomes first (to exclude from other stages)
     // Columns: [0]=Timestamp, [1]=Job ID, [2]=Email, [3]=Name, [4]=Final Status
+    let accepted = 0;
+    let rejected = 0;
+    let escalated = 0;
+    let notInterested = 0;
+    const acceptedEmails = new Set();
+    const completedEmails = new Set(); // All completed candidates (any final status)
+    const respondedCompletedEmails = new Set(); // Completed candidates who actually responded
+
     for (let i = 1; i < completedData.length; i++) {
       const timestamp = completedData[i][0];
       const jobId = String(completedData[i][1] || '');
@@ -12139,15 +12133,27 @@ function getConversionFunnelData(filterJobId, startDate, endDate) {
       if (timestamp && startDateFilter && new Date(timestamp) < startDateFilter) continue;
       if (timestamp && endDateFilter && new Date(timestamp) > endDateFilter) continue;
 
-      // Count accepted, rejected, and not interested as "responded" (they all replied to us)
-      // Don't count escalated as "responded" since they may not have replied
-      if (email && (status.includes('accept') || status.includes('complete') ||
-          status.includes('reject') || status.includes('declined') || status.includes('not interested'))) {
-        respondedEmails.add(email);
+      if (!email) continue;
+
+      completedEmails.add(email);
+
+      if (status.includes('accept') || status.includes('complete')) {
+        accepted++;
+        acceptedEmails.add(email);
+        respondedCompletedEmails.add(email);
+      } else if (status.includes('not interested')) {
+        notInterested++;
+        respondedCompletedEmails.add(email);
+      } else if (status.includes('reject') || status.includes('declined')) {
+        rejected++;
+        respondedCompletedEmails.add(email);
+      } else if (status.includes('escalat') || status.includes('human')) {
+        escalated++;
+        // Don't add escalated to respondedCompletedEmails since they may not have replied
       }
     }
 
-    // Count negotiating (status is active/pending in state)
+    // Count negotiating (status is active/pending in state) - candidates actively in negotiation
     const negotiatingEmails = new Set();
     for (let i = 1; i < stateData.length; i++) {
       const email = String(stateData[i][0] || '').toLowerCase();
@@ -12155,66 +12161,76 @@ function getConversionFunnelData(filterJobId, startDate, endDate) {
       const status = String(stateData[i][4] || '').toLowerCase();
 
       if (filterJobId && jobId !== filterJobId) continue;
-      if (email && (status.includes('active') || status.includes('pending') || status === '')) {
+      // Only count as negotiating if NOT already completed
+      if (email && !completedEmails.has(email) &&
+          (status.includes('active') || status.includes('pending') || status === '')) {
         negotiatingEmails.add(email);
       }
     }
 
-    // Count completed outcomes
-    let accepted = 0;
-    let rejected = 0;
-    let escalated = 0;
-    let notInterested = 0;
-    const acceptedEmails = new Set();
-
-    for (let i = 1; i < completedData.length; i++) {
-      const timestamp = completedData[i][0];
-      const jobId = String(completedData[i][1] || '');
-      const email = String(completedData[i][2] || '').toLowerCase();
-      const status = String(completedData[i][4] || '').toLowerCase();
+    // Count responded - candidates who have responded but are NOT negotiating or completed
+    // These are candidates in a "waiting" state between response and active negotiation
+    const respondedWaitingEmails = new Set();
+    for (let i = 1; i < stateData.length; i++) {
+      const email = String(stateData[i][0] || '').toLowerCase();
+      const jobId = String(stateData[i][1] || '');
+      const status = String(stateData[i][4] || '').toLowerCase();
 
       if (filterJobId && jobId !== filterJobId) continue;
-      if (timestamp && startDateFilter && new Date(timestamp) < startDateFilter) continue;
-      if (timestamp && endDateFilter && new Date(timestamp) > endDateFilter) continue;
-
-      if (status.includes('accept') || status.includes('complete')) {
-        accepted++;
-        acceptedEmails.add(email);
-      } else if (status.includes('not interested')) {
-        notInterested++;
-      } else if (status.includes('reject') || status.includes('declined')) {
-        rejected++;
-      } else if (status.includes('escalat') || status.includes('human')) {
-        escalated++;
+      // Only count as "responded waiting" if NOT completed and NOT actively negotiating
+      if (email && !completedEmails.has(email) && !negotiatingEmails.has(email)) {
+        respondedWaitingEmails.add(email);
       }
     }
 
     // Count unresponsive
     let unresponsive = 0;
+    const unresponsiveEmails = new Set();
     for (let i = 1; i < unresponsiveData.length; i++) {
       const jobId = String(unresponsiveData[i][1] || '');
+      const email = String(unresponsiveData[i][2] || '').toLowerCase();
       if (filterJobId && jobId !== filterJobId) continue;
       unresponsive++;
+      if (email) unresponsiveEmails.add(email);
     }
 
-    // Calculate rates
+    // Calculate CURRENT STATE counts for the funnel
+    // Each candidate should appear in only ONE stage (their current stage)
+
+    // Outreach Sent (waiting for response) = Total contacted - responded - negotiating - completed - unresponsive
+    const outreachWaitingCount = Array.from(outreachEmails).filter(email =>
+      !respondedWaitingEmails.has(email) &&
+      !negotiatingEmails.has(email) &&
+      !completedEmails.has(email) &&
+      !unresponsiveEmails.has(email)
+    ).length;
+
+    // Responded (waiting to start negotiation) = candidates who responded but not yet negotiating or completed
+    const respondedWaitingCount = respondedWaitingEmails.size;
+
+    // Negotiating = candidates in active negotiation
+    const negotiatingCount = negotiatingEmails.size;
+
+    // Accepted = candidates who accepted the offer
+    const acceptedCount = acceptedEmails.size;
+
+    // Keep total counts for rate calculations
     const totalOutreach = outreachEmails.size;
-    const totalResponded = respondedEmails.size;
-    const totalNegotiating = negotiatingEmails.size;
-    // Use unique email count to prevent double-counting if same candidate has multiple completion entries
-    const totalAccepted = acceptedEmails.size;
+    const totalResponded = respondedWaitingEmails.size + negotiatingEmails.size + respondedCompletedEmails.size;
+    const totalNegotiating = negotiatingCount;
+    const totalAccepted = acceptedCount;
 
     const responseRate = totalOutreach > 0 ? ((totalResponded / totalOutreach) * 100).toFixed(1) : 0;
     const negotiationRate = totalResponded > 0 ? ((totalNegotiating / totalResponded) * 100).toFixed(1) : 0;
     const acceptanceRate = totalResponded > 0 ? ((totalAccepted / totalResponded) * 100).toFixed(1) : 0;
     const overallConversion = totalOutreach > 0 ? ((totalAccepted / totalOutreach) * 100).toFixed(1) : 0;
 
-    // Funnel data for Chart.js
+    // Funnel data for Chart.js - shows CURRENT STATE (each candidate in only one stage)
     const funnelData = [
-      { stage: 'Outreach Sent', count: totalOutreach, rate: '100%' },
-      { stage: 'Responded', count: totalResponded, rate: responseRate + '%' },
-      { stage: 'Negotiating', count: totalNegotiating, rate: negotiationRate + '%' },
-      { stage: 'Accepted', count: totalAccepted, rate: acceptanceRate + '%' }
+      { stage: 'Outreach Sent', count: outreachWaitingCount, rate: '100%' },
+      { stage: 'Responded', count: respondedWaitingCount, rate: responseRate + '%' },
+      { stage: 'Negotiating', count: negotiatingCount, rate: negotiationRate + '%' },
+      { stage: 'Accepted', count: acceptedCount, rate: acceptanceRate + '%' }
     ];
 
     // Outcome breakdown for pie chart
@@ -12224,12 +12240,18 @@ function getConversionFunnelData(filterJobId, startDate, endDate) {
       rejected: rejected,
       escalated: escalated,
       unresponsive: unresponsive,
-      pending: totalNegotiating
+      pending: negotiatingCount
     };
 
     return {
       funnel: funnelData,
       outcomes: outcomeBreakdown,
+      // Current state counts (for funnel display)
+      currentOutreach: outreachWaitingCount,
+      currentResponded: respondedWaitingCount,
+      currentNegotiating: negotiatingCount,
+      currentAccepted: acceptedCount,
+      // Total/cumulative counts (for statistics)
       totalOutreach: totalOutreach,
       totalResponded: totalResponded,
       totalNegotiating: totalNegotiating,
