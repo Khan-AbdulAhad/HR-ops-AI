@@ -3302,6 +3302,7 @@
                             <table class="w-full" id="onboardingIssuesTable">
                                 <thead>
                                     <tr class="bg-slate-50 dark:bg-slate-900/50 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                                        <th class="px-3 py-3 w-10"><input type="checkbox" id="oiSelectAll" onchange="toggleOISelectAll(this)" class="rounded border-slate-300 cursor-pointer"></th>
                                         <th class="px-4 py-3">Candidate</th>
                                         <th class="px-4 py-3">Job ID</th>
                                         <th class="px-4 py-3">Category</th>
@@ -3314,13 +3315,34 @@
                                 </thead>
                                 <tbody id="oiTableBody">
                                     <tr>
-                                        <td colspan="8" class="text-center py-12 text-slate-400">
+                                        <td colspan="9" class="text-center py-12 text-slate-400">
                                             <i class="fa-solid fa-inbox text-3xl mb-3 block"></i>
                                             <span class="text-sm">No onboarding issues found. Add Job IDs and run a scan to detect issues.</span>
                                         </td>
                                     </tr>
                                 </tbody>
                             </table>
+                        </div>
+                    </div>
+
+                    <!-- Bulk Action Bar -->
+                    <div id="oiBulkActionBar" class="fixed bottom-8 left-1/2 -translate-x-1/2 bg-slate-900 text-white px-6 py-3 rounded-full shadow-2xl hidden z-40 transition-all duration-300 ease-out">
+                        <div class="flex items-center gap-4">
+                            <span class="font-bold text-sm"><span id="oiBulkSelectedCount">0</span> selected</span>
+                            <div class="h-5 w-px bg-slate-700"></div>
+                            <button onclick="bulkUpdateOIStatus('Escalated')" id="oiBulkEscalateBtn" class="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-amber-500/20 text-amber-300 hover:bg-amber-500/30 transition-all duration-200 text-sm font-medium active:scale-95">
+                                <i class="fa-solid fa-arrow-up text-xs"></i> Escalated
+                            </button>
+                            <button onclick="bulkUpdateOIStatus('Waiting on Candidate')" id="oiBulkWaitingBtn" class="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-blue-500/20 text-blue-300 hover:bg-blue-500/30 transition-all duration-200 text-sm font-medium active:scale-95">
+                                <i class="fa-solid fa-hourglass-half text-xs"></i> Waiting
+                            </button>
+                            <button onclick="bulkUpdateOIStatus('Resolved')" id="oiBulkResolveBtn" class="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-green-500/20 text-green-300 hover:bg-green-500/30 transition-all duration-200 text-sm font-medium active:scale-95">
+                                <i class="fa-solid fa-check text-xs"></i> Resolved
+                            </button>
+                            <div class="h-5 w-px bg-slate-700"></div>
+                            <button onclick="clearOISelection()" class="text-slate-500 hover:text-white transition-colors" title="Clear selection">
+                                <i class="fa-solid fa-times"></i>
+                            </button>
                         </div>
                     </div>
 
@@ -10754,6 +10776,7 @@
         let onboardingIssuesFiltered = [];
         let monitoredJobIds = [];
         let oiCurrentStatusFilter = '';
+        let selectedOIIssues = new Set();
 
         const OI_PREDEFINED_CATEGORIES = ['Slack', 'Gmail', 'Jibble', 'ID Verification', 'Other'];
 
@@ -10857,7 +10880,8 @@
         function renderOITable() {
             const tbody = document.getElementById('oiTableBody');
             if (!onboardingIssuesFiltered.length) {
-                tbody.innerHTML = '<tr><td colspan="8" class="text-center py-12 text-slate-400"><i class="fa-solid fa-inbox text-3xl mb-3 block"></i><span class="text-sm">No onboarding issues found matching your filters.</span></td></tr>';
+                tbody.innerHTML = '<tr><td colspan="9" class="text-center py-12 text-slate-400"><i class="fa-solid fa-inbox text-3xl mb-3 block"></i><span class="text-sm">No onboarding issues found matching your filters.</span></td></tr>';
+                updateOIBulkBar();
                 return;
             }
 
@@ -10872,8 +10896,10 @@
                 const resTime = issue.resolvedAt && issue.reportedAt
                     ? formatDuration(new Date(issue.resolvedAt) - new Date(issue.reportedAt))
                     : (issue.reportedAt ? '<span class="text-xs text-amber-500">Open</span>' : '-');
+                const isChecked = selectedOIIssues.has(issue.issueId) ? 'checked' : '';
 
                 return '<tr class="border-b border-slate-100 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors ' + rowClass + '">' +
+                    '<td class="px-3 py-3 w-10"><input type="checkbox" class="oi-row-checkbox rounded border-slate-300 cursor-pointer" data-issue-id="' + escapeHtml(issue.issueId) + '" onchange="toggleOIRowSelect(this)" ' + isChecked + '></td>' +
                     '<td class="px-4 py-3"><div class="font-medium text-sm text-slate-800 dark:text-white">' + escapeHtml(issue.name || 'Unknown') + '</div>' +
                     '<div class="text-xs text-slate-500">' + escapeHtml(issue.email || '') + '</div>' +
                     '<div class="text-xs text-slate-400">Dev: ' + escapeHtml(issue.devId || 'N/A') + '</div></td>' +
@@ -10887,6 +10913,16 @@
                     buildOIActionButtons(issue, idx) +
                     '</div></td></tr>';
             }).join('');
+
+            // Sync select-all checkbox state
+            var selectAllCb = document.getElementById('oiSelectAll');
+            if (selectAllCb) {
+                var allChecked = onboardingIssuesFiltered.length > 0 && onboardingIssuesFiltered.every(function(i) { return selectedOIIssues.has(i.issueId); });
+                var someChecked = onboardingIssuesFiltered.some(function(i) { return selectedOIIssues.has(i.issueId); });
+                selectAllCb.checked = allChecked;
+                selectAllCb.indeterminate = someChecked && !allChecked;
+            }
+            updateOIBulkBar();
         }
 
         // Build action buttons based on current status
@@ -11206,6 +11242,120 @@
 
         function closeIssueDetailModal() {
             document.getElementById('issueDetailModal').classList.add('hidden');
+        }
+
+        // ===== BULK SELECTION & ACTIONS =====
+
+        // Toggle a single row checkbox
+        function toggleOIRowSelect(cb) {
+            var issueId = cb.getAttribute('data-issue-id');
+            if (cb.checked) {
+                selectedOIIssues.add(issueId);
+            } else {
+                selectedOIIssues.delete(issueId);
+            }
+            // Sync select-all checkbox state
+            var selectAllCb = document.getElementById('oiSelectAll');
+            if (selectAllCb) {
+                var allChecked = onboardingIssuesFiltered.length > 0 && onboardingIssuesFiltered.every(function(i) { return selectedOIIssues.has(i.issueId); });
+                var someChecked = onboardingIssuesFiltered.some(function(i) { return selectedOIIssues.has(i.issueId); });
+                selectAllCb.checked = allChecked;
+                selectAllCb.indeterminate = someChecked && !allChecked;
+            }
+            updateOIBulkBar();
+        }
+
+        // Toggle select all (only visible/filtered rows)
+        function toggleOISelectAll(cb) {
+            if (cb.checked) {
+                onboardingIssuesFiltered.forEach(function(i) { selectedOIIssues.add(i.issueId); });
+            } else {
+                onboardingIssuesFiltered.forEach(function(i) { selectedOIIssues.delete(i.issueId); });
+            }
+            // Update all row checkboxes
+            document.querySelectorAll('.oi-row-checkbox').forEach(function(rowCb) {
+                rowCb.checked = cb.checked;
+            });
+            updateOIBulkBar();
+        }
+
+        // Clear all selections
+        function clearOISelection() {
+            selectedOIIssues.clear();
+            document.querySelectorAll('.oi-row-checkbox').forEach(function(cb) { cb.checked = false; });
+            var selectAllCb = document.getElementById('oiSelectAll');
+            if (selectAllCb) { selectAllCb.checked = false; selectAllCb.indeterminate = false; }
+            updateOIBulkBar();
+        }
+
+        // Show/hide bulk action bar
+        function updateOIBulkBar() {
+            var bar = document.getElementById('oiBulkActionBar');
+            var countEl = document.getElementById('oiBulkSelectedCount');
+            if (!bar) return;
+            var count = selectedOIIssues.size;
+            if (count > 0) {
+                bar.classList.remove('hidden');
+                countEl.textContent = count;
+            } else {
+                bar.classList.add('hidden');
+            }
+        }
+
+        // Bulk update status for all selected issues
+        function bulkUpdateOIStatus(newStatus) {
+            var issueIds = Array.from(selectedOIIssues);
+            if (issueIds.length === 0) return;
+
+            // Find the button that was clicked and show loading
+            var btnMap = {
+                'Escalated': document.getElementById('oiBulkEscalateBtn'),
+                'Waiting on Candidate': document.getElementById('oiBulkWaitingBtn'),
+                'Resolved': document.getElementById('oiBulkResolveBtn')
+            };
+            var btn = btnMap[newStatus];
+            var origHTML = '';
+            if (btn) {
+                if (btn.disabled) return;
+                btn.disabled = true;
+                origHTML = btn.innerHTML;
+                btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin text-xs"></i> Updating ' + issueIds.length + '...';
+            }
+            // Disable other bulk buttons too
+            Object.values(btnMap).forEach(function(b) { if (b) b.disabled = true; });
+
+            google.script.run
+                .withSuccessHandler(function(result) {
+                    // Re-enable buttons
+                    Object.values(btnMap).forEach(function(b) { if (b) b.disabled = false; });
+                    if (btn) btn.innerHTML = origHTML;
+
+                    if (result && result.success) {
+                        // Update local data
+                        var now = new Date().toISOString();
+                        issueIds.forEach(function(id) {
+                            var realIdx = onboardingIssuesData.findIndex(function(d) { return d.issueId === id; });
+                            if (realIdx >= 0) {
+                                onboardingIssuesData[realIdx].status = newStatus;
+                                if (newStatus === 'Resolved') {
+                                    onboardingIssuesData[realIdx].resolvedAt = now;
+                                }
+                            }
+                        });
+                        clearOISelection();
+                        filterOnboardingIssues();
+                        updateOIStats();
+                        showToast('Updated ' + result.updatedCount + ' issue(s) to ' + newStatus, 'success');
+                    } else {
+                        showToast(result?.error || 'Bulk update failed', 'error');
+                    }
+                })
+                .withFailureHandler(function(err) {
+                    Object.values(btnMap).forEach(function(b) { if (b) b.disabled = false; });
+                    if (btn) btn.innerHTML = origHTML;
+                    showToast('Error: ' + err, 'error');
+                })
+                .bulkUpdateOnboardingIssueStatus(issueIds, newStatus);
         }
 
         // Render the activity log

@@ -14065,6 +14065,63 @@ function updateOnboardingIssueStatus(issueId, newStatus) {
 }
 
 /**
+ * Bulk update the status of multiple onboarding issues at once
+ * @param {string[]} issueIds - Array of issue IDs to update
+ * @param {string} newStatus - New status (Escalated, Waiting on Candidate, Resolved)
+ * @returns {Object} { success, updatedCount }
+ */
+function bulkUpdateOnboardingIssueStatus(issueIds, newStatus) {
+  try {
+    const access = checkAnalyticsAccess();
+    if (!access.hasAccess || access.accessLevel !== 'admin') {
+      return { success: false, error: 'Admin access required' };
+    }
+
+    const validStatuses = ['New', 'Escalated', 'Waiting on Candidate', 'Resolved'];
+    if (!validStatuses.includes(newStatus)) {
+      return { success: false, error: 'Invalid status: ' + newStatus };
+    }
+
+    if (!issueIds || !Array.isArray(issueIds) || issueIds.length === 0) {
+      return { success: false, error: 'No issues selected' };
+    }
+
+    const ss = getAnalyticsSpreadsheet();
+    const sheet = ensureOnboardingIssuesSheet(ss);
+    const lastRow = sheet.getLastRow();
+    if (lastRow <= 1) return { success: false, error: 'No issues found' };
+
+    const data = sheet.getRange(2, 1, lastRow - 1, 14).getValues();
+    const issueIdSet = new Set(issueIds.map(String));
+    const now = new Date();
+    let updatedCount = 0;
+
+    for (let i = 0; i < data.length; i++) {
+      if (issueIdSet.has(String(data[i][0]))) {
+        const rowIdx = i + 2;
+        // Update Status (col 9)
+        sheet.getRange(rowIdx, 9).setValue(newStatus);
+        // Update Status Updated At (col 11)
+        sheet.getRange(rowIdx, 11).setValue(now);
+        // If resolved, set Resolved At (col 12)
+        if (newStatus === 'Resolved') {
+          sheet.getRange(rowIdx, 12).setValue(now);
+        } else {
+          sheet.getRange(rowIdx, 12).setValue('');
+        }
+        updatedCount++;
+      }
+    }
+
+    logAnalytics('onboarding_bulk_status', 'system', updatedCount, 'Bulk set ' + updatedCount + ' issues to ' + newStatus);
+    return { success: true, updatedCount: updatedCount };
+  } catch (e) {
+    console.error('Error in bulkUpdateOnboardingIssueStatus:', e);
+    return { success: false, error: e.message };
+  }
+}
+
+/**
  * Scan Gmail for onboarding issues from completed candidates
  * Checks emails received after a candidate was marked completed.
  * AI is used ONLY to categorize and summarize - NEVER to send replies.
