@@ -637,7 +637,7 @@
             color: #f87171;
         }
 
-        /* ========== PROCESS MAP STYLES ========== */
+        /* ========== LEGACY NODE & TOOLTIP STYLES ========== */
 
         /* Process Node Base Styles */
         .process-node {
@@ -762,7 +762,7 @@
             text-overflow: ellipsis;
         }
 
-        /* Process Map Tooltip */
+        /* Tooltip Styles */
         .pm-tooltip {
             position: relative;
             cursor: pointer;
@@ -3159,7 +3159,7 @@
                 </div>
                 <!-- AI TESTING FEATURE - DELETE FOR PRODUCTION (END TAB CONTENT) -->
 
-                <!-- TAB 7: PROCESS MAP (ADMIN ONLY) -->
+                <!-- TAB 7: ONBOARDING ISSUES (ADMIN ONLY) -->
                 <div id="tab-onboardingissues" class="tab-content hidden-tab">
                     <!-- Header -->
                     <div class="mb-6">
@@ -3929,8 +3929,8 @@
                             </th>
                             <th class="px-2 py-3 text-center font-semibold text-slate-600 dark:text-slate-300">
                                 <div class="flex flex-col items-center">
-                                    <i class="fa-solid fa-diagram-project text-red-500 mb-1"></i>
-                                    <span class="text-xs">Process Map</span>
+                                    <i class="fa-solid fa-triangle-exclamation text-red-500 mb-1"></i>
+                                    <span class="text-xs">Onboarding Issues</span>
                                 </div>
                             </th>
                         </tr>
@@ -10721,10 +10721,10 @@
         }
         // ===== AI TESTING FEATURE - DELETE FOR PRODUCTION (END JAVASCRIPT) =====
 
-        // ===== PROCESS MAP TOOLTIP POSITIONING =====
+        // ===== TOOLTIP POSITIONING =====
 
         // Position tooltips dynamically to avoid clipping
-        (function initProcessMapTooltips() {
+        (function initTooltips() {
             document.addEventListener('mouseover', function(e) {
                 // Handle both tooltip systems
                 let wrapper = e.target.closest('.process-tooltip-wrapper');
@@ -10778,8 +10778,6 @@
                 tooltip.style.top = top + 'px';
             });
         })();
-
-        // ===== PROCESS MAP FUNCTIONS =====
 
         // ===== ONBOARDING ISSUES =====
         let onboardingIssuesData = [];

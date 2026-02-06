@@ -14532,13 +14532,6 @@ function testDataExtraction(testData) {
 }
 // ===== AI TESTING FEATURE - DELETE FOR PRODUCTION (END) =====
 
-// ===== PROCESS MAP FUNCTIONS =====
-
-/**
- * Get comprehensive status for the Process Map page
- * Admin-only function that provides system status, statistics, and activity
- * @returns {Object} Process map status data
- */
 // ============================================================
 // ONBOARDING ISSUES TRACKING SYSTEM
 // Tracks and manages issues raised by completed candidates
