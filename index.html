@@ -81,6 +81,15 @@
             transition: transform 0.2s;
         }
         .dark .stat-card { background: #1e293b; border-color: #334155; }
+        .dark .stat-card h2 { color: #f1f5f9; }
+        .dark .stat-card .bg-blue-50 { background-color: rgba(59, 130, 246, 0.15); }
+        .dark .stat-card .bg-amber-50 { background-color: rgba(245, 158, 11, 0.15); }
+        .dark .stat-card .bg-green-50 { background-color: rgba(16, 185, 129, 0.15); }
+        .dark .stat-card .bg-teal-50 { background-color: rgba(20, 184, 166, 0.15); }
+        .dark .stat-card .bg-indigo-50 { background-color: rgba(99, 102, 241, 0.15); }
+        .dark .stat-card .bg-emerald-50 { background-color: rgba(16, 185, 129, 0.15); }
+        .dark .stat-card .bg-cyan-50 { background-color: rgba(6, 182, 212, 0.15); }
+        .dark .stat-card .bg-purple-50 { background-color: rgba(168, 85, 247, 0.15); }
         .stat-card:hover { transform: translateY(-2px); box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06); }
 
         /* Input Fields */
@@ -329,6 +338,10 @@
         .log-success { background: #dcfce7; color: #15803d; }
         .log-warning { background: #fef9c3; color: #a16207; }
         .log-error { background: #fee2e2; color: #b91c1c; }
+        .dark .log-info { background: rgba(59, 130, 246, 0.15); color: #93c5fd; }
+        .dark .log-success { background: rgba(16, 185, 129, 0.15); color: #6ee7b7; }
+        .dark .log-warning { background: rgba(234, 179, 8, 0.15); color: #fde047; }
+        .dark .log-error { background: rgba(239, 68, 68, 0.15); color: #fca5a5; }
 
         /* Scrollbar */
         ::-webkit-scrollbar { width: 6px; height: 6px; }
@@ -1592,12 +1605,12 @@
                     </div>
 
                     <!-- Search Bar for Task List -->
-                    <div class="flex flex-wrap items-center gap-3 bg-white p-3 rounded-lg border border-slate-200 shadow-sm mb-4">
+                    <div class="flex flex-wrap items-center gap-3 bg-white dark:bg-slate-800 p-3 rounded-lg border border-slate-200 dark:border-slate-700 shadow-sm mb-4">
                         <div class="flex-1 min-w-[300px] relative">
                             <i class="fa-solid fa-search absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"></i>
                             <input type="text" id="taskSearchInput"
                                 placeholder="Search by email or Dev ID (comma-separated for bulk)"
-                                class="w-full pl-10 pr-10 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
+                                class="w-full pl-10 pr-10 py-2 border border-slate-200 dark:border-slate-600 rounded-lg text-sm focus:ring-2 focus:ring-purple-500 focus:border-purple-500 bg-white dark:bg-slate-700 dark:text-white"
                                 onkeyup="handleTaskSearchKeyup(event)"
                                 oninput="handleTaskSearchInput()"
                                 autocomplete="off">
@@ -1613,11 +1626,11 @@
                     <!-- Action Bar -->
                     <div class="flex flex-wrap justify-between items-center gap-4 mb-6">
                         <div class="flex items-center gap-4">
-                            <h3 class="text-lg font-bold text-slate-800">Active Negotiations</h3>
-                            <div class="flex items-center gap-2 text-xs text-slate-500">
-                                <span class="inline-flex items-center gap-1"><span class="inline-flex items-center justify-center w-5 h-5 rounded-full text-[9px] font-bold bg-purple-100 text-purple-700 border border-purple-200">N</span> Negotiation</span>
-                                <span class="inline-flex items-center gap-1"><span class="inline-flex items-center justify-center w-5 h-5 rounded-full text-[9px] font-bold bg-amber-100 text-amber-700 border border-amber-200">F</span> Follow-up</span>
-                                <span class="inline-flex items-center gap-1"><span class="inline-flex items-center justify-center w-5 h-5 rounded-full text-[9px] font-bold bg-blue-100 text-blue-700 border border-blue-200">D</span> Data Gathering</span>
+                            <h3 class="text-lg font-bold text-slate-800 dark:text-white">Active Negotiations</h3>
+                            <div class="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
+                                <span class="inline-flex items-center gap-1"><span class="inline-flex items-center justify-center w-5 h-5 rounded-full text-[9px] font-bold bg-purple-100 dark:bg-purple-900/40 text-purple-700 dark:text-purple-400 border border-purple-200 dark:border-purple-700">N</span> Negotiation</span>
+                                <span class="inline-flex items-center gap-1"><span class="inline-flex items-center justify-center w-5 h-5 rounded-full text-[9px] font-bold bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-700">F</span> Follow-up</span>
+                                <span class="inline-flex items-center gap-1"><span class="inline-flex items-center justify-center w-5 h-5 rounded-full text-[9px] font-bold bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-400 border border-blue-200 dark:border-blue-700">D</span> Data Gathering</span>
                             </div>
                         </div>
                         <div class="flex gap-2">
@@ -1636,7 +1649,7 @@
                             <button id="processHumanBtn" onclick="processCompletedHumanEscalations()" class="bg-amber-500 hover:bg-amber-600 text-white px-4 py-2 rounded-lg font-medium text-sm flex items-center gap-2 shadow-sm" title="Import human-completed negotiations: Scans Gmail for threads with 'Completed' + 'Human-Negotiation' labels">
                                 <i class="fa-solid fa-user-check"></i> Sync Human
                             </button>
-                            <button id="taskRefreshBtn" onclick="refreshTasksWithAnimation()" class="refresh-btn bg-white border border-slate-300 hover:bg-slate-50 text-slate-600 px-3 py-2 rounded-lg transition" title="Refresh task list">
+                            <button id="taskRefreshBtn" onclick="refreshTasksWithAnimation()" class="refresh-btn bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-600 text-slate-600 dark:text-slate-200 px-3 py-2 rounded-lg transition" title="Refresh task list">
                                 <i class="fa-solid fa-rotate"></i>
                             </button>
                         </div>
@@ -1702,8 +1715,8 @@
                     </div>
 
                     <!-- Bulk Actions -->
-                    <div id="bulkActionsBar" class="hidden mb-4 bg-blue-50 p-3 rounded-lg border border-blue-200 flex justify-between items-center">
-                        <span class="text-sm font-bold text-blue-800"><span id="taskSelectedCount">0</span> selected</span>
+                    <div id="bulkActionsBar" class="hidden mb-4 bg-blue-50 dark:bg-blue-900/20 p-3 rounded-lg border border-blue-200 dark:border-blue-800 flex justify-between items-center">
+                        <span class="text-sm font-bold text-blue-800 dark:text-blue-300"><span id="taskSelectedCount">0</span> selected</span>
                         <div class="flex gap-2">
                             <button onclick="bulkCompleteSelected()" class="bg-green-600 text-white px-3 py-1 rounded text-sm">Complete Selected</button>
                             <button onclick="clearTaskSelection()" class="bg-white border text-slate-600 px-3 py-1 rounded text-sm">Clear</button>
@@ -1711,10 +1724,10 @@
                     </div>
 
                     <!-- Task Table -->
-                    <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                    <div class="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden">
                         <div class="overflow-x-auto">
-                            <table class="w-full text-left text-sm">
-                                <thead class="bg-slate-50 border-b border-slate-100 text-xs font-bold text-slate-500 uppercase tracking-wider">
+                            <table class="w-full text-left text-sm dark:text-slate-300">
+                                <thead class="bg-slate-50 dark:bg-slate-700 border-b border-slate-100 dark:border-slate-600 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
                                     <tr>
                                         <th class="px-6 py-4 w-10 text-center"><input type="checkbox" onchange="toggleAllTasks(this)" class="task-master-check rounded"></th>
                                         <th class="px-6 py-4">Job ID</th>
@@ -1726,30 +1739,30 @@
                                         <th class="px-6 py-4 text-right">Actions</th>
                                     </tr>
                                 </thead>
-                                <tbody id="taskListBody" class="divide-y divide-slate-100"></tbody>
+                                <tbody id="taskListBody" class="divide-y divide-slate-100 dark:divide-slate-700"></tbody>
                             </table>
                         </div>
                         <!-- Empty State -->
                         <div id="emptyTaskState" class="hidden p-12 text-center">
-                            <div class="w-16 h-16 bg-slate-50 rounded-full flex items-center justify-center mx-auto mb-4">
-                                <i class="fa-solid fa-inbox text-slate-300 text-2xl"></i>
+                            <div class="w-16 h-16 bg-slate-50 dark:bg-slate-700 rounded-full flex items-center justify-center mx-auto mb-4">
+                                <i class="fa-solid fa-inbox text-slate-300 dark:text-slate-500 text-2xl"></i>
                             </div>
-                            <h3 class="text-slate-800 font-medium">No active tasks</h3>
-                            <p class="text-slate-500 text-sm">Everything is up to date.</p>
+                            <h3 class="text-slate-800 dark:text-white font-medium">No active tasks</h3>
+                            <p class="text-slate-500 dark:text-slate-400 text-sm">Everything is up to date.</p>
                         </div>
                     </div>
                     
                     <!-- AI Progress Panel (Hidden) -->
-                    <div id="aiProgressPanel" class="hidden mt-6 bg-purple-50 rounded-xl border border-purple-100 p-4">
+                    <div id="aiProgressPanel" class="hidden mt-6 bg-purple-50 dark:bg-purple-900/20 rounded-xl border border-purple-100 dark:border-purple-800 p-4">
                         <div class="flex items-center justify-between mb-2 clickable" onclick="toggleCollapse('aiProgressContent', this)">
                             <div class="flex items-center gap-3">
                                 <i class="fa-solid fa-circle-notch fa-spin text-purple-600" id="aiProgressIcon"></i>
-                                <span class="font-bold text-purple-800" id="aiProgressStatus">AI Running...</span>
+                                <span class="font-bold text-purple-800 dark:text-purple-300" id="aiProgressStatus">AI Running...</span>
                             </div>
                             <button onclick="closeProgressPanel('aiProgressPanel')"><i class="fa-solid fa-times"></i></button>
                         </div>
                         <div id="aiProgressContent" class="collapsible-content">
-                            <div id="aiLogContainer" class="text-xs font-mono bg-white p-3 rounded border border-purple-100 max-h-32 overflow-y-auto text-slate-600"></div>
+                            <div id="aiLogContainer" class="text-xs font-mono bg-white dark:bg-slate-800 p-3 rounded border border-purple-100 dark:border-purple-800 max-h-32 overflow-y-auto text-slate-600 dark:text-slate-300"></div>
                         </div>
                     </div>
                 </div>
@@ -1778,12 +1791,12 @@
                     </div>
 
                     <!-- Search Bar for Follow-Ups -->
-                    <div class="flex flex-wrap items-center gap-3 bg-white p-3 rounded-lg border border-slate-200 shadow-sm mb-4">
+                    <div class="flex flex-wrap items-center gap-3 bg-white dark:bg-slate-800 p-3 rounded-lg border border-slate-200 dark:border-slate-700 shadow-sm mb-4">
                         <div class="flex-1 min-w-[300px] relative">
                             <i class="fa-solid fa-search absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"></i>
                             <input type="text" id="followUpSearchInput"
                                 placeholder="Search by email or Dev ID (comma-separated for bulk)"
-                                class="w-full pl-10 pr-10 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                class="w-full pl-10 pr-10 py-2 border border-slate-200 dark:border-slate-600 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white dark:bg-slate-700 dark:text-white"
                                 onkeyup="handleFollowUpSearchKeyup(event)"
                                 oninput="handleFollowUpSearchInput()"
                                 autocomplete="off">
@@ -1799,10 +1812,10 @@
                     <!-- Action Bar -->
                     <div class="flex flex-wrap justify-between items-center gap-4 mb-6">
                         <div class="flex items-center gap-4">
-                            <h3 class="text-lg font-bold text-slate-800">Automated Follow-Up Queue</h3>
-                            <div class="flex items-center gap-2 text-xs text-slate-500">
-                                <span class="inline-flex items-center gap-1"><span class="inline-flex items-center justify-center w-5 h-5 rounded-full text-[9px] font-bold bg-amber-100 text-amber-700 border border-amber-200">F</span> Follow-up</span>
-                                <span class="inline-flex items-center gap-1"><span class="inline-flex items-center justify-center w-5 h-5 rounded-full text-[9px] font-bold bg-blue-100 text-blue-700 border border-blue-200">D</span> Data Gathering</span>
+                            <h3 class="text-lg font-bold text-slate-800 dark:text-white">Automated Follow-Up Queue</h3>
+                            <div class="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
+                                <span class="inline-flex items-center gap-1"><span class="inline-flex items-center justify-center w-5 h-5 rounded-full text-[9px] font-bold bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-700">F</span> Follow-up</span>
+                                <span class="inline-flex items-center gap-1"><span class="inline-flex items-center justify-center w-5 h-5 rounded-full text-[9px] font-bold bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-400 border border-blue-200 dark:border-blue-700">D</span> Data Gathering</span>
                             </div>
                         </div>
                         <div class="flex gap-2">
@@ -1816,17 +1829,17 @@
                             <button id="runFollowUpBtn" onclick="manualTriggerFollowUps()" class="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 shadow-sm" title="Send scheduled follow-ups: 1st email after ~12hrs, 2nd after ~28hrs, then mark as unresponsive">
                                 <i class="fa-solid fa-paper-plane mr-1"></i> Process Queue
                             </button>
-                            <button id="resetStatusBtn" onclick="resetFollowUpStatuses()" class="bg-white border border-slate-300 text-slate-600 px-4 py-2 rounded-lg text-sm font-medium hover:bg-slate-50" title="Reset all follow-up statuses and re-check Gmail for responses. Use for debugging only.">
+                            <button id="resetStatusBtn" onclick="resetFollowUpStatuses()" class="bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-200 px-4 py-2 rounded-lg text-sm font-medium hover:bg-slate-50 dark:hover:bg-slate-600" title="Reset all follow-up statuses and re-check Gmail for responses. Use for debugging only.">
                                 Reset Statuses
                             </button>
-                            <button id="followUpRefreshBtn" onclick="refreshFollowUpsWithAnimation()" class="refresh-btn bg-white border border-slate-300 text-slate-600 px-3 py-2 rounded-lg hover:bg-slate-50" title="Refresh follow-up queue data"><i class="fa-solid fa-rotate"></i></button>
+                            <button id="followUpRefreshBtn" onclick="refreshFollowUpsWithAnimation()" class="refresh-btn bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-200 px-3 py-2 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-600" title="Refresh follow-up queue data"><i class="fa-solid fa-rotate"></i></button>
                         </div>
                     </div>
 
                     <!-- Table -->
-                    <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-                        <table class="w-full text-left text-sm">
-                            <thead class="bg-slate-50 border-b border-slate-100 text-xs font-bold text-slate-500 uppercase">
+                    <div class="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden">
+                        <table class="w-full text-left text-sm dark:text-slate-300">
+                            <thead class="bg-slate-50 dark:bg-slate-700 border-b border-slate-100 dark:border-slate-600 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase">
                                 <tr>
                                     <th class="px-6 py-4">Job ID</th>
                                     <th class="px-6 py-4">Dev ID</th>
@@ -1837,24 +1850,24 @@
                                     <th class="px-6 py-4 text-right">Actions</th>
                                 </tr>
                             </thead>
-                            <tbody id="followUpTableBody" class="divide-y divide-slate-100"></tbody>
+                            <tbody id="followUpTableBody" class="divide-y divide-slate-100 dark:divide-slate-700"></tbody>
                         </table>
-                        <div id="emptyFollowUpState" class="hidden p-12 text-center text-slate-500">
-                            <i class="fa-solid fa-check-circle text-4xl text-green-100 mb-3 block"></i>
+                        <div id="emptyFollowUpState" class="hidden p-12 text-center text-slate-500 dark:text-slate-400">
+                            <i class="fa-solid fa-check-circle text-4xl text-green-100 dark:text-green-800 mb-3 block"></i>
                             Queue is empty.
                         </div>
                     </div>
                     <!-- FollowUp Progress Panel -->
-                    <div id="followUpProgressPanel" class="hidden mt-6 bg-blue-50 rounded-xl border border-blue-100 p-4">
+                    <div id="followUpProgressPanel" class="hidden mt-6 bg-blue-50 dark:bg-blue-900/20 rounded-xl border border-blue-100 dark:border-blue-800 p-4">
                         <div class="flex items-center justify-between mb-2 clickable" onclick="toggleCollapse('followUpProgressContent', this)">
                             <div class="flex items-center gap-3">
                                 <i class="fa-solid fa-circle-notch fa-spin text-blue-600" id="followUpProgressIcon"></i>
-                                <span class="font-bold text-blue-800" id="followUpProgressStatus">Processing...</span>
+                                <span class="font-bold text-blue-800 dark:text-blue-300" id="followUpProgressStatus">Processing...</span>
                             </div>
                             <button onclick="closeProgressPanel('followUpProgressPanel')"><i class="fa-solid fa-times"></i></button>
                         </div>
                         <div id="followUpProgressContent" class="collapsible-content">
-                            <div id="followUpLogContainer" class="text-xs font-mono bg-white p-3 rounded border border-blue-100 max-h-32 overflow-y-auto text-slate-600"></div>
+                            <div id="followUpLogContainer" class="text-xs font-mono bg-white dark:bg-slate-800 p-3 rounded border border-blue-100 dark:border-blue-800 max-h-32 overflow-y-auto text-slate-600 dark:text-slate-300"></div>
                         </div>
                     </div>
                 </div>
@@ -2154,7 +2167,7 @@
                         <div class="flex justify-between items-center">
                             <h3 class="text-xl font-bold text-slate-800 dark:text-white">Usage Analytics</h3>
                             <div class="flex gap-2">
-                                <button id="analyticsRefreshBtn" onclick="refreshAnalyticsWithAnimation()" class="refresh-btn bg-white border border-slate-300 px-3 py-2 rounded-lg text-sm hover:bg-slate-50">
+                                <button id="analyticsRefreshBtn" onclick="refreshAnalyticsWithAnimation()" class="refresh-btn bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 px-3 py-2 rounded-lg text-sm hover:bg-slate-50 dark:hover:bg-slate-600 dark:text-slate-200">
                                     <i class="fa-solid fa-rotate mr-1"></i> Refresh
                                 </button>
                                 <button id="manageViewersBtn" onclick="openViewersModal()" class="bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-indigo-700">
@@ -2163,9 +2176,9 @@
                             </div>
                         </div>
                         <!-- Filters Row -->
-                        <div class="flex flex-wrap items-center gap-3 bg-white p-3 rounded-lg border border-slate-200 shadow-sm">
+                        <div class="flex flex-wrap items-center gap-3 bg-white dark:bg-slate-800 p-3 rounded-lg border border-slate-200 dark:border-slate-700 shadow-sm">
                             <!-- Non-admin badge (hidden by default, shown for non-admin users) -->
-                            <div id="analyticsViewOnlyBadge" class="hidden flex items-center gap-2 bg-blue-50 text-blue-700 px-3 py-2 rounded-lg text-sm">
+                            <div id="analyticsViewOnlyBadge" class="hidden flex items-center gap-2 bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 px-3 py-2 rounded-lg text-sm">
                                 <i class="fa-solid fa-user-circle"></i>
                                 <span>Viewing your personal analytics</span>
                             </div>
@@ -2174,7 +2187,7 @@
                                 <i class="fa-solid fa-user absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"></i>
                                 <input type="email" id="analyticsUserFilter"
                                     placeholder="Filter by user email"
-                                    class="w-full pl-10 pr-10 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                                    class="w-full pl-10 pr-10 py-2 border border-slate-200 dark:border-slate-600 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 bg-white dark:bg-slate-700 dark:text-white"
                                     onkeyup="handleAnalyticsFilterKeyup(event)"
                                     oninput="handleAnalyticsEmailInput(event)"
                                     onfocus="handleAnalyticsEmailFocus()"
@@ -2183,7 +2196,7 @@
                                     <i class="fa-solid fa-times"></i>
                                 </button>
                                 <!-- Email Autocomplete dropdown -->
-                                <div id="analyticsEmailDropdown" class="absolute left-0 right-0 top-full mt-1 bg-white border border-slate-200 rounded-lg shadow-lg z-50 max-h-60 overflow-y-auto hidden">
+                                <div id="analyticsEmailDropdown" class="absolute left-0 right-0 top-full mt-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-lg z-50 max-h-60 overflow-y-auto hidden">
                                 </div>
                             </div>
                             <!-- Job ID Filter -->
@@ -2191,7 +2204,7 @@
                                 <i class="fa-solid fa-briefcase absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"></i>
                                 <input type="text" id="analyticsJobFilter"
                                     placeholder="Filter by Job ID"
-                                    class="w-full pl-10 pr-10 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
+                                    class="w-full pl-10 pr-10 py-2 border border-slate-200 dark:border-slate-600 rounded-lg text-sm focus:ring-2 focus:ring-amber-500 focus:border-amber-500 bg-white dark:bg-slate-700 dark:text-white"
                                     onkeyup="handleAnalyticsJobFilterKeyup(event)"
                                     oninput="handleAnalyticsJobInput(event)"
                                     onfocus="handleAnalyticsJobFocus()"
@@ -2200,7 +2213,7 @@
                                     <i class="fa-solid fa-times"></i>
                                 </button>
                                 <!-- Job ID Autocomplete dropdown -->
-                                <div id="analyticsJobDropdown" class="absolute left-0 right-0 top-full mt-1 bg-white border border-slate-200 rounded-lg shadow-lg z-50 max-h-60 overflow-y-auto hidden">
+                                <div id="analyticsJobDropdown" class="absolute left-0 right-0 top-full mt-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-lg z-50 max-h-60 overflow-y-auto hidden">
                                 </div>
                             </div>
                             <button onclick="applyAnalyticsFilter()" class="bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-indigo-700">
@@ -2211,23 +2224,23 @@
                             </button>
                         </div>
                         <!-- Date Range Filter Row -->
-                        <div class="flex flex-wrap items-center gap-3 bg-white p-3 rounded-lg border border-slate-200 shadow-sm">
-                            <div class="flex items-center gap-2 text-sm text-slate-600">
+                        <div class="flex flex-wrap items-center gap-3 bg-white dark:bg-slate-800 p-3 rounded-lg border border-slate-200 dark:border-slate-700 shadow-sm">
+                            <div class="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
                                 <i class="fa-solid fa-calendar-days text-slate-400"></i>
                                 <span class="font-medium">Date Range:</span>
                             </div>
                             <!-- Quick Presets -->
                             <div class="flex gap-1">
-                                <button onclick="setAnalyticsDatePreset('today')" class="analytics-date-preset px-3 py-1.5 rounded-lg text-xs font-medium border border-slate-200 hover:bg-slate-100 transition-colors" data-preset="today">
+                                <button onclick="setAnalyticsDatePreset('today')" class="analytics-date-preset px-3 py-1.5 rounded-lg text-xs font-medium border border-slate-200 dark:border-slate-600 hover:bg-slate-100 dark:hover:bg-slate-700 dark:text-slate-300 transition-colors" data-preset="today">
                                     Today
                                 </button>
-                                <button onclick="setAnalyticsDatePreset('7days')" class="analytics-date-preset px-3 py-1.5 rounded-lg text-xs font-medium border border-slate-200 hover:bg-slate-100 transition-colors" data-preset="7days">
+                                <button onclick="setAnalyticsDatePreset('7days')" class="analytics-date-preset px-3 py-1.5 rounded-lg text-xs font-medium border border-slate-200 dark:border-slate-600 hover:bg-slate-100 dark:hover:bg-slate-700 dark:text-slate-300 transition-colors" data-preset="7days">
                                     Last 7 Days
                                 </button>
-                                <button onclick="setAnalyticsDatePreset('30days')" class="analytics-date-preset px-3 py-1.5 rounded-lg text-xs font-medium border border-slate-200 hover:bg-slate-100 transition-colors" data-preset="30days">
+                                <button onclick="setAnalyticsDatePreset('30days')" class="analytics-date-preset px-3 py-1.5 rounded-lg text-xs font-medium border border-slate-200 dark:border-slate-600 hover:bg-slate-100 dark:hover:bg-slate-700 dark:text-slate-300 transition-colors" data-preset="30days">
                                     Last 30 Days
                                 </button>
-                                <button onclick="setAnalyticsDatePreset('all')" class="analytics-date-preset px-3 py-1.5 rounded-lg text-xs font-medium border border-slate-200 hover:bg-slate-100 transition-colors bg-teal-50 border-teal-300 text-teal-700" data-preset="all">
+                                <button onclick="setAnalyticsDatePreset('all')" class="analytics-date-preset px-3 py-1.5 rounded-lg text-xs font-medium border border-slate-200 dark:border-slate-600 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors bg-teal-50 dark:bg-teal-900/30 border-teal-300 dark:border-teal-700 text-teal-700 dark:text-teal-400" data-preset="all">
                                     All Time
                                 </button>
                             </div>
@@ -2236,13 +2249,13 @@
                             <div class="flex items-center gap-2">
                                 <div class="relative">
                                     <input type="date" id="analyticsStartDate"
-                                        class="px-3 py-1.5 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-teal-500 focus:border-teal-500"
+                                        class="px-3 py-1.5 border border-slate-200 dark:border-slate-600 rounded-lg text-sm focus:ring-2 focus:ring-teal-500 focus:border-teal-500 bg-white dark:bg-slate-700 dark:text-white"
                                         onchange="handleAnalyticsDateChange()">
                                 </div>
                                 <span class="text-slate-400 text-sm">to</span>
                                 <div class="relative">
                                     <input type="date" id="analyticsEndDate"
-                                        class="px-3 py-1.5 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-teal-500 focus:border-teal-500"
+                                        class="px-3 py-1.5 border border-slate-200 dark:border-slate-600 rounded-lg text-sm focus:ring-2 focus:ring-teal-500 focus:border-teal-500 bg-white dark:bg-slate-700 dark:text-white"
                                         onchange="handleAnalyticsDateChange()">
                                 </div>
                                 <button onclick="applyAnalyticsDateRange()" class="bg-teal-600 text-white px-3 py-1.5 rounded-lg text-xs font-medium hover:bg-teal-700 transition-colors">
@@ -2254,7 +2267,7 @@
                             </div>
                         </div>
                         <!-- Filter Status -->
-                        <div id="analyticsFilterStatus" class="hidden flex flex-wrap items-center gap-2 text-xs text-slate-500 bg-slate-50 px-3 py-2 rounded-lg">
+                        <div id="analyticsFilterStatus" class="hidden flex flex-wrap items-center gap-2 text-xs text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-800 px-3 py-2 rounded-lg">
                             <span>Filtering:</span>
                             <span id="analyticsFilterEmailBadge" class="hidden bg-indigo-100 text-indigo-700 px-2 py-1 rounded-full font-medium">
                                 <i class="fa-solid fa-user mr-1"></i><span id="analyticsFilterEmailText"></span>
@@ -2327,26 +2340,26 @@
                     </div>
 
                     <!-- User Activity Table with Job ID Pivot -->
-                    <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden mb-8">
-                        <div class="px-6 py-4 border-b border-slate-100">
+                    <div class="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden mb-8">
+                        <div class="px-6 py-4 border-b border-slate-100 dark:border-slate-700">
                             <div class="flex items-center justify-between">
                                 <div class="flex items-center gap-3">
-                                    <div class="bg-indigo-100 p-2 rounded-lg">
-                                        <i class="fa-solid fa-users text-indigo-600"></i>
+                                    <div class="bg-indigo-100 dark:bg-indigo-900/30 p-2 rounded-lg">
+                                        <i class="fa-solid fa-users text-indigo-600 dark:text-indigo-400"></i>
                                     </div>
                                     <div>
-                                        <h4 class="font-bold text-slate-800">User Activity</h4>
-                                        <p class="text-xs text-slate-500">Click on a user row to expand job-level breakdown</p>
+                                        <h4 class="font-bold text-slate-800 dark:text-white">User Activity</h4>
+                                        <p class="text-xs text-slate-500 dark:text-slate-400">Click on a user row to expand job-level breakdown</p>
                                     </div>
                                 </div>
-                                <button onclick="toggleAllUserRows()" id="toggleAllRowsBtn" class="text-xs px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg transition-colors">
+                                <button onclick="toggleAllUserRows()" id="toggleAllRowsBtn" class="text-xs px-3 py-1.5 bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 text-slate-600 dark:text-slate-300 rounded-lg transition-colors">
                                     <i class="fa-solid fa-expand-alt mr-1"></i> Expand All
                                 </button>
                             </div>
                         </div>
                         <div class="overflow-x-auto">
-                            <table class="w-full text-left text-sm">
-                                <thead class="bg-slate-50 text-xs font-bold text-slate-500 uppercase">
+                            <table class="w-full text-left text-sm dark:text-slate-300">
+                                <thead class="bg-slate-50 dark:bg-slate-700 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase">
                                     <tr>
                                         <th class="px-6 py-3 w-8"></th>
                                         <th class="px-6 py-3">User Email / Job ID</th>
@@ -2358,7 +2371,7 @@
                                         <th class="px-6 py-3">Last Active</th>
                                     </tr>
                                 </thead>
-                                <tbody id="userStatsTableBody" class="divide-y divide-slate-100">
+                                <tbody id="userStatsTableBody" class="divide-y divide-slate-100 dark:divide-slate-700">
                                     <tr id="userStatsEmptyState">
                                         <td colspan="8" class="px-6 py-8 text-center text-slate-400">
                                             <i class="fa-regular fa-folder-open text-2xl mb-2 block"></i>
@@ -2373,15 +2386,15 @@
                     <!-- Performance Charts Section -->
                     <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
                         <!-- Conversion Funnel Chart -->
-                        <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+                        <div class="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 p-6">
                             <div class="flex items-center justify-between mb-4">
                                 <div class="flex items-center gap-3">
                                     <div class="bg-gradient-to-br from-blue-500 to-indigo-600 p-2 rounded-lg">
                                         <i class="fa-solid fa-filter text-white"></i>
                                     </div>
                                     <div>
-                                        <h4 class="font-bold text-slate-800">Conversion Funnel</h4>
-                                        <p class="text-xs text-slate-500">Candidate journey from outreach to acceptance</p>
+                                        <h4 class="font-bold text-slate-800 dark:text-white">Conversion Funnel</h4>
+                                        <p class="text-xs text-slate-500 dark:text-slate-400">Candidate journey from outreach to acceptance</p>
                                     </div>
                                 </div>
                                 <button onclick="refreshChartData()" class="text-slate-400 hover:text-slate-600 p-2 rounded-lg hover:bg-slate-100 transition-colors">
@@ -2391,7 +2404,7 @@
                             <div class="relative h-64">
                                 <canvas id="funnelChart"></canvas>
                             </div>
-                            <div id="funnelStats" class="grid grid-cols-4 gap-2 mt-4 pt-4 border-t border-slate-100">
+                            <div id="funnelStats" class="grid grid-cols-4 gap-2 mt-4 pt-4 border-t border-slate-100 dark:border-slate-700">
                                 <div class="text-center">
                                     <div class="text-lg font-bold text-blue-600" id="funnelOutreach">-</div>
                                     <div class="text-xs text-slate-500">Outreach</div>
@@ -2412,22 +2425,22 @@
                         </div>
 
                         <!-- Response Time Distribution Chart -->
-                        <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+                        <div class="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 p-6">
                             <div class="flex items-center justify-between mb-4">
                                 <div class="flex items-center gap-3">
                                     <div class="bg-gradient-to-br from-emerald-500 to-teal-600 p-2 rounded-lg">
                                         <i class="fa-solid fa-clock text-white"></i>
                                     </div>
                                     <div>
-                                        <h4 class="font-bold text-slate-800">Response Time Distribution</h4>
-                                        <p class="text-xs text-slate-500">How quickly candidates respond to outreach</p>
+                                        <h4 class="font-bold text-slate-800 dark:text-white">Response Time Distribution</h4>
+                                        <p class="text-xs text-slate-500 dark:text-slate-400">How quickly candidates respond to outreach</p>
                                     </div>
                                 </div>
                             </div>
                             <div class="relative h-64">
                                 <canvas id="responseTimeChart"></canvas>
                             </div>
-                            <div id="responseTimeStats" class="grid grid-cols-3 gap-2 mt-4 pt-4 border-t border-slate-100">
+                            <div id="responseTimeStats" class="grid grid-cols-3 gap-2 mt-4 pt-4 border-t border-slate-100 dark:border-slate-700">
                                 <div class="text-center">
                                     <div class="text-lg font-bold text-emerald-600" id="avgResponseTime">-</div>
                                     <div class="text-xs text-slate-500">Avg Response</div>
@@ -2447,48 +2460,48 @@
                     <!-- Secondary Charts Row -->
                     <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
                         <!-- Outcome Breakdown Pie Chart -->
-                        <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+                        <div class="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 p-6">
                             <div class="flex items-center gap-3 mb-4">
                                 <div class="bg-gradient-to-br from-purple-500 to-pink-600 p-2 rounded-lg">
                                     <i class="fa-solid fa-chart-pie text-white"></i>
                                 </div>
                                 <div>
-                                    <h4 class="font-bold text-slate-800">Negotiation Outcomes</h4>
-                                    <p class="text-xs text-slate-500">Distribution of negotiation results</p>
+                                    <h4 class="font-bold text-slate-800 dark:text-white">Negotiation Outcomes</h4>
+                                    <p class="text-xs text-slate-500 dark:text-slate-400">Distribution of negotiation results</p>
                                 </div>
                             </div>
                             <div class="relative h-56">
                                 <canvas id="outcomeChart"></canvas>
                             </div>
-                            <div id="outcomeStats" class="flex flex-wrap justify-center gap-3 mt-4 pt-4 border-t border-slate-100">
+                            <div id="outcomeStats" class="flex flex-wrap justify-center gap-3 mt-4 pt-4 border-t border-slate-100 dark:border-slate-700">
                                 <div class="flex items-center gap-1.5 text-xs">
                                     <span class="w-3 h-3 rounded-full bg-emerald-500"></span>
-                                    <span class="text-slate-600">Accepted: <strong id="outcomeAccepted">0</strong></span>
+                                    <span class="text-slate-600 dark:text-slate-300">Accepted: <strong id="outcomeAccepted">0</strong></span>
                                 </div>
                                 <div class="flex items-center gap-1.5 text-xs">
                                     <span class="w-3 h-3 rounded-full bg-red-500"></span>
-                                    <span class="text-slate-600">Rejected: <strong id="outcomeRejected">0</strong></span>
+                                    <span class="text-slate-600 dark:text-slate-300">Rejected: <strong id="outcomeRejected">0</strong></span>
                                 </div>
                                 <div class="flex items-center gap-1.5 text-xs">
                                     <span class="w-3 h-3 rounded-full bg-amber-500"></span>
-                                    <span class="text-slate-600">Escalated: <strong id="outcomeEscalated">0</strong></span>
+                                    <span class="text-slate-600 dark:text-slate-300">Escalated: <strong id="outcomeEscalated">0</strong></span>
                                 </div>
                                 <div class="flex items-center gap-1.5 text-xs">
                                     <span class="w-3 h-3 rounded-full bg-slate-400"></span>
-                                    <span class="text-slate-600">Unresponsive: <strong id="outcomeUnresponsive">0</strong></span>
+                                    <span class="text-slate-600 dark:text-slate-300">Unresponsive: <strong id="outcomeUnresponsive">0</strong></span>
                                 </div>
                             </div>
                         </div>
 
                         <!-- Top Performing Jobs -->
-                        <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+                        <div class="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 p-6">
                             <div class="flex items-center gap-3 mb-4">
                                 <div class="bg-gradient-to-br from-amber-500 to-orange-600 p-2 rounded-lg">
                                     <i class="fa-solid fa-trophy text-white"></i>
                                 </div>
                                 <div>
-                                    <h4 class="font-bold text-slate-800">Top Performing Jobs</h4>
-                                    <p class="text-xs text-slate-500">Jobs with best response & acceptance rates</p>
+                                    <h4 class="font-bold text-slate-800 dark:text-white">Top Performing Jobs</h4>
+                                    <p class="text-xs text-slate-500 dark:text-slate-400">Jobs with best response & acceptance rates</p>
                                 </div>
                             </div>
                             <div id="topJobsList" class="space-y-3 max-h-64 overflow-y-auto">
@@ -2497,8 +2510,8 @@
                                     <span class="text-sm">No job data yet</span>
                                 </div>
                             </div>
-                            <div id="topJobsStats" class="flex justify-between mt-4 pt-4 border-t border-slate-100 text-xs text-slate-500">
-                                <span>Total Jobs: <strong id="totalJobsCount" class="text-slate-700">0</strong></span>
+                            <div id="topJobsStats" class="flex justify-between mt-4 pt-4 border-t border-slate-100 dark:border-slate-700 text-xs text-slate-500 dark:text-slate-400">
+                                <span>Total Jobs: <strong id="totalJobsCount" class="text-slate-700 dark:text-slate-200">0</strong></span>
                                 <span>Avg Response Rate: <strong id="avgJobResponseRate" class="text-emerald-600">-</strong></span>
                             </div>
                         </div>
@@ -2506,14 +2519,14 @@
 
                     <!-- Split Charts -->
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+                        <div class="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 p-6">
                             <div class="flex items-center gap-3 mb-4">
-                                <div class="bg-emerald-100 p-2 rounded-lg">
-                                    <i class="fa-solid fa-user-check text-emerald-600"></i>
+                                <div class="bg-emerald-100 dark:bg-emerald-900/30 p-2 rounded-lg">
+                                    <i class="fa-solid fa-user-check text-emerald-600 dark:text-emerald-400"></i>
                                 </div>
                                 <div>
-                                    <h4 class="font-bold text-slate-800">Emails by User</h4>
-                                    <p class="text-xs text-slate-500">Email distribution across team members</p>
+                                    <h4 class="font-bold text-slate-800 dark:text-white">Emails by User</h4>
+                                    <p class="text-xs text-slate-500 dark:text-slate-400">Email distribution across team members</p>
                                 </div>
                             </div>
                             <div id="emailUsersList" class="space-y-3">
@@ -2523,14 +2536,14 @@
                                 </div>
                             </div>
                         </div>
-                        <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+                        <div class="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 p-6">
                             <div class="flex items-center gap-3 mb-4">
-                                <div class="bg-amber-100 p-2 rounded-lg">
-                                    <i class="fa-solid fa-briefcase text-amber-600"></i>
+                                <div class="bg-amber-100 dark:bg-amber-900/30 p-2 rounded-lg">
+                                    <i class="fa-solid fa-briefcase text-amber-600 dark:text-amber-400"></i>
                                 </div>
                                 <div>
-                                    <h4 class="font-bold text-slate-800">Emails by Job</h4>
-                                    <p class="text-xs text-slate-500">Email activity grouped by job ID</p>
+                                    <h4 class="font-bold text-slate-800 dark:text-white">Emails by Job</h4>
+                                    <p class="text-xs text-slate-500 dark:text-slate-400">Email activity grouped by job ID</p>
                                 </div>
                             </div>
                             <div id="emailJobsList" class="space-y-2">
@@ -2544,14 +2557,14 @@
 
                     <!-- Completed Breakdown Section -->
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mt-6">
-                        <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+                        <div class="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 p-6">
                             <div class="flex items-center gap-3 mb-4">
-                                <div class="bg-blue-100 p-2 rounded-lg">
-                                    <i class="fa-solid fa-user-check text-blue-600"></i>
+                                <div class="bg-blue-100 dark:bg-blue-900/30 p-2 rounded-lg">
+                                    <i class="fa-solid fa-user-check text-blue-600 dark:text-blue-400"></i>
                                 </div>
                                 <div>
-                                    <h4 class="font-bold text-slate-800">Completed by User</h4>
-                                    <p class="text-xs text-slate-500">Completion distribution across team members</p>
+                                    <h4 class="font-bold text-slate-800 dark:text-white">Completed by User</h4>
+                                    <p class="text-xs text-slate-500 dark:text-slate-400">Completion distribution across team members</p>
                                 </div>
                             </div>
                             <div id="completedUsersList" class="space-y-3">
@@ -2561,14 +2574,14 @@
                                 </div>
                             </div>
                         </div>
-                        <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+                        <div class="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 p-6">
                             <div class="flex items-center gap-3 mb-4">
-                                <div class="bg-purple-100 p-2 rounded-lg">
-                                    <i class="fa-solid fa-clipboard-check text-purple-600"></i>
+                                <div class="bg-purple-100 dark:bg-purple-900/30 p-2 rounded-lg">
+                                    <i class="fa-solid fa-clipboard-check text-purple-600 dark:text-purple-400"></i>
                                 </div>
                                 <div>
-                                    <h4 class="font-bold text-slate-800">Completed by Job</h4>
-                                    <p class="text-xs text-slate-500">Completions grouped by job ID</p>
+                                    <h4 class="font-bold text-slate-800 dark:text-white">Completed by Job</h4>
+                                    <p class="text-xs text-slate-500 dark:text-slate-400">Completions grouped by job ID</p>
                                 </div>
                             </div>
                             <div id="completedJobsList" class="space-y-2">
@@ -2654,7 +2667,7 @@
                                 <p class="text-sm text-slate-500">Review and approve learnings from successful human escalations to improve AI negotiations.</p>
                             </div>
                             <div class="flex gap-2">
-                                <button id="learningRefreshBtn" onclick="refreshLearningCasesWithAnimation()" class="refresh-btn bg-white border border-slate-300 px-3 py-2 rounded-lg text-sm hover:bg-slate-50">
+                                <button id="learningRefreshBtn" onclick="refreshLearningCasesWithAnimation()" class="refresh-btn bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 px-3 py-2 rounded-lg text-sm hover:bg-slate-50 dark:hover:bg-slate-600 dark:text-slate-200">
                                     <i class="fa-solid fa-rotate mr-1"></i> Refresh
                                 </button>
                                 <button onclick="consolidateLearnings()" class="bg-green-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-green-700">
@@ -3520,7 +3533,7 @@
             <!-- Modal Header -->
             <div class="p-6 border-b border-slate-100 dark:border-slate-700 flex justify-between items-center">
                 <div>
-                    <h2 class="font-bold text-xl">Draft Email Campaign</h2>
+                    <h2 class="font-bold text-xl dark:text-white">Draft Email Campaign</h2>
                     <p class="text-sm text-slate-500 dark:text-slate-400 mt-1">Compose and send bulk emails with formatting</p>
                 </div>
                 <button onclick="closeEmailPanel()" class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 text-xl">
@@ -3691,13 +3704,13 @@
 
     <!-- Manual Input Modal -->
     <div id="manualInputModal" class="fixed inset-0 z-50 hidden bg-black/50 backdrop-blur-sm flex items-center justify-center">
-        <div class="bg-white p-6 rounded-xl shadow-xl w-full max-w-lg">
-            <h3 class="font-bold mb-2">Manual Entry</h3>
-            <p class="text-xs text-slate-500 mb-2">Format: email, name, region/country (one per line)</p>
+        <div class="bg-white dark:bg-slate-800 p-6 rounded-xl shadow-xl w-full max-w-lg">
+            <h3 class="font-bold mb-2 dark:text-white">Manual Entry</h3>
+            <p class="text-xs text-slate-500 dark:text-slate-400 mb-2">Format: email, name, region/country (one per line)</p>
             <textarea id="manualDataInput" class="input-field h-32 mb-2" placeholder="john@example.com, John Doe, India&#10;jane@test.com, Jane Smith, Brazil"></textarea>
             <div id="manualEntryValidation" class="hidden mb-3 p-3 rounded-lg text-sm max-h-32 overflow-y-auto"></div>
             <div class="flex justify-end gap-2">
-                <button onclick="closeManualEntryModal()" class="px-4 py-2 bg-slate-100 rounded-lg">Cancel</button>
+                <button onclick="closeManualEntryModal()" class="px-4 py-2 bg-slate-100 dark:bg-slate-700 dark:text-slate-300 rounded-lg">Cancel</button>
                 <button onclick="validateManualData()" class="px-4 py-2 bg-amber-500 text-white rounded-lg"><i class="fa-solid fa-check-double mr-1"></i>Validate</button>
                 <button onclick="loadManualData()" class="px-4 py-2 bg-blue-600 text-white rounded-lg">Load Data</button>
             </div>
@@ -3706,24 +3719,24 @@
 
     <!-- AI Notes Modal - Comprehensive Summary -->
     <div id="notesModal" class="fixed inset-0 z-50 hidden bg-black/50 backdrop-blur-sm flex items-center justify-center">
-        <div class="bg-white p-6 rounded-xl shadow-xl w-full max-w-2xl">
-            <h3 class="font-bold mb-4 text-purple-700 flex items-center gap-2">
+        <div class="bg-white dark:bg-slate-800 p-6 rounded-xl shadow-xl w-full max-w-2xl">
+            <h3 class="font-bold mb-4 text-purple-700 dark:text-purple-400 flex items-center gap-2">
                 <i class="fa-solid fa-robot"></i> AI Summary
                 <span class="text-xs font-normal text-slate-400">(Email + Data + Negotiation)</span>
             </h3>
-            <div id="notesModalContent" class="bg-slate-50 p-4 rounded-lg text-sm text-slate-700 mb-4 max-h-96 overflow-y-auto whitespace-pre-wrap leading-relaxed"></div>
+            <div id="notesModalContent" class="bg-slate-50 dark:bg-slate-700 p-4 rounded-lg text-sm text-slate-700 dark:text-slate-300 mb-4 max-h-96 overflow-y-auto whitespace-pre-wrap leading-relaxed"></div>
             <div class="flex justify-end">
-                <button onclick="document.getElementById('notesModal').classList.add('hidden')" class="px-4 py-2 bg-slate-100 hover:bg-slate-200 rounded-lg transition">Close</button>
+                <button onclick="document.getElementById('notesModal').classList.add('hidden')" class="px-4 py-2 bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 dark:text-slate-300 rounded-lg transition">Close</button>
             </div>
         </div>
     </div>
 
     <!-- Complete Human Modal -->
     <div id="completeHumanModal" class="fixed inset-0 z-50 hidden bg-black/50 backdrop-blur-sm flex items-center justify-center">
-        <div class="bg-white p-6 rounded-xl shadow-xl w-full max-w-md">
-            <h3 class="font-bold mb-4 text-green-700">Complete Negotiation</h3>
-            <p class="text-sm mb-1 text-slate-500">Candidate: <span id="completeHumanEmail" class="font-medium text-slate-800"></span></p>
-            
+        <div class="bg-white dark:bg-slate-800 p-6 rounded-xl shadow-xl w-full max-w-md">
+            <h3 class="font-bold mb-4 text-green-700 dark:text-green-400">Complete Negotiation</h3>
+            <p class="text-sm mb-1 text-slate-500 dark:text-slate-400">Candidate: <span id="completeHumanEmail" class="font-medium text-slate-800 dark:text-white"></span></p>
+
             <div class="my-4">
                 <label class="block text-xs font-bold uppercase text-slate-500 mb-1">Agreed Rate</label>
                 <div class="relative">
@@ -3731,11 +3744,11 @@
                     <input type="number" id="agreedRateInput" class="input-field pl-6" placeholder="0.00">
                 </div>
                 <div class="mt-2 flex items-center gap-2">
-                    <input type="checkbox" id="noRateAgreed" onchange="toggleRateInput()" class="rounded border-slate-300">
-                    <label for="noRateAgreed" class="text-sm text-slate-600">No rate agreed (Closed/Rejected)</label>
+                    <input type="checkbox" id="noRateAgreed" onchange="toggleRateInput()" class="rounded border-slate-300 dark:border-slate-600">
+                    <label for="noRateAgreed" class="text-sm text-slate-600 dark:text-slate-300">No rate agreed (Closed/Rejected)</label>
                 </div>
             </div>
-            
+
             <div class="mb-4">
                 <label class="block text-xs font-bold uppercase text-slate-500 mb-1">Outcome</label>
                 <select id="completionStatus" class="input-field">
@@ -3747,7 +3760,7 @@
             </div>
 
             <div class="flex justify-end gap-2">
-                <button onclick="closeCompleteHumanModal()" class="px-4 py-2 bg-slate-100 rounded-lg">Cancel</button>
+                <button onclick="closeCompleteHumanModal()" class="px-4 py-2 bg-slate-100 dark:bg-slate-700 dark:text-slate-300 rounded-lg">Cancel</button>
                 <button id="completeHumanBtn" onclick="submitCompleteHuman()" class="px-4 py-2 bg-green-600 text-white rounded-lg">Complete</button>
             </div>
         </div>
@@ -4330,10 +4343,10 @@
 
             if (isFollowUp) {
                 // Follow-up items always get F badge (they only appear if follow-up is enabled)
-                badges.push('<span class="inline-flex items-center justify-center w-6 h-6 rounded-full text-[10px] font-bold bg-amber-100 text-amber-700 border border-amber-200" title="Follow-up">F</span>');
+                badges.push('<span class="inline-flex items-center justify-center w-6 h-6 rounded-full text-[10px] font-bold bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-700" title="Follow-up">F</span>');
                 // If still pending, also gathering data
                 if (status === 'Pending') {
-                    badges.push('<span class="inline-flex items-center justify-center w-6 h-6 rounded-full text-[10px] font-bold bg-blue-100 text-blue-700 border border-blue-200" title="Data Gathering">D</span>');
+                    badges.push('<span class="inline-flex items-center justify-center w-6 h-6 rounded-full text-[10px] font-bold bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-400 border border-blue-200 dark:border-blue-700" title="Data Gathering">D</span>');
                 }
             } else {
                 // Task items
@@ -4348,13 +4361,13 @@
 
                 // Data Gathering: Initial outreach or gathering info (only if enabled)
                 if (showDataGathering && (tagsLower.includes('initial') || tagsLower.includes('outreach'))) {
-                    badges.push('<span class="inline-flex items-center justify-center w-6 h-6 rounded-full text-[10px] font-bold bg-blue-100 text-blue-700 border border-blue-200" title="Data Gathering">D</span>');
+                    badges.push('<span class="inline-flex items-center justify-center w-6 h-6 rounded-full text-[10px] font-bold bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-400 border border-blue-200 dark:border-blue-700" title="Data Gathering">D</span>');
                 }
 
                 // Negotiation: AI attempts or human negotiation or actively negotiating (only if enabled)
                 if (showNegotiation && (tagsLower.includes('attempt') || tagsLower.includes('negotiat') ||
                     statusLower.includes('negotiat') || typeLower === 'negotiating')) {
-                    badges.push('<span class="inline-flex items-center justify-center w-6 h-6 rounded-full text-[10px] font-bold bg-purple-100 text-purple-700 border border-purple-200" title="Negotiation">N</span>');
+                    badges.push('<span class="inline-flex items-center justify-center w-6 h-6 rounded-full text-[10px] font-bold bg-purple-100 dark:bg-purple-900/40 text-purple-700 dark:text-purple-400 border border-purple-200 dark:border-purple-700" title="Negotiation">N</span>');
                 }
 
                 // Follow-up: Show if follow-up is enabled AND candidate is in a status that would receive follow-ups
@@ -4366,22 +4379,22 @@
                     tagsLower.includes('outreach') ||
                     statusLower.includes('pending')
                 )) {
-                    badges.push('<span class="inline-flex items-center justify-center w-6 h-6 rounded-full text-[10px] font-bold bg-amber-100 text-amber-700 border border-amber-200" title="Follow-up">F</span>');
+                    badges.push('<span class="inline-flex items-center justify-center w-6 h-6 rounded-full text-[10px] font-bold bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-700" title="Follow-up">F</span>');
                 }
 
                 // If accepted, show a checkmark badge (always show - this is a completion status)
                 if (statusLower.includes('accepted') || tagsLower.includes('completed')) {
-                    badges.push('<span class="inline-flex items-center justify-center w-6 h-6 rounded-full text-[10px] font-bold bg-green-100 text-green-700 border border-green-200" title="Completed"><i class="fa-solid fa-check text-[8px]"></i></span>');
+                    badges.push('<span class="inline-flex items-center justify-center w-6 h-6 rounded-full text-[10px] font-bold bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-400 border border-green-200 dark:border-green-700" title="Completed"><i class="fa-solid fa-check text-[8px]"></i></span>');
                 }
 
                 // Incomplete Data: Show warning badge when candidate hasn't provided all required data after follow-ups
                 if (statusLower.includes('incomplete data') || tagsLower.includes('incomplete')) {
-                    badges.push('<span class="inline-flex items-center justify-center w-6 h-6 rounded-full text-[10px] font-bold bg-red-100 text-red-700 border border-red-200" title="Incomplete Data - Needs Human Review"><i class="fa-solid fa-exclamation text-[8px]"></i></span>');
+                    badges.push('<span class="inline-flex items-center justify-center w-6 h-6 rounded-full text-[10px] font-bold bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-400 border border-red-200 dark:border-red-700" title="Incomplete Data - Needs Human Review"><i class="fa-solid fa-exclamation text-[8px]"></i></span>');
                 }
 
                 // Data Follow-up in progress: Show when data follow-ups are being sent
                 if (statusLower.includes('data follow') || tagsLower.includes('data follow')) {
-                    badges.push('<span class="inline-flex items-center justify-center w-6 h-6 rounded-full text-[10px] font-bold bg-orange-100 text-orange-700 border border-orange-200" title="Data Follow-up In Progress">DF</span>');
+                    badges.push('<span class="inline-flex items-center justify-center w-6 h-6 rounded-full text-[10px] font-bold bg-orange-100 dark:bg-orange-900/40 text-orange-700 dark:text-orange-400 border border-orange-200 dark:border-orange-700" title="Data Follow-up In Progress">DF</span>');
                 }
             }
 
@@ -5215,21 +5228,21 @@
                 let typeBadge = '';
                 const candidateType = d.candidate_status || 'Independent';
                 if (candidateType === 'Agency Sub-Contractor') {
-                    typeBadge = `<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-bold bg-orange-100 text-orange-700 border border-orange-200"><i class="fa-solid fa-people-arrows text-[10px]"></i> SUB-CON</span>`;
+                    typeBadge = `<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-bold bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-400 border border-orange-200 dark:border-orange-700"><i class="fa-solid fa-people-arrows text-[10px]"></i> SUB-CON</span>`;
                 } else if (candidateType === 'Agency Contractor') {
-                    typeBadge = `<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-bold bg-purple-100 text-purple-700 border border-purple-200"><i class="fa-solid fa-building text-[10px]"></i> AGENCY</span>`;
+                    typeBadge = `<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-bold bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-400 border border-purple-200 dark:border-purple-700"><i class="fa-solid fa-building text-[10px]"></i> AGENCY</span>`;
                 } else {
-                    typeBadge = `<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-bold bg-green-100 text-green-700 border border-green-200"><i class="fa-solid fa-user text-[10px]"></i> DIRECT</span>`;
+                    typeBadge = `<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-bold bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 border border-green-200 dark:border-green-700"><i class="fa-solid fa-user text-[10px]"></i> DIRECT</span>`;
                 }
 
                 // History badge with colors
                 let historyBadge = '';
                 if (d.is_sent && !d.is_manual_sent) {
-                    historyBadge = `<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-bold bg-red-100 text-red-700 border border-red-200"><i class="fa-solid fa-paper-plane text-[10px]"></i> Sent</span>`;
+                    historyBadge = `<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-bold bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400 border border-red-200 dark:border-red-700"><i class="fa-solid fa-paper-plane text-[10px]"></i> Sent</span>`;
                 } else if (d.is_manual_sent) {
-                    historyBadge = `<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-bold bg-amber-100 text-amber-700 border border-amber-200"><i class="fa-solid fa-hand text-[10px]"></i> M.Sent</span>`;
+                    historyBadge = `<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-bold bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-700"><i class="fa-solid fa-hand text-[10px]"></i> M.Sent</span>`;
                 } else {
-                    historyBadge = `<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-bold bg-emerald-100 text-emerald-700 border border-emerald-200"><i class="fa-solid fa-sparkles text-[10px]"></i> New</span>`;
+                    historyBadge = `<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-bold bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-700"><i class="fa-solid fa-sparkles text-[10px]"></i> New</span>`;
                 }
 
                 // Row class for sent status
@@ -5460,14 +5473,14 @@
                     
                     tasks.forEach(t => {
                         const tr = document.createElement('tr');
-                        tr.className = "hover:bg-slate-50 border-b border-slate-50 transition task-row";
+                        tr.className = "hover:bg-slate-50 dark:hover:bg-slate-700 border-b border-slate-50 dark:border-slate-700 transition task-row";
                         tr.dataset.email = t.email;
                         
                         // Badge Logic
-                        let badgeClass = 'bg-blue-100 text-blue-700';
-                        if(t.tags.includes('Human')) badgeClass = 'bg-amber-100 text-amber-700';
-                        else if(t.status === 'Offer Accepted') badgeClass = 'bg-green-100 text-green-700';
-                        else if(t.status === 'Completed' || t.type === 'Completed') badgeClass = 'bg-teal-100 text-teal-700';
+                        let badgeClass = 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400';
+                        if(t.tags.includes('Human')) badgeClass = 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400';
+                        else if(t.status === 'Offer Accepted') badgeClass = 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400';
+                        else if(t.status === 'Completed' || t.type === 'Completed') badgeClass = 'bg-teal-100 dark:bg-teal-900/30 text-teal-700 dark:text-teal-400';
 
                         // Status initials badges (N/F/D) - use job settings to show only enabled features
                         const taskJobSettings = jobSettingsMap[t.jobId] || null;
@@ -5479,10 +5492,10 @@
                         tr.innerHTML = `
                             <td class="px-6 py-4 text-center"><input type="checkbox" class="task-check rounded" onchange="toggleTaskSelection('${t.email}')" ${isChecked}></td>
                             <td class="px-6 py-4 font-mono text-xs">${t.jobId}</td>
-                            <td class="px-6 py-4 font-mono text-xs text-slate-600">${t.devId || 'N/A'}</td>
+                            <td class="px-6 py-4 font-mono text-xs text-slate-600 dark:text-slate-400">${t.devId || 'N/A'}</td>
                             <td class="px-6 py-4">
                                 <div class="flex items-center gap-2">
-                                    <span class="font-bold text-slate-800">${t.name}</span>
+                                    <span class="font-bold text-slate-800 dark:text-white">${t.name}</span>
                                     ${statusBadges}
                                 </div>
                             </td>
@@ -5706,21 +5719,21 @@
                     document.getElementById('emptyFollowUpState').classList.add('hidden');
                     data.forEach(item => {
                         const tr = document.createElement('tr');
-                        tr.className = "hover:bg-slate-50 border-b border-slate-50";
+                        tr.className = "hover:bg-slate-50 dark:hover:bg-slate-700 border-b border-slate-50 dark:border-slate-700";
 
                         // Status badge colors
                         let statusBadge = '';
                         const status = item.followUpStatus || 'Pending';
                         if(status === 'Pending') {
-                            statusBadge = '<span class="px-2 py-1 rounded text-xs font-bold bg-slate-100 text-slate-700">Pending</span>';
+                            statusBadge = '<span class="px-2 py-1 rounded text-xs font-bold bg-slate-100 dark:bg-slate-600 text-slate-700 dark:text-slate-200">Pending</span>';
                         } else if(status.includes('1') || status === 'Follow-Up-1-Sent') {
-                            statusBadge = '<span class="px-2 py-1 rounded text-xs font-bold bg-amber-100 text-amber-700">1st Follow-Up Sent</span>';
+                            statusBadge = '<span class="px-2 py-1 rounded text-xs font-bold bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400">1st Follow-Up Sent</span>';
                         } else if(status.includes('2') || status === 'Follow-Up-2-Sent') {
-                            statusBadge = '<span class="px-2 py-1 rounded text-xs font-bold bg-orange-100 text-orange-700">2nd Follow-Up Sent</span>';
+                            statusBadge = '<span class="px-2 py-1 rounded text-xs font-bold bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-400">2nd Follow-Up Sent</span>';
                         } else if(status === 'Responded') {
-                            statusBadge = '<span class="px-2 py-1 rounded text-xs font-bold bg-green-100 text-green-700">Responded</span>';
+                            statusBadge = '<span class="px-2 py-1 rounded text-xs font-bold bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400">Responded</span>';
                         } else {
-                            statusBadge = `<span class="px-2 py-1 rounded text-xs font-bold bg-blue-100 text-blue-700">${status}</span>`;
+                            statusBadge = `<span class="px-2 py-1 rounded text-xs font-bold bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400">${status}</span>`;
                         }
 
                         // Status initials badges (N/F/D) for follow-ups
@@ -5728,16 +5741,16 @@
 
                         tr.innerHTML = `
                             <td class="px-6 py-4 font-mono text-xs">${item.jobId}</td>
-                            <td class="px-6 py-4 font-mono text-xs text-slate-600">${item.devId || 'N/A'}</td>
+                            <td class="px-6 py-4 font-mono text-xs text-slate-600 dark:text-slate-400">${item.devId || 'N/A'}</td>
                             <td class="px-6 py-4">
                                 <div class="flex items-center gap-2">
-                                    <span class="font-bold">${item.name}</span>
+                                    <span class="font-bold dark:text-white">${item.name}</span>
                                     ${initialBadges}
                                 </div>
                             </td>
-                            <td class="px-6 py-4 text-slate-500">${item.email}</td>
+                            <td class="px-6 py-4 text-slate-500 dark:text-slate-400">${item.email}</td>
                             <td class="px-6 py-4">${statusBadge}</td>
-                            <td class="px-6 py-4 text-sm text-slate-600">${formatDateTime(item.lastReachedOut)}</td>
+                            <td class="px-6 py-4 text-sm text-slate-600 dark:text-slate-400">${formatDateTime(item.lastReachedOut)}</td>
                             <td class="px-6 py-4">
                                 <div class="flex justify-end">
                                     <button onclick="markAsUnresponsive('${item.email}', this)" class="bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 px-3 py-1.5 rounded-lg text-xs font-medium transition inline-flex items-center gap-1"><i class="fa-solid fa-user-xmark"></i> Unresponsive</button>
@@ -8053,10 +8066,10 @@
             }
 
             dropdown.innerHTML = emails.map(email => `
-                <div class="px-4 py-2 hover:bg-indigo-50 cursor-pointer flex items-center gap-2 text-sm border-b border-slate-100 last:border-b-0"
+                <div class="px-4 py-2 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 cursor-pointer flex items-center gap-2 text-sm border-b border-slate-100 dark:border-slate-700 last:border-b-0"
                      onclick="selectAnalyticsEmail('${email}')">
                     <i class="fa-solid fa-user text-indigo-400"></i>
-                    <span class="text-slate-700">${highlightMatch(email, query)}</span>
+                    <span class="text-slate-700 dark:text-slate-300">${highlightMatch(email, query)}</span>
                 </div>
             `).join('');
 
@@ -8454,7 +8467,7 @@
                         // Main user row (parent row)
                         const tr = document.createElement('tr');
                         tr.id = userRowId;
-                        tr.className = "hover:bg-slate-50 border-b border-slate-50 cursor-pointer user-parent-row";
+                        tr.className = "hover:bg-slate-50 dark:hover:bg-slate-700 border-b border-slate-50 dark:border-slate-700 cursor-pointer user-parent-row";
                         tr.setAttribute('data-expanded', 'false');
                         tr.onclick = function() { toggleUserJobRows(userIndex); };
                         tr.innerHTML = `
@@ -8464,7 +8477,7 @@
                             <td class="px-6 py-3 font-medium">
                                 <div class="flex items-center gap-2">
                                     <span>${u.email}</span>
-                                    ${hasJobs ? `<span class="text-xs bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded">${u.jobBreakdown.length} jobs</span>` : ''}
+                                    ${hasJobs ? `<span class="text-xs bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400 px-1.5 py-0.5 rounded">${u.jobBreakdown.length} jobs</span>` : ''}
                                 </div>
                             </td>
                             <td class="px-6 py-3 text-center text-emerald-600 font-bold">${u.emailsSent || 0}</td>
@@ -8481,14 +8494,14 @@
                             u.jobBreakdown.forEach((job, jobIndex) => {
                                 const jobTr = document.createElement('tr');
                                 jobTr.id = `job-row-${userIndex}-${jobIndex}`;
-                                jobTr.className = "bg-slate-50/50 border-b border-slate-50 job-child-row hidden";
+                                jobTr.className = "bg-slate-50/50 dark:bg-slate-900/50 border-b border-slate-50 dark:border-slate-700 job-child-row hidden";
                                 jobTr.setAttribute('data-parent', userRowId);
                                 jobTr.innerHTML = `
                                     <td class="px-6 py-2"></td>
                                     <td class="px-6 py-2 pl-12">
                                         <div class="flex items-center gap-2">
                                             <i class="fa-solid fa-briefcase text-slate-400 text-xs"></i>
-                                            <span class="text-slate-600 font-medium">${job.jobId === 'No Job ID' ? '<span class="text-slate-400 italic">No Job ID</span>' : 'Job ' + job.jobId}</span>
+                                            <span class="text-slate-600 dark:text-slate-300 font-medium">${job.jobId === 'No Job ID' ? '<span class="text-slate-400 italic">No Job ID</span>' : 'Job ' + job.jobId}</span>
                                         </div>
                                     </td>
                                     <td class="px-6 py-2 text-center text-emerald-500">${job.emailsSent || 0}</td>
@@ -8525,7 +8538,7 @@
                 if(userEntries.length > 0) {
                     uList.innerHTML = '';
                     userEntries.forEach(([k,v]) => {
-                        uList.innerHTML += `<div class="flex justify-between text-sm mb-2 p-2 bg-slate-50 rounded"><span class="text-slate-700">${k}</span><span class="font-bold text-emerald-600">${v}</span></div>`;
+                        uList.innerHTML += `<div class="flex justify-between text-sm mb-2 p-2 bg-slate-50 dark:bg-slate-700 rounded"><span class="text-slate-700 dark:text-slate-300">${k}</span><span class="font-bold text-emerald-600">${v}</span></div>`;
                     });
                 } else {
                     uList.innerHTML = `<div class="text-center py-6 text-slate-400">
@@ -8539,7 +8552,7 @@
                 if(jobEntries.length > 0) {
                     jList.innerHTML = '';
                     jobEntries.forEach(([k,v]) => {
-                        jList.innerHTML += `<div class="flex justify-between text-sm mb-2 p-2 bg-slate-50 rounded"><span class="text-slate-700">Job ${k}</span><span class="font-bold text-amber-600">${v}</span></div>`;
+                        jList.innerHTML += `<div class="flex justify-between text-sm mb-2 p-2 bg-slate-50 dark:bg-slate-700 rounded"><span class="text-slate-700 dark:text-slate-300">Job ${k}</span><span class="font-bold text-amber-600">${v}</span></div>`;
                     });
                 } else {
                     jList.innerHTML = `<div class="text-center py-6 text-slate-400">
@@ -8554,7 +8567,7 @@
                 if(completedUserEntries.length > 0) {
                     cuList.innerHTML = '';
                     completedUserEntries.forEach(([k,v]) => {
-                        cuList.innerHTML += `<div class="flex justify-between text-sm mb-2 p-2 bg-slate-50 rounded"><span class="text-slate-700">${k}</span><span class="font-bold text-blue-600">${v}</span></div>`;
+                        cuList.innerHTML += `<div class="flex justify-between text-sm mb-2 p-2 bg-slate-50 dark:bg-slate-700 rounded"><span class="text-slate-700 dark:text-slate-300">${k}</span><span class="font-bold text-blue-600">${v}</span></div>`;
                     });
                 } else {
                     cuList.innerHTML = `<div class="text-center py-6 text-slate-400">
@@ -8569,7 +8582,7 @@
                 if(completedJobEntries.length > 0) {
                     cjList.innerHTML = '';
                     completedJobEntries.forEach(([k,v]) => {
-                        cjList.innerHTML += `<div class="flex justify-between text-sm mb-2 p-2 bg-slate-50 rounded"><span class="text-slate-700">Job ${k}</span><span class="font-bold text-purple-600">${v}</span></div>`;
+                        cjList.innerHTML += `<div class="flex justify-between text-sm mb-2 p-2 bg-slate-50 dark:bg-slate-700 rounded"><span class="text-slate-700 dark:text-slate-300">Job ${k}</span><span class="font-bold text-purple-600">${v}</span></div>`;
                     });
                 } else {
                     cjList.innerHTML = `<div class="text-center py-6 text-slate-400">
