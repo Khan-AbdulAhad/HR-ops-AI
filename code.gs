@@ -10,6 +10,12 @@
  */
 
 // ============================================================
+// DEBUG FLAG - Set to true to enable verbose logging
+// ============================================================
+const DEBUG = false;
+function debugLog(...args) { if (DEBUG) debugLog(...args); }
+
+// ============================================================
 // EMAIL CONFIGURATION - Default values (can be overridden in Settings)
 // ============================================================
 // These are fallback values - users can override via Settings UI
@@ -24,17 +30,24 @@ const EMAIL_SIGNATURE = 'Turing | Talent Operations';  // Default signature
 // This prevents the AI from interfering with manually sent emails or personal correspondence.
 const AI_MANAGED_LABEL = 'AI-Managed';
 
-const CONFIG = {
-  PROJECT_ID: 'turing-230020',
-  DATASET_ID: 'turing-230020',
-  EXTERNAL_CONN: 'turing-230020.us.matching-vetting-prod-readonly'
-};
+// Config values: reads from Script Properties with hardcoded fallback defaults
+function getAppConfig() {
+  const props = PropertiesService.getScriptProperties();
+  return {
+    PROJECT_ID: props.getProperty('PROJECT_ID') || 'turing-230020',
+    DATASET_ID: props.getProperty('DATASET_ID') || 'turing-230020',
+    EXTERNAL_CONN: props.getProperty('EXTERNAL_CONN') || 'turing-230020.us.matching-vetting-prod-readonly'
+  };
+}
+// Keep CONFIG as a backward-compatible constant (initialized once per execution)
+const CONFIG = getAppConfig();
 
 // ============================================================
 // CENTRAL ANALYTICS CONFIGURATION (Hidden from users)
 // ============================================================
 // This sheet collects usage data across ALL users for impact tracking
-const ANALYTICS_SHEET_ID = '11oCuNjsW5psdhiZk5TGHWfNwvjsARYyhjZdrKOddlqc';
+// Can be overridden via Script Properties: ANALYTICS_SHEET_ID
+const ANALYTICS_SHEET_ID = PropertiesService.getScriptProperties().getProperty('ANALYTICS_SHEET_ID') || '11oCuNjsW5psdhiZk5TGHWfNwvjsARYyhjZdrKOddlqc';
 
 const STAGE_CONFIG = {
   'Interested': { type: 'flag', table: 'ms2_job_match_pre_shortlist', condition: 'main.is_interested = 1' },
@@ -964,7 +977,7 @@ function logEmailMismatch(jobId, expectedEmail, actualEmail, name, devId, thread
       'Yes' // Requires review flag
     ]);
 
-    console.log(`Email mismatch logged: Expected ${expectedEmail}, got ${actualEmail} for Job ${jobId}`);
+    debugLog(`Email mismatch logged: Expected ${expectedEmail}, got ${actualEmail} for Job ${jobId}`);
     return { success: true, alreadyLogged: false };
   } catch(e) {
     console.error("Error logging email mismatch:", e);
@@ -1057,7 +1070,7 @@ function getManualSentLogs(jobId) {
       }
     }
 
-    console.log(`Found ${logMap.size} manual sent entries for Job ${jobId}`);
+    debugLog(`Found ${logMap.size} manual sent entries for Job ${jobId}`);
     return logMap;
   } catch(e) {
     console.error("Error reading Manual_Sent_Logs:", e);
@@ -1104,7 +1117,7 @@ function markAsManualSent(developerIds, jobId, note) {
 
     SpreadsheetApp.flush();
 
-    console.log(`Marked ${marked} developers as manually sent for Job ${jobId}`);
+    debugLog(`Marked ${marked} developers as manually sent for Job ${jobId}`);
     return { success: true, marked: marked };
 
   } catch (e) {
@@ -1123,7 +1136,7 @@ function markAsManualSent(developerIds, jobId, note) {
 function getJobTemplates(jobId) {
   const url = getStoredSheetUrl();
   if(!url) {
-    console.log("getJobTemplates: No sheet URL configured");
+    debugLog("getJobTemplates: No sheet URL configured");
     return [];
   }
 
@@ -1132,13 +1145,13 @@ function getJobTemplates(jobId) {
     const sheet = ss.getSheetByName("Email_Templates");
 
     if(!sheet) {
-      console.log("getJobTemplates: Email_Templates sheet not found");
+      debugLog("getJobTemplates: Email_Templates sheet not found");
       return [];
     }
 
     const lastRow = sheet.getLastRow();
     if(lastRow <= 1) {
-      console.log("getJobTemplates: No templates found (empty sheet or only headers)");
+      debugLog("getJobTemplates: No templates found (empty sheet or only headers)");
       return [];
     }
 
@@ -1161,7 +1174,7 @@ function getJobTemplates(jobId) {
       }
     }
 
-    console.log(`getJobTemplates: Found ${templates.length} templates for Job ${requestedJobId}`);
+    debugLog(`getJobTemplates: Found ${templates.length} templates for Job ${requestedJobId}`);
     return templates;
 
   } catch(e) {
@@ -2242,7 +2255,7 @@ function updateJobSettings(jobId, newSettings) {
     saveJobType(jobId, legacyType);
 
     // Log the settings change
-    console.log(`Job ${jobId} settings updated:`, updatedSettings);
+    debugLog(`Job ${jobId} settings updated:`, updatedSettings);
 
     return {
       success: true,
@@ -2480,7 +2493,7 @@ function addEmailTypeColumns(jobId, emailType) {
   // Track which email types have been used for this job
   trackEmailTypeSent(jobId, emailType);
 
-  console.log(`Added ${newColumns.length} columns for email type '${emailType}' to Job_${jobId}_Details`);
+  debugLog(`Added ${newColumns.length} columns for email type '${emailType}' to Job_${jobId}_Details`);
   return { success: true, message: `Added ${newColumns.length} columns`, added: addedHeaders };
 }
 
@@ -2523,7 +2536,7 @@ function processEmailForDynamicColumns(jobId, emailSubject, emailBody) {
   try {
     // Detect email type
     const detection = detectEmailType(emailSubject, emailBody);
-    console.log(`Detected email type: ${detection.type} (confidence: ${detection.confidence})`);
+    debugLog(`Detected email type: ${detection.type} (confidence: ${detection.confidence})`);
 
     // Add columns for this email type if needed
     const columnsResult = addEmailTypeColumns(jobId, detection.type);
@@ -3230,7 +3243,7 @@ function saveJobCandidateDetails(ss, jobId, candidateEmail, candidateName, devId
   const fixedHeaders = ['Timestamp', 'Email', 'Name', 'Dev ID', 'Thread ID', 'Region', 'Candidate Offer', 'Counter Offer', 'Final Agreed Rate', 'Negotiation Notes', 'Status'];
 
   // Log for debugging
-  console.log(`saveJobCandidateDetails: jobId=${jobId}, email=${cleanEmail}, questions=${questions.length}, answers=${JSON.stringify(answers)}`);
+  debugLog(`saveJobCandidateDetails: jobId=${jobId}, email=${cleanEmail}, questions=${questions.length}, answers=${JSON.stringify(answers)}`);
 
   // If no questions configured or questions don't match sheet, auto-detect from sheet headers
   let effectiveQuestions = questions;
@@ -3242,7 +3255,7 @@ function saveJobCandidateDetails(ss, jobId, candidateEmail, candidateName, devId
         effectiveQuestions.push({ header: h, question: h });
       }
     });
-    console.log(`Auto-detected ${effectiveQuestions.length} question columns: ${effectiveQuestions.map(q => q.header).join(', ')}`);
+    debugLog(`Auto-detected ${effectiveQuestions.length} question columns: ${effectiveQuestions.map(q => q.header).join(', ')}`);
   }
 
   // Find fixed column indices
@@ -3898,7 +3911,7 @@ function getDevelopers(jobId, selectedStages) {
   });
 
   if (queryChunks.length === 0) {
-    console.log("getDevelopers: No valid stages selected");
+    debugLog("getDevelopers: No valid stages selected");
     return [];
   }
 
@@ -4074,7 +4087,7 @@ function getDevelopers(jobId, selectedStages) {
     });
 
     const result = Array.from(devMap.values());
-    console.log(`getDevelopers: Returning ${result.length} unique developers for Job ${cleanJobId}`);
+    debugLog(`getDevelopers: Returning ${result.length} unique developers for Job ${cleanJobId}`);
     return result;
 
   } catch (e) {
@@ -4142,7 +4155,7 @@ function sendBulkEmails(recipients, senderName, subject, htmlBody, jobId, opts) 
     if (jobsSs) {
       const sheetResult = getOrCreateJobDetailsSheet(jobsSs, jobId, htmlBody);
       if(sheetResult.isNew) {
-        console.log(`Created new job details sheet: Job_${jobId}_Details with ${sheetResult.questions?.length || 0} question columns`);
+        debugLog(`Created new job details sheet: Job_${jobId}_Details with ${sheetResult.questions?.length || 0} question columns`);
       }
 
       // DYNAMIC EMAIL COLUMNS: Detect email type and add relevant columns
@@ -4150,7 +4163,7 @@ function sendBulkEmails(recipients, senderName, subject, htmlBody, jobId, opts) 
       try {
         const dynamicResult = processEmailForDynamicColumns(jobId, subject, htmlBody);
         if (dynamicResult.success && dynamicResult.columnsAdded.length > 0) {
-          console.log(`Added dynamic columns for email type '${dynamicResult.emailType}': ${dynamicResult.columnsAdded.join(', ')}`);
+          debugLog(`Added dynamic columns for email type '${dynamicResult.emailType}': ${dynamicResult.columnsAdded.join(', ')}`);
         }
       } catch (dynamicError) {
         console.error("Failed to process email for dynamic columns:", dynamicError);
@@ -4264,17 +4277,17 @@ function sendBulkEmails(recipients, senderName, subject, htmlBody, jobId, opts) 
   // Auto-capture job assignment for the agent
   // This adds the job to the agent's "My Jobs" list if not already there
   // We capture even if all emails were skipped (total > 0), because the agent intends to work on this job
-  console.log('sendBulkEmails: Checking auto-capture - total=' + total + ', count=' + count + ', jobId=' + jobId);
+  debugLog('sendBulkEmails: Checking auto-capture - total=' + total + ', count=' + count + ', jobId=' + jobId);
   if (total > 0 || count > 0) {
     try {
       const assignResult = autoCreateJobAssignment(jobId, ss);
-      console.log('sendBulkEmails: Auto-capture result for job ' + jobId + ': ' + JSON.stringify(assignResult));
+      debugLog('sendBulkEmails: Auto-capture result for job ' + jobId + ': ' + JSON.stringify(assignResult));
     } catch (assignError) {
       console.error("Failed to auto-capture job assignment:", assignError);
       // Don't fail the whole operation
     }
   } else {
-    console.log('sendBulkEmails: Skipping auto-capture - no recipients');
+    debugLog('sendBulkEmails: Skipping auto-capture - no recipients');
   }
 
   // Invalidate cache after adding new tasks
@@ -6908,8 +6921,8 @@ function sendEscalationEmail(jobId, candidateName, candidateEmail, thread, escal
   // Safety check: if no escalation email provided, just log and return
   // This prevents crashes when escalation email is not configured
   if (!escalationEmail || escalationEmail.trim() === '') {
-    console.log(`[Escalation Notice] Job ${jobId}: ${candidateName} (${candidateEmail}) - ${escalationReason}`);
-    console.log(`Note: No escalation email configured. Add escalation email to job configuration to receive notifications.`);
+    debugLog(`[Escalation Notice] Job ${jobId}: ${candidateName} (${candidateEmail}) - ${escalationReason}`);
+    debugLog(`Note: No escalation email configured. Add escalation email to job configuration to receive notifications.`);
     return;
   }
 
@@ -6933,7 +6946,7 @@ This is an automated notification from the HR-Ops AI system.
     `.trim();
 
     GmailApp.sendEmail(escalationEmail, subject, body);
-    console.log(`Escalation notification sent to ${escalationEmail} for ${candidateEmail}`);
+    debugLog(`Escalation notification sent to ${escalationEmail} for ${candidateEmail}`);
 
   } catch (e) {
     console.error(`Failed to send escalation email to ${escalationEmail}:`, e);
@@ -7000,7 +7013,7 @@ Write ONLY the email, nothing else. Keep it concise (3-4 sentences).
     try {
       const fallbackMsg = `Hi ${candidateName ? candidateName.split(' ')[0] : 'there'},\n\nThank you for sharing your rate expectation. I have shared your message with a member of our Talent Operations team, and they will get back to you shortly with an update on the rates.\n\nWe appreciate your patience and interest in this opportunity.\n\nBest regards,\n${getEffectiveSignature()}`;
       sendReplyWithSenderName(thread, fallbackMsg, getEffectiveSenderName());
-    } catch(e2) {}
+    } catch(e2) { console.error('CRITICAL: Fallback escalation message also failed to send:', e2); }
   }
 }
 
@@ -7607,7 +7620,7 @@ function markCompleted(thread) {
     // Remove Human-Negotiation label if present
     const humanLabel = GmailApp.getUserLabelByName("Human-Negotiation");
     if(humanLabel) {
-      try { thread.removeLabel(humanLabel); } catch(e) {}
+      try { thread.removeLabel(humanLabel); } catch(e) { console.warn('Could not remove Human-Negotiation label:', e.message); }
     }
   } catch(e) {
     console.error("Failed to add Completed label:", e);
@@ -7772,7 +7785,7 @@ function syncCompletedFromGmail() {
               // Save extracted data to job details sheet
               saveJobCandidateDetails(ss, jobId, candidateEmail, name, devId, threadId, extractedAnswers, finalStatus, region);
 
-              console.log(`Gmail Sync: ${candidateEmail} - ${finalStatus}${extractedRate ? ` (rate: $${extractedRate}/hr)` : ''}`);
+              debugLog(`Gmail Sync: ${candidateEmail} - ${finalStatus}${extractedRate ? ` (rate: $${extractedRate}/hr)` : ''}`);
             }
           } catch(extractErr) {
             console.error("Gmail Sync - Failed to extract candidate data:", extractErr);
@@ -7808,7 +7821,7 @@ function syncCompletedFromGmail() {
               if (escalationEmail) {
                 sendEscalationEmail(jobId, name, candidateEmail, thread, escalationReason, escalationEmail);
               }
-              console.log(`Gmail Sync: Escalated ${candidateEmail} - ${escalationReason}`);
+              debugLog(`Gmail Sync: Escalated ${candidateEmail} - ${escalationReason}`);
             } catch(escErr) {
               console.error("Gmail Sync - Failed to send escalation:", escErr);
             }
@@ -8821,7 +8834,7 @@ Turing AI Recruiter System
           name: 'Turing AI Learning System',
           noReply: true
         });
-        console.log(`Learning notification sent to ${userEmail}`);
+        debugLog(`Learning notification sent to ${userEmail}`);
       } catch (emailError) {
         console.error(`Failed to send notification to ${userEmail}:`, emailError);
       }
@@ -9349,7 +9362,7 @@ function addToFollowUpQueue(email, jobId, threadId, name, devId) {
 
     for(let i = 1; i < data.length; i++) {
       if(String(data[i][0]).toLowerCase().trim() === cleanEmail && String(data[i][1]) === String(jobId)) {
-        console.log(`Email ${email} already in follow-up queue for Job ${jobId}`);
+        debugLog(`Email ${email} already in follow-up queue for Job ${jobId}`);
         return { success: true, message: "Already in queue" };
       }
     }
@@ -9693,10 +9706,9 @@ function updateFollowUpLabels(threadId, newStatus) {
                               GmailApp.createLabel(FOLLOW_UP_LABELS.UNRESPONSIVE);
 
     // Remove all follow-up labels first
-    try { thread.removeLabel(awaitingLabel); } catch(e) {}
-    try { thread.removeLabel(followUp1Label); } catch(e) {}
-    try { thread.removeLabel(followUp2Label); } catch(e) {}
-    try { thread.removeLabel(unresponsiveLabel); } catch(e) {}
+    [awaitingLabel, followUp1Label, followUp2Label, unresponsiveLabel].forEach(function(label) {
+      try { thread.removeLabel(label); } catch(e) { console.warn('Could not remove label ' + label.getName() + ':', e.message); }
+    });
 
     // Add appropriate label based on new status
     switch(newStatus) {
@@ -9793,7 +9805,7 @@ function sendFollowUpEmail(email, jobId, threadId, name, followUpNumber) {
   try {
     // SAFETY: Validate that follow-ups are enabled for this job
     if (!jobRequiresFollowUp(jobId)) {
-      console.log(`Follow-up to ${email} blocked: Follow-ups disabled for Job ${jobId}`);
+      debugLog(`Follow-up to ${email} blocked: Follow-ups disabled for Job ${jobId}`);
       return { success: false, error: 'Follow-ups are disabled for this job' };
     }
 
@@ -9908,14 +9920,14 @@ function sendFollowUpEmail(email, jobId, threadId, name, followUpNumber) {
  * Can be called from the UI or set up as a time-based trigger
  */
 function runFollowUpProcessor() {
-  console.log("Starting follow-up processor...");
+  debugLog("Starting follow-up processor...");
   const result = processFollowUpQueue();
-  console.log(`Follow-up processing complete. Results:`, result);
+  debugLog(`Follow-up processing complete. Results:`, result);
 
   // Also process data gathering follow-ups
-  console.log("Starting data gathering follow-up processor...");
+  debugLog("Starting data gathering follow-up processor...");
   const dataResult = processDataGatheringFollowUps();
-  console.log(`Data gathering follow-up processing complete. Results:`, dataResult);
+  debugLog(`Data gathering follow-up processing complete. Results:`, dataResult);
 
   return {
     outreach: result,
@@ -9939,7 +9951,7 @@ function sendDataGatheringFollowUpEmail(email, jobId, threadId, name, followUpNu
     // SAFETY: Validate that data gathering is enabled for this job
     const jobConfig = getNegotiationConfig(jobId);
     if (!jobConfig || jobConfig.dataGathering === false) {
-      console.log(`Data gathering follow-up to ${email} blocked: Data gathering disabled for Job ${jobId}`);
+      debugLog(`Data gathering follow-up to ${email} blocked: Data gathering disabled for Job ${jobId}`);
       return { success: false, error: 'Data gathering is disabled for this job' };
     }
 
@@ -10050,19 +10062,24 @@ function updateDataGatheringFollowUpLabels(threadId, followUpNumber) {
                                 GmailApp.createLabel(FOLLOW_UP_LABELS.INCOMPLETE_DATA);
 
     // Apply the appropriate label based on follow-up number
+    // Helper to safely remove a label
+    function safeRemove(lbl) {
+      try { thread.removeLabel(lbl); } catch (e) { console.warn('Could not remove label ' + lbl.getName() + ':', e.message); }
+    }
+
     if (followUpNumber === 1) {
       thread.addLabel(dataFollowUp1Label);
     } else if (followUpNumber === 2) {
-      try { thread.removeLabel(dataFollowUp1Label); } catch (e) {}
+      safeRemove(dataFollowUp1Label);
       thread.addLabel(dataFollowUp2Label);
     } else if (followUpNumber === 3) {
-      try { thread.removeLabel(dataFollowUp1Label); } catch (e) {}
-      try { thread.removeLabel(dataFollowUp2Label); } catch (e) {}
+      safeRemove(dataFollowUp1Label);
+      safeRemove(dataFollowUp2Label);
       thread.addLabel(dataFollowUp3Label);
     } else if (followUpNumber === 'incomplete') {
-      try { thread.removeLabel(dataFollowUp1Label); } catch (e) {}
-      try { thread.removeLabel(dataFollowUp2Label); } catch (e) {}
-      try { thread.removeLabel(dataFollowUp3Label); } catch (e) {}
+      safeRemove(dataFollowUp1Label);
+      safeRemove(dataFollowUp2Label);
+      safeRemove(dataFollowUp3Label);
       thread.addLabel(incompleteDataLabel);
     }
   } catch (e) {
@@ -11388,7 +11405,7 @@ function checkAnalyticsAccess() {
           }
         }
       } catch (sheetError) {
-        console.log("Could not update viewers sheet for admin:", sheetError);
+        debugLog("Could not update viewers sheet for admin:", sheetError);
       }
       return {
         hasAccess: true,
@@ -14008,10 +14025,10 @@ function testAiEmailResponse(testData) {
           effectiveTargetRate = regionRates.targetRate;
           effectiveMaxRate = regionRates.maxRate > 0 ? regionRates.maxRate : Math.round(effectiveTargetRate * 1.2);
           regionName = regionRates.region || devCountry;
-          console.log(`AI Test: Using ${regionRates.region} rates for ${devCountry}: target=$${effectiveTargetRate}, max=$${effectiveMaxRate}`);
+          debugLog(`AI Test: Using ${regionRates.region} rates for ${devCountry}: target=$${effectiveTargetRate}, max=$${effectiveMaxRate}`);
         } else {
           // No regional tier found - use manual defaults
-          console.log(`AI Test: No tier found for ${devCountry}, using manual defaults: target=$${effectiveTargetRate}, max=$${effectiveMaxRate}`);
+          debugLog(`AI Test: No tier found for ${devCountry}, using manual defaults: target=$${effectiveTargetRate}, max=$${effectiveMaxRate}`);
         }
       }
 
@@ -15123,7 +15140,7 @@ function loadMyJobsForOnboardingMonitoring() {
  */
 function runOnboardingIssueScan() {
   try {
-    console.log('[Onboarding Scan] Starting auto-scan...');
+    debugLog('[Onboarding Scan] Starting auto-scan...');
     const ss = getAnalyticsSpreadsheet();
     if (!ss) {
       console.error('[Onboarding Scan] Analytics spreadsheet not found');
@@ -15148,14 +15165,14 @@ function runOnboardingIssueScan() {
     }
 
     if (allMonitoredJobIds.size === 0) {
-      console.log('[Onboarding Scan] No monitored jobs found');
+      debugLog('[Onboarding Scan] No monitored jobs found');
       return;
     }
 
     // Get completed candidates for all monitored jobs
     const completedSheet = mainSs.getSheetByName('Negotiation_Completed');
     if (!completedSheet || completedSheet.getLastRow() <= 1) {
-      console.log('[Onboarding Scan] No completed candidates found');
+      debugLog('[Onboarding Scan] No completed candidates found');
       return;
     }
 
@@ -15250,7 +15267,7 @@ function runOnboardingIssueScan() {
       issueSheet.getRange(issueSheet.getLastRow() + 1, 1, newIssues.length, 14).setValues(newIssues);
     }
 
-    console.log('[Onboarding Scan] Complete. Found ' + newIssuesCount + ' new issues from ' + completedCandidates.length + ' candidates');
+    debugLog('[Onboarding Scan] Complete. Found ' + newIssuesCount + ' new issues from ' + completedCandidates.length + ' candidates');
     logAnalytics('onboarding_auto_scan', 'system', newIssuesCount, 'Auto-scan: ' + completedCandidates.length + ' candidates, ' + newIssuesCount + ' new issues');
   } catch (e) {
     console.error('[Onboarding Scan] Error:', e);
@@ -15447,7 +15464,7 @@ function addSupplementaryQuestions(jobId, additionalQuestions, applyToFuture = t
       PropertiesService.getScriptProperties().setProperty(questionsKey, JSON.stringify(updatedQuestions));
     }
 
-    console.log(`Added ${newColumns.length} supplementary columns to Job_${jobId}_Details: ${addedHeaders.join(', ')}`);
+    debugLog(`Added ${newColumns.length} supplementary columns to Job_${jobId}_Details: ${addedHeaders.join(', ')}`);
     return { success: true, message: `Added ${newColumns.length} columns`, added: addedHeaders };
   } catch (e) {
     console.error('Error adding supplementary questions:', e);
@@ -15651,7 +15668,7 @@ function sendSupplementaryDataRequest(jobId, candidateEmails, additionalQuestion
                   followUpSheet.getRange(fi + 1, 14).setValue(false); // Data Follow Up 3 Sent
                   followUpSheet.getRange(fi + 1, 15).setValue(new Date()); // Last Response Time = now (to start timer)
                   followUpSheet.getRange(fi + 1, 10).setValue(new Date()); // Last Updated
-                  console.log(`Reset data follow-up flags for ${candidate.email} after supplementary request`);
+                  debugLog(`Reset data follow-up flags for ${candidate.email} after supplementary request`);
                   break;
                 }
               }
@@ -15661,7 +15678,7 @@ function sendSupplementaryDataRequest(jobId, candidateEmails, additionalQuestion
           console.warn(`Could not update follow-up queue for ${candidate.email}:`, updateErr);
         }
 
-        console.log(`Sent supplementary data request to ${candidate.email}`);
+        debugLog(`Sent supplementary data request to ${candidate.email}`);
         sentCount++;
 
       } catch (e) {
@@ -15797,23 +15814,23 @@ function getMyJobs(filterStatus) {
 
     const sheet = ss.getSheetByName('Job_Assignments');
     if (!sheet) {
-      console.log('getMyJobs: Job_Assignments sheet not found');
+      debugLog('getMyJobs: Job_Assignments sheet not found');
       return { success: true, jobs: [] };
     }
 
     const lastRow = sheet.getLastRow();
-    console.log('getMyJobs: Sheet has ' + lastRow + ' rows');
+    debugLog('getMyJobs: Sheet has ' + lastRow + ' rows');
 
     if (lastRow <= 1) {
-      console.log('getMyJobs: Sheet is empty (only headers or no data)');
+      debugLog('getMyJobs: Sheet is empty (only headers or no data)');
       return { success: true, jobs: [] };
     }
 
     const userEmail = Session.getActiveUser().getEmail();
-    console.log('getMyJobs: Looking for jobs for user: ' + userEmail);
+    debugLog('getMyJobs: Looking for jobs for user: ' + userEmail);
 
     const data = sheet.getDataRange().getValues();
-    console.log('getMyJobs: Total rows in sheet: ' + data.length);
+    debugLog('getMyJobs: Total rows in sheet: ' + data.length);
     const jobs = [];
 
     for (let i = 1; i < data.length; i++) {
@@ -15823,7 +15840,7 @@ function getMyJobs(filterStatus) {
 
       // Log each row for debugging
       if (i <= 5) { // Only log first 5 to avoid spam
-        console.log('getMyJobs: Row ' + i + ' - agent=' + agentEmail + ', jobId=' + rowJobId);
+        debugLog('getMyJobs: Row ' + i + ' - agent=' + agentEmail + ', jobId=' + rowJobId);
       }
 
       // Only show jobs for current user
@@ -15852,7 +15869,7 @@ function getMyJobs(filterStatus) {
       return new Date(b.assignedDate) - new Date(a.assignedDate);
     });
 
-    console.log('getMyJobs: Found ' + jobs.length + ' jobs for user ' + userEmail);
+    debugLog('getMyJobs: Found ' + jobs.length + ' jobs for user ' + userEmail);
     return { success: true, jobs: jobs };
   } catch (e) {
     console.error('Error in getMyJobs:', e);
@@ -16072,7 +16089,7 @@ function autoCreateJobAssignment(jobId, ss) {
     }
 
     const userEmail = Session.getActiveUser().getEmail();
-    console.log('autoCreateJobAssignment: User email is "' + userEmail + '" for job ' + jobId);
+    debugLog('autoCreateJobAssignment: User email is "' + userEmail + '" for job ' + jobId);
 
     // Check if userEmail is valid
     if (!userEmail) {
