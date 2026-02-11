@@ -3425,10 +3425,12 @@
     <!-- MODALS (Hidden by default) - Preserved exact structure -->
     
     <!-- Config Modal -->
-    <div id="configModal" class="fixed inset-0 z-50 hidden bg-black/50 backdrop-blur-sm flex items-center justify-center" role="dialog" aria-modal="true" aria-label="Configuration settings">
-        <div class="bg-white dark:bg-slate-800 p-6 rounded-xl shadow-xl w-full max-w-lg">
-            <h3 class="font-bold text-lg mb-4 text-slate-800 dark:text-white">Settings</h3>
-            <div class="space-y-4">
+    <div id="configModal" class="fixed inset-0 z-50 hidden bg-black/50 backdrop-blur-sm flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-label="Configuration settings">
+        <div class="bg-white dark:bg-slate-800 rounded-xl shadow-xl w-full max-w-lg max-h-[90vh] flex flex-col">
+            <div class="p-6 pb-0 flex-shrink-0">
+                <h3 class="font-bold text-lg mb-4 text-slate-800 dark:text-white">Settings</h3>
+            </div>
+            <div class="p-6 pt-0 overflow-y-auto flex-1 space-y-4">
                 <div>
                     <label class="block text-xs font-bold uppercase text-slate-500 mb-1">Database URL</label>
                     <input id="sheetUrl" class="input-field" placeholder="Google Sheet URL">
@@ -3449,26 +3451,28 @@
                 <!-- Email Sender Settings -->
                 <div class="border-t border-slate-200 dark:border-slate-600 pt-4 mt-4">
                     <label class="block text-xs font-bold uppercase text-slate-500 mb-3">
-                        <i class="fa-solid fa-envelope mr-1"></i> Email Sender Settings
+                        <i class="fa-solid fa-envelope mr-1"></i> Email Branding
                     </label>
                     <p class="text-xs text-slate-500 dark:text-slate-400 mb-3">
-                        Customize sender name and signature for all outreach emails.
+                        Controls the "From" name and sign-off on all AI-generated emails (follow-ups, negotiations, data requests, etc.).
                     </p>
 
                     <!-- Toggle for custom sender -->
                     <div class="flex items-center gap-3 mb-3">
                         <div class="toggle-switch" id="toggleEmailSender" onclick="toggleEmailSenderSetting()"></div>
-                        <span class="text-sm text-slate-600 dark:text-slate-400">Use custom sender settings</span>
+                        <span class="text-sm text-slate-600 dark:text-slate-400">Override default branding</span>
                     </div>
 
                     <div id="emailSenderFields" class="space-y-3 hidden">
                         <div>
-                            <label class="block text-xs text-slate-600 dark:text-slate-400 mb-1">Sender Name</label>
+                            <label class="block text-xs text-slate-600 dark:text-slate-400 mb-1">"From" Display Name</label>
                             <input id="customSenderName" type="text" class="input-field" placeholder="e.g., Turing Recruitment Team">
+                            <p class="text-xs text-slate-400 mt-1">Appears as the sender name in recipients' inbox</p>
                         </div>
                         <div>
-                            <label class="block text-xs text-slate-600 dark:text-slate-400 mb-1">Email Signature</label>
+                            <label class="block text-xs text-slate-600 dark:text-slate-400 mb-1">Email Sign-off Line</label>
                             <textarea id="customSignature" rows="2" class="input-field text-sm" placeholder="e.g., Turing | Talent Operations"></textarea>
+                            <p class="text-xs text-slate-400 mt-1">Added after "Best regards," in every AI-generated email</p>
                         </div>
                     </div>
                     <div id="emailSenderConfigStatus" class="hidden mt-2 text-xs"></div>
@@ -3528,10 +3532,12 @@
                     </button>
                 </div>
             </div>
-            <div class="flex justify-end gap-2 mt-6">
+            <div class="p-6 pt-4 flex-shrink-0 border-t border-slate-200 dark:border-slate-700 flex justify-end gap-2">
                 <button onclick="releaseFocus(document.getElementById('configModal')); document.getElementById('configModal').classList.add('hidden')" class="px-4 py-2 bg-slate-100 dark:bg-slate-700 rounded-lg text-slate-600 dark:text-slate-300 transition-all duration-200 active:scale-95 hover:bg-slate-200 dark:hover:bg-slate-600">Close</button>
-                <button id="saveConfigBtn" onclick="saveConfig()" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-all duration-200 active:scale-95">Save</button>
-                <span id="saveConfigText" class="hidden"></span><span id="saveConfigSpinner" class="hidden"></span>
+                <button id="saveConfigBtn" onclick="saveConfig()" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-all duration-200 active:scale-95 min-w-[80px] flex items-center justify-center gap-2">
+                    <i id="saveConfigSpinner" class="fa-solid fa-spinner fa-spin hidden"></i>
+                    <span id="saveConfigText">Save</span>
+                </button>
             </div>
         </div>
     </div>
@@ -4979,11 +4985,11 @@
             globalSearchSelectedIndex = -1;
         }
 
-        // Close search results when clicking outside
+        // Clear search and close results when clicking outside
         document.addEventListener('click', function(e) {
             const searchContainer = document.getElementById('globalSearchInput').parentElement;
             if (!searchContainer.contains(e.target)) {
-                document.getElementById('globalSearchResults').classList.add('hidden');
+                clearGlobalSearch();
             }
         });
 
@@ -7057,6 +7063,7 @@
             const spinner = document.getElementById('saveConfigSpinner');
 
             btn.disabled = true;
+            btn.classList.add('opacity-75');
             btnText.textContent = 'Saving...';
             spinner.classList.remove('hidden');
 
@@ -7065,13 +7072,27 @@
             let timingSaved = false;
             let emailSenderSaved = false;
 
+            const resetBtn = () => {
+                btn.disabled = false;
+                btn.classList.remove('opacity-75');
+                btnText.textContent = 'Save';
+                spinner.classList.add('hidden');
+            };
+
             const checkComplete = () => {
                 if (urlsSaved && timingSaved && emailSenderSaved) {
-                    btn.disabled = false;
-                    btnText.textContent = 'Save';
+                    // Show success state briefly before closing
                     spinner.classList.add('hidden');
+                    btnText.textContent = 'Saved!';
+                    btn.classList.remove('opacity-75', 'bg-blue-600', 'hover:bg-blue-700');
+                    btn.classList.add('bg-green-600');
                     showToast("Settings saved!", "success");
-                    document.getElementById('configModal').classList.add('hidden');
+                    setTimeout(() => {
+                        resetBtn();
+                        btn.classList.remove('bg-green-600');
+                        btn.classList.add('bg-blue-600', 'hover:bg-blue-700');
+                        document.getElementById('configModal').classList.add('hidden');
+                    }, 800);
                 }
             };
 
@@ -7081,9 +7102,7 @@
                     checkComplete();
                 })
                 .withFailureHandler(err => {
-                    btn.disabled = false;
-                    btnText.textContent = 'Save';
-                    spinner.classList.add('hidden');
+                    resetBtn();
                     showToast("Error saving URLs: " + err.message, "error");
                 })
                 .saveSheetUrls(databaseUrl, jobsUrl);
@@ -7094,16 +7113,12 @@
                         timingSaved = true;
                         checkComplete();
                     } else {
-                        btn.disabled = false;
-                        btnText.textContent = 'Save';
-                        spinner.classList.add('hidden');
+                        resetBtn();
                         showToast("Error saving timing: " + result.error, "error");
                     }
                 })
                 .withFailureHandler(err => {
-                    btn.disabled = false;
-                    btnText.textContent = 'Save';
-                    spinner.classList.add('hidden');
+                    resetBtn();
                     showToast("Error saving timing: " + err.message, "error");
                 })
                 .saveFollowUpTimingConfig({
