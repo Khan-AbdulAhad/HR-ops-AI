@@ -82,14 +82,110 @@
         }
         .dark .stat-card { background: #1e293b; border-color: #334155; }
         .dark .stat-card h2 { color: #f1f5f9; }
-        .dark .stat-card .bg-blue-50 { background-color: rgba(59, 130, 246, 0.15); }
-        .dark .stat-card .bg-amber-50 { background-color: rgba(245, 158, 11, 0.15); }
-        .dark .stat-card .bg-green-50 { background-color: rgba(16, 185, 129, 0.15); }
-        .dark .stat-card .bg-teal-50 { background-color: rgba(20, 184, 166, 0.15); }
-        .dark .stat-card .bg-indigo-50 { background-color: rgba(99, 102, 241, 0.15); }
-        .dark .stat-card .bg-emerald-50 { background-color: rgba(16, 185, 129, 0.15); }
-        .dark .stat-card .bg-cyan-50 { background-color: rgba(6, 182, 212, 0.15); }
-        .dark .stat-card .bg-purple-50 { background-color: rgba(168, 85, 247, 0.15); }
+
+        /* ===== Global Dark Mode Overrides ===== */
+        /* :where(.dark) gives lower specificity (0,1,0) so explicit dark: Tailwind classes (0,2,0) always win */
+
+        /* Background overrides */
+        :where(.dark) .bg-white { background-color: #1e293b; }
+        :where(.dark) .bg-slate-50 { background-color: #334155; }
+        :where(.dark) .bg-slate-100 { background-color: #334155; }
+        :where(.dark) .bg-gray-50 { background-color: #374151; }
+        :where(.dark) .bg-gray-100 { background-color: #374151; }
+        :where(.dark) .bg-slate-200 { background-color: #475569; }
+        :where(.dark) .bg-slate-300 { background-color: #475569; }
+
+        /* Light-colored accent backgrounds */
+        :where(.dark) .bg-blue-50 { background-color: rgba(59, 130, 246, 0.15); }
+        :where(.dark) .bg-green-50 { background-color: rgba(16, 185, 129, 0.15); }
+        :where(.dark) .bg-red-50 { background-color: rgba(239, 68, 68, 0.15); }
+        :where(.dark) .bg-amber-50 { background-color: rgba(245, 158, 11, 0.15); }
+        :where(.dark) .bg-yellow-50 { background-color: rgba(234, 179, 8, 0.15); }
+        :where(.dark) .bg-purple-50 { background-color: rgba(168, 85, 247, 0.15); }
+        :where(.dark) .bg-indigo-50 { background-color: rgba(99, 102, 241, 0.15); }
+        :where(.dark) .bg-teal-50 { background-color: rgba(20, 184, 166, 0.15); }
+        :where(.dark) .bg-emerald-50 { background-color: rgba(16, 185, 129, 0.15); }
+        :where(.dark) .bg-cyan-50 { background-color: rgba(6, 182, 212, 0.15); }
+        :where(.dark) .bg-orange-50 { background-color: rgba(249, 115, 22, 0.15); }
+        :where(.dark) .bg-pink-50 { background-color: rgba(236, 72, 153, 0.15); }
+        :where(.dark) .bg-blue-100 { background-color: rgba(59, 130, 246, 0.2); }
+        :where(.dark) .bg-green-100 { background-color: rgba(16, 185, 129, 0.2); }
+        :where(.dark) .bg-red-100 { background-color: rgba(239, 68, 68, 0.2); }
+        :where(.dark) .bg-amber-100 { background-color: rgba(245, 158, 11, 0.2); }
+        :where(.dark) .bg-yellow-100 { background-color: rgba(234, 179, 8, 0.2); }
+        :where(.dark) .bg-purple-100 { background-color: rgba(168, 85, 247, 0.2); }
+        :where(.dark) .bg-indigo-100 { background-color: rgba(99, 102, 241, 0.2); }
+        :where(.dark) .bg-teal-100 { background-color: rgba(20, 184, 166, 0.2); }
+        :where(.dark) .bg-orange-100 { background-color: rgba(249, 115, 22, 0.2); }
+
+        /* Text color overrides for readability */
+        :where(.dark) .text-slate-500 { color: #94a3b8; }
+        :where(.dark) .text-slate-600 { color: #cbd5e1; }
+        :where(.dark) .text-slate-700 { color: #e2e8f0; }
+        :where(.dark) .text-slate-800 { color: #f1f5f9; }
+        :where(.dark) .text-slate-900 { color: #f8fafc; }
+        :where(.dark) .text-gray-500 { color: #9ca3af; }
+        :where(.dark) .text-gray-600 { color: #d1d5db; }
+        :where(.dark) .text-gray-700 { color: #e5e7eb; }
+        :where(.dark) .text-gray-800 { color: #f3f4f6; }
+
+        /* Border overrides */
+        :where(.dark) .border-slate-50 { border-color: #334155; }
+        :where(.dark) .border-slate-100 { border-color: #334155; }
+        :where(.dark) .border-slate-200 { border-color: #334155; }
+        :where(.dark) .border-slate-300 { border-color: #475569; }
+        :where(.dark) .border-gray-200 { border-color: #374151; }
+        :where(.dark) .border-gray-300 { border-color: #4b5563; }
+        :where(.dark) .border-blue-100 { border-color: rgba(59, 130, 246, 0.3); }
+        :where(.dark) .border-blue-200 { border-color: rgba(59, 130, 246, 0.4); }
+
+        /* Divide overrides */
+        :where(.dark) .divide-slate-100 > * + * { border-color: #334155; }
+        :where(.dark) .divide-slate-200 > * + * { border-color: #334155; }
+        :where(.dark) .divide-gray-100 > * + * { border-color: #374151; }
+        :where(.dark) .divide-gray-200 > * + * { border-color: #374151; }
+
+        /* Colored text overrides for readability on dark backgrounds */
+        :where(.dark) .text-blue-600 { color: #60a5fa; }
+        :where(.dark) .text-blue-700 { color: #93c5fd; }
+        :where(.dark) .text-blue-800 { color: #bfdbfe; }
+        :where(.dark) .text-blue-900 { color: #dbeafe; }
+        :where(.dark) .text-green-600 { color: #34d399; }
+        :where(.dark) .text-green-700 { color: #6ee7b7; }
+        :where(.dark) .text-green-800 { color: #a7f3d0; }
+        :where(.dark) .text-red-600 { color: #f87171; }
+        :where(.dark) .text-red-700 { color: #fca5a5; }
+        :where(.dark) .text-red-800 { color: #fecaca; }
+        :where(.dark) .text-amber-600 { color: #fbbf24; }
+        :where(.dark) .text-amber-700 { color: #fcd34d; }
+        :where(.dark) .text-amber-800 { color: #fde68a; }
+        :where(.dark) .text-purple-600 { color: #a78bfa; }
+        :where(.dark) .text-purple-700 { color: #c4b5fd; }
+        :where(.dark) .text-orange-600 { color: #fb923c; }
+        :where(.dark) .text-orange-700 { color: #fdba74; }
+        :where(.dark) .text-indigo-600 { color: #818cf8; }
+        :where(.dark) .text-indigo-700 { color: #a5b4fc; }
+        :where(.dark) .text-teal-600 { color: #2dd4bf; }
+        :where(.dark) .text-teal-700 { color: #5eead4; }
+        :where(.dark) .text-emerald-600 { color: #34d399; }
+        :where(.dark) .text-emerald-700 { color: #6ee7b7; }
+        :where(.dark) .text-cyan-600 { color: #22d3ee; }
+        :where(.dark) .text-cyan-700 { color: #67e8f9; }
+        :where(.dark) .text-yellow-600 { color: #facc15; }
+        :where(.dark) .text-yellow-700 { color: #fde047; }
+
+        /* Ring/outline overrides */
+        :where(.dark) .ring-slate-200 { --tw-ring-color: #334155; }
+
+        /* Hover state overrides */
+        :where(.dark) .hover\:bg-slate-50:hover { background-color: #334155; }
+        :where(.dark) .hover\:bg-slate-100:hover { background-color: #475569; }
+        :where(.dark) .hover\:bg-gray-50:hover { background-color: #374151; }
+        :where(.dark) .hover\:bg-blue-50:hover { background-color: rgba(59, 130, 246, 0.2); }
+        :where(.dark) .hover\:bg-blue-100:hover { background-color: rgba(59, 130, 246, 0.25); }
+        :where(.dark) .hover\:bg-red-50:hover { background-color: rgba(239, 68, 68, 0.2); }
+        :where(.dark) .hover\:bg-green-50:hover { background-color: rgba(16, 185, 129, 0.2); }
+        :where(.dark) .hover\:bg-amber-50:hover { background-color: rgba(245, 158, 11, 0.2); }
         .stat-card:hover { transform: translateY(-2px); box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06); }
 
         /* Input Fields */
@@ -294,6 +390,29 @@
         .filter-chip.direct { background: #e0e7ff; color: #4338ca; border-color: #c7d2fe; }
         .filter-chip.direct:hover { background: #c7d2fe; border-color: #a5b4fc; }
         .filter-chip.direct.active { background: #4f46e5; color: white; border-color: #4338ca; box-shadow: 0 4px 6px -1px rgba(79,70,229,0.3); }
+
+        /* Dark mode filter chips */
+        .dark .filter-chip.all { background: #334155; color: #94a3b8; border-color: #475569; }
+        .dark .filter-chip.all:hover { background: #475569; border-color: #64748b; }
+        .dark .filter-chip.all.active { background: #475569; color: white; border-color: #64748b; }
+        .dark .filter-chip.new { background: rgba(22, 163, 74, 0.15); color: #4ade80; border-color: rgba(22, 163, 74, 0.3); }
+        .dark .filter-chip.new:hover { background: rgba(22, 163, 74, 0.25); border-color: rgba(22, 163, 74, 0.4); }
+        .dark .filter-chip.new.active { background: #16a34a; color: white; border-color: #15803d; }
+        .dark .filter-chip.followup { background: rgba(220, 38, 38, 0.15); color: #fca5a5; border-color: rgba(220, 38, 38, 0.3); }
+        .dark .filter-chip.followup:hover { background: rgba(220, 38, 38, 0.25); border-color: rgba(220, 38, 38, 0.4); }
+        .dark .filter-chip.followup.active { background: #dc2626; color: white; border-color: #b91c1c; }
+        .dark .filter-chip.manual { background: rgba(217, 119, 6, 0.15); color: #fcd34d; border-color: rgba(217, 119, 6, 0.3); }
+        .dark .filter-chip.manual:hover { background: rgba(217, 119, 6, 0.25); border-color: rgba(217, 119, 6, 0.4); }
+        .dark .filter-chip.manual.active { background: #d97706; color: white; border-color: #b45309; }
+        .dark .filter-chip.sub { background: rgba(234, 88, 12, 0.15); color: #fdba74; border-color: rgba(234, 88, 12, 0.3); }
+        .dark .filter-chip.sub:hover { background: rgba(234, 88, 12, 0.25); border-color: rgba(234, 88, 12, 0.4); }
+        .dark .filter-chip.sub.active { background: #ea580c; color: white; border-color: #c2410c; }
+        .dark .filter-chip.agency { background: rgba(124, 58, 237, 0.15); color: #c4b5fd; border-color: rgba(124, 58, 237, 0.3); }
+        .dark .filter-chip.agency:hover { background: rgba(124, 58, 237, 0.25); border-color: rgba(124, 58, 237, 0.4); }
+        .dark .filter-chip.agency.active { background: #7c3aed; color: white; border-color: #6d28d9; }
+        .dark .filter-chip.direct { background: rgba(79, 70, 229, 0.15); color: #a5b4fc; border-color: rgba(79, 70, 229, 0.3); }
+        .dark .filter-chip.direct:hover { background: rgba(79, 70, 229, 0.25); border-color: rgba(79, 70, 229, 0.4); }
+        .dark .filter-chip.direct.active { background: #4f46e5; color: white; border-color: #4338ca; }
         
         /* Onboarding Issues Styles */
         .oi-status-chip {
@@ -1290,7 +1409,7 @@
                             <div class="flex items-center gap-4">
                                 <span class="text-xs font-bold uppercase text-slate-500">Quick Filters</span>
                             </div>
-                            <span id="selectAllCount" class="text-xs text-blue-600 font-medium bg-blue-50 px-2 py-1 rounded hidden">(0) selected</span>
+                            <span id="selectAllCount" class="text-xs text-blue-600 dark:text-blue-300 font-medium bg-blue-50 dark:bg-blue-900/30 px-2 py-1 rounded hidden">(0) selected</span>
                         </div>
                         <div id="statusButtons" class="flex flex-wrap gap-2.5">
                             <!-- Filter chips will be injected here by JS logic, ensure logic populates this -->
@@ -1306,7 +1425,7 @@
                             
                             <!-- Active Filters Info -->
                             <div id="activeFiltersInfo" class="hidden items-center gap-2 ml-auto">
-                                <span class="text-xs bg-blue-50 text-blue-600 px-2 py-1 rounded-full border border-blue-100"><span id="activeFilterCount">0</span> active</span>
+                                <span class="text-xs bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-300 px-2 py-1 rounded-full border border-blue-100 dark:border-blue-800"><span id="activeFilterCount">0</span> active</span>
                                 <button class="text-xs text-slate-500 hover:text-red-500" onclick="clearAllFilters()"><i class="fa-solid fa-times"></i> Clear</button>
                             </div>
                         </div>
@@ -1357,7 +1476,7 @@
                         </div>
                         
                         <!-- Selection Indicator (Fixed Toast - no layout shift) -->
-                        <div id="selectionIndicator" class="fixed top-4 left-1/2 -translate-x-1/2 z-50 items-center gap-2 text-sm text-blue-600 bg-blue-50 px-4 py-2.5 rounded-lg border border-blue-200 shadow-lg opacity-0 pointer-events-none transition-all duration-300 ease-out transform -translate-y-2">
+                        <div id="selectionIndicator" class="fixed top-4 left-1/2 -translate-x-1/2 z-50 items-center gap-2 text-sm text-blue-600 dark:text-blue-300 bg-blue-50 dark:bg-blue-900/30 px-4 py-2.5 rounded-lg border border-blue-200 dark:border-blue-800 shadow-lg opacity-0 pointer-events-none transition-all duration-300 ease-out transform -translate-y-2">
                             <i class="fa-solid fa-circle-check"></i> <span id="quickSelectedCount">0</span> selected
                         </div>
 
@@ -1728,7 +1847,7 @@
                         <span class="text-sm font-bold text-blue-800 dark:text-blue-300"><span id="taskSelectedCount">0</span> selected</span>
                         <div class="flex gap-2">
                             <button onclick="bulkCompleteSelected()" class="bg-green-600 text-white px-3 py-1 rounded text-sm">Complete Selected</button>
-                            <button onclick="clearTaskSelection()" class="bg-white border text-slate-600 px-3 py-1 rounded text-sm">Clear</button>
+                            <button onclick="clearTaskSelection()" class="bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-200 px-3 py-1 rounded text-sm">Clear</button>
                         </div>
                     </div>
 
@@ -2919,7 +3038,7 @@
                                 <button onclick="setupWeeklyConsolidation()" class="bg-blue-600 text-white px-3 py-2 rounded-lg text-sm hover:bg-blue-700">
                                     <i class="fa-solid fa-play mr-1"></i> Enable
                                 </button>
-                                <button onclick="removeWeeklyConsolidation()" class="bg-white border border-blue-300 text-blue-700 px-3 py-2 rounded-lg text-sm hover:bg-blue-50">
+                                <button onclick="removeWeeklyConsolidation()" class="bg-white dark:bg-slate-700 border border-blue-300 dark:border-blue-600 text-blue-700 dark:text-blue-400 px-3 py-2 rounded-lg text-sm hover:bg-blue-50 dark:hover:bg-slate-600">
                                     <i class="fa-solid fa-stop mr-1"></i> Disable
                                 </button>
                             </div>
