@@ -3667,6 +3667,9 @@ function getAllTasks(filters) {
   // Stats counters
   let statActive = 0, statHuman = 0, statAccepted = 0, statInitialOutreach = 0;
 
+  // FIX: Track unique candidates across sheets to prevent double-counting
+  const countedCandidates = new Set();
+
   // Apply filters if provided
   const jobFilter = filters?.jobId || 'all';
   const statusFilter = filters?.status || 'all';
@@ -3693,6 +3696,11 @@ function getAllTasks(filters) {
 
     // Collect all job IDs for filter dropdown
     jobIdSet.add(jobId);
+
+    // FIX: Use normalizeEmail to deduplicate Gmail dot-variants across sheets
+    const candidateKey = normalizeEmail(stateData[i][0]) + '|' + jobId;
+    if (countedCandidates.has(candidateKey)) continue;
+    countedCandidates.add(candidateKey);
 
     // Count stats - count ALL candidates
     if(status === 'Human-Negotiation') {
@@ -3744,8 +3752,12 @@ function getAllTasks(filters) {
       const jobId = String(taskData[i][1]);
       jobIdSet.add(jobId);
 
-      // Count for stats (always)
-      statAccepted++;
+      // FIX: Deduplicate across sheets using normalized email
+      const taskCandidateKey = normalizeEmail(taskData[i][3]) + '|' + jobId;
+      if (!countedCandidates.has(taskCandidateKey)) {
+        countedCandidates.add(taskCandidateKey);
+        statAccepted++;
+      }
 
       // Apply filters for display
       if(statusFilter !== 'all' && statusFilter !== 'Offer Accepted') continue;
@@ -3784,8 +3796,12 @@ function getAllTasks(filters) {
 
       if(jobId) jobIdSet.add(jobId);
 
-      // Count completed
-      statCompleted++;
+      // FIX: Deduplicate across sheets using normalized email
+      const completedCandidateKey = normalizeEmail(email) + '|' + jobId;
+      if (!countedCandidates.has(completedCandidateKey)) {
+        countedCandidates.add(completedCandidateKey);
+        statCompleted++;
+      }
 
       // Apply filters for display
       if(statusFilter !== 'all' && statusFilter !== 'Completed') continue;
@@ -9449,31 +9465,42 @@ RESPONSE GUIDELINES:
 function getTaskStats() {
   const url = getStoredSheetUrl();
   if(!url) return { total: 0, active: 0, human: 0, accepted: 0 };
-  
+
   const ss = SpreadsheetApp.openByUrl(url);
   ensureSheetsExist(ss);
-  
+
   const stateSheet = ss.getSheetByName('Negotiation_State');
   const taskSheet = ss.getSheetByName('Negotiation_Tasks');
-  
+
   if(!stateSheet || !taskSheet) return { total: 0, active: 0, human: 0, accepted: 0 };
-  
+
   const stateData = stateSheet.getDataRange().getValues();
   const taskData = taskSheet.getDataRange().getValues();
-  
+
+  // FIX: Track unique candidates across sheets to prevent double-counting
+  const countedCandidates = new Set();
+
   let active = 0, human = 0;
   for(let i=1; i<stateData.length; i++) {
     if(stateData[i][0]) {
+      const candidateKey = normalizeEmail(stateData[i][0]) + '|' + String(stateData[i][1]);
+      if (countedCandidates.has(candidateKey)) continue;
+      countedCandidates.add(candidateKey);
       if(stateData[i][4] === 'Human-Negotiation') human++;
       else active++;
     }
   }
-  
+
   let accepted = 0;
   for(let i=1; i<taskData.length; i++) {
-    if(taskData[i][3] && taskData[i][5] !== 'Archived') accepted++;
+    if(taskData[i][3] && taskData[i][5] !== 'Archived') {
+      const taskKey = normalizeEmail(taskData[i][3]) + '|' + String(taskData[i][1]);
+      if (countedCandidates.has(taskKey)) continue;
+      countedCandidates.add(taskKey);
+      accepted++;
+    }
   }
-  
+
   return {
     total: active + human + accepted,
     active: active,
@@ -10743,11 +10770,17 @@ function getActiveNegotiationStats() {
     let total = 0;
     const perJob = {}; // Per-job breakdown of active negotiations
 
-    // Count unique candidates by status (each row is a unique email+jobId)
+    // FIX: Deduplicate using normalized email+jobId to prevent Gmail dot-variant duplicates
+    const countedCandidates = new Set();
+
     for (let i = 1; i < data.length; i++) {
       if (!data[i][0]) continue; // Skip empty rows
 
       const jobId = jobIdColIdx !== -1 ? String(data[i][jobIdColIdx] || '') : '';
+      const candidateKey = normalizeEmail(data[i][0]) + '|' + jobId;
+      if (countedCandidates.has(candidateKey)) continue;
+      countedCandidates.add(candidateKey);
+
       const status = String(data[i][4] || '').toLowerCase();
       total++;
 
@@ -10795,6 +10828,9 @@ function getDataGatheringStats() {
     let total = 0;
     const perJob = {}; // Per-job breakdown of ACTIVE data gathering
 
+    // FIX: Deduplicate across all Job_*_Details sheets using normalized email
+    const countedCandidates = new Set();
+
     // Iterate through all sheets that match Job_*_Details pattern
     for (const sheet of sheets) {
       const sheetName = sheet.getName();
@@ -10808,6 +10844,7 @@ function getDataGatheringStats() {
       const data = sheet.getDataRange().getValues();
       const headers = data[0];
       const statusColIdx = headers.indexOf('Status');
+      const emailColIdx = headers.indexOf('Email');
 
       if (statusColIdx === -1) continue; // Skip if no Status column
 
@@ -10818,6 +10855,13 @@ function getDataGatheringStats() {
       for (let i = 1; i < data.length; i++) {
         const status = String(data[i][statusColIdx] || '').trim();
         if (!status) continue;
+
+        // FIX: Deduplicate by normalized email+jobId
+        if (emailColIdx !== -1 && data[i][emailColIdx]) {
+          const candidateKey = normalizeEmail(data[i][emailColIdx]) + '|' + jobId;
+          if (countedCandidates.has(candidateKey)) continue;
+          countedCandidates.add(candidateKey);
+        }
 
         total++;
         perJob[jobId].total++;
@@ -10865,6 +10909,8 @@ function getFollowUpStats() {
 
     let pending = 0, followUp1Done = 0, followUp2Done = 0, responded = 0, unresponsive = 0;
     const jobIdSet = new Set();
+    // FIX: Deduplicate by normalized email+jobId to prevent Gmail dot-variant duplicates
+    const countedCandidates = new Set();
 
     for(let i = 1; i < data.length; i++) {
       const f1Done = data[i][6] === true || data[i][6] === 'TRUE';
@@ -10873,6 +10919,11 @@ function getFollowUpStats() {
       const jobId = String(data[i][1]);
 
       if(jobId) jobIdSet.add(jobId);
+
+      // FIX: Skip duplicate email+jobId entries
+      const candidateKey = normalizeEmail(data[i][0]) + '|' + jobId;
+      if (countedCandidates.has(candidateKey)) continue;
+      countedCandidates.add(candidateKey);
 
       if(status === 'Responded') {
         responded++;
@@ -12614,11 +12665,12 @@ function getTimeToResponseMetrics(filterJobId, startDate, endDate) {
     }
 
     // Build map of email -> first outreach timestamp by job
-    const outreachMap = new Map(); // key: "email|jobId" -> timestamp
+    // FIX: Use normalizeEmail for keys to deduplicate Gmail dot-variants
+    const outreachMap = new Map(); // key: "normalizedEmail|jobId" -> timestamp
     for (let i = 1; i < emailData.length; i++) {
       const timestamp = emailData[i][0];
       const jobId = String(emailData[i][1] || '');
-      const email = String(emailData[i][2] || '').toLowerCase();
+      const email = normalizeEmail(emailData[i][2]);
       const type = String(emailData[i][5] || '');
 
       // Only count outreach emails (not follow-ups)
@@ -12638,11 +12690,12 @@ function getTimeToResponseMetrics(filterJobId, startDate, endDate) {
     }
 
     // Build map of email -> first response timestamp by job
-    const responseMap = new Map(); // key: "email|jobId" -> timestamp
+    // FIX: Use normalizeEmail for keys to match outreachMap keys
+    const responseMap = new Map(); // key: "normalizedEmail|jobId" -> timestamp
 
     // First, check Negotiation_State for response times
     for (let i = 1; i < stateData.length; i++) {
-      const email = String(stateData[i][0] || '').toLowerCase();
+      const email = normalizeEmail(stateData[i][0]);
       const jobId = String(stateData[i][1] || '');
       const lastReplyTime = stateData[i][5]; // Last Reply Time column
 
@@ -12660,7 +12713,7 @@ function getTimeToResponseMetrics(filterJobId, startDate, endDate) {
     for (let i = 1; i < completedData.length; i++) {
       const completedTimestamp = completedData[i][0];
       const jobId = String(completedData[i][1] || '');
-      const email = String(completedData[i][2] || '').toLowerCase();
+      const email = normalizeEmail(completedData[i][2]);
       const finalStatus = String(completedData[i][4] || '').toLowerCase();
 
       // Apply job filter
@@ -12807,10 +12860,11 @@ function getJobPerformanceMetrics(startDate, endDate) {
     const jobMetrics = new Map(); // jobId -> { outreach: Set, responses: Set, accepted: Set }
 
     // Count outreach emails per job
+    // FIX: Use normalizeEmail to deduplicate Gmail dot-variants
     for (let i = 1; i < emailData.length; i++) {
       const timestamp = emailData[i][0];
       const jobId = String(emailData[i][1] || '').trim();
-      const email = String(emailData[i][2] || '').toLowerCase();
+      const email = normalizeEmail(emailData[i][2]);
       const type = String(emailData[i][5] || '');
 
       // Skip follow-ups, only count initial outreach
@@ -12829,7 +12883,7 @@ function getJobPerformanceMetrics(startDate, endDate) {
 
     // Count responses and acceptances per job
     for (let i = 1; i < stateData.length; i++) {
-      const email = String(stateData[i][0] || '').toLowerCase();
+      const email = normalizeEmail(stateData[i][0]);
       const jobId = String(stateData[i][1] || '').trim();
       const status = String(stateData[i][3] || '').toLowerCase();
       const lastReplyTime = stateData[i][5];
@@ -12946,11 +13000,12 @@ function getConversionFunnelData(filterJobId, startDate, endDate) {
     const unresponsiveData = unresponsiveSheet ? unresponsiveSheet.getDataRange().getValues() : [];
 
     // Count unique outreach emails (total contacted)
+    // FIX: Use normalizeEmail for Set keys to deduplicate Gmail dot-variants
     const outreachEmails = new Set();
     for (let i = 1; i < emailData.length; i++) {
       const timestamp = emailData[i][0];
       const jobId = String(emailData[i][1] || '');
-      const email = String(emailData[i][2] || '').toLowerCase();
+      const email = normalizeEmail(emailData[i][2]);
       const type = String(emailData[i][5] || '');
 
       // Only count initial outreach, not follow-ups
@@ -12977,7 +13032,7 @@ function getConversionFunnelData(filterJobId, startDate, endDate) {
     for (let i = 1; i < completedData.length; i++) {
       const timestamp = completedData[i][0];
       const jobId = String(completedData[i][1] || '');
-      const email = String(completedData[i][2] || '').toLowerCase();
+      const email = normalizeEmail(completedData[i][2]);
       const status = String(completedData[i][4] || '').toLowerCase();
 
       if (filterJobId && jobId !== filterJobId) continue;
@@ -13007,7 +13062,7 @@ function getConversionFunnelData(filterJobId, startDate, endDate) {
     // Count negotiating (status is active/pending in state) - candidates actively in negotiation
     const negotiatingEmails = new Set();
     for (let i = 1; i < stateData.length; i++) {
-      const email = String(stateData[i][0] || '').toLowerCase();
+      const email = normalizeEmail(stateData[i][0]);
       const jobId = String(stateData[i][1] || '');
       const status = String(stateData[i][4] || '').toLowerCase();
 
@@ -13023,7 +13078,7 @@ function getConversionFunnelData(filterJobId, startDate, endDate) {
     // These are candidates in a "waiting" state between response and active negotiation
     const respondedWaitingEmails = new Set();
     for (let i = 1; i < stateData.length; i++) {
-      const email = String(stateData[i][0] || '').toLowerCase();
+      const email = normalizeEmail(stateData[i][0]);
       const jobId = String(stateData[i][1] || '');
       const status = String(stateData[i][4] || '').toLowerCase();
 
@@ -13039,7 +13094,7 @@ function getConversionFunnelData(filterJobId, startDate, endDate) {
     const unresponsiveEmails = new Set();
     for (let i = 1; i < unresponsiveData.length; i++) {
       const jobId = String(unresponsiveData[i][1] || '');
-      const email = String(unresponsiveData[i][2] || '').toLowerCase();
+      const email = normalizeEmail(unresponsiveData[i][2]);
       if (filterJobId && jobId !== filterJobId) continue;
       unresponsive++;
       if (email) unresponsiveEmails.add(email);
