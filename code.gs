@@ -30,6 +30,31 @@ const EMAIL_SIGNATURE = 'Turing | Talent Operations';  // Default signature
 // This prevents the AI from interfering with manually sent emails or personal correspondence.
 const AI_MANAGED_LABEL = 'AI-Managed';
 
+// ============================================================
+// EMAIL NORMALIZATION - Gmail treats dots in local part as identical
+// e.g., garima.singh@gmail.com === garimasingh@gmail.com
+// ============================================================
+/**
+ * Normalize an email address to prevent Gmail dot-variant duplicates.
+ * Gmail ignores dots in the local part (before @), so "a.b@gmail.com" and "ab@gmail.com"
+ * are the same mailbox. This function strips dots from the local part for Gmail/Googlemail addresses.
+ * Non-Gmail addresses are returned as lowercase-trimmed only (dots may matter for other providers).
+ * @param {string} email - The email address to normalize
+ * @returns {string} The normalized email address
+ */
+function normalizeEmail(email) {
+  if (!email) return '';
+  const clean = String(email).toLowerCase().trim();
+  const atIndex = clean.indexOf('@');
+  if (atIndex === -1) return clean;
+  const localPart = clean.substring(0, atIndex);
+  const domain = clean.substring(atIndex + 1);
+  if (domain === 'gmail.com' || domain === 'googlemail.com') {
+    return localPart.replace(/\./g, '') + '@' + domain;
+  }
+  return clean;
+}
+
 // Config values: reads from Script Properties with hardcoded fallback defaults
 function getAppConfig() {
   const props = PropertiesService.getScriptProperties();
@@ -3275,6 +3300,8 @@ function saveJobCandidateDetails(ss, jobId, candidateEmail, candidateName, devId
   }
 
   const cleanEmail = String(candidateEmail).toLowerCase().trim();
+  // FIX: Use normalizeEmail for Gmail dot-variant matching in lookups
+  const normalizedEmail = normalizeEmail(candidateEmail);
   // Use getAllJobColumns to include both base questions AND email-type specific columns
   const questions = getAllJobColumns(jobId);
 
@@ -3316,11 +3343,12 @@ function saveJobCandidateDetails(ss, jobId, candidateEmail, candidateName, devId
   const agreedRateColIdx = headers.indexOf('Agreed Rate') !== -1 ? headers.indexOf('Agreed Rate') : finalAgreedRateColIdx;
 
   // Check if candidate already exists in sheet
+  // FIX: Use normalizeEmail to match Gmail dot-variants and prevent duplicate rows
   const data = sheet.getDataRange().getValues();
   let existingRowIndex = -1;
 
   for (let i = 1; i < data.length; i++) {
-    if (String(data[i][emailColIdx]).toLowerCase() === cleanEmail) {
+    if (normalizeEmail(data[i][emailColIdx]) === normalizedEmail) {
       existingRowIndex = i + 1;
       break;
     }
@@ -3495,7 +3523,8 @@ function updateJobCandidateStatus(ss, jobId, candidateEmail, status, agreedRate,
 
   if (!sheet) return { success: false, message: "Sheet not found" };
 
-  const cleanEmail = String(candidateEmail).toLowerCase().trim();
+  // FIX: Use normalizeEmail to match Gmail dot-variants (e.g., a.b@gmail.com === ab@gmail.com)
+  const normalizedEmail = normalizeEmail(candidateEmail);
   const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
   const emailColIdx = headers.indexOf('Email');
   const statusColIdx = headers.indexOf('Status');
@@ -3509,17 +3538,19 @@ function updateJobCandidateStatus(ss, jobId, candidateEmail, status, agreedRate,
   const data = sheet.getDataRange().getValues();
 
   for (let i = 1; i < data.length; i++) {
-    if (String(data[i][emailColIdx]).toLowerCase() === cleanEmail) {
+    if (normalizeEmail(data[i][emailColIdx]) === normalizedEmail) {
       const rowIndex = i + 1;
       sheet.getRange(rowIndex, statusColIdx + 1).setValue(status);
       sheet.getRange(rowIndex, timestampColIdx + 1).setValue(new Date());
       if (agreedRate && agreedRateColIdx !== -1) {
         sheet.getRange(rowIndex, agreedRateColIdx + 1).setValue(agreedRate);
       }
-      if (candidateOffer && candidateOfferColIdx !== -1) {
+      // FIX: Only set Candidate Offer if not already populated (preserve original ask from counter-offer step)
+      if (candidateOffer && candidateOfferColIdx !== -1 && !data[i][candidateOfferColIdx]) {
         sheet.getRange(rowIndex, candidateOfferColIdx + 1).setValue(candidateOffer);
       }
-      if (counterOffer && counterOfferColIdx !== -1) {
+      // FIX: Only set Counter Offer if not already populated (preserve value from counter-offer step)
+      if (counterOffer && counterOfferColIdx !== -1 && !data[i][counterOfferColIdx]) {
         sheet.getRange(rowIndex, counterOfferColIdx + 1).setValue(counterOffer);
       }
       return { success: true };
@@ -4237,11 +4268,12 @@ function sendBulkEmails(recipients, senderName, subject, htmlBody, jobId, opts) 
   }
 
   // Build existing emails set to check for duplicates
+  // FIX: Use normalizeEmail to prevent Gmail dot-variant duplicates
   const stateData = stateSheet.getDataRange().getValues();
   const existingEmails = new Set();
   for(let i=1; i<stateData.length; i++) {
     if(stateData[i][0]) {
-      existingEmails.add(String(stateData[i][0]).toLowerCase() + '_' + String(stateData[i][1]));
+      existingEmails.add(normalizeEmail(stateData[i][0]) + '_' + String(stateData[i][1]));
     }
   }
 
@@ -4279,7 +4311,8 @@ function sendBulkEmails(recipients, senderName, subject, htmlBody, jobId, opts) 
       }
       const fqData = followUpSheet.getDataRange().getValues();
       for (let i = 1; i < fqData.length; i++) {
-        followUpExistingEmails.add(String(fqData[i][0]).toLowerCase().trim() + '_' + String(fqData[i][1]));
+        // FIX: Use normalizeEmail for Gmail dot-variant deduplication
+        followUpExistingEmails.add(normalizeEmail(fqData[i][0]) + '_' + String(fqData[i][1]));
       }
     } catch (fqErr) {
       console.error("Failed to pre-load follow-up queue:", fqErr);
@@ -4301,7 +4334,8 @@ function sendBulkEmails(recipients, senderName, subject, htmlBody, jobId, opts) 
         if (jdEmailColIdx !== -1) {
           for (let i = 1; i < jdData.length; i++) {
             if (jdData[i][jdEmailColIdx]) {
-              jobDetailsExistingEmails.add(String(jdData[i][jdEmailColIdx]).toLowerCase().trim());
+              // FIX: Use normalizeEmail for Gmail dot-variant deduplication
+              jobDetailsExistingEmails.add(normalizeEmail(jdData[i][jdEmailColIdx]));
             }
           }
         }
@@ -4327,7 +4361,8 @@ function sendBulkEmails(recipients, senderName, subject, htmlBody, jobId, opts) 
 
   recipients.forEach((r, index) => {
     try {
-      const emailKey = String(r.email).toLowerCase() + '_' + String(jobId);
+      // FIX: Use normalizeEmail to prevent Gmail dot-variant duplicates
+      const emailKey = normalizeEmail(r.email) + '_' + String(jobId);
 
       // Check if already in system
       if(existingEmails.has(emailKey)) {
@@ -4357,8 +4392,9 @@ function sendBulkEmails(recipients, senderName, subject, htmlBody, jobId, opts) 
 
       // Collect job details row
       if (jobDetailsSheet && jdHeaders.length > 0) {
-        const cleanEmail = String(r.email).toLowerCase().trim();
-        if (!jobDetailsExistingEmails.has(cleanEmail)) {
+        // FIX: Use normalizeEmail for Gmail dot-variant deduplication
+        const normalizedRecipientEmail = normalizeEmail(r.email);
+        if (!jobDetailsExistingEmails.has(normalizedRecipientEmail)) {
           const rowData = new Array(jdHeaders.length).fill('');
           const tIdx = jdHeaders.indexOf('Timestamp');
           const eIdx = jdHeaders.indexOf('Email');
@@ -4375,13 +4411,14 @@ function sendBulkEmails(recipients, senderName, subject, htmlBody, jobId, opts) 
           if (rIdx !== -1) rowData[rIdx] = region;
           if (sIdx !== -1) rowData[sIdx] = 'Outreach Sent';
           jobDetailsRows.push(rowData);
-          jobDetailsExistingEmails.add(cleanEmail);
+          jobDetailsExistingEmails.add(normalizedRecipientEmail);
         }
       }
 
       // Collect follow-up queue row
       if (shouldFollowUp && followUpSheet) {
-        const fqKey = String(r.email).toLowerCase().trim() + '_' + String(jobId);
+        // FIX: Use normalizeEmail for Gmail dot-variant deduplication
+        const fqKey = normalizeEmail(r.email) + '_' + String(jobId);
         if (!followUpExistingEmails.has(fqKey)) {
           followUpRows.push({
             row: [r.email, jobId, threadId, r.name, r.devId || 'N/A', now, false, false, 'Pending', now],
@@ -9657,11 +9694,12 @@ function processFollowUpQueue() {
 
     // Get negotiation state data to check if candidates are already in ACTIVE negotiations
     // IMPORTANT: Only include entries where candidate has ACTUALLY responded (not just "Initial Outreach")
+    // FIX: Use normalizeEmail for Gmail dot-variant matching in all negotiation lookups
     const stateSheet = ss.getSheetByName('Negotiation_State');
     const stateData = stateSheet ? stateSheet.getDataRange().getValues() : [];
     const activeNegotiations = new Set();
     for(let j = 1; j < stateData.length; j++) {
-      const stateEmail = String(stateData[j][0]).toLowerCase().trim();
+      const stateEmail = normalizeEmail(stateData[j][0]);
       const stateJobId = String(stateData[j][1]);
       const stateStatus = String(stateData[j][4] || '').toLowerCase(); // Status is column 5 (index 4)
       // Only consider as "active negotiation" if status indicates actual response/negotiation
@@ -9677,7 +9715,7 @@ function processFollowUpQueue() {
     const completedData = completedSheet ? completedSheet.getDataRange().getValues() : [];
     const completedNegotiations = new Set();
     for(let j = 1; j < completedData.length; j++) {
-      const compEmail = String(completedData[j][2]).toLowerCase().trim(); // Email is column 3
+      const compEmail = normalizeEmail(completedData[j][2]); // Email is column 3
       const compJobId = String(completedData[j][1]);
       if(compEmail && compJobId) {
         completedNegotiations.add(`${compEmail}|${compJobId}`);
@@ -9688,7 +9726,7 @@ function processFollowUpQueue() {
     const tasksData = tasksSheet ? tasksSheet.getDataRange().getValues() : [];
     const acceptedOffers = new Set();
     for(let j = 1; j < tasksData.length; j++) {
-      const taskEmail = String(tasksData[j][3]).toLowerCase().trim(); // Email is column 4
+      const taskEmail = normalizeEmail(tasksData[j][3]); // Email is column 4
       const taskJobId = String(tasksData[j][1]);
       if(taskEmail && taskJobId) {
         acceptedOffers.add(`${taskEmail}|${taskJobId}`);
@@ -9725,7 +9763,8 @@ function processFollowUpQueue() {
 
       // Check if candidate is already in active negotiation, completed, or has accepted offer
       // BUT skip this auto-marking if Manual Override is set (user manually reset this entry)
-      const negotiationKey = `${email}|${jobId}`;
+      // FIX: Use normalizeEmail for Gmail dot-variant matching
+      const negotiationKey = `${normalizeEmail(email)}|${jobId}`;
       if(!manualOverride && (activeNegotiations.has(negotiationKey) || completedNegotiations.has(negotiationKey) || acceptedOffers.has(negotiationKey))) {
         // Mark as responded since they're in negotiation/completed/accepted
         sheet.getRange(i + 1, 9).setValue('Responded');
@@ -9761,8 +9800,12 @@ function processFollowUpQueue() {
             const effectiveSender = getEffectiveSenderName().toLowerCase();
             const ourSenderNames = ['recruiter', 'turing recruitment', 'turing team', EMAIL_SENDER_NAME.toLowerCase(), effectiveSender];
 
-            // Check ALL messages to see if candidate has replied at any point
-            // We need to verify the message is FROM the candidate's email, not just "not from us"
+            // FIX: Use Thread ID as PRIMARY source for response detection.
+            // Any non-system reply in the thread means the candidate has responded,
+            // regardless of whether their reply email matches exactly (handles Gmail dot-variants).
+            // Email matching is used as secondary info for logging purposes only.
+            const normalizedQueueEmail = normalizeEmail(email);
+
             for(let m = 1; m < messages.length; m++) {
               const msg = messages[m];
               const sender = msg.getFrom().toLowerCase();
@@ -9777,41 +9820,29 @@ function processFollowUpQueue() {
 
               if(isFromUs) continue; // Skip our own messages
 
-              // Check if this message is FROM the expected candidate email
-              if(senderEmail.includes(email) || email.includes(senderEmail)) {
-                candidateHasResponded = true;
-                log.push({ type: 'info', message: `${email} found response from sender: ${senderEmail}` });
-                break;
-              }
-
-              // FALLBACK: This is a non-system message from a DIFFERENT email in the same thread
-              // This could be the candidate replying from an alternate email address
-              if(!actualReplyEmail) {
+              // Thread ID is the primary source: any non-system reply means the candidate responded.
+              // Use normalizeEmail for email comparison as secondary check for logging.
+              candidateHasResponded = true;
+              if (normalizeEmail(senderEmail) !== normalizedQueueEmail &&
+                  !senderEmail.includes(email) && !email.includes(senderEmail)) {
                 actualReplyEmail = senderEmail;
                 respondedFromDifferentEmail = true;
               }
+              log.push({ type: 'info', message: `${email} found response in thread from sender: ${senderEmail}` });
+              break;
             }
 
             if(candidateHasResponded) {
-              // Candidate has responded from expected email - mark as responded
+              if (respondedFromDifferentEmail && actualReplyEmail) {
+                // Log the email mismatch for user review
+                logEmailMismatch(jobId, email, actualReplyEmail, name, devId, threadId, 'Follow-Up Queue', 'Marked as responded (different email in same thread)');
+                log.push({ type: 'warning', message: `${email} - Response from different email (${actualReplyEmail}) in same thread - marked as responded.` });
+              }
+              // Mark as responded - thread had a non-system reply
               sheet.getRange(i + 1, 9).setValue('Responded');
               sheet.getRange(i + 1, 10).setValue(new Date());
               updateFollowUpLabels(threadId, 'responded');
-              log.push({ type: 'success', message: `${email} has responded - marked in queue` });
-              processed++;
-              continue;
-            }
-
-            // FALLBACK: Response detected from a different email address
-            if(respondedFromDifferentEmail && actualReplyEmail) {
-              // Log the email mismatch for user review
-              logEmailMismatch(jobId, email, actualReplyEmail, name, devId, threadId, 'Follow-Up Queue', 'Marked as responded (different email)');
-
-              // Mark as responded with a note about the different email
-              sheet.getRange(i + 1, 9).setValue('Responded (Diff Email)');
-              sheet.getRange(i + 1, 10).setValue(new Date());
-              updateFollowUpLabels(threadId, 'responded');
-              log.push({ type: 'warning', message: `${email} - Response from DIFFERENT email (${actualReplyEmail}) - marked as responded. Review Email_Mismatch_Reports.` });
+              log.push({ type: 'success', message: `${email} has responded (thread-based detection) - marked in queue` });
               processed++;
               continue;
             }
@@ -10582,48 +10613,10 @@ function processDataGatheringFollowUps() {
   }
 }
 
-/**
- * Update candidate status in Job Details sheet
- * @param {Spreadsheet} ss - Spreadsheet object
- * @param {string} jobId - Job ID
- * @param {string} email - Candidate email
- * @param {string} newStatus - New status to set
- * @param {string|null} agreedRate - Optional agreed rate
- */
-function updateJobCandidateStatus(ss, jobId, email, newStatus, agreedRate) {
-  try {
-    const jobsSs = getCachedJobsSpreadsheet();
-    if (!jobsSs) return;
-
-    const sheetName = `Job_${jobId}_Details`;
-    const sheet = jobsSs.getSheetByName(sheetName);
-    if (!sheet || sheet.getLastRow() < 2) return;
-
-    const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
-    const data = sheet.getDataRange().getValues();
-    const cleanEmail = String(email).toLowerCase().trim();
-
-    const emailColIdx = headers.indexOf('Email');
-    const statusColIdx = headers.indexOf('Status');
-    const agreedRateColIdx = headers.indexOf('Final Agreed Rate') !== -1
-      ? headers.indexOf('Final Agreed Rate')
-      : headers.indexOf('Agreed Rate');
-
-    for (let i = 1; i < data.length; i++) {
-      if (String(data[i][emailColIdx]).toLowerCase().trim() === cleanEmail) {
-        if (statusColIdx !== -1 && newStatus) {
-          sheet.getRange(i + 1, statusColIdx + 1).setValue(newStatus);
-        }
-        if (agreedRateColIdx !== -1 && agreedRate) {
-          sheet.getRange(i + 1, agreedRateColIdx + 1).setValue(agreedRate);
-        }
-        break;
-      }
-    }
-  } catch (e) {
-    console.error("Error updating job candidate status:", e);
-  }
-}
+// REMOVED: Duplicate 5-parameter version of updateJobCandidateStatus was here.
+// It was overriding the full 7-parameter version (with candidateOffer/counterOffer support) at line ~3485,
+// causing Candidate Offer and Counter Offer columns to never be written.
+// The canonical version is now the single definition above with full parameter support.
 
 /**
  * Reset follow-up status for a specific email or all incorrectly marked "Responded" entries
@@ -10660,7 +10653,7 @@ function resetFollowUpStatus(emailToReset) {
       // Only process "Responded" entries (to re-verify them)
       if(status !== 'Responded') continue;
 
-      // Re-check Gmail thread to verify if candidate actually responded
+      // FIX: Re-check Gmail thread using Thread ID as primary source (any non-system reply = responded)
       let actuallyResponded = false;
       if(threadId) {
         try {
@@ -10668,7 +10661,7 @@ function resetFollowUpStatus(emailToReset) {
           if(thread) {
             const messages = thread.getMessages();
 
-            // Check if any message is actually FROM the candidate
+            // Thread ID is primary: any non-system reply means candidate responded
             for(let m = 1; m < messages.length; m++) {
               const msg = messages[m];
               const sender = msg.getFrom().toLowerCase();
@@ -10677,12 +10670,14 @@ function resetFollowUpStatus(emailToReset) {
               const senderEmailMatch = sender.match(/<([^>]+)>/) || [null, sender.replace(/.*<|>.*/g, '').trim()];
               const senderEmail = senderEmailMatch[1] || sender.trim();
 
-              // Verify it's from the candidate
-              if(senderEmail.includes(email) || email.includes(senderEmail)) {
-                actuallyResponded = true;
-                log.push(`${email}: Verified - candidate did respond (from: ${senderEmail})`);
-                break;
-              }
+              // Skip our own messages
+              const isFromUs = (myEmail && senderEmail.includes(myEmail));
+              if(isFromUs) continue;
+
+              // Any non-system reply in the thread means candidate responded
+              actuallyResponded = true;
+              log.push(`${email}: Verified - response found in thread (from: ${senderEmail})`);
+              break;
             }
           }
         } catch(threadError) {
