@@ -4198,6 +4198,74 @@ function sendBulkEmails(recipients, senderName, subject, htmlBody, jobId, opts) 
   let skipped = 0;
   const total = recipients.length;
 
+  // Pre-compute labels array once
+  const labelsToAdd = [];
+  if (labelId) labelsToAdd.push(labelId);
+  if (aiLabelId) labelsToAdd.push(aiLabelId);
+
+  // Pre-determine follow-up setting once
+  const shouldFollowUp = opts?.jobSettings
+    ? opts.jobSettings.followUp === true
+    : jobType !== 'informing';
+
+  // Pre-load follow-up queue data to avoid re-opening spreadsheet per recipient
+  let followUpSheet = null;
+  let followUpExistingEmails = new Set();
+  if (shouldFollowUp) {
+    try {
+      followUpSheet = ss.getSheetByName('Follow_Up_Queue');
+      if (!followUpSheet) {
+        followUpSheet = ss.insertSheet('Follow_Up_Queue');
+        followUpSheet.appendRow(['Email', 'Job ID', 'Thread ID', 'Name', 'Dev ID', 'Initial Send Time', 'Follow Up 1 Sent', 'Follow Up 2 Sent', 'Status', 'Last Updated', 'Manual Override']);
+      }
+      const fqData = followUpSheet.getDataRange().getValues();
+      for (let i = 1; i < fqData.length; i++) {
+        followUpExistingEmails.add(String(fqData[i][0]).toLowerCase().trim() + '_' + String(fqData[i][1]));
+      }
+    } catch (fqErr) {
+      console.error("Failed to pre-load follow-up queue:", fqErr);
+    }
+  }
+
+  // Pre-load job details sheet data to avoid reading it per recipient
+  let jobDetailsSheet = null;
+  let jobDetailsExistingEmails = new Set();
+  try {
+    const jobsSs = getCachedJobsSpreadsheet();
+    if (jobsSs) {
+      const detailsSheetName = `Job_${jobId}_Details`;
+      jobDetailsSheet = jobsSs.getSheetByName(detailsSheetName);
+      if (jobDetailsSheet) {
+        const jdData = jobDetailsSheet.getDataRange().getValues();
+        const jdHeaders = jdData[0] || [];
+        const jdEmailColIdx = jdHeaders.indexOf('Email');
+        if (jdEmailColIdx !== -1) {
+          for (let i = 1; i < jdData.length; i++) {
+            if (jdData[i][jdEmailColIdx]) {
+              jobDetailsExistingEmails.add(String(jdData[i][jdEmailColIdx]).toLowerCase().trim());
+            }
+          }
+        }
+      }
+    }
+  } catch (jdErr) {
+    console.error("Failed to pre-load job details sheet:", jdErr);
+  }
+
+  // Collect batch rows to write after the loop
+  const logRows = [];
+  const stateRows = [];
+  const followUpRows = [];
+  const jobDetailsRows = [];
+
+  // Get job details sheet headers once for building detail rows
+  let jdHeaders = [];
+  if (jobDetailsSheet) {
+    try {
+      jdHeaders = jobDetailsSheet.getRange(1, 1, 1, jobDetailsSheet.getLastColumn()).getValues()[0];
+    } catch (e) { /* ignore */ }
+  }
+
   recipients.forEach((r, index) => {
     try {
       const emailKey = String(r.email).toLowerCase() + '_' + String(jobId);
@@ -4215,42 +4283,52 @@ function sendBulkEmails(recipients, senderName, subject, htmlBody, jobId, opts) 
       const message = Gmail.Users.Messages.send({ raw: rawMessage }, 'me');
       const threadId = message.threadId;
 
-      // Apply labels: Job-specific label and AI-Managed safety label
-      const labelsToAdd = [];
-      if (labelId) labelsToAdd.push(labelId);
-      if (aiLabelId) labelsToAdd.push(aiLabelId);
-
+      // Apply labels
       if (labelsToAdd.length > 0) {
         Gmail.Users.Threads.modify({ addLabelIds: labelsToAdd }, 'me', threadId);
       }
 
-      // Add to state with thread ID and Region (column 11)
       const region = r.region || '';
+      const now = new Date();
 
-      // Log the email with country/region data
-      logSheet.appendRow([new Date(), jobId, r.email, r.name, threadId, "Initial", region]);
-      stateSheet.appendRow([r.email, jobId, 0, "Initial Sent", "Initial Outreach", new Date(), r.devId || "N/A", r.name, "", threadId, region]);
+      // Collect rows for batch write instead of individual appendRow calls
+      logRows.push([now, jobId, r.email, r.name, threadId, "Initial", region]);
+      stateRows.push([r.email, jobId, 0, "Initial Sent", "Initial Outreach", now, r.devId || "N/A", r.name, "", threadId, region]);
       existingEmails.add(emailKey);
 
-      // Add candidate to job details sheet with initial status and region
-      try {
-        const initialAnswers = { is_negotiating: false, negotiation_notes: '' };
-        saveJobCandidateDetails(ss, jobId, r.email, r.name, r.devId || 'N/A', threadId, initialAnswers, 'Outreach Sent', region);
-      } catch(detailsError) {
-        console.error("Failed to add candidate to details sheet:", detailsError);
+      // Collect job details row
+      if (jobDetailsSheet && jdHeaders.length > 0) {
+        const cleanEmail = String(r.email).toLowerCase().trim();
+        if (!jobDetailsExistingEmails.has(cleanEmail)) {
+          const rowData = new Array(jdHeaders.length).fill('');
+          const tIdx = jdHeaders.indexOf('Timestamp');
+          const eIdx = jdHeaders.indexOf('Email');
+          const nIdx = jdHeaders.indexOf('Name');
+          const dIdx = jdHeaders.indexOf('Dev ID');
+          const thIdx = jdHeaders.indexOf('Thread ID');
+          const rIdx = jdHeaders.indexOf('Region');
+          const sIdx = jdHeaders.indexOf('Status');
+          if (tIdx !== -1) rowData[tIdx] = now;
+          if (eIdx !== -1) rowData[eIdx] = r.email;
+          if (nIdx !== -1) rowData[nIdx] = r.name;
+          if (dIdx !== -1) rowData[dIdx] = r.devId || 'N/A';
+          if (thIdx !== -1) rowData[thIdx] = threadId;
+          if (rIdx !== -1) rowData[rIdx] = region;
+          if (sIdx !== -1) rowData[sIdx] = 'Outreach Sent';
+          jobDetailsRows.push(rowData);
+          jobDetailsExistingEmails.add(cleanEmail);
+        }
       }
 
-      // Add to follow-up queue for automated 12hr and 28hr follow-ups
-      // Check if follow-ups are enabled using new settings or legacy job type
-      const shouldFollowUp = opts?.jobSettings
-        ? opts.jobSettings.followUp === true
-        : jobType !== 'informing';
-
-      if (shouldFollowUp) {
-        try {
-          addToFollowUpQueue(r.email, jobId, threadId, r.name, r.devId || 'N/A');
-        } catch(followUpError) {
-          console.error("Failed to add to follow-up queue:", followUpError);
+      // Collect follow-up queue row
+      if (shouldFollowUp && followUpSheet) {
+        const fqKey = String(r.email).toLowerCase().trim() + '_' + String(jobId);
+        if (!followUpExistingEmails.has(fqKey)) {
+          followUpRows.push({
+            row: [r.email, jobId, threadId, r.name, r.devId || 'N/A', now, false, false, 'Pending', now],
+            threadId: threadId
+          });
+          followUpExistingEmails.add(fqKey);
         }
       }
 
@@ -4260,6 +4338,40 @@ function sendBulkEmails(recipients, senderName, subject, htmlBody, jobId, opts) 
       errors.push(`Failed for ${r.email}: ${e.message}`);
     }
   });
+
+  // Batch write all collected rows at once (much faster than individual appendRow calls)
+  try {
+    if (logRows.length > 0) {
+      logSheet.getRange(logSheet.getLastRow() + 1, 1, logRows.length, logRows[0].length).setValues(logRows);
+    }
+    if (stateRows.length > 0) {
+      stateSheet.getRange(stateSheet.getLastRow() + 1, 1, stateRows.length, stateRows[0].length).setValues(stateRows);
+    }
+    if (jobDetailsRows.length > 0 && jobDetailsSheet) {
+      jobDetailsSheet.getRange(jobDetailsSheet.getLastRow() + 1, 1, jobDetailsRows.length, jobDetailsRows[0].length).setValues(jobDetailsRows);
+    }
+    if (followUpRows.length > 0 && followUpSheet) {
+      const fqRowData = followUpRows.map(fr => fr.row);
+      followUpSheet.getRange(followUpSheet.getLastRow() + 1, 1, fqRowData.length, fqRowData[0].length).setValues(fqRowData);
+
+      // Apply "Awaiting-Response" Gmail label to follow-up threads
+      const awaitLabel = GmailApp.getUserLabelByName(FOLLOW_UP_LABELS.AWAITING_RESPONSE) ||
+                         GmailApp.createLabel(FOLLOW_UP_LABELS.AWAITING_RESPONSE);
+      followUpRows.forEach(fr => {
+        if (fr.threadId) {
+          try {
+            const thread = GmailApp.getThreadById(fr.threadId);
+            if (thread) thread.addLabel(awaitLabel);
+          } catch (labelErr) {
+            console.error("Error adding Awaiting-Response label:", labelErr);
+          }
+        }
+      });
+    }
+  } catch (batchErr) {
+    console.error("Batch write error:", batchErr);
+    errors.push("Some data may not have been recorded: " + batchErr.message);
+  }
 
   // Log data consumption for tracking
   try {
