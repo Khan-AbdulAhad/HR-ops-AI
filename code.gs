@@ -346,6 +346,8 @@ Just state your offer directly: "We can offer $X/hr for this role"
 - If they say "immediately available" → Do NOT ask for a specific start date
 - If they already stated their rate → Do NOT re-ask what rate they expect
 - Only follow up on MISSING information from what was originally asked
+- If they say "comfortable with the other working conditions", "fine with everything else", "agree to all conditions", or similar blanket acceptance → Those conditions are already answered as "Yes" - Do NOT re-ask them
+- If the candidate's response addresses all questions (explicitly or via blanket acceptance), do NOT request any additional information
 
 === PENDING INFORMATION TO REQUEST ===
 **CRITICAL: If there are missing items below, include them in your email along with the rate discussion.**
@@ -3090,6 +3092,44 @@ EXAMPLE C4 - Profile links in casual response:
 "check out my profile https://www.linkedin.com/in/jane-smith-123 and my portfolio at janesmith.dev"
 → LinkedIn=https://www.linkedin.com/in/jane-smith-123, Portfolio=janesmith.dev
 
+**TYPE D - BLANKET/COLLECTIVE AFFIRMATIVE RESPONSES:**
+
+When a candidate explicitly answers SOME questions and then uses a blanket phrase to accept/agree to the REST,
+the blanket phrase answers ALL remaining unanswered questions as "Yes".
+
+BLANKET AFFIRMATIVE PHRASES (these mean "Yes" to all remaining unanswered questions):
+- "I am comfortable with the other working conditions"
+- "comfortable with the rest"
+- "fine with everything else" / "everything else works for me"
+- "agree to all other conditions/terms"
+- "the rest is fine" / "all good with the rest"
+- "okay with all the terms/conditions mentioned"
+- "no issues with the other requirements"
+- "happy with all other details"
+- "I accept all the conditions"
+- "other conditions work for me"
+
+EXAMPLE D1 - Rate + blanket acceptance:
+Questions: Expected Rate, Can you work 8 hours per day, Can you overlap 5 hours with PST
+Response: "My expected rate is $18 per hour. I am comfortable with the other working conditions and available to start immediately."
+→ Expected Rate=$18/hr, 8 hours per day=Yes, 5 hours PST overlap=Yes
+(The phrase "comfortable with the other working conditions" is a YES to all working condition questions not explicitly answered)
+
+EXAMPLE D2 - Partial answers + blanket acceptance:
+Questions: Rate, Weekly Hours, Start Date, Has Laptop
+Response: "I can do $40/hr and start next Monday. Everything else works for me."
+→ Rate=$40/hr, Start Date=next Monday, Weekly Hours=Yes, Has Laptop=Yes
+
+EXAMPLE D3 - Single explicit + rest implied:
+Questions: Experience, Location, Availability, Notice Period
+Response: "I have 5 years of experience. The rest of the conditions are fine with me."
+→ Experience=5 years, Location=Yes, Availability=Yes, Notice Period=Yes
+
+EXAMPLE D4 - Affirmative + availability:
+Questions: Rate, Daily Hours, Timezone Overlap
+Response: "My rate is $25/hour and I'm okay with all the working conditions. Available to start immediately."
+→ Rate=$25/hr, Daily Hours=Yes, Timezone Overlap=Yes
+
 === VALUE TYPE RECOGNITION RULES ===
 
 Use these patterns to identify what type of data a value represents:
@@ -3182,6 +3222,8 @@ Special values:
 9. If in doubt, extract the value rather than marking NOT_PROVIDED
 10. URLs and profile links MUST be preserved EXACTLY as provided - copy the full URL including https://, www., and all path segments
 11. For LinkedIn/GitHub/Portfolio questions, extract the complete URL without any truncation or modification
+12. BLANKET AFFIRMATIVE: If the candidate uses phrases like "comfortable with the other working conditions", "fine with everything else", "agree to all conditions", "okay with all the terms mentioned", "the rest works for me", "no issues with the other requirements", etc., treat ALL remaining unanswered questions (those not explicitly answered with a specific value) as "Yes". Do NOT mark them as NOT_PROVIDED.
+13. IMPLICIT AGREEMENT: When a candidate answers some questions explicitly and then refers to "other conditions" or "everything else" positively, this is an implicit YES to all questions they did not answer individually. Always prioritize extracting a value over marking NOT_PROVIDED.
 
 Return ONLY the JSON object, no other text.
 `;
@@ -6363,6 +6405,8 @@ Just state your offer directly: "We can offer $X/hr for this role"
 - If they say "immediately available" → Do NOT ask for a specific start date
 - If they already stated their rate → Do NOT re-ask what rate they expect
 - Only follow up on MISSING information from what was originally asked
+- If they say "comfortable with the other working conditions", "fine with everything else", "agree to all conditions", or similar blanket acceptance → Those conditions are already answered as "Yes" - Do NOT re-ask them
+- If the candidate's response addresses all questions (explicitly or via blanket acceptance), do NOT request any additional information
 
 === PENDING INFORMATION TO REQUEST ===
 **CRITICAL: If there are missing items below, include them in your email along with the rate discussion.**
