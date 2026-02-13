@@ -3702,21 +3702,18 @@ function getAllTasks(filters) {
     if (countedCandidates.has(candidateKey)) continue;
     countedCandidates.add(candidateKey);
 
-    // Count stats - count ALL candidates
-    if(status === 'Human-Negotiation') {
-      // Human negotiation items are always counted (needs human attention)
-      statHuman++;
-    } else if(status === 'Initial Outreach' || attempts === 0) {
-      // Count Initial Outreach candidates
-      statInitialOutreach++;
-    } else {
-      // AI Negotiating (active candidates with attempts > 0)
-      statActive++;
-    }
-
-    // Apply filters server-side
+    // Apply filters server-side (BEFORE counting stats so cards reflect filters)
     if(jobFilter !== 'all' && jobId !== jobFilter) continue;
     if(statusFilter !== 'all' && status !== statusFilter) continue;
+
+    // Count stats - only for candidates that pass filters
+    if(status === 'Human-Negotiation') {
+      statHuman++;
+    } else if(status === 'Initial Outreach' || attempts === 0) {
+      statInitialOutreach++;
+    } else {
+      statActive++;
+    }
 
     let tag = '';
     if(status === 'Human-Negotiation') {
@@ -3754,14 +3751,14 @@ function getAllTasks(filters) {
 
       // FIX: Deduplicate across sheets using normalized email
       const taskCandidateKey = normalizeEmail(taskData[i][3]) + '|' + jobId;
-      if (!countedCandidates.has(taskCandidateKey)) {
-        countedCandidates.add(taskCandidateKey);
-        statAccepted++;
-      }
+      if (countedCandidates.has(taskCandidateKey)) continue;
+      countedCandidates.add(taskCandidateKey);
 
-      // Apply filters for display
+      // Apply filters BEFORE counting stats so cards reflect filters
       if(statusFilter !== 'all' && statusFilter !== 'Offer Accepted') continue;
       if(jobFilter !== 'all' && jobId !== jobFilter) continue;
+
+      statAccepted++;
 
       tasks.push({
         email: taskData[i][3],
@@ -3798,14 +3795,14 @@ function getAllTasks(filters) {
 
       // FIX: Deduplicate across sheets using normalized email
       const completedCandidateKey = normalizeEmail(email) + '|' + jobId;
-      if (!countedCandidates.has(completedCandidateKey)) {
-        countedCandidates.add(completedCandidateKey);
-        statCompleted++;
-      }
+      if (countedCandidates.has(completedCandidateKey)) continue;
+      countedCandidates.add(completedCandidateKey);
 
-      // Apply filters for display
+      // Apply filters BEFORE counting stats so cards reflect filters
       if(statusFilter !== 'all' && statusFilter !== 'Completed') continue;
       if(jobFilter !== 'all' && jobId !== jobFilter) continue;
+
+      statCompleted++;
 
       tasks.push({
         email: email,
@@ -10909,6 +10906,7 @@ function getFollowUpStats() {
 
     let pending = 0, followUp1Done = 0, followUp2Done = 0, responded = 0, unresponsive = 0;
     const jobIdSet = new Set();
+    const perJob = {}; // Per-job breakdown of follow-up stats
     // FIX: Deduplicate by normalized email+jobId to prevent Gmail dot-variant duplicates
     const countedCandidates = new Set();
 
@@ -10918,7 +10916,12 @@ function getFollowUpStats() {
       const status = data[i][8];
       const jobId = String(data[i][1]);
 
-      if(jobId) jobIdSet.add(jobId);
+      if(jobId) {
+        jobIdSet.add(jobId);
+        if (!perJob[jobId]) {
+          perJob[jobId] = { pending: 0, followUp1Done: 0, followUp2Done: 0, responded: 0, unresponsive: 0 };
+        }
+      }
 
       // FIX: Skip duplicate email+jobId entries
       const candidateKey = normalizeEmail(data[i][0]) + '|' + jobId;
@@ -10927,18 +10930,23 @@ function getFollowUpStats() {
 
       if(status === 'Responded') {
         responded++;
+        if(jobId && perJob[jobId]) perJob[jobId].responded++;
       } else if(status === 'Unresponsive') {
         unresponsive++;
+        if(jobId && perJob[jobId]) perJob[jobId].unresponsive++;
       } else if(f2Done) {
         followUp2Done++;
+        if(jobId && perJob[jobId]) perJob[jobId].followUp2Done++;
       } else if(f1Done) {
         followUp1Done++;
+        if(jobId && perJob[jobId]) perJob[jobId].followUp1Done++;
       } else {
         pending++;
+        if(jobId && perJob[jobId]) perJob[jobId].pending++;
       }
     }
 
-    return { pending, followUp1Done, followUp2Done, responded, unresponsive, jobIds: Array.from(jobIdSet).sort() };
+    return { pending, followUp1Done, followUp2Done, responded, unresponsive, perJob, jobIds: Array.from(jobIdSet).sort() };
 
   } catch(e) {
     console.error("Error getting follow-up stats:", e);
@@ -12457,17 +12465,27 @@ function getUserAnalytics(filterEmail, filterJobId, startDate, endDate) {
       }
     }
 
-    // Use dataGatheringStats from earlier (already called for job breakdown)
-    analytics.pendingDataGathering = dataGatheringStats.pending;
-    analytics.dataGatheringStats = dataGatheringStats;
-
-    // Use negotiationStats from earlier (already called for job breakdown)
-    analytics.activeNegotiations = negotiationStats.active + negotiationStats.humanEscalated;
-    analytics.negotiationStats = negotiationStats;
-
     // Get pending follow-ups count (candidates awaiting follow-up)
     const followUpStats = getFollowUpStats();
-    analytics.pendingFollowUps = followUpStats.pending;
+
+    // Apply job filter to active/pending stats cards (use perJob data when filtered)
+    if (jobIdFilter) {
+      const jobDg = dataGatheringStats.perJob ? dataGatheringStats.perJob[jobIdFilter] : null;
+      analytics.pendingDataGathering = jobDg ? jobDg.pending : 0;
+
+      const jobNeg = negotiationStats.perJob ? negotiationStats.perJob[jobIdFilter] : null;
+      analytics.activeNegotiations = jobNeg ? ((jobNeg.active || 0) + (jobNeg.humanEscalated || 0)) : 0;
+
+      const jobFu = followUpStats.perJob ? followUpStats.perJob[jobIdFilter] : null;
+      analytics.pendingFollowUps = jobFu ? jobFu.pending : 0;
+    } else {
+      analytics.pendingDataGathering = dataGatheringStats.pending;
+      analytics.activeNegotiations = negotiationStats.active + negotiationStats.humanEscalated;
+      analytics.pendingFollowUps = followUpStats.pending;
+    }
+
+    analytics.dataGatheringStats = dataGatheringStats;
+    analytics.negotiationStats = negotiationStats;
     analytics.followUpStats = followUpStats;
 
     return analytics;
