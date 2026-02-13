@@ -241,6 +241,17 @@ ${getEffectiveSignature()}
 }
 
 /**
+ * Formats a rate number for display in emails/prompts.
+ * Whole numbers stay as-is (18 → "18"), decimals get 2 places (20.8 → "20.80").
+ */
+function formatRate(rate) {
+  const num = parseFloat(rate);
+  if (isNaN(num)) return String(rate);
+  if (num % 1 === 0) return num.toString();
+  return num.toFixed(2);
+}
+
+/**
  * Builds the negotiation reply prompt - SAME structure as production processJobNegotiations()
  * @param {Object} params - { candidateName, jobDescription, targetRate, maxRate, attempt, candidateMessage, style, faqContent, conversationContext, region }
  * @returns {string} The prompt for AI
@@ -337,6 +348,7 @@ This is your FOLLOW-UP response:
 - If candidate stated a rate > $${max}/hr → Counter with $${max}/hr as final offer
 - If they decline your final offer → Thank them and exit with ACTION: HIGH
 - If candidate needs time to think → Acknowledge and use ACTION: SOFT_HOLD
+- If candidate offers a fallback rate (e.g., "otherwise I am ok with $X") and $X ≤ your max → Accept their fallback rate. Acknowledge naturally by saying "Each project has its own budget, and we're happy to move forward at $X/hr."
 `}
 
 - Negotiation Style: ${style}
@@ -5284,7 +5296,7 @@ Write ONLY the email, nothing else.
 You are a recruiter at Turing. Write a professional acceptance confirmation email to ${candidateName.split(' ')[0]}.
 
 CANDIDATE NAME: ${candidateName.split(' ')[0]}
-AGREED RATE: ${agreedRate ? `$${agreedRate}/hr` : 'Previously agreed rate'}
+AGREED RATE: ${agreedRate ? `$${formatRate(agreedRate)}/hr` : 'Previously agreed rate'}
 
 CANDIDATE'S LATEST MESSAGE:
 "${candidateLatestMessage}"
@@ -5301,6 +5313,7 @@ Write an email that includes ALL of the following points:
 3. Acknowledge the project details from the JD (mention if it's remote, hours per week if specified, etc.)
 4. Inform them their profile is currently under client review
 5. If approved and selected, you will reach out to confirm the onboarding date and provide further details along with contract specifics
+6. IMPORTANT: You MUST mention the exact agreed rate in the email (e.g., "$20.80/hr" not "$20/hr" or "$21/hr"). Do NOT round or modify the rate number.
 
 IMPORTANT:
 - Extract work arrangement details from the JD (remote/hybrid, hours per week, etc.)
@@ -5449,6 +5462,8 @@ IMPORTANT INTERPRETATION RULES:
 - "What would you say if I can do it at $X" = They are ACCEPTING $X (treat as acceptance!)
 - "Can I do it at $X?" or "I can do it at $X" or "I can do $X" = They are ACCEPTING/proposing $X
 - "If I can do it for $X" or "if i can do it in $X" = They are ACCEPTING $X
+- "Otherwise I am ok with $X" or "otherwise I can do $X" or "otherwise $X works" = They are ACCEPTING/proposing $X as their fallback rate (treat as acceptance if $X ≤ our max)
+- "If not, I can do $X" or "if not possible, $X works" = They are proposing $X as a fallback rate
 - ANY mention of a specific dollar amount by the candidate = Their proposed/expected rate
 - "I am ready to start" WITHOUT agreeing to our rate = Just expressing availability, NOT acceptance
 
@@ -5457,6 +5472,7 @@ ACCEPTANCE DETECTION RULES - CRITICAL:
 - "sure", "ok", "okay", "yes", "I agree", "works for me", "that works", "sounds good" IN RESPONSE TO OUR OFFER = ACCEPTING
 - "$X works for me" where $X was OUR offer = ACCEPTING at rate $X
 - "I accept $X" or "I can do $X" where $X is what WE offered = ACCEPTING at rate $X
+- "otherwise I am ok with $X" or "otherwise I can do $X" where $X ≤ our max = ACCEPTING at $X (candidate is offering a fallback they're willing to work at)
 - If candidate states THEIR OWN rate and says "ready to start", they are proposing, NOT accepting
 
 CRITICAL - EXTRACTING THE AGREED RATE FROM CONVERSATION HISTORY:
@@ -5549,7 +5565,8 @@ Return ONLY the JSON object, no other text.
         /\$\s*(\d+(?:\.\d+)?)\s*(?:\/\s*hr|\/\s*hour|per\s*hour|an\s*hour)/i,
         /(\d+(?:\.\d+)?)\s*(?:dollars?\s*(?:per|\/|an)\s*hour)/i,
         /(?:asking|expect|want|looking\s+for|i\s+can\s+do)\s+\$?\s*(\d+(?:\.\d+)?)/i,
-        /(?:can\s+i\s+get|could\s+i\s+get|would\s+i\s+get)\s+\$?\s*(\d+(?:\.\d+)?)/i  // "Can I get $40?"
+        /(?:can\s+i\s+get|could\s+i\s+get|would\s+i\s+get)\s+\$?\s*(\d+(?:\.\d+)?)/i,  // "Can I get $40?"
+        /(?:otherwise|if\s+not)\s+(?:i\s+(?:am|'m)\s+)?(?:ok|okay|fine|good|comfortable)\s+(?:with|at)\s+\$?\s*(\d+(?:\.\d+)?)/i  // "otherwise I am ok with $18"
       ];
 
       let extractedRate = null;
@@ -5584,6 +5601,18 @@ Return ONLY the JSON object, no other text.
           };
         }
         jobStats.log.push({type: 'info', message: `${candidateEmail} - FALLBACK: Updated analysis to action=${rateAnalysis.action} with rate=$${extractedRate}`});
+      }
+    }
+
+    // TOLERANCE ACCEPTANCE: If candidate's rate is within 10% above maxRate after 2 attempts, accept instead of escalating
+    if (attempts >= 2 && rateAnalysis && rateAnalysis.action !== 'AUTO_ACCEPT' && rateAnalysis.action !== 'NOT_INTERESTED') {
+      const candidateRate = rateAnalysis.proposed_rate || rateAnalysis.agreed_rate || null;
+      const toleranceLimit = maxRate * 1.10; // 10% above max
+      if (candidateRate !== null && candidateRate > maxRate && candidateRate <= toleranceLimit) {
+        jobStats.log.push({type: 'success', message: `${candidateEmail} - TOLERANCE ACCEPT: $${formatRate(candidateRate)}/hr is within 10% of max $${formatRate(maxRate)}/hr after ${attempts} attempts. Accepting instead of escalating.`});
+        rateAnalysis.action = 'AUTO_ACCEPT';
+        rateAnalysis.proposed_rate = candidateRate;
+        rateAnalysis.reason = `Tolerance acceptance: $${formatRate(candidateRate)}/hr within 10% of max $${formatRate(maxRate)}/hr after ${attempts} attempts`;
       }
     }
 
@@ -5689,7 +5718,12 @@ Return ONLY the JSON object, no other text.
       // CRITICAL SAFETY CHECK: Prevent auto-accepting rates that exceed region safety limits
       // This catches cases where Rate_Tiers lookup failed but candidate is from a low-cost region
       let shouldSkipAutoAccept = false;
-      if (candidateRegion && regionMaxRateLimit && rate > regionMaxRateLimit) {
+      const regionalToleranceLimit = regionMaxRateLimit ? regionMaxRateLimit * 1.10 : null;
+      const withinRegionalTolerance = regionalToleranceLimit && attempts >= 2 && rate <= regionalToleranceLimit;
+      if (withinRegionalTolerance && rate > regionMaxRateLimit) {
+        jobStats.log.push({type: 'success', message: `${candidateEmail} - REGIONAL TOLERANCE: $${formatRate(rate)}/hr within 10% of ${candidateRegion} limit $${formatRate(regionMaxRateLimit)}/hr after ${attempts} attempts. Proceeding with acceptance.`});
+      }
+      if (candidateRegion && regionMaxRateLimit && rate > regionMaxRateLimit && !withinRegionalTolerance) {
         // FIX: If attempts < 2, don't escalate - instead counter-offer at regional max rate
         // Only escalate if we've already tried to negotiate and candidate still exceeds limit
         if (attempts < 2) {
@@ -5741,7 +5775,9 @@ Return ONLY the JSON object, no other text.
       // SECOND SAFETY CHECK: Ensure rate doesn't exceed configured maxRate (regardless of region)
       // This catches cases where AI incorrectly recommends AUTO_ACCEPT for rates above our budget
       // FIX: Also check attempts before escalating
-      if (rate > maxRate) {
+      // Allow tolerance-accepted rates (within 10% of maxRate after 2 attempts) to pass through
+      const isToleranceAccepted = rateAnalysis.reason && rateAnalysis.reason.startsWith('Tolerance acceptance');
+      if (rate > maxRate && !isToleranceAccepted) {
         if (attempts < 2) {
           jobStats.log.push({type: 'info', message: `${candidateEmail} - Rate $${rate}/hr exceeds max $${maxRate}/hr. Attempt ${attempts + 1}/2 - will counter-offer instead of escalating.`});
           // Set flag to skip auto-accept and fall through to negotiation logic
@@ -5801,14 +5837,14 @@ Return ONLY the JSON object, no other text.
         const counterOfferPrompt = `
 You are a recruiter at Turing. Write a brief negotiation email to ${candidateName.split(' ')[0]}.
 
-The candidate proposed $${rate}/hr, but we cannot go that high for this role.
+The candidate proposed $${formatRate(rate)}/hr, but we cannot go that high for this role.
 
-YOUR COUNTER-OFFER: $${counterOfferRate}/hr
+YOUR COUNTER-OFFER: $${formatRate(counterOfferRate)}/hr
 
 TASK:
 - Thank them for their response
-- Make a counter-offer of $${counterOfferRate}/hr as the best rate we can offer for this role
-- Be confident and direct: "We can offer $${counterOfferRate}/hr for this role"
+- Make a counter-offer of $${formatRate(counterOfferRate)}/hr as the best rate we can offer for this role
+- Be confident and direct: "We can offer $${formatRate(counterOfferRate)}/hr for this role"
 - Keep it professional and concise
 ${pendingDataQuestions && pendingDataQuestions.length > 0 ? `
 - Also politely request these missing items: ${pendingDataQuestions.map(q => q.question).join(', ')}` : ''}
@@ -5818,7 +5854,7 @@ Hi ${candidateName.split(' ')[0]},
 
 [Brief acknowledgment]
 
-We can offer $${counterOfferRate}/hr for this role - this is the best rate we can provide for this opportunity.
+We can offer $${formatRate(counterOfferRate)}/hr for this role - this is the best rate we can provide for this opportunity.
 
 [Call to action]
 
@@ -5901,7 +5937,7 @@ ${rules.jobDescription || 'Freelance opportunity at Turing'}
 EMAIL FORMAT:
 Hi ${candidateName.split(' ')[0]},
 
-Thank you for confirming the rate! I've noted your alignment at $${rate}/hr.
+Thank you for confirming the rate! I've noted your alignment at $${formatRate(rate)}/hr.
 
 To proceed with sharing your details with the team, could you please provide:
 [List the missing information naturally]
@@ -5991,7 +6027,7 @@ Write ONLY the email, nothing else.
 You are a recruiter at Turing. Write a professional acceptance confirmation email to ${candidateName.split(' ')[0]}.
 
 CANDIDATE NAME: ${candidateName.split(' ')[0]}
-AGREED RATE: $${rate}/hr
+AGREED RATE: $${formatRate(rate)}/hr
 
 JOB DESCRIPTION FOR CONTEXT:
 ${jobDescription}
@@ -6003,6 +6039,7 @@ Write an email that includes ALL of the following points:
 3. Acknowledge the project details from the JD (mention if it's remote, hours per week if specified, etc.)
 4. Inform them their profile is currently under client review
 5. If approved and selected, you will reach out to confirm the onboarding date and provide further details along with contract specifics
+6. IMPORTANT: You MUST mention the exact agreed rate in the email (e.g., "$20.80/hr" not "$20/hr" or "$21/hr"). Do NOT round or modify the rate number.
 
 IMPORTANT:
 - Extract work arrangement details from the JD (remote/hybrid, hours per week, etc.)
@@ -6150,7 +6187,12 @@ Write ONLY the email, nothing else.
       // This prevents accepting $40/hr from India when their regional limit is $25
       // FIX: Allow counter-offer at regional max before escalating
       let shouldSkipAcceptanceForRegionalLimit = false;
-      if (candidateRegion && regionMaxRateLimit && rate > regionMaxRateLimit) {
+      const regionalToleranceLimit2 = regionMaxRateLimit ? regionMaxRateLimit * 1.10 : null;
+      const withinRegionalTolerance2 = regionalToleranceLimit2 && attempts >= 2 && rate <= regionalToleranceLimit2;
+      if (withinRegionalTolerance2 && rate > regionMaxRateLimit) {
+        jobStats.log.push({type: 'success', message: `${candidateEmail} - REGIONAL TOLERANCE: $${formatRate(rate)}/hr within 10% of ${candidateRegion} limit $${formatRate(regionMaxRateLimit)}/hr after ${attempts} attempts. Proceeding with acceptance.`});
+      }
+      if (candidateRegion && regionMaxRateLimit && rate > regionMaxRateLimit && !withinRegionalTolerance2) {
         if (attempts < 2) {
           // Don't escalate yet - counter-offer at regional max rate instead
           jobStats.log.push({type: 'info', message: `${candidateEmail} - Rate $${rate}/hr exceeds ${candidateRegion} limit of $${regionMaxRateLimit}/hr. Attempt ${attempts + 1}/2 - will counter-offer at $${regionMaxRateLimit}/hr.`});
@@ -6202,14 +6244,14 @@ Write ONLY the email, nothing else.
         const counterOfferPrompt = `
 You are a recruiter at Turing. Write a brief negotiation email to ${candidateName.split(' ')[0]}.
 
-The candidate proposed $${rate}/hr, but we cannot go that high for this region.
+The candidate proposed $${formatRate(rate)}/hr, but we cannot go that high for this region.
 
-YOUR COUNTER-OFFER: $${counterOfferRate}/hr
+YOUR COUNTER-OFFER: $${formatRate(counterOfferRate)}/hr
 
 TASK:
 - Thank them for their response
-- Make a counter-offer of $${counterOfferRate}/hr as the best rate we can offer for this role
-- Be confident and direct: "We can offer $${counterOfferRate}/hr for this role"
+- Make a counter-offer of $${formatRate(counterOfferRate)}/hr as the best rate we can offer for this role
+- Be confident and direct: "We can offer $${formatRate(counterOfferRate)}/hr for this role"
 - Keep it professional and concise
 ${pendingDataQuestions && pendingDataQuestions.length > 0 ? `
 - Also politely request these missing items: ${pendingDataQuestions.map(q => q.question).join(', ')}` : ''}
@@ -6219,7 +6261,7 @@ Hi ${candidateName.split(' ')[0]},
 
 [Brief acknowledgment]
 
-We can offer $${counterOfferRate}/hr for this role - this is the best rate we can provide for this opportunity.
+We can offer $${formatRate(counterOfferRate)}/hr for this role - this is the best rate we can provide for this opportunity.
 
 [Call to action]
 
@@ -6374,7 +6416,7 @@ Write ONLY the email, nothing else.
 You are a recruiter at Turing. Write a professional acceptance confirmation email to ${candidateName.split(' ')[0]}.
 
 CANDIDATE NAME: ${candidateName.split(' ')[0]}
-AGREED RATE: $${rate}/hr
+AGREED RATE: $${formatRate(rate)}/hr
 
 JOB DESCRIPTION FOR CONTEXT:
 ${jobDescription}
@@ -6476,6 +6518,7 @@ This is your FOLLOW-UP response:
 - If candidate stated a rate > $${maxRate}/hr → Counter with $${maxRate}/hr as final offer
 - If they decline your final offer → Thank them and exit with ACTION: HIGH
 - If candidate needs time to think → Acknowledge and use ACTION: SOFT_HOLD
+- If candidate offers a fallback rate (e.g., "otherwise I am ok with $X") and $X ≤ your max → Accept their fallback rate. Acknowledge naturally by saying "Each project has its own budget, and we're happy to move forward at $X/hr."
 `}
 
 - Negotiation Style: ${rules.style}
@@ -6649,9 +6692,9 @@ CANDIDATE'S ACTUAL MESSAGE:
 
 CANDIDATE NAME: ${candidateName}
 
-YOUR OFFER: $${currentOffer}/hr
-- Offer exactly $${currentOffer}/hr for this role
-- Be confident and direct: "We can offer $${currentOffer}/hr for this role"
+YOUR OFFER: $${formatRate(currentOffer)}/hr
+- Offer exactly $${formatRate(currentOffer)}/hr for this role
+- Be confident and direct: "We can offer $${formatRate(currentOffer)}/hr for this role"
 - DO NOT offer anything higher
 
 JOB CONTEXT:
@@ -6669,7 +6712,7 @@ NEVER include or mention ANY of the following in your email:
 5. Any hint about internal pricing strategy or escalation processes
 6. This is FREELANCE - never mention full-time benefits
 
-Just state your offer directly: "We can offer $${currentOffer}/hr for this role"
+Just state your offer directly: "We can offer $${formatRate(currentOffer)}/hr for this role"
 ${pendingDataQuestions && pendingDataQuestions.length > 0 ? `
 === PENDING INFORMATION TO REQUEST ===
 **IMPORTANT: Also request these missing items in your email along with the rate offer.**
@@ -6681,7 +6724,7 @@ Example: "We can offer $X/hr for this role. To proceed, could you also share [mi
 TASK:
 1. Read the candidate's message above carefully
 2. ONLY answer questions they EXPLICITLY asked - if question not in FAQ, politely defer
-3. Make your offer of $${currentOffer}/hr confidently
+3. Make your offer of $${formatRate(currentOffer)}/hr confidently
 4. Keep the tone ${rules.style}
 ${pendingDataQuestions && pendingDataQuestions.length > 0 ? '5. Include a request for the pending information listed above' : ''}
 
@@ -6795,8 +6838,10 @@ Write ONLY the email, nothing else.
       // FIX: Allow counter-offer before escalating if attempts < 2
       let shouldSkipActionAccept = false;
 
-      // First check: rate exceeds maxRate
-      if (rate > maxRate) {
+      // First check: rate exceeds maxRate (allow 10% tolerance after 2 attempts)
+      const actionAcceptToleranceLimit = maxRate * 1.10;
+      const actionAcceptWithinTolerance = attempts >= 2 && rate <= actionAcceptToleranceLimit;
+      if (rate > maxRate && !actionAcceptWithinTolerance) {
         if (attempts < 2) {
           // Don't escalate yet - counter-offer at maxRate instead
           jobStats.log.push({type: 'info', message: `${candidateEmail} - (ACTION:ACCEPT) Rate $${rate}/hr exceeds max $${maxRate}/hr. Attempt ${attempts + 1}/2 - will counter-offer at $${maxRate}/hr.`});
@@ -6837,8 +6882,13 @@ Write ONLY the email, nothing else.
         }
       }
 
-      // Second check: rate within maxRate but exceeds regional limit
-      if (candidateRegion && regionMaxRateLimit && rate > regionMaxRateLimit) {
+      // Second check: rate within maxRate but exceeds regional limit (allow 10% tolerance after 2 attempts)
+      const actionAcceptRegionalTolerance = regionMaxRateLimit ? regionMaxRateLimit * 1.10 : null;
+      const actionAcceptWithinRegionalTolerance = actionAcceptRegionalTolerance && attempts >= 2 && rate <= actionAcceptRegionalTolerance;
+      if (actionAcceptWithinRegionalTolerance && rate > regionMaxRateLimit) {
+        jobStats.log.push({type: 'success', message: `${candidateEmail} - REGIONAL TOLERANCE (ACTION:ACCEPT): $${formatRate(rate)}/hr within 10% of ${candidateRegion} limit $${formatRate(regionMaxRateLimit)}/hr after ${attempts} attempts. Proceeding.`});
+      }
+      if (candidateRegion && regionMaxRateLimit && rate > regionMaxRateLimit && !actionAcceptWithinRegionalTolerance) {
         if (attempts < 2) {
           // Don't escalate yet - counter-offer at regional max rate instead
           jobStats.log.push({type: 'info', message: `${candidateEmail} - (ACTION:ACCEPT) Rate $${rate}/hr exceeds ${candidateRegion} limit of $${regionMaxRateLimit}/hr. Attempt ${attempts + 1}/2 - will counter-offer at $${regionMaxRateLimit}/hr.`});
@@ -6893,14 +6943,14 @@ Write ONLY the email, nothing else.
         const counterOfferPrompt = `
 You are a recruiter at Turing. Write a brief negotiation email to ${candidateName.split(' ')[0]}.
 
-The candidate proposed $${rate}/hr, but we cannot go that high for this role.
+The candidate proposed $${formatRate(rate)}/hr, but we cannot go that high for this role.
 
-YOUR COUNTER-OFFER: $${counterOfferRate}/hr
+YOUR COUNTER-OFFER: $${formatRate(counterOfferRate)}/hr
 
 TASK:
 - Thank them for their response
-- Make a counter-offer of $${counterOfferRate}/hr as the best rate we can offer for this role
-- Be confident and direct: "We can offer $${counterOfferRate}/hr for this role"
+- Make a counter-offer of $${formatRate(counterOfferRate)}/hr as the best rate we can offer for this role
+- Be confident and direct: "We can offer $${formatRate(counterOfferRate)}/hr for this role"
 - Keep it professional and concise
 ${pendingDataQuestions && pendingDataQuestions.length > 0 ? `
 - Also politely request these missing items: ${pendingDataQuestions.map(q => q.question).join(', ')}` : ''}
@@ -6910,7 +6960,7 @@ Hi ${candidateName.split(' ')[0]},
 
 [Brief acknowledgment]
 
-We can offer $${counterOfferRate}/hr for this role - this is the best rate we can provide for this opportunity.
+We can offer $${formatRate(counterOfferRate)}/hr for this role - this is the best rate we can provide for this opportunity.
 
 [Call to action]
 
@@ -7039,7 +7089,7 @@ Write ONLY the email, nothing else.
 You are a recruiter at Turing. Write a professional acceptance confirmation email to ${candidateName.split(' ')[0]}.
 
 CANDIDATE NAME: ${candidateName.split(' ')[0]}
-AGREED RATE: $${rate}/hr
+AGREED RATE: $${formatRate(rate)}/hr
 
 JOB DESCRIPTION FOR CONTEXT:
 ${jobDescription}
@@ -7051,6 +7101,7 @@ Write an email that includes ALL of the following points:
 3. Acknowledge the project details from the JD (mention if it's remote, hours per week if specified, etc.)
 4. Inform them their profile is currently under client review
 5. If approved and selected, you will reach out to confirm the onboarding date and provide further details along with contract specifics
+6. IMPORTANT: You MUST mention the exact agreed rate in the email (e.g., "$20.80/hr" not "$20/hr" or "$21/hr"). Do NOT round or modify the rate number.
 
 IMPORTANT:
 - Extract work arrangement details from the JD (remote/hybrid, hours per week, etc.)
