@@ -3409,6 +3409,11 @@ function saveJobCandidateDetails(ss, jobId, candidateEmail, candidateName, devId
       if (col === regionColIdx && !rowData[col] && existingRow[col]) {
         rowData[col] = existingRow[col];
       }
+      // Preserve financial columns (set by updateJobCandidateStatus, not by data gathering)
+      if ((col === candidateOfferColIdx || col === counterOfferColIdx || col === finalAgreedRateColIdx)
+          && !rowData[col] && existingRow[col]) {
+        rowData[col] = existingRow[col];
+      }
     }
 
     // Recalculate status after merge (unless it's a special status like 'Offer Accepted' or 'Human Escalation')
@@ -3477,7 +3482,7 @@ function saveJobCandidateDetails(ss, jobId, candidateEmail, candidateName, devId
  * Update candidate status in job details sheet (for completion/acceptance)
  * @param {Spreadsheet} ss - DEPRECATED: Now uses Jobs spreadsheet internally
  */
-function updateJobCandidateStatus(ss, jobId, candidateEmail, status, agreedRate) {
+function updateJobCandidateStatus(ss, jobId, candidateEmail, status, agreedRate, candidateOffer, counterOffer) {
   // Use Jobs spreadsheet instead of the passed ss parameter
   const jobsSs = getCachedJobsSpreadsheet();
   if (!jobsSs) {
@@ -3498,6 +3503,8 @@ function updateJobCandidateStatus(ss, jobId, candidateEmail, status, agreedRate)
   let agreedRateColIdx = headers.indexOf('Final Agreed Rate');
   if (agreedRateColIdx === -1) agreedRateColIdx = headers.indexOf('Agreed Rate');
   const timestampColIdx = headers.indexOf('Timestamp');
+  const candidateOfferColIdx = headers.indexOf('Candidate Offer');
+  const counterOfferColIdx = headers.indexOf('Counter Offer');
 
   const data = sheet.getDataRange().getValues();
 
@@ -3508,6 +3515,12 @@ function updateJobCandidateStatus(ss, jobId, candidateEmail, status, agreedRate)
       sheet.getRange(rowIndex, timestampColIdx + 1).setValue(new Date());
       if (agreedRate && agreedRateColIdx !== -1) {
         sheet.getRange(rowIndex, agreedRateColIdx + 1).setValue(agreedRate);
+      }
+      if (candidateOffer && candidateOfferColIdx !== -1) {
+        sheet.getRange(rowIndex, candidateOfferColIdx + 1).setValue(candidateOffer);
+      }
+      if (counterOffer && counterOfferColIdx !== -1) {
+        sheet.getRange(rowIndex, counterOfferColIdx + 1).setValue(counterOffer);
       }
       return { success: true };
     }
@@ -3864,11 +3877,15 @@ function moveToCompleted(email, finalStatus, jobIdFilter) {
       if(jobIdFilter && String(stateData[i][1]) !== String(jobIdFilter)) continue;
 
       if(!moved) {
+        // Extract agreedRate from Last Offer column (format: "Rate Agreed $XX/hr - Data Pending" or "Counter Offer $XX/hr")
+        const lastOffer = stateData[i][3] ? String(stateData[i][3]) : '';
+        const stateRateMatch = lastOffer.match(/\$(\d+(?:\.\d+)?)/);
         taskInfo = {
           jobId: stateData[i][1],
           name: stateData[i][7] || 'Unknown',
           devId: stateData[i][6] || 'N/A',
-          threadId: stateData[i][9] || ''
+          threadId: stateData[i][9] || '',
+          agreedRate: stateRateMatch ? `$${stateRateMatch[1]}/hr` : null
         };
         compSheet.appendRow([new Date(), stateData[i][1], email, stateData[i][7] || 'Unknown', finalStatus || stateData[i][4], "Moved from State List", stateData[i][6] || 'N/A', stateData[i][10] || '']);
         logAnalytics('task_completed', stateData[i][1], 1, finalStatus || "Moved from State List");
@@ -5211,35 +5228,48 @@ Write ONLY the email, nothing else.
       } else if (isDataGatheringComplete || !hasDataGatheringEnabled) {
         // Data is complete or not enabled - send acceptance/completion email and complete
         const completionPrompt = `
-You are a professional recruiter at Turing. The candidate has agreed to the rate${agreedRate ? ` of $${agreedRate}/hr` : ''} and all information has been collected.
-Write a brief, friendly email responding to their message.
-
-CANDIDATE'S MESSAGE:
-"${candidateLatestMessage}"
+You are a recruiter at Turing. Write a professional acceptance confirmation email to ${candidateName.split(' ')[0]}.
 
 CANDIDATE NAME: ${candidateName.split(' ')[0]}
+AGREED RATE: ${agreedRate ? `$${agreedRate}/hr` : 'Previously agreed rate'}
 
-JOB CONTEXT:
+CANDIDATE'S LATEST MESSAGE:
+"${candidateLatestMessage}"
+
+JOB DESCRIPTION FOR CONTEXT:
 ${rules.jobDescription || 'Freelance opportunity at Turing'}
 
 ${faqContent ? `FAQs (ONLY use if candidate explicitly asks a matching question):\n${faqContent}` : ''}
 
-IMPORTANT RULES:
+TASK:
+Write an email that includes ALL of the following points:
+1. Thank them for sharing their rate alignment
+2. Confirm you are sharing all the details with the team
+3. Acknowledge the project details from the JD (mention if it's remote, hours per week if specified, etc.)
+4. Inform them their profile is currently under client review
+5. If approved and selected, you will reach out to confirm the onboarding date and provide further details along with contract specifics
+
+IMPORTANT:
+- Extract work arrangement details from the JD (remote/hybrid, hours per week, etc.)
+- If hours not specified in JD, mention "full-time commitment" or "as per project requirements"
+- Keep the tone warm and professional
+- DO NOT make up details not in the JD
 - Do NOT discuss rate or negotiate - everything is already settled
-- If they ask a question that's in the FAQ, answer it naturally
+- If they asked a question that's in the FAQ, answer it naturally within the email
 - If they ask something not in the FAQ, politely say you'll connect them with the team
-- Keep the response brief and professional
 - Do NOT include job IDs, internal terminology, or system details
 - Do NOT use phrases like "target rate", "max rate", "budget"
 
-EMAIL FORMAT:
+FORMAT:
 Hi ${candidateName.split(' ')[0]},
 
-[Brief acknowledgment and response to their message]
+Thank you for sharing your alignment on the rate. I am sharing all the details with the team.
+
+Please acknowledge that the project your profile is being considered for is [extract from JD: remote/location, hours per week if mentioned].
 
 [If they had questions, answer or defer appropriately]
 
-If you have any other questions, feel free to reach out.
+Please be aware that your profile is currently under client review. If approved and selected, we will reach out to confirm the onboarding date and provide further details along with contract specifics.
 
 Best regards,
 ${getEffectiveSignature()}
@@ -5258,6 +5288,14 @@ Write ONLY the email, nothing else.
           }
 
           sendReplyWithSenderName(thread, completionEmail, getEffectiveSenderName());
+
+          // Update job-specific details sheet with accepted status and rate
+          try {
+            updateJobCandidateStatus(ss, jobId, candidateEmail, 'Offer Accepted', agreedRate ? `$${agreedRate}/hr` : null, agreedRate ? `$${agreedRate}/hr` : null);
+          } catch(detailsErr) {
+            console.error("Failed to update job details sheet:", detailsErr);
+          }
+
           markCompleted(thread);
 
           // Move to completed sheet
@@ -5747,6 +5785,13 @@ Write ONLY the email, nothing else.
 
           sendReplyWithSenderName(thread, counterOfferEmail, getEffectiveSenderName());
 
+          // Update job details with candidate offer and counter offer
+          try {
+            updateJobCandidateStatus(ss, jobId, candidateEmail, 'Counter Offer Sent', null, `$${rate}/hr`, `$${counterOfferRate}/hr`);
+          } catch(detailsErr) {
+            console.error("Failed to update job details sheet:", detailsErr);
+          }
+
           const newAttemptCount = attempts + 1;
 
           // Generate summary for counter-offer
@@ -5782,7 +5827,7 @@ Write ONLY the email, nothing else.
 
         // Update status to indicate rate is agreed but data is pending
         try {
-          updateJobCandidateStatus(ss, jobId, candidateEmail, 'Rate Agreed - Data Pending', `$${rate}/hr`);
+          updateJobCandidateStatus(ss, jobId, candidateEmail, 'Rate Agreed - Data Pending', `$${rate}/hr`, `$${rate}/hr`);
         } catch(detailsErr) {
           console.error("Failed to update job details sheet:", detailsErr);
         }
@@ -5880,7 +5925,7 @@ Write ONLY the email, nothing else.
       // Data gathering is complete OR not enabled - proceed with full acceptance
       // Update job-specific details sheet with accepted status and rate
       try {
-        updateJobCandidateStatus(ss, jobId, candidateEmail, 'Offer Accepted', `$${rate}/hr`);
+        updateJobCandidateStatus(ss, jobId, candidateEmail, 'Offer Accepted', `$${rate}/hr`, `$${rate}/hr`);
       } catch(detailsErr) {
         console.error("Failed to update job details sheet:", detailsErr);
       }
@@ -6141,6 +6186,13 @@ Write ONLY the email, nothing else.
 
           sendReplyWithSenderName(thread, counterOfferEmail, getEffectiveSenderName());
 
+          // Update job details with candidate offer and counter offer
+          try {
+            updateJobCandidateStatus(ss, jobId, candidateEmail, 'Counter Offer Sent', null, `$${rate}/hr`, `$${counterOfferRate}/hr`);
+          } catch(detailsErr) {
+            console.error("Failed to update job details sheet:", detailsErr);
+          }
+
           const newAttemptCount = attempts + 1;
 
           // Generate summary for counter-offer
@@ -6177,7 +6229,7 @@ Write ONLY the email, nothing else.
 
         // Update status to indicate rate is agreed but data is pending
         try {
-          updateJobCandidateStatus(ss, jobId, candidateEmail, 'Rate Agreed - Data Pending', `$${rate}/hr`);
+          updateJobCandidateStatus(ss, jobId, candidateEmail, 'Rate Agreed - Data Pending', `$${rate}/hr`, `$${rate}/hr`);
         } catch(detailsErr) {
           console.error("Failed to update job details sheet:", detailsErr);
         }
@@ -6259,7 +6311,7 @@ Write ONLY the email, nothing else.
       taskSheet.appendRow([new Date(), jobId, candidateName, candidateEmail, rate, "Pending Archive", devId, thread.getId(), candidateRegion || '']);
 
       try {
-        updateJobCandidateStatus(ss, jobId, candidateEmail, 'Offer Accepted', `$${rate}/hr`);
+        updateJobCandidateStatus(ss, jobId, candidateEmail, 'Offer Accepted', `$${rate}/hr`, `$${rate}/hr`);
       } catch(detailsErr) {
         console.error("Failed to update job details sheet:", detailsErr);
       }
@@ -6609,6 +6661,13 @@ Write ONLY the email, nothing else.
 
         sendReplyWithSenderName(thread, retryResponse, getEffectiveSenderName());
 
+        // Update job details with candidate offer and counter offer
+        try {
+          updateJobCandidateStatus(ss, jobId, candidateEmail, 'Counter Offer Sent', null, extractedRate ? `$${extractedRate}/hr` : null, `$${currentOffer}/hr`);
+        } catch(detailsErr) {
+          console.error("Failed to update job details sheet:", detailsErr);
+        }
+
         const newAttemptCount = attempts + 1;
 
         // FIX: Update conversation history to include the AI's just-sent reply
@@ -6818,6 +6877,13 @@ Write ONLY the email, nothing else.
 
           sendReplyWithSenderName(thread, counterOfferEmail, getEffectiveSenderName());
 
+          // Update job details with candidate offer and counter offer
+          try {
+            updateJobCandidateStatus(ss, jobId, candidateEmail, 'Counter Offer Sent', null, `$${rate}/hr`, `$${counterOfferRate}/hr`);
+          } catch(detailsErr) {
+            console.error("Failed to update job details sheet:", detailsErr);
+          }
+
           const newAttemptCount = attempts + 1;
 
           // Generate summary for counter-offer
@@ -6852,7 +6918,7 @@ Write ONLY the email, nothing else.
 
         // Update status to indicate rate is agreed but data is pending
         try {
-          updateJobCandidateStatus(ss, jobId, candidateEmail, 'Rate Agreed - Data Pending', `$${rate}/hr`);
+          updateJobCandidateStatus(ss, jobId, candidateEmail, 'Rate Agreed - Data Pending', `$${rate}/hr`, `$${rate}/hr`);
         } catch(detailsErr) {
           console.error("Failed to update job details sheet:", detailsErr);
         }
@@ -6907,7 +6973,7 @@ Write ONLY the email, nothing else.
       // Data gathering is complete OR not enabled - proceed with full acceptance
       // Update job-specific details sheet with accepted status and rate
       try {
-        updateJobCandidateStatus(ss, jobId, candidateEmail, 'Offer Accepted', `$${rate}/hr`);
+        updateJobCandidateStatus(ss, jobId, candidateEmail, 'Offer Accepted', `$${rate}/hr`, `$${rate}/hr`);
       } catch(detailsErr) {
         console.error("Failed to update job details sheet:", detailsErr);
       }
