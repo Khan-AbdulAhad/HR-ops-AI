@@ -2707,11 +2707,24 @@
                                 <div class="text-xs text-slate-500 dark:text-slate-400">Total Jobs</div>
                             </div>
                         </div>
+                        <!-- Agent Filter Bar -->
+                        <div id="jobMetricsFilterBar" class="px-4 py-3 border-b border-slate-100 dark:border-slate-700 hidden">
+                            <div class="flex items-center gap-2 flex-wrap">
+                                <span class="text-xs font-medium text-slate-500 dark:text-slate-400 mr-1">
+                                    <i class="fa-solid fa-filter mr-1"></i>Filter:
+                                </span>
+                                <button onclick="clearAgentFilter()" id="agentFilterAllBtn" class="px-2.5 py-1 rounded-full text-xs font-medium transition-all duration-200 active:scale-95 bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400">
+                                    All Agents
+                                </button>
+                                <div id="agentFilterChips" class="flex items-center gap-1.5 flex-wrap"></div>
+                            </div>
+                        </div>
                         <!-- Job Metrics Table -->
                         <div class="overflow-x-auto">
                             <table class="w-full text-left text-sm">
                                 <thead class="bg-slate-50 dark:bg-slate-900 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase">
                                     <tr>
+                                        <th class="px-6 py-3 w-8"></th>
                                         <th class="px-6 py-3">Agent</th>
                                         <th class="px-6 py-3 text-center">Active</th>
                                         <th class="px-6 py-3 text-center">Fulfilled</th>
@@ -2721,7 +2734,7 @@
                                 </thead>
                                 <tbody id="jobMetricsTableBody" class="divide-y divide-slate-100 dark:divide-slate-700">
                                     <tr>
-                                        <td colspan="5" class="px-6 py-8 text-center text-slate-400">
+                                        <td colspan="6" class="px-6 py-8 text-center text-slate-400">
                                             <i class="fa-solid fa-clipboard-list text-2xl mb-2 block opacity-30"></i>
                                             <span class="text-sm">Loading job metrics...</span>
                                         </td>
@@ -12727,11 +12740,16 @@
         // JOB METRICS - Analytics for Leads/Managers
         // ============================================================
 
+        var jobMetricsData = null;
+        var jobMetricsSelectedAgents = {};
+        var jobMetricsExpandedAgents = {};
+
         // Load Job Metrics for Analytics Tab
         function loadJobMetrics() {
             google.script.run
                 .withSuccessHandler(function(result) {
                     if (result.success) {
+                        jobMetricsData = result.metrics;
                         renderJobMetrics(result.metrics);
                     } else {
                         renderJobMetricsError(result.error || 'Failed to load metrics');
@@ -12745,89 +12763,196 @@
 
         // Refresh Job Metrics
         function refreshJobMetrics() {
-            const tbody = document.getElementById('jobMetricsTableBody');
-            tbody.innerHTML = `
-                <tr>
-                    <td colspan="5" class="px-6 py-8 text-center text-slate-400">
-                        <i class="fa-solid fa-spinner fa-spin text-2xl mb-2 block"></i>
-                        <span class="text-sm">Loading job metrics...</span>
-                    </td>
-                </tr>
-            `;
+            var tbody = document.getElementById('jobMetricsTableBody');
+            tbody.innerHTML = '<tr><td colspan="6" class="px-6 py-8 text-center text-slate-400"><i class="fa-solid fa-spinner fa-spin text-2xl mb-2 block"></i><span class="text-sm">Loading job metrics...</span></td></tr>';
             loadJobMetrics();
         }
 
-        // Render Job Metrics
-        function renderJobMetrics(metrics) {
-            // Update totals
-            document.getElementById('jobMetricsTotalActive').textContent = metrics.totals.active || 0;
-            document.getElementById('jobMetricsTotalFulfilled').textContent = metrics.totals.fulfilled || 0;
-            document.getElementById('jobMetricsTotalStopped').textContent = metrics.totals.stopped || 0;
-            document.getElementById('jobMetricsTotalAll').textContent = metrics.totals.total || 0;
+        // Get filtered agents based on selection
+        function getFilteredAgents(metrics) {
+            if (!metrics || !metrics.byAgent) return [];
+            var selectedKeys = Object.keys(jobMetricsSelectedAgents);
+            if (selectedKeys.length === 0) return metrics.byAgent;
+            return metrics.byAgent.filter(function(a) {
+                return jobMetricsSelectedAgents[a.agentEmail.toLowerCase()];
+            });
+        }
 
-            const tbody = document.getElementById('jobMetricsTableBody');
+        // Render agent filter chips
+        function renderAgentFilterChips(metrics) {
+            var filterBar = document.getElementById('jobMetricsFilterBar');
+            var chipsContainer = document.getElementById('agentFilterChips');
+            var allBtn = document.getElementById('agentFilterAllBtn');
 
-            if (!metrics.byAgent || metrics.byAgent.length === 0) {
-                tbody.innerHTML = `
-                    <tr>
-                        <td colspan="5" class="px-6 py-8 text-center text-slate-400">
-                            <i class="fa-solid fa-clipboard-list text-2xl mb-2 block opacity-30"></i>
-                            <span class="text-sm">No job assignments found</span>
-                        </td>
-                    </tr>
-                `;
+            if (!metrics || !metrics.byAgent || metrics.byAgent.length <= 1) {
+                filterBar.classList.add('hidden');
                 return;
             }
 
-            tbody.innerHTML = metrics.byAgent.map(agent => {
-                const agentName = agent.agentEmail.split('@')[0];
-                return `
-                    <tr class="hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors">
-                        <td class="px-6 py-4">
-                            <div class="flex items-center gap-3">
-                                <div class="w-8 h-8 rounded-full bg-indigo-100 dark:bg-indigo-900/30 flex items-center justify-center">
-                                    <span class="text-xs font-bold text-indigo-600 dark:text-indigo-400">${agentName.charAt(0).toUpperCase()}</span>
-                                </div>
-                                <div>
-                                    <div class="font-medium text-slate-800 dark:text-white">${agentName}</div>
-                                    <div class="text-xs text-slate-500 dark:text-slate-400">${agent.agentEmail}</div>
-                                </div>
-                            </div>
-                        </td>
-                        <td class="px-6 py-4 text-center">
-                            <span class="inline-flex items-center justify-center min-w-[2rem] px-2 py-1 rounded-full text-sm font-bold ${agent.active > 0 ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400' : 'text-slate-400'}">
-                                ${agent.active}
-                            </span>
-                        </td>
-                        <td class="px-6 py-4 text-center">
-                            <span class="inline-flex items-center justify-center min-w-[2rem] px-2 py-1 rounded-full text-sm font-bold ${agent.fulfilled > 0 ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400' : 'text-slate-400'}">
-                                ${agent.fulfilled}
-                            </span>
-                        </td>
-                        <td class="px-6 py-4 text-center">
-                            <span class="inline-flex items-center justify-center min-w-[2rem] px-2 py-1 rounded-full text-sm font-bold ${agent.stopped > 0 ? 'bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-400' : 'text-slate-400'}">
-                                ${agent.stopped}
-                            </span>
-                        </td>
-                        <td class="px-6 py-4 text-center">
-                            <span class="font-bold text-slate-700 dark:text-slate-300">${agent.total}</span>
-                        </td>
-                    </tr>
-                `;
-            }).join('');
+            filterBar.classList.remove('hidden');
+            var selectedKeys = Object.keys(jobMetricsSelectedAgents);
+            var isAllSelected = selectedKeys.length === 0;
+
+            // Style "All Agents" button
+            if (isAllSelected) {
+                allBtn.className = 'px-2.5 py-1 rounded-full text-xs font-medium transition-all duration-200 active:scale-95 bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400';
+            } else {
+                allBtn.className = 'px-2.5 py-1 rounded-full text-xs font-medium transition-all duration-200 active:scale-95 bg-slate-100 text-slate-500 hover:bg-slate-200 dark:bg-slate-700 dark:text-slate-400 dark:hover:bg-slate-600';
+            }
+
+            var html = '';
+            metrics.byAgent.forEach(function(agent) {
+                var email = agent.agentEmail.toLowerCase();
+                var name = agent.agentEmail.split('@')[0];
+                var displayName = name.split('.').map(function(w) { return w.charAt(0).toUpperCase() + w.slice(1); }).join(' ');
+                var isSelected = jobMetricsSelectedAgents[email];
+                var chipClass = isSelected
+                    ? 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400'
+                    : 'bg-slate-100 text-slate-500 hover:bg-slate-200 dark:bg-slate-700 dark:text-slate-400 dark:hover:bg-slate-600';
+                html += '<button onclick="toggleAgentFilter(\'' + escapeHtml(email) + '\')" class="px-2.5 py-1 rounded-full text-xs font-medium transition-all duration-200 active:scale-95 ' + chipClass + '">'
+                    + escapeHtml(displayName)
+                    + (isSelected ? ' <i class="fa-solid fa-times ml-1 text-[10px]"></i>' : '')
+                    + '</button>';
+            });
+            chipsContainer.innerHTML = html;
+        }
+
+        // Toggle agent in filter
+        function toggleAgentFilter(email) {
+            if (jobMetricsSelectedAgents[email]) {
+                delete jobMetricsSelectedAgents[email];
+            } else {
+                jobMetricsSelectedAgents[email] = true;
+            }
+            if (jobMetricsData) renderJobMetrics(jobMetricsData);
+        }
+
+        // Clear agent filter (show all)
+        function clearAgentFilter() {
+            jobMetricsSelectedAgents = {};
+            if (jobMetricsData) renderJobMetrics(jobMetricsData);
+        }
+
+        // Toggle expand/collapse for an agent's job details
+        function toggleAgentExpand(email) {
+            if (jobMetricsExpandedAgents[email]) {
+                delete jobMetricsExpandedAgents[email];
+            } else {
+                jobMetricsExpandedAgents[email] = true;
+            }
+            if (jobMetricsData) renderJobMetrics(jobMetricsData);
+        }
+
+        // Render Job Metrics with filter + expandable rows
+        function renderJobMetrics(metrics) {
+            // Build filter chips
+            renderAgentFilterChips(metrics);
+
+            var filteredAgents = getFilteredAgents(metrics);
+
+            // Recalculate totals from filtered agents
+            var totals = { active: 0, fulfilled: 0, stopped: 0, total: 0 };
+            filteredAgents.forEach(function(a) {
+                totals.active += a.active;
+                totals.fulfilled += a.fulfilled;
+                totals.stopped += a.stopped;
+                totals.total += a.total;
+            });
+
+            document.getElementById('jobMetricsTotalActive').textContent = totals.active;
+            document.getElementById('jobMetricsTotalFulfilled').textContent = totals.fulfilled;
+            document.getElementById('jobMetricsTotalStopped').textContent = totals.stopped;
+            document.getElementById('jobMetricsTotalAll').textContent = totals.total;
+
+            var tbody = document.getElementById('jobMetricsTableBody');
+
+            if (filteredAgents.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="6" class="px-6 py-8 text-center text-slate-400"><i class="fa-solid fa-clipboard-list text-2xl mb-2 block opacity-30"></i><span class="text-sm">No job assignments found</span></td></tr>';
+                return;
+            }
+
+            var html = '';
+            filteredAgents.forEach(function(agent) {
+                var agentName = agent.agentEmail.split('@')[0];
+                var displayName = agentName.split('.').map(function(w) { return w.charAt(0).toUpperCase() + w.slice(1); }).join(' ');
+                var emailKey = agent.agentEmail.toLowerCase();
+                var isExpanded = jobMetricsExpandedAgents[emailKey];
+                var chevronClass = isExpanded ? 'fa-chevron-down' : 'fa-chevron-right';
+
+                // Agent summary row
+                html += '<tr class="hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors cursor-pointer" onclick="toggleAgentExpand(\'' + escapeHtml(emailKey) + '\')">'
+                    + '<td class="pl-4 pr-0 py-4 w-8 text-center"><i class="fa-solid ' + chevronClass + ' text-xs text-slate-400 transition-transform duration-200"></i></td>'
+                    + '<td class="px-4 py-4"><div class="flex items-center gap-3">'
+                    + '<div class="w-8 h-8 rounded-full bg-indigo-100 dark:bg-indigo-900/30 flex items-center justify-center">'
+                    + '<span class="text-xs font-bold text-indigo-600 dark:text-indigo-400">' + agentName.charAt(0).toUpperCase() + '</span></div>'
+                    + '<div><div class="font-medium text-slate-800 dark:text-white">' + escapeHtml(displayName) + '</div>'
+                    + '<div class="text-xs text-slate-500 dark:text-slate-400">' + escapeHtml(agent.agentEmail) + '</div></div></div></td>'
+                    + '<td class="px-6 py-4 text-center"><span class="inline-flex items-center justify-center min-w-[2rem] px-2 py-1 rounded-full text-sm font-bold '
+                    + (agent.active > 0 ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400' : 'text-slate-400') + '">' + agent.active + '</span></td>'
+                    + '<td class="px-6 py-4 text-center"><span class="inline-flex items-center justify-center min-w-[2rem] px-2 py-1 rounded-full text-sm font-bold '
+                    + (agent.fulfilled > 0 ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400' : 'text-slate-400') + '">' + agent.fulfilled + '</span></td>'
+                    + '<td class="px-6 py-4 text-center"><span class="inline-flex items-center justify-center min-w-[2rem] px-2 py-1 rounded-full text-sm font-bold '
+                    + (agent.stopped > 0 ? 'bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-400' : 'text-slate-400') + '">' + agent.stopped + '</span></td>'
+                    + '<td class="px-6 py-4 text-center"><span class="font-bold text-slate-700 dark:text-slate-300">' + agent.total + '</span></td>'
+                    + '</tr>';
+
+                // Expanded detail rows
+                if (isExpanded && agent.jobs && agent.jobs.length > 0) {
+                    html += '<tr><td colspan="6" class="p-0">'
+                        + '<div class="bg-slate-50 dark:bg-slate-900/50 border-y border-slate-100 dark:border-slate-700">'
+                        + '<table class="w-full text-xs">'
+                        + '<thead><tr class="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase">'
+                        + '<th class="px-6 py-2 text-left">Job ID</th>'
+                        + '<th class="px-4 py-2 text-left">Status</th>'
+                        + '<th class="px-4 py-2 text-left">Assigned</th>'
+                        + '<th class="px-4 py-2 text-left">Closed</th>'
+                        + '<th class="px-4 py-2 text-left">Notes</th>'
+                        + '</tr></thead><tbody>';
+
+                    agent.jobs.forEach(function(job) {
+                        var statusBadge = '';
+                        var statusMap = {
+                            'Active':    'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400',
+                            'Fulfilled': 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
+                            'Stopped':   'bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-400',
+                            'Transferred': 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400'
+                        };
+                        var statusIconMap = {
+                            'Active': 'fa-briefcase', 'Fulfilled': 'fa-check-circle',
+                            'Stopped': 'fa-stop-circle', 'Transferred': 'fa-share'
+                        };
+                        var badgeClass = statusMap[job.status] || statusMap['Active'];
+                        var badgeIcon = statusIconMap[job.status] || 'fa-briefcase';
+
+                        var assignedStr = job.assignedDate ? new Date(job.assignedDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '-';
+                        var closedStr = job.closedDate ? new Date(job.closedDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '-';
+                        var notesStr = job.notes || '';
+                        var truncatedNotes = notesStr.length > 80 ? notesStr.substring(0, 80) + '...' : notesStr;
+
+                        html += '<tr class="border-t border-slate-100 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800/50">'
+                            + '<td class="px-6 py-2"><span class="font-mono font-bold text-indigo-600 dark:text-indigo-400">' + escapeHtml(job.jobId) + '</span></td>'
+                            + '<td class="px-4 py-2"><span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium ' + badgeClass + '">'
+                            + '<i class="fa-solid ' + badgeIcon + '"></i> ' + escapeHtml(job.status) + '</span></td>'
+                            + '<td class="px-4 py-2 text-slate-600 dark:text-slate-400">' + assignedStr + '</td>'
+                            + '<td class="px-4 py-2 text-slate-600 dark:text-slate-400">' + closedStr + '</td>'
+                            + '<td class="px-4 py-2 text-slate-500 dark:text-slate-400 max-w-[300px]">'
+                            + (notesStr ? '<span title="' + escapeHtml(notesStr) + '">' + escapeHtml(truncatedNotes) + '</span>' : '<span class="text-slate-300 dark:text-slate-600">-</span>')
+                            + '</td></tr>';
+                    });
+
+                    html += '</tbody></table></div></td></tr>';
+                } else if (isExpanded) {
+                    html += '<tr><td colspan="6" class="p-0"><div class="bg-slate-50 dark:bg-slate-900/50 border-y border-slate-100 dark:border-slate-700 px-6 py-4 text-center text-xs text-slate-400">No individual jobs found for this agent</div></td></tr>';
+                }
+            });
+
+            tbody.innerHTML = html;
         }
 
         // Render error state for job metrics
         function renderJobMetricsError(message) {
-            const tbody = document.getElementById('jobMetricsTableBody');
-            tbody.innerHTML = `
-                <tr>
-                    <td colspan="5" class="px-6 py-8 text-center text-red-400">
-                        <i class="fa-solid fa-exclamation-circle text-2xl mb-2 block"></i>
-                        <span class="text-sm">${message}</span>
-                    </td>
-                </tr>
-            `;
+            var tbody = document.getElementById('jobMetricsTableBody');
+            tbody.innerHTML = '<tr><td colspan="6" class="px-6 py-8 text-center text-red-400"><i class="fa-solid fa-exclamation-circle text-2xl mb-2 block"></i><span class="text-sm">' + message + '</span></td></tr>';
         }
 
     </script>

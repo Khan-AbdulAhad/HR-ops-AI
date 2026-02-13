@@ -16347,7 +16347,8 @@ function getJobAssignmentMetrics() {
         jobId: String(data[i][1]),
         status: status,
         assignedDate: data[i][3] ? new Date(data[i][3]).toISOString() : null,
-        closedDate: data[i][4] ? new Date(data[i][4]).toISOString() : null
+        closedDate: data[i][4] ? new Date(data[i][4]).toISOString() : null,
+        notes: String(data[i][5] || '')
       });
     }
 
