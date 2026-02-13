@@ -15937,8 +15937,8 @@ function addJobAssignment(jobId, notes) {
 function updateJobStatus(jobId, newStatus) {
   try {
     if (!jobId) return { success: false, error: 'Job ID is required' };
-    if (!['Active', 'Fulfilled', 'Stopped'].includes(newStatus)) {
-      return { success: false, error: 'Invalid status. Must be Active, Fulfilled, or Stopped' };
+    if (!['Active', 'Fulfilled', 'Stopped', 'Transferred'].includes(newStatus)) {
+      return { success: false, error: 'Invalid status. Must be Active, Fulfilled, Stopped, or Transferred' };
     }
 
     const url = getStoredSheetUrl();
@@ -15959,8 +15959,8 @@ function updateJobStatus(jobId, newStatus) {
         // Update status (column 3)
         sheet.getRange(i + 1, 3).setValue(newStatus);
 
-        // If marking as Fulfilled or Stopped, set Closed Date (column 5)
-        if (newStatus === 'Fulfilled' || newStatus === 'Stopped') {
+        // If marking as Fulfilled, Stopped, or Transferred, set Closed Date (column 5)
+        if (newStatus === 'Fulfilled' || newStatus === 'Stopped' || newStatus === 'Transferred') {
           sheet.getRange(i + 1, 5).setValue(new Date());
         } else {
           // If marking as Active again, clear Closed Date
@@ -15969,7 +15969,8 @@ function updateJobStatus(jobId, newStatus) {
 
         // Log to analytics
         const action = newStatus === 'Fulfilled' ? 'job_fulfilled' :
-                       newStatus === 'Stopped' ? 'job_stopped' : 'job_reactivated';
+                       newStatus === 'Stopped' ? 'job_stopped' :
+                       newStatus === 'Transferred' ? 'job_transferred' : 'job_reactivated';
         logAnalytics(action, jobIdStr, 1, `Status changed to ${newStatus}`);
 
         return { success: true, message: `Job ${jobId} marked as ${newStatus}` };
@@ -15980,6 +15981,138 @@ function updateJobStatus(jobId, newStatus) {
   } catch (e) {
     console.error('Error in updateJobStatus:', e);
     return { success: false, error: e.message };
+  }
+}
+
+/**
+ * Transfer a job assignment to another team member
+ * @param {string} jobId - The Job ID
+ * @param {string} transferTo - Name/email of person receiving the transfer
+ * @param {string} transferNotes - Required reason/notes for the transfer
+ * @returns {Object} { success, message }
+ */
+function transferJobAssignment(jobId, transferTo, transferNotes) {
+  try {
+    if (!jobId) return { success: false, error: 'Job ID is required' };
+    if (!transferTo) return { success: false, error: 'Transfer recipient is required' };
+    if (!transferNotes || !transferNotes.trim()) return { success: false, error: 'Transfer notes are required' };
+
+    var url = getStoredSheetUrl();
+    if (!url) return { success: false, error: 'No spreadsheet configured' };
+
+    var ss = SpreadsheetApp.openByUrl(url);
+    var sheet = ss.getSheetByName('Job_Assignments');
+    if (!sheet) return { success: false, error: 'Job_Assignments sheet not found' };
+
+    var userEmail = Session.getActiveUser().getEmail();
+    var jobIdStr = String(jobId);
+    var data = sheet.getDataRange().getValues();
+
+    for (var i = 1; i < data.length; i++) {
+      if (String(data[i][0]).toLowerCase() === userEmail.toLowerCase() &&
+          String(data[i][1]) === jobIdStr) {
+
+        var currentStatus = String(data[i][2] || 'Active');
+        if (currentStatus !== 'Active') {
+          return { success: false, error: 'Only active jobs can be transferred' };
+        }
+
+        // Update status to Transferred (column 3)
+        sheet.getRange(i + 1, 3).setValue('Transferred');
+
+        // Set Closed Date (column 5)
+        sheet.getRange(i + 1, 5).setValue(new Date());
+
+        // Build transfer note and prepend to existing notes (column 6)
+        var existingNotes = String(data[i][5] || '');
+        var transferDate = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+        var transferInfo = '[TRANSFERRED to ' + transferTo + ' on ' + transferDate + ']\nReason: ' + transferNotes.trim();
+        var updatedNotes = existingNotes
+          ? transferInfo + '\n---\n' + existingNotes
+          : transferInfo;
+        sheet.getRange(i + 1, 6).setValue(updatedNotes);
+
+        // Log to analytics
+        logAnalytics('job_transferred', jobIdStr, 1, 'Transferred to ' + transferTo + ': ' + transferNotes.trim());
+
+        return { success: true, message: 'Job ' + jobId + ' transferred to ' + transferTo };
+      }
+    }
+
+    return { success: false, error: 'Job ' + jobId + ' not found in your list' };
+  } catch (e) {
+    console.error('Error in transferJobAssignment:', e);
+    return { success: false, error: e.message };
+  }
+}
+
+/**
+ * Get list of team members that can be transfer targets
+ * Returns TOS/TL/team members visible to the current user
+ * @returns {Object} { success, members: [{email, name, role}] }
+ */
+function getTransferTargets() {
+  try {
+    var userEmail = Session.getActiveUser().getEmail();
+    if (!userEmail) return { success: false, error: 'Cannot get user email' };
+
+    var url = getStoredSheetUrl();
+    if (!url) return { success: true, members: [] };
+
+    var ss = SpreadsheetApp.openByUrl(url);
+    var members = [];
+    var addedEmails = {};
+
+    // 1. Get team members from Analytics_Viewers
+    var viewersSheet = ss.getSheetByName('Analytics_Viewers');
+    if (viewersSheet && viewersSheet.getLastRow() > 1) {
+      var viewersData = viewersSheet.getDataRange().getValues();
+      for (var i = 1; i < viewersData.length; i++) {
+        var email = String(viewersData[i][0] || '').toLowerCase().trim();
+        var role = String(viewersData[i][3] || '').toLowerCase();
+        if (email && email !== userEmail.toLowerCase() && !addedEmails[email]) {
+          addedEmails[email] = true;
+          var nameParts = email.split('@')[0].replace(/\./g, ' ');
+          members.push({
+            email: email,
+            name: nameParts,
+            role: role.toUpperCase() || 'TEAM'
+          });
+        }
+      }
+    }
+
+    // 2. Also get team members from Team_Hierarchy
+    var hierSheet = ss.getSheetByName('Team_Hierarchy');
+    if (hierSheet && hierSheet.getLastRow() > 1) {
+      var hierData = hierSheet.getDataRange().getValues();
+      for (var j = 1; j < hierData.length; j++) {
+        var tosEmail = String(hierData[j][2] || '').toLowerCase().trim();
+        var tlEmail = String(hierData[j][1] || '').toLowerCase().trim();
+
+        var emails = [tosEmail, tlEmail];
+        for (var k = 0; k < emails.length; k++) {
+          var em = emails[k];
+          if (em && em !== userEmail.toLowerCase() && !addedEmails[em]) {
+            addedEmails[em] = true;
+            var np = em.split('@')[0].replace(/\./g, ' ');
+            members.push({
+              email: em,
+              name: np,
+              role: 'TEAM'
+            });
+          }
+        }
+      }
+    }
+
+    // Sort alphabetically by name
+    members.sort(function(a, b) { return a.name.localeCompare(b.name); });
+
+    return { success: true, members: members };
+  } catch (e) {
+    console.error('Error in getTransferTargets:', e);
+    return { success: true, members: [] };
   }
 }
 
@@ -16171,6 +16304,9 @@ function getJobAssignmentMetrics() {
       const agentEmail = String(data[i][0] || '').toLowerCase();
       const status = String(data[i][2] || 'Active');
 
+      // Skip Transferred jobs - they are not productivity metrics
+      if (status === 'Transferred') continue;
+
       // Filter based on access level
       if (!access.canViewAllAnalytics) {
         // TL/Manager can see their team, others can only see themselves
@@ -16211,7 +16347,8 @@ function getJobAssignmentMetrics() {
         jobId: String(data[i][1]),
         status: status,
         assignedDate: data[i][3] ? new Date(data[i][3]).toISOString() : null,
-        closedDate: data[i][4] ? new Date(data[i][4]).toISOString() : null
+        closedDate: data[i][4] ? new Date(data[i][4]).toISOString() : null,
+        notes: String(data[i][5] || '')
       });
     }
 

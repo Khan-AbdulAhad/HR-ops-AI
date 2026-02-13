@@ -1897,7 +1897,7 @@
                         </div>
 
                         <!-- Quick Stats -->
-                        <div class="grid grid-cols-3 gap-4">
+                        <div class="grid grid-cols-2 sm:grid-cols-4 gap-4">
                             <div class="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 p-4">
                                 <div class="flex items-center gap-3">
                                     <div class="bg-emerald-100 dark:bg-emerald-900/30 p-2 rounded-lg">
@@ -1931,6 +1931,17 @@
                                     </div>
                                 </div>
                             </div>
+                            <div class="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 p-4">
+                                <div class="flex items-center gap-3">
+                                    <div class="bg-amber-100 dark:bg-amber-900/30 p-2 rounded-lg">
+                                        <i class="fa-solid fa-share text-amber-600 dark:text-amber-400"></i>
+                                    </div>
+                                    <div>
+                                        <p class="text-xs font-bold text-amber-500 uppercase tracking-wider">Transferred</p>
+                                        <h2 class="text-2xl font-extrabold text-slate-800 dark:text-white" id="myJobsTransferredCount">0</h2>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
 
                         <!-- Filter Tabs -->
@@ -1946,6 +1957,9 @@
                             </button>
                             <button onclick="filterMyJobs('Stopped')" class="my-jobs-filter-btn px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 active:scale-95 text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-700" data-filter="Stopped">
                                 <i class="fa-solid fa-stop-circle mr-1 text-slate-400"></i> Stopped
+                            </button>
+                            <button onclick="filterMyJobs('Transferred')" class="my-jobs-filter-btn px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 active:scale-95 text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-700" data-filter="Transferred">
+                                <i class="fa-solid fa-share mr-1 text-amber-500"></i> Transferred
                             </button>
                         </div>
                     </div>
@@ -2037,6 +2051,60 @@
                             <button onclick="closeJobStatusModal()" class="px-4 py-2 text-sm font-medium text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white rounded-lg transition-all duration-200 active:scale-95 hover:bg-slate-100 dark:hover:bg-slate-700">Cancel</button>
                             <button onclick="confirmJobStatusChange()" id="jobStatusModalConfirmBtn" class="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-all duration-200 active:scale-95">
                                 Confirm
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Job Transfer Modal -->
+                <div id="jobTransferModal" class="fixed inset-0 bg-black/50 z-50 hidden flex items-center justify-center p-4">
+                    <div class="bg-white dark:bg-slate-800 rounded-xl shadow-xl w-full max-w-md">
+                        <div class="p-6 border-b border-slate-200 dark:border-slate-700">
+                            <div class="flex justify-between items-center">
+                                <h3 class="text-lg font-bold text-slate-800 dark:text-white">
+                                    <i class="fa-solid fa-share mr-2 text-amber-500"></i>Transfer Job
+                                </h3>
+                                <button onclick="closeTransferModal()" class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 transition-all duration-200 active:scale-90">
+                                    <i class="fa-solid fa-times"></i>
+                                </button>
+                            </div>
+                        </div>
+                        <div class="p-6 space-y-4">
+                            <p class="text-slate-600 dark:text-slate-300">
+                                Transfer Job <span class="font-mono font-bold text-amber-600 dark:text-amber-400" id="transferModalJobId">-</span> to another team member.
+                            </p>
+
+                            <!-- Transfer To Selection -->
+                            <div>
+                                <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
+                                    Transfer To <span class="text-red-500">*</span>
+                                </label>
+                                <select id="transferToSelect" onchange="handleTransferSelectChange()" class="w-full px-4 py-2 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500 bg-white dark:bg-slate-700 text-slate-800 dark:text-white">
+                                    <option value="">Select a team member...</option>
+                                    <option value="__other__">+ Add Other (custom name)</option>
+                                </select>
+                                <!-- Custom name input (hidden by default) -->
+                                <input type="text" id="transferToCustom" class="hidden w-full mt-2 px-4 py-2 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500 bg-white dark:bg-slate-700 text-slate-800 dark:text-white" placeholder="Enter person's name...">
+                            </div>
+
+                            <!-- Transfer Notes (Required) -->
+                            <div>
+                                <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
+                                    Reason for Transfer <span class="text-red-500">*</span>
+                                </label>
+                                <textarea id="transferNotesInput" rows="3" class="w-full px-4 py-2 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500 bg-white dark:bg-slate-700 text-slate-800 dark:text-white" placeholder="Explain why this job is being transferred..."></textarea>
+                            </div>
+
+                            <!-- Warning -->
+                            <div class="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg p-3 text-sm text-amber-700 dark:text-amber-400">
+                                <i class="fa-solid fa-info-circle mr-2"></i>
+                                The job will be marked as Transferred and the closed date will be set. Transfer details will be saved in the job notes.
+                            </div>
+                        </div>
+                        <div class="p-6 border-t border-slate-200 dark:border-slate-700 flex justify-end gap-3">
+                            <button onclick="closeTransferModal()" class="px-4 py-2 text-sm font-medium text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white rounded-lg transition-all duration-200 active:scale-95 hover:bg-slate-100 dark:hover:bg-slate-700">Cancel</button>
+                            <button onclick="confirmTransfer()" id="transferModalConfirmBtn" class="px-4 py-2 bg-amber-600 text-white text-sm font-medium rounded-lg hover:bg-amber-700 transition-all duration-200 active:scale-95">
+                                <i class="fa-solid fa-share mr-1"></i> Transfer
                             </button>
                         </div>
                     </div>
@@ -2639,11 +2707,24 @@
                                 <div class="text-xs text-slate-500 dark:text-slate-400">Total Jobs</div>
                             </div>
                         </div>
+                        <!-- Agent Filter Bar -->
+                        <div id="jobMetricsFilterBar" class="px-4 py-3 border-b border-slate-100 dark:border-slate-700 hidden">
+                            <div class="flex items-center gap-2 flex-wrap">
+                                <span class="text-xs font-medium text-slate-500 dark:text-slate-400 mr-1">
+                                    <i class="fa-solid fa-filter mr-1"></i>Filter:
+                                </span>
+                                <button onclick="clearAgentFilter()" id="agentFilterAllBtn" class="px-2.5 py-1 rounded-full text-xs font-medium transition-all duration-200 active:scale-95 bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400">
+                                    All Agents
+                                </button>
+                                <div id="agentFilterChips" class="flex items-center gap-1.5 flex-wrap"></div>
+                            </div>
+                        </div>
                         <!-- Job Metrics Table -->
                         <div class="overflow-x-auto">
                             <table class="w-full text-left text-sm">
                                 <thead class="bg-slate-50 dark:bg-slate-900 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase">
                                     <tr>
+                                        <th class="px-6 py-3 w-8"></th>
                                         <th class="px-6 py-3">Agent</th>
                                         <th class="px-6 py-3 text-center">Active</th>
                                         <th class="px-6 py-3 text-center">Fulfilled</th>
@@ -2653,7 +2734,7 @@
                                 </thead>
                                 <tbody id="jobMetricsTableBody" class="divide-y divide-slate-100 dark:divide-slate-700">
                                     <tr>
-                                        <td colspan="5" class="px-6 py-8 text-center text-slate-400">
+                                        <td colspan="6" class="px-6 py-8 text-center text-slate-400">
                                             <i class="fa-solid fa-clipboard-list text-2xl mb-2 block opacity-30"></i>
                                             <span class="text-sm">Loading job metrics...</span>
                                         </td>
@@ -11709,6 +11790,8 @@
         let myJobsCurrentFilter = 'all';
         let pendingStatusChange = null;
         let pendingDateEdit = null;
+        let pendingTransfer = null;
+        let transferTargetsCache = null;
 
         // Load My Jobs data
         function loadMyJobs(showTableLoading = true, isManualRefresh = false) {
@@ -11803,10 +11886,12 @@
             const active = myJobsData.filter(j => j.status === 'Active').length;
             const fulfilled = myJobsData.filter(j => j.status === 'Fulfilled').length;
             const stopped = myJobsData.filter(j => j.status === 'Stopped').length;
+            const transferred = myJobsData.filter(j => j.status === 'Transferred').length;
 
             document.getElementById('myJobsActiveCount').textContent = active;
             document.getElementById('myJobsFulfilledCount').textContent = fulfilled;
             document.getElementById('myJobsStoppedCount').textContent = stopped;
+            document.getElementById('myJobsTransferredCount').textContent = transferred;
         }
 
         // Escape HTML special characters for safe attribute insertion
@@ -11843,12 +11928,14 @@
                 const statusClasses = {
                     'Active': 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400',
                     'Fulfilled': 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
-                    'Stopped': 'bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-400'
+                    'Stopped': 'bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-400',
+                    'Transferred': 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400'
                 };
                 const statusIcons = {
                     'Active': 'fa-briefcase',
                     'Fulfilled': 'fa-check-circle',
-                    'Stopped': 'fa-stop-circle'
+                    'Stopped': 'fa-stop-circle',
+                    'Transferred': 'fa-share'
                 };
 
                 const safeJobId = escapeHtml(job.jobId);
@@ -11894,20 +11981,23 @@
                             `}
                         </td>
                         <td class="px-6 py-4">
-                            <div class="flex items-center justify-center gap-2">
+                            <div class="flex items-center justify-center gap-1">
                                 ${job.status === 'Active' ? `
-                                    <button onclick="openJobStatusModalByIndex(${index}, 'Fulfilled')" class="px-3 py-1.5 text-xs font-medium text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/30 rounded-lg transition-all duration-200 active:scale-90" title="Mark as Fulfilled">
+                                    <button onclick="openJobStatusModalByIndex(${index}, 'Fulfilled')" class="px-2.5 py-1.5 text-xs font-medium text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/30 rounded-lg transition-all duration-200 active:scale-90" title="Mark as Fulfilled">
                                         <i class="fa-solid fa-check mr-1"></i>Fulfilled
                                     </button>
-                                    <button onclick="openJobStatusModalByIndex(${index}, 'Stopped')" class="px-3 py-1.5 text-xs font-medium text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg transition-all duration-200 active:scale-90" title="Mark as Stopped">
+                                    <button onclick="openJobStatusModalByIndex(${index}, 'Stopped')" class="px-2.5 py-1.5 text-xs font-medium text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg transition-all duration-200 active:scale-90" title="Mark as Stopped">
                                         <i class="fa-solid fa-stop mr-1"></i>Stop
                                     </button>
+                                    <button onclick="openTransferModalByIndex(${index})" class="px-2.5 py-1.5 text-xs font-medium text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-900/30 rounded-lg transition-all duration-200 active:scale-90" title="Transfer to another TOS">
+                                        <i class="fa-solid fa-share mr-1"></i>Transfer
+                                    </button>
                                 ` : `
-                                    <button onclick="openJobStatusModalByIndex(${index}, 'Active')" class="px-3 py-1.5 text-xs font-medium text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-900/30 rounded-lg transition-all duration-200 active:scale-90" title="Reactivate">
+                                    <button onclick="openJobStatusModalByIndex(${index}, 'Active')" class="px-2.5 py-1.5 text-xs font-medium text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-900/30 rounded-lg transition-all duration-200 active:scale-90" title="Reactivate">
                                         <i class="fa-solid fa-redo mr-1"></i>Reactivate
                                     </button>
-                                    <button onclick="deleteJobByIndex(${index})" class="px-3 py-1.5 text-xs font-medium text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-all duration-200 active:scale-90" title="Remove from list">
-                                        <i class="fa-solid fa-trash mr-1"></i>
+                                    <button onclick="deleteJobByIndex(${index})" class="px-2.5 py-1.5 text-xs font-medium text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-all duration-200 active:scale-90" title="Delete from list">
+                                        <i class="fa-solid fa-trash mr-1"></i>Delete
                                     </button>
                                 `}
                             </div>
@@ -12110,6 +12200,173 @@
                     showToast('Failed to update job status: ' + err.message, 'error');
                 })
                 .updateJobStatus(jobId, newStatus);
+        }
+
+        // ============================================================
+        // TRANSFER JOB FUNCTIONS
+        // ============================================================
+
+        // Open Transfer Modal by index (safe from special characters)
+        function openTransferModalByIndex(index) {
+            const filteredJobs = getFilteredJobs();
+            if (index < 0 || index >= filteredJobs.length) {
+                showToast('Job not found', 'error');
+                return;
+            }
+            const job = filteredJobs[index];
+            openTransferModal(job.jobId);
+        }
+
+        // Open Transfer Modal
+        function openTransferModal(jobId) {
+            pendingTransfer = { jobId: jobId };
+            document.getElementById('transferModalJobId').textContent = jobId;
+            document.getElementById('transferToSelect').value = '';
+            document.getElementById('transferToCustom').value = '';
+            document.getElementById('transferToCustom').classList.add('hidden');
+            document.getElementById('transferNotesInput').value = '';
+
+            // Reset confirm button
+            const btn = document.getElementById('transferModalConfirmBtn');
+            if (btn) {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fa-solid fa-share mr-1"></i> Transfer';
+            }
+
+            // Load transfer targets
+            loadTransferTargets();
+
+            document.getElementById('jobTransferModal').classList.remove('hidden');
+        }
+
+        // Close Transfer Modal
+        function closeTransferModal() {
+            document.getElementById('jobTransferModal').classList.add('hidden');
+            pendingTransfer = null;
+        }
+
+        // Load transfer targets into dropdown
+        function loadTransferTargets() {
+            var select = document.getElementById('transferToSelect');
+
+            // Use cache if available
+            if (transferTargetsCache) {
+                populateTransferSelect(transferTargetsCache);
+                return;
+            }
+
+            // Show loading state
+            select.innerHTML = '<option value="">Loading team members...</option>';
+            select.disabled = true;
+
+            google.script.run
+                .withSuccessHandler(function(result) {
+                    if (result && result.success) {
+                        transferTargetsCache = result.members || [];
+                        populateTransferSelect(transferTargetsCache);
+                    } else {
+                        populateTransferSelect([]);
+                    }
+                })
+                .withFailureHandler(function(err) {
+                    console.error('Failed to load transfer targets:', err);
+                    populateTransferSelect([]);
+                })
+                .getTransferTargets();
+        }
+
+        // Populate the transfer select dropdown
+        function populateTransferSelect(members) {
+            var select = document.getElementById('transferToSelect');
+            select.disabled = false;
+
+            var html = '<option value="">Select a team member...</option>';
+            members.forEach(function(m) {
+                var displayName = m.name.split(' ').map(function(w) { return w.charAt(0).toUpperCase() + w.slice(1); }).join(' ');
+                html += '<option value="' + escapeHtml(m.email) + '">' + escapeHtml(displayName) + ' (' + escapeHtml(m.email) + ')</option>';
+            });
+            html += '<option value="__other__">+ Add Other (custom name)</option>';
+            select.innerHTML = html;
+        }
+
+        // Handle transfer select change (show/hide custom input)
+        function handleTransferSelectChange() {
+            var select = document.getElementById('transferToSelect');
+            var customInput = document.getElementById('transferToCustom');
+
+            if (select.value === '__other__') {
+                customInput.classList.remove('hidden');
+                customInput.focus();
+            } else {
+                customInput.classList.add('hidden');
+                customInput.value = '';
+            }
+        }
+
+        // Confirm Transfer
+        function confirmTransfer() {
+            if (!pendingTransfer) return;
+
+            var jobId = pendingTransfer.jobId;
+            var select = document.getElementById('transferToSelect');
+            var customInput = document.getElementById('transferToCustom');
+            var notesInput = document.getElementById('transferNotesInput');
+
+            // Determine transfer target
+            var transferTo = '';
+            if (select.value === '__other__') {
+                transferTo = customInput.value.trim();
+                if (!transferTo) {
+                    showToast('Please enter the name of the person to transfer to', 'error');
+                    customInput.focus();
+                    return;
+                }
+            } else if (select.value) {
+                // Use the display text from the selected option
+                transferTo = select.options[select.selectedIndex].text;
+            } else {
+                showToast('Please select a person to transfer to', 'error');
+                return;
+            }
+
+            // Validate notes
+            var notes = notesInput.value.trim();
+            if (!notes) {
+                showToast('Please provide a reason for the transfer', 'error');
+                notesInput.focus();
+                return;
+            }
+
+            var btn = document.getElementById('transferModalConfirmBtn');
+            var originalBtnHtml = btn ? btn.innerHTML : '';
+
+            if (btn) {
+                btn.disabled = true;
+                btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin mr-1"></i> Transferring...';
+            }
+
+            google.script.run
+                .withSuccessHandler(function(result) {
+                    if (btn) {
+                        btn.disabled = false;
+                        btn.innerHTML = originalBtnHtml;
+                    }
+                    if (result && result.success) {
+                        showToast(result.message || 'Job ' + jobId + ' transferred successfully', 'success');
+                        closeTransferModal();
+                        refreshMyJobs();
+                    } else {
+                        showToast((result && result.error) || 'Failed to transfer job', 'error');
+                    }
+                })
+                .withFailureHandler(function(err) {
+                    if (btn) {
+                        btn.disabled = false;
+                        btn.innerHTML = originalBtnHtml;
+                    }
+                    showToast('Failed to transfer job: ' + err.message, 'error');
+                })
+                .transferJobAssignment(jobId, transferTo, notes);
         }
 
         // Open Edit Date Modal
@@ -12483,11 +12740,16 @@
         // JOB METRICS - Analytics for Leads/Managers
         // ============================================================
 
+        var jobMetricsData = null;
+        var jobMetricsSelectedAgents = {};
+        var jobMetricsExpandedAgents = {};
+
         // Load Job Metrics for Analytics Tab
         function loadJobMetrics() {
             google.script.run
                 .withSuccessHandler(function(result) {
                     if (result.success) {
+                        jobMetricsData = result.metrics;
                         renderJobMetrics(result.metrics);
                     } else {
                         renderJobMetricsError(result.error || 'Failed to load metrics');
@@ -12501,89 +12763,196 @@
 
         // Refresh Job Metrics
         function refreshJobMetrics() {
-            const tbody = document.getElementById('jobMetricsTableBody');
-            tbody.innerHTML = `
-                <tr>
-                    <td colspan="5" class="px-6 py-8 text-center text-slate-400">
-                        <i class="fa-solid fa-spinner fa-spin text-2xl mb-2 block"></i>
-                        <span class="text-sm">Loading job metrics...</span>
-                    </td>
-                </tr>
-            `;
+            var tbody = document.getElementById('jobMetricsTableBody');
+            tbody.innerHTML = '<tr><td colspan="6" class="px-6 py-8 text-center text-slate-400"><i class="fa-solid fa-spinner fa-spin text-2xl mb-2 block"></i><span class="text-sm">Loading job metrics...</span></td></tr>';
             loadJobMetrics();
         }
 
-        // Render Job Metrics
-        function renderJobMetrics(metrics) {
-            // Update totals
-            document.getElementById('jobMetricsTotalActive').textContent = metrics.totals.active || 0;
-            document.getElementById('jobMetricsTotalFulfilled').textContent = metrics.totals.fulfilled || 0;
-            document.getElementById('jobMetricsTotalStopped').textContent = metrics.totals.stopped || 0;
-            document.getElementById('jobMetricsTotalAll').textContent = metrics.totals.total || 0;
+        // Get filtered agents based on selection
+        function getFilteredAgents(metrics) {
+            if (!metrics || !metrics.byAgent) return [];
+            var selectedKeys = Object.keys(jobMetricsSelectedAgents);
+            if (selectedKeys.length === 0) return metrics.byAgent;
+            return metrics.byAgent.filter(function(a) {
+                return jobMetricsSelectedAgents[a.agentEmail.toLowerCase()];
+            });
+        }
 
-            const tbody = document.getElementById('jobMetricsTableBody');
+        // Render agent filter chips
+        function renderAgentFilterChips(metrics) {
+            var filterBar = document.getElementById('jobMetricsFilterBar');
+            var chipsContainer = document.getElementById('agentFilterChips');
+            var allBtn = document.getElementById('agentFilterAllBtn');
 
-            if (!metrics.byAgent || metrics.byAgent.length === 0) {
-                tbody.innerHTML = `
-                    <tr>
-                        <td colspan="5" class="px-6 py-8 text-center text-slate-400">
-                            <i class="fa-solid fa-clipboard-list text-2xl mb-2 block opacity-30"></i>
-                            <span class="text-sm">No job assignments found</span>
-                        </td>
-                    </tr>
-                `;
+            if (!metrics || !metrics.byAgent || metrics.byAgent.length <= 1) {
+                filterBar.classList.add('hidden');
                 return;
             }
 
-            tbody.innerHTML = metrics.byAgent.map(agent => {
-                const agentName = agent.agentEmail.split('@')[0];
-                return `
-                    <tr class="hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors">
-                        <td class="px-6 py-4">
-                            <div class="flex items-center gap-3">
-                                <div class="w-8 h-8 rounded-full bg-indigo-100 dark:bg-indigo-900/30 flex items-center justify-center">
-                                    <span class="text-xs font-bold text-indigo-600 dark:text-indigo-400">${agentName.charAt(0).toUpperCase()}</span>
-                                </div>
-                                <div>
-                                    <div class="font-medium text-slate-800 dark:text-white">${agentName}</div>
-                                    <div class="text-xs text-slate-500 dark:text-slate-400">${agent.agentEmail}</div>
-                                </div>
-                            </div>
-                        </td>
-                        <td class="px-6 py-4 text-center">
-                            <span class="inline-flex items-center justify-center min-w-[2rem] px-2 py-1 rounded-full text-sm font-bold ${agent.active > 0 ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400' : 'text-slate-400'}">
-                                ${agent.active}
-                            </span>
-                        </td>
-                        <td class="px-6 py-4 text-center">
-                            <span class="inline-flex items-center justify-center min-w-[2rem] px-2 py-1 rounded-full text-sm font-bold ${agent.fulfilled > 0 ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400' : 'text-slate-400'}">
-                                ${agent.fulfilled}
-                            </span>
-                        </td>
-                        <td class="px-6 py-4 text-center">
-                            <span class="inline-flex items-center justify-center min-w-[2rem] px-2 py-1 rounded-full text-sm font-bold ${agent.stopped > 0 ? 'bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-400' : 'text-slate-400'}">
-                                ${agent.stopped}
-                            </span>
-                        </td>
-                        <td class="px-6 py-4 text-center">
-                            <span class="font-bold text-slate-700 dark:text-slate-300">${agent.total}</span>
-                        </td>
-                    </tr>
-                `;
-            }).join('');
+            filterBar.classList.remove('hidden');
+            var selectedKeys = Object.keys(jobMetricsSelectedAgents);
+            var isAllSelected = selectedKeys.length === 0;
+
+            // Style "All Agents" button
+            if (isAllSelected) {
+                allBtn.className = 'px-2.5 py-1 rounded-full text-xs font-medium transition-all duration-200 active:scale-95 bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400';
+            } else {
+                allBtn.className = 'px-2.5 py-1 rounded-full text-xs font-medium transition-all duration-200 active:scale-95 bg-slate-100 text-slate-500 hover:bg-slate-200 dark:bg-slate-700 dark:text-slate-400 dark:hover:bg-slate-600';
+            }
+
+            var html = '';
+            metrics.byAgent.forEach(function(agent) {
+                var email = agent.agentEmail.toLowerCase();
+                var name = agent.agentEmail.split('@')[0];
+                var displayName = name.split('.').map(function(w) { return w.charAt(0).toUpperCase() + w.slice(1); }).join(' ');
+                var isSelected = jobMetricsSelectedAgents[email];
+                var chipClass = isSelected
+                    ? 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400'
+                    : 'bg-slate-100 text-slate-500 hover:bg-slate-200 dark:bg-slate-700 dark:text-slate-400 dark:hover:bg-slate-600';
+                html += '<button onclick="toggleAgentFilter(\'' + escapeHtml(email) + '\')" class="px-2.5 py-1 rounded-full text-xs font-medium transition-all duration-200 active:scale-95 ' + chipClass + '">'
+                    + escapeHtml(displayName)
+                    + (isSelected ? ' <i class="fa-solid fa-times ml-1 text-[10px]"></i>' : '')
+                    + '</button>';
+            });
+            chipsContainer.innerHTML = html;
+        }
+
+        // Toggle agent in filter
+        function toggleAgentFilter(email) {
+            if (jobMetricsSelectedAgents[email]) {
+                delete jobMetricsSelectedAgents[email];
+            } else {
+                jobMetricsSelectedAgents[email] = true;
+            }
+            if (jobMetricsData) renderJobMetrics(jobMetricsData);
+        }
+
+        // Clear agent filter (show all)
+        function clearAgentFilter() {
+            jobMetricsSelectedAgents = {};
+            if (jobMetricsData) renderJobMetrics(jobMetricsData);
+        }
+
+        // Toggle expand/collapse for an agent's job details
+        function toggleAgentExpand(email) {
+            if (jobMetricsExpandedAgents[email]) {
+                delete jobMetricsExpandedAgents[email];
+            } else {
+                jobMetricsExpandedAgents[email] = true;
+            }
+            if (jobMetricsData) renderJobMetrics(jobMetricsData);
+        }
+
+        // Render Job Metrics with filter + expandable rows
+        function renderJobMetrics(metrics) {
+            // Build filter chips
+            renderAgentFilterChips(metrics);
+
+            var filteredAgents = getFilteredAgents(metrics);
+
+            // Recalculate totals from filtered agents
+            var totals = { active: 0, fulfilled: 0, stopped: 0, total: 0 };
+            filteredAgents.forEach(function(a) {
+                totals.active += a.active;
+                totals.fulfilled += a.fulfilled;
+                totals.stopped += a.stopped;
+                totals.total += a.total;
+            });
+
+            document.getElementById('jobMetricsTotalActive').textContent = totals.active;
+            document.getElementById('jobMetricsTotalFulfilled').textContent = totals.fulfilled;
+            document.getElementById('jobMetricsTotalStopped').textContent = totals.stopped;
+            document.getElementById('jobMetricsTotalAll').textContent = totals.total;
+
+            var tbody = document.getElementById('jobMetricsTableBody');
+
+            if (filteredAgents.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="6" class="px-6 py-8 text-center text-slate-400"><i class="fa-solid fa-clipboard-list text-2xl mb-2 block opacity-30"></i><span class="text-sm">No job assignments found</span></td></tr>';
+                return;
+            }
+
+            var html = '';
+            filteredAgents.forEach(function(agent) {
+                var agentName = agent.agentEmail.split('@')[0];
+                var displayName = agentName.split('.').map(function(w) { return w.charAt(0).toUpperCase() + w.slice(1); }).join(' ');
+                var emailKey = agent.agentEmail.toLowerCase();
+                var isExpanded = jobMetricsExpandedAgents[emailKey];
+                var chevronClass = isExpanded ? 'fa-chevron-down' : 'fa-chevron-right';
+
+                // Agent summary row
+                html += '<tr class="hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors cursor-pointer" onclick="toggleAgentExpand(\'' + escapeHtml(emailKey) + '\')">'
+                    + '<td class="pl-4 pr-0 py-4 w-8 text-center"><i class="fa-solid ' + chevronClass + ' text-xs text-slate-400 transition-transform duration-200"></i></td>'
+                    + '<td class="px-4 py-4"><div class="flex items-center gap-3">'
+                    + '<div class="w-8 h-8 rounded-full bg-indigo-100 dark:bg-indigo-900/30 flex items-center justify-center">'
+                    + '<span class="text-xs font-bold text-indigo-600 dark:text-indigo-400">' + agentName.charAt(0).toUpperCase() + '</span></div>'
+                    + '<div><div class="font-medium text-slate-800 dark:text-white">' + escapeHtml(displayName) + '</div>'
+                    + '<div class="text-xs text-slate-500 dark:text-slate-400">' + escapeHtml(agent.agentEmail) + '</div></div></div></td>'
+                    + '<td class="px-6 py-4 text-center"><span class="inline-flex items-center justify-center min-w-[2rem] px-2 py-1 rounded-full text-sm font-bold '
+                    + (agent.active > 0 ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400' : 'text-slate-400') + '">' + agent.active + '</span></td>'
+                    + '<td class="px-6 py-4 text-center"><span class="inline-flex items-center justify-center min-w-[2rem] px-2 py-1 rounded-full text-sm font-bold '
+                    + (agent.fulfilled > 0 ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400' : 'text-slate-400') + '">' + agent.fulfilled + '</span></td>'
+                    + '<td class="px-6 py-4 text-center"><span class="inline-flex items-center justify-center min-w-[2rem] px-2 py-1 rounded-full text-sm font-bold '
+                    + (agent.stopped > 0 ? 'bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-400' : 'text-slate-400') + '">' + agent.stopped + '</span></td>'
+                    + '<td class="px-6 py-4 text-center"><span class="font-bold text-slate-700 dark:text-slate-300">' + agent.total + '</span></td>'
+                    + '</tr>';
+
+                // Expanded detail rows
+                if (isExpanded && agent.jobs && agent.jobs.length > 0) {
+                    html += '<tr><td colspan="6" class="p-0">'
+                        + '<div class="bg-slate-50 dark:bg-slate-900/50 border-y border-slate-100 dark:border-slate-700">'
+                        + '<table class="w-full text-xs">'
+                        + '<thead><tr class="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase">'
+                        + '<th class="px-6 py-2 text-left">Job ID</th>'
+                        + '<th class="px-4 py-2 text-left">Status</th>'
+                        + '<th class="px-4 py-2 text-left">Assigned</th>'
+                        + '<th class="px-4 py-2 text-left">Closed</th>'
+                        + '<th class="px-4 py-2 text-left">Notes</th>'
+                        + '</tr></thead><tbody>';
+
+                    agent.jobs.forEach(function(job) {
+                        var statusBadge = '';
+                        var statusMap = {
+                            'Active':    'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400',
+                            'Fulfilled': 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
+                            'Stopped':   'bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-400',
+                            'Transferred': 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400'
+                        };
+                        var statusIconMap = {
+                            'Active': 'fa-briefcase', 'Fulfilled': 'fa-check-circle',
+                            'Stopped': 'fa-stop-circle', 'Transferred': 'fa-share'
+                        };
+                        var badgeClass = statusMap[job.status] || statusMap['Active'];
+                        var badgeIcon = statusIconMap[job.status] || 'fa-briefcase';
+
+                        var assignedStr = job.assignedDate ? new Date(job.assignedDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '-';
+                        var closedStr = job.closedDate ? new Date(job.closedDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '-';
+                        var notesStr = job.notes || '';
+                        var truncatedNotes = notesStr.length > 80 ? notesStr.substring(0, 80) + '...' : notesStr;
+
+                        html += '<tr class="border-t border-slate-100 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800/50">'
+                            + '<td class="px-6 py-2"><span class="font-mono font-bold text-indigo-600 dark:text-indigo-400">' + escapeHtml(job.jobId) + '</span></td>'
+                            + '<td class="px-4 py-2"><span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium ' + badgeClass + '">'
+                            + '<i class="fa-solid ' + badgeIcon + '"></i> ' + escapeHtml(job.status) + '</span></td>'
+                            + '<td class="px-4 py-2 text-slate-600 dark:text-slate-400">' + assignedStr + '</td>'
+                            + '<td class="px-4 py-2 text-slate-600 dark:text-slate-400">' + closedStr + '</td>'
+                            + '<td class="px-4 py-2 text-slate-500 dark:text-slate-400 max-w-[300px]">'
+                            + (notesStr ? '<span title="' + escapeHtml(notesStr) + '">' + escapeHtml(truncatedNotes) + '</span>' : '<span class="text-slate-300 dark:text-slate-600">-</span>')
+                            + '</td></tr>';
+                    });
+
+                    html += '</tbody></table></div></td></tr>';
+                } else if (isExpanded) {
+                    html += '<tr><td colspan="6" class="p-0"><div class="bg-slate-50 dark:bg-slate-900/50 border-y border-slate-100 dark:border-slate-700 px-6 py-4 text-center text-xs text-slate-400">No individual jobs found for this agent</div></td></tr>';
+                }
+            });
+
+            tbody.innerHTML = html;
         }
 
         // Render error state for job metrics
         function renderJobMetricsError(message) {
-            const tbody = document.getElementById('jobMetricsTableBody');
-            tbody.innerHTML = `
-                <tr>
-                    <td colspan="5" class="px-6 py-8 text-center text-red-400">
-                        <i class="fa-solid fa-exclamation-circle text-2xl mb-2 block"></i>
-                        <span class="text-sm">${message}</span>
-                    </td>
-                </tr>
-            `;
+            var tbody = document.getElementById('jobMetricsTableBody');
+            tbody.innerHTML = '<tr><td colspan="6" class="px-6 py-8 text-center text-red-400"><i class="fa-solid fa-exclamation-circle text-2xl mb-2 block"></i><span class="text-sm">' + message + '</span></td></tr>';
         }
 
     </script>
