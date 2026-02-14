@@ -318,6 +318,83 @@
             from { transform: rotate(0deg); }
             to { transform: rotate(360deg); }
         }
+
+        /* Filter Loading Overlay */
+        .filter-loading-overlay {
+            position: absolute;
+            inset: 0;
+            background: rgba(255, 255, 255, 0.7);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 10;
+            border-radius: inherit;
+            transition: opacity 0.15s ease;
+        }
+        .dark .filter-loading-overlay {
+            background: rgba(15, 23, 42, 0.7);
+        }
+        .filter-loading-spinner {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.5rem 1rem;
+            background: white;
+            border-radius: 9999px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+            font-size: 0.75rem;
+            font-weight: 600;
+            color: #6366f1;
+        }
+        .dark .filter-loading-spinner {
+            background: #334155;
+            color: #818cf8;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+        }
+        .filter-loading-spinner i {
+            animation: spin 0.6s linear infinite;
+        }
+
+        /* Select dropdown loading state */
+        select.filter-loading {
+            opacity: 0.6;
+            pointer-events: none;
+            background-image: none;
+        }
+        select.filter-loading + .select-spinner {
+            display: inline-block;
+        }
+
+        /* Filter chip loading pulse */
+        .filter-chip.loading-pulse {
+            animation: filterPulse 0.8s ease-in-out infinite;
+            pointer-events: none;
+        }
+        @keyframes filterPulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        /* My Jobs filter button loading */
+        .my-jobs-filter-btn.filter-active-loading {
+            position: relative;
+            pointer-events: none;
+        }
+        .my-jobs-filter-btn.filter-active-loading::after {
+            content: '';
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            height: 2px;
+            background: linear-gradient(90deg, transparent, #6366f1, transparent);
+            animation: filterSlide 1s ease-in-out infinite;
+        }
+        @keyframes filterSlide {
+            0% { transform: translateX(-100%); }
+            100% { transform: translateX(100%); }
+        }
+
         @keyframes successPulse {
             0% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); }
             70% { box-shadow: 0 0 0 10px rgba(16, 185, 129, 0); }
@@ -5235,6 +5312,11 @@
         }
 
         function applyFilters() {
+            // Add brief loading pulse to active filter chips
+            document.querySelectorAll('.filter-chip.active').forEach(chip => {
+                chip.classList.add('loading-pulse');
+            });
+
             let filtered = [...fullTableData];
 
             // Apply status filters (OR logic)
@@ -5269,6 +5351,13 @@
             tableData = filtered;
             renderTable(tableData);
             document.getElementById('selectAllCount').textContent = `(${tableData.length})`;
+
+            // Remove loading pulse after render
+            requestAnimationFrame(() => {
+                document.querySelectorAll('.filter-chip.loading-pulse').forEach(chip => {
+                    chip.classList.remove('loading-pulse');
+                });
+            });
         }
 
         function updateActiveFiltersIndicator() {
@@ -5850,10 +5939,29 @@
         }
 
         // --- Tasks Logic ---
+        let _taskRequestId = 0; // Race condition guard
+
         function loadTasks(showSpinner = false, onComplete = null) {
             const tbody = document.getElementById('taskListBody');
+            const currentRequestId = ++_taskRequestId;
 
-            // Only show spinner if explicitly requested or if table is empty
+            // Show filter loading state on dropdowns
+            const jobFilter = document.getElementById('taskJobFilter');
+            const statusFilter = document.getElementById('taskStatusFilter');
+            jobFilter.classList.add('filter-loading');
+            statusFilter.classList.add('filter-loading');
+
+            // Show table-level loading overlay
+            const tableWrapper = tbody.closest('.bg-white, .dark\\:bg-slate-800') || tbody.parentElement;
+            if (tableWrapper && !tableWrapper.querySelector('.filter-loading-overlay')) {
+                tableWrapper.style.position = 'relative';
+                const overlay = document.createElement('div');
+                overlay.className = 'filter-loading-overlay';
+                overlay.innerHTML = '<div class="filter-loading-spinner"><i class="fa-solid fa-circle-notch"></i> Applying filter...</div>';
+                tableWrapper.appendChild(overlay);
+            }
+
+            // Only show full spinner if explicitly requested or if table is empty
             if (showSpinner || tbody.children.length === 0) {
                 tbody.innerHTML = '<tr><td colspan="8" class="p-4 text-center"><i class="fa-solid fa-spinner fa-spin"></i></td></tr>';
             } else {
@@ -5863,13 +5971,20 @@
             }
 
             const filters = {
-                jobId: document.getElementById('taskJobFilter').value,
-                status: document.getElementById('taskStatusFilter').value,
+                jobId: jobFilter.value,
+                status: statusFilter.value,
                 forceRefresh: true
             };
 
             google.script.run.withSuccessHandler(res => {
-                // Remove loading indicator
+                // Race condition guard: ignore stale responses
+                if (currentRequestId !== _taskRequestId) return;
+
+                // Remove loading states
+                jobFilter.classList.remove('filter-loading');
+                statusFilter.classList.remove('filter-loading');
+                const overlay = tableWrapper ? tableWrapper.querySelector('.filter-loading-overlay') : null;
+                if (overlay) overlay.remove();
                 const refreshBtn = document.querySelector('#tasksTab .fa-rotate');
                 if (refreshBtn) refreshBtn.classList.remove('fa-spin');
                 // Update Stats
@@ -5960,7 +6075,7 @@
             }).getAllTasks(filters);
         }
 
-        function filterTasks() { loadTasks(); }
+        function filterTasks() { loadTasks(false); }
 
         // Refresh Tasks with animation and success message
         function refreshTasksWithAnimation() {
@@ -6119,8 +6234,27 @@
         }
 
         // --- Follow Up Logic ---
+        let _followUpRequestId = 0; // Race condition guard
+
         function loadFollowUpStats(showSpinner = false, onComplete = null) {
             const tbody = document.getElementById('followUpTableBody');
+            const currentRequestId = ++_followUpRequestId;
+
+            // Show filter loading state on dropdowns
+            const fuJobFilter = document.getElementById('followUpJobFilter');
+            const fuStatusFilter = document.getElementById('followUpStatusFilter');
+            fuJobFilter.classList.add('filter-loading');
+            fuStatusFilter.classList.add('filter-loading');
+
+            // Show table-level loading overlay
+            const tableWrapper = tbody.closest('.bg-white, .dark\\:bg-slate-800') || tbody.parentElement;
+            if (tableWrapper && !tableWrapper.querySelector('.filter-loading-overlay')) {
+                tableWrapper.style.position = 'relative';
+                const overlay = document.createElement('div');
+                overlay.className = 'filter-loading-overlay';
+                overlay.innerHTML = '<div class="filter-loading-spinner"><i class="fa-solid fa-circle-notch"></i> Applying filter...</div>';
+                tableWrapper.appendChild(overlay);
+            }
 
             // Only show spinner if explicitly requested or if table is empty
             if (showSpinner || tbody.children.length === 0) {
@@ -6132,14 +6266,22 @@
             }
 
             const filters = {
-                jobId: document.getElementById('followUpJobFilter').value,
-                status: document.getElementById('followUpStatusFilter').value
+                jobId: fuJobFilter.value,
+                status: fuStatusFilter.value
             };
 
             google.script.run.withSuccessHandler(res => {
-                // Remove loading indicator
+                // Race condition guard: ignore stale responses
+                if (currentRequestId !== _followUpRequestId) return;
+
+                // Remove loading states
+                fuJobFilter.classList.remove('filter-loading');
+                fuStatusFilter.classList.remove('filter-loading');
+                const overlay = tableWrapper ? tableWrapper.querySelector('.filter-loading-overlay') : null;
+                if (overlay) overlay.remove();
                 const refreshBtn = document.querySelector('#followupsTab .fa-rotate');
                 if (refreshBtn) refreshBtn.classList.remove('fa-spin');
+
                 // Update Stats Cards
                 if(res.stats) {
                     document.getElementById('statPending').textContent = res.stats.pending;
@@ -6147,6 +6289,23 @@
                     document.getElementById('statFollowUp2').textContent = res.stats.followUp2Done;
                     document.getElementById('statResponded').textContent = res.stats.responded;
                 }
+
+                // Populate Job Filter dropdown from response (BUG FIX: was never populated)
+                if (res.jobIds && res.jobIds.length > 0) {
+                    const currentValue = fuJobFilter.value;
+                    fuJobFilter.innerHTML = '<option value="all">All Jobs</option>';
+                    res.jobIds.forEach(jobId => {
+                        const option = document.createElement('option');
+                        option.value = jobId;
+                        option.textContent = jobId;
+                        fuJobFilter.appendChild(option);
+                    });
+                    // Restore previous selection if still valid
+                    if (currentValue !== 'all' && res.jobIds.includes(currentValue)) {
+                        fuJobFilter.value = currentValue;
+                    }
+                }
+
                 // Render Table
                 tbody.innerHTML = '';
                 const data = res.data || [];
@@ -6204,7 +6363,7 @@
             }).getFollowUpDataCombined(filters);
         }
 
-        function loadFollowUpData() { loadFollowUpStats(); }
+        function loadFollowUpData() { loadFollowUpStats(false); }
 
         // Refresh Follow-Ups with animation and success message
         function refreshFollowUpsWithAnimation() {
@@ -8854,12 +9013,15 @@
             loadAnalytics();
         }
 
+        let _analyticsRequestId = 0; // Race condition guard
+
         function loadAnalytics(onComplete = null) {
             const filterEmail = currentAnalyticsFilter || '';
             const filterJobId = currentAnalyticsJobFilter || '';
             const startDate = currentAnalyticsStartDate || '';
             const endDate = currentAnalyticsEndDate || '';
             const hasFilters = filterEmail || filterJobId || startDate || endDate;
+            const currentRequestId = ++_analyticsRequestId;
 
             // Refresh search cache when loading all data (no filters)
             if (!hasFilters) {
@@ -8870,9 +9032,26 @@
             const refreshBtn = document.querySelector('#analyticsTab .fa-rotate');
             if (refreshBtn) refreshBtn.classList.add('fa-spin');
 
+            // Add loading overlay on analytics content area
+            const analyticsContent = document.getElementById('analyticsTab') || document.getElementById('tab-analytics');
+            const statsTable = document.getElementById('userStatsTableBody');
+            const tableWrapper = statsTable ? (statsTable.closest('.bg-white, .dark\\:bg-slate-800') || statsTable.parentElement) : null;
+            if (tableWrapper && !tableWrapper.querySelector('.filter-loading-overlay')) {
+                tableWrapper.style.position = 'relative';
+                const overlay = document.createElement('div');
+                overlay.className = 'filter-loading-overlay';
+                overlay.innerHTML = '<div class="filter-loading-spinner"><i class="fa-solid fa-circle-notch"></i> Loading analytics...</div>';
+                tableWrapper.appendChild(overlay);
+            }
+
             google.script.run.withSuccessHandler(data => {
+                // Race condition guard: ignore stale responses
+                if (currentRequestId !== _analyticsRequestId) return;
+
                 // Remove loading animation
                 if (refreshBtn) refreshBtn.classList.remove('fa-spin');
+                const overlay = tableWrapper ? tableWrapper.querySelector('.filter-loading-overlay') : null;
+                if (overlay) overlay.remove();
 
                 if(data.error) { console.error('Analytics error:', data.error); return; }
 
@@ -11318,7 +11497,17 @@
             const search = (document.getElementById('oiSearchInput').value || '').toLowerCase().trim();
             const jobFilter = document.getElementById('oiJobFilter').value;
             const catFilter = document.getElementById('oiCategoryFilter').value;
+            const oiJobEl = document.getElementById('oiJobFilter');
+            const oiCatEl = document.getElementById('oiCategoryFilter');
             const searchTerms = search ? search.split(',').map(function(s) { return s.trim(); }).filter(Boolean) : [];
+
+            // Brief loading flash on dropdowns
+            if (oiJobEl) oiJobEl.classList.add('filter-loading');
+            if (oiCatEl) oiCatEl.classList.add('filter-loading');
+            requestAnimationFrame(function() {
+                if (oiJobEl) oiJobEl.classList.remove('filter-loading');
+                if (oiCatEl) oiCatEl.classList.remove('filter-loading');
+            });
 
             onboardingIssuesFiltered = onboardingIssuesData.filter(function(issue) {
                 // Status filter
@@ -11352,7 +11541,15 @@
             oiCurrentStatusFilter = status;
             document.querySelectorAll('.oi-status-chip').forEach(function(c) { c.classList.remove('active'); });
             btn.classList.add('active');
-            filterOnboardingIssues();
+
+            // Add brief loading pulse to the active chip
+            btn.classList.add('loading-pulse');
+            requestAnimationFrame(() => {
+                filterOnboardingIssues();
+                requestAnimationFrame(() => {
+                    btn.classList.remove('loading-pulse');
+                });
+            });
         }
 
         // Render the issues table
@@ -12150,10 +12347,11 @@
         function filterMyJobs(filter) {
             myJobsCurrentFilter = filter;
 
-            // Update filter button styles
+            // Update filter button styles with loading animation
             document.querySelectorAll('.my-jobs-filter-btn').forEach(btn => {
+                btn.classList.remove('filter-active-loading');
                 if (btn.dataset.filter === filter) {
-                    btn.classList.add('bg-slate-100', 'dark:bg-slate-700', 'text-slate-700', 'dark:text-slate-200');
+                    btn.classList.add('bg-slate-100', 'dark:bg-slate-700', 'text-slate-700', 'dark:text-slate-200', 'filter-active-loading');
                     btn.classList.remove('text-slate-500');
                 } else {
                     btn.classList.remove('bg-slate-100', 'dark:bg-slate-700', 'text-slate-700', 'dark:text-slate-200');
@@ -12161,7 +12359,16 @@
                 }
             });
 
-            renderMyJobs();
+            // Quick render then remove animation
+            requestAnimationFrame(() => {
+                renderMyJobs();
+                // Remove loading animation after render completes
+                requestAnimationFrame(() => {
+                    document.querySelectorAll('.my-jobs-filter-btn.filter-active-loading').forEach(btn => {
+                        btn.classList.remove('filter-active-loading');
+                    });
+                });
+            });
         }
 
         // Open Add Job Modal
