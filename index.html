@@ -4619,9 +4619,9 @@
                 loadLearningCases();
             }
 
-            // Load My Jobs when switching to myjobs tab
+            // Load My Jobs when switching to myjobs tab (no loading animations on tab switch)
             if (tabName === 'myjobs') {
-                if (!isCacheValid('myjobs')) loadMyJobs();
+                if (!isCacheValid('myjobs')) loadMyJobs(false, false);
             }
 
             // Trigger data loads only if cache is invalid
@@ -5941,30 +5941,34 @@
         // --- Tasks Logic ---
         let _taskRequestId = 0; // Race condition guard
 
-        function loadTasks(showSpinner = false, onComplete = null) {
+        function loadTasks(showSpinner = false, onComplete = null, isFilterChange = false) {
             const tbody = document.getElementById('taskListBody');
             const currentRequestId = ++_taskRequestId;
 
-            // Show filter loading state on dropdowns
             const jobFilter = document.getElementById('taskJobFilter');
             const statusFilter = document.getElementById('taskStatusFilter');
-            jobFilter.classList.add('filter-loading');
-            statusFilter.classList.add('filter-loading');
 
-            // Show table-level loading overlay
-            const tableWrapper = tbody.closest('.bg-white, .dark\\:bg-slate-800') || tbody.parentElement;
-            if (tableWrapper && !tableWrapper.querySelector('.filter-loading-overlay')) {
-                tableWrapper.style.position = 'relative';
-                const overlay = document.createElement('div');
-                overlay.className = 'filter-loading-overlay';
-                overlay.innerHTML = '<div class="filter-loading-spinner"><i class="fa-solid fa-circle-notch"></i> Applying filter...</div>';
-                tableWrapper.appendChild(overlay);
+            // Only show filter loading animations when actually applying a filter
+            if (isFilterChange) {
+                // Show filter loading state on dropdowns
+                jobFilter.classList.add('filter-loading');
+                statusFilter.classList.add('filter-loading');
+
+                // Show table-level loading overlay
+                const tableWrapper = tbody.closest('.bg-white, .dark\\:bg-slate-800') || tbody.parentElement;
+                if (tableWrapper && !tableWrapper.querySelector('.filter-loading-overlay')) {
+                    tableWrapper.style.position = 'relative';
+                    const overlay = document.createElement('div');
+                    overlay.className = 'filter-loading-overlay';
+                    overlay.innerHTML = '<div class="filter-loading-spinner"><i class="fa-solid fa-circle-notch"></i> Applying filter...</div>';
+                    tableWrapper.appendChild(overlay);
+                }
             }
 
             // Only show full spinner if explicitly requested or if table is empty
             if (showSpinner || tbody.children.length === 0) {
                 tbody.innerHTML = '<tr><td colspan="8" class="p-4 text-center"><i class="fa-solid fa-spinner fa-spin"></i></td></tr>';
-            } else {
+            } else if (isFilterChange) {
                 // Add a subtle loading indicator without clearing the table
                 const refreshBtn = document.querySelector('#tasksTab .fa-rotate');
                 if (refreshBtn) refreshBtn.classList.add('fa-spin');
@@ -5980,13 +5984,16 @@
                 // Race condition guard: ignore stale responses
                 if (currentRequestId !== _taskRequestId) return;
 
-                // Remove loading states
+                // Always clean up any loading states (handles race condition where a
+                // filter-change overlay was created but its response was superseded)
                 jobFilter.classList.remove('filter-loading');
                 statusFilter.classList.remove('filter-loading');
+                const tableWrapper = tbody.closest('.bg-white, .dark\\:bg-slate-800') || tbody.parentElement;
                 const overlay = tableWrapper ? tableWrapper.querySelector('.filter-loading-overlay') : null;
                 if (overlay) overlay.remove();
                 const refreshBtn = document.querySelector('#tasksTab .fa-rotate');
                 if (refreshBtn) refreshBtn.classList.remove('fa-spin');
+
                 // Update Stats
                 if(res.stats) {
                     document.getElementById('statTotal').textContent = res.stats.total;
@@ -6075,7 +6082,7 @@
             }).getAllTasks(filters);
         }
 
-        function filterTasks() { loadTasks(false); }
+        function filterTasks() { loadTasks(false, null, true); }
 
         // Refresh Tasks with animation and success message
         function refreshTasksWithAnimation() {
@@ -6094,7 +6101,7 @@
                 setTimeout(() => {
                     btn.classList.remove('success');
                 }, 1500);
-            });
+            }, true);
         }
 
         // Task List Search Functions
@@ -6236,30 +6243,34 @@
         // --- Follow Up Logic ---
         let _followUpRequestId = 0; // Race condition guard
 
-        function loadFollowUpStats(showSpinner = false, onComplete = null) {
+        function loadFollowUpStats(showSpinner = false, onComplete = null, isFilterChange = false) {
             const tbody = document.getElementById('followUpTableBody');
             const currentRequestId = ++_followUpRequestId;
 
-            // Show filter loading state on dropdowns
             const fuJobFilter = document.getElementById('followUpJobFilter');
             const fuStatusFilter = document.getElementById('followUpStatusFilter');
-            fuJobFilter.classList.add('filter-loading');
-            fuStatusFilter.classList.add('filter-loading');
 
-            // Show table-level loading overlay
-            const tableWrapper = tbody.closest('.bg-white, .dark\\:bg-slate-800') || tbody.parentElement;
-            if (tableWrapper && !tableWrapper.querySelector('.filter-loading-overlay')) {
-                tableWrapper.style.position = 'relative';
-                const overlay = document.createElement('div');
-                overlay.className = 'filter-loading-overlay';
-                overlay.innerHTML = '<div class="filter-loading-spinner"><i class="fa-solid fa-circle-notch"></i> Applying filter...</div>';
-                tableWrapper.appendChild(overlay);
+            // Only show filter loading animations when actually applying a filter
+            if (isFilterChange) {
+                // Show filter loading state on dropdowns
+                fuJobFilter.classList.add('filter-loading');
+                fuStatusFilter.classList.add('filter-loading');
+
+                // Show table-level loading overlay
+                const tableWrapper = tbody.closest('.bg-white, .dark\\:bg-slate-800') || tbody.parentElement;
+                if (tableWrapper && !tableWrapper.querySelector('.filter-loading-overlay')) {
+                    tableWrapper.style.position = 'relative';
+                    const overlay = document.createElement('div');
+                    overlay.className = 'filter-loading-overlay';
+                    overlay.innerHTML = '<div class="filter-loading-spinner"><i class="fa-solid fa-circle-notch"></i> Applying filter...</div>';
+                    tableWrapper.appendChild(overlay);
+                }
             }
 
             // Only show spinner if explicitly requested or if table is empty
             if (showSpinner || tbody.children.length === 0) {
                 tbody.innerHTML = '<tr><td colspan="7" class="p-4 text-center"><i class="fa-solid fa-spinner fa-spin"></i></td></tr>';
-            } else {
+            } else if (isFilterChange) {
                 // Add a subtle loading indicator without clearing the table
                 const refreshBtn = document.querySelector('#followupsTab .fa-rotate');
                 if (refreshBtn) refreshBtn.classList.add('fa-spin');
@@ -6274,9 +6285,11 @@
                 // Race condition guard: ignore stale responses
                 if (currentRequestId !== _followUpRequestId) return;
 
-                // Remove loading states
+                // Always clean up any loading states (handles race condition where a
+                // filter-change overlay was created but its response was superseded)
                 fuJobFilter.classList.remove('filter-loading');
                 fuStatusFilter.classList.remove('filter-loading');
+                const tableWrapper = tbody.closest('.bg-white, .dark\\:bg-slate-800') || tbody.parentElement;
                 const overlay = tableWrapper ? tableWrapper.querySelector('.filter-loading-overlay') : null;
                 if (overlay) overlay.remove();
                 const refreshBtn = document.querySelector('#followupsTab .fa-rotate');
@@ -6363,7 +6376,7 @@
             }).getFollowUpDataCombined(filters);
         }
 
-        function loadFollowUpData() { loadFollowUpStats(false); }
+        function loadFollowUpData() { loadFollowUpStats(false, null, true); }
 
         // Refresh Follow-Ups with animation and success message
         function refreshFollowUpsWithAnimation() {
@@ -6382,7 +6395,7 @@
                 setTimeout(() => {
                     btn.classList.remove('success');
                 }, 1500);
-            });
+            }, true);
         }
 
         // Follow-Up Search Functions
@@ -8726,7 +8739,7 @@
             document.getElementById('clearAnalyticsFilter').classList.add('hidden');
             currentAnalyticsFilter = '';
             updateAnalyticsFilterStatus();
-            loadAnalytics();
+            loadAnalytics(null, true);
         }
 
         // --- Job ID Filter Functions ---
@@ -8832,7 +8845,7 @@
             document.getElementById('clearAnalyticsJobFilter').classList.add('hidden');
             currentAnalyticsJobFilter = '';
             updateAnalyticsFilterStatus();
-            loadAnalytics();
+            loadAnalytics(null, true);
         }
 
         function clearAllAnalyticsFilters() {
@@ -8890,7 +8903,7 @@
 
             // Update filter status and reload
             updateAnalyticsFilterStatus();
-            loadAnalytics();
+            loadAnalytics(null, true);
         }
 
         function formatDateForInput(date) {
@@ -8939,7 +8952,7 @@
             }
 
             updateAnalyticsFilterStatus();
-            loadAnalytics();
+            loadAnalytics(null, true);
         }
 
         function clearAnalyticsDateRange() {
@@ -8950,7 +8963,7 @@
             currentAnalyticsDatePreset = 'all';
             updateDatePresetStyles('all');
             updateAnalyticsFilterStatus();
-            loadAnalytics();
+            loadAnalytics(null, true);
         }
 
         function updateAnalyticsFilterStatus() {
@@ -9010,12 +9023,12 @@
             currentAnalyticsJobFilter = jobId;
 
             updateAnalyticsFilterStatus();
-            loadAnalytics();
+            loadAnalytics(null, true);
         }
 
         let _analyticsRequestId = 0; // Race condition guard
 
-        function loadAnalytics(onComplete = null) {
+        function loadAnalytics(onComplete = null, isFilterChange = false) {
             const filterEmail = currentAnalyticsFilter || '';
             const filterJobId = currentAnalyticsJobFilter || '';
             const startDate = currentAnalyticsStartDate || '';
@@ -9028,28 +9041,33 @@
                 refreshAnalyticsSearchCache();
             }
 
-            // Add loading animation to refresh button
+            // Only show loading overlay when actually applying a filter
             const refreshBtn = document.querySelector('#analyticsTab .fa-rotate');
-            if (refreshBtn) refreshBtn.classList.add('fa-spin');
+            if (isFilterChange) {
+                // Add loading animation to refresh button
+                if (refreshBtn) refreshBtn.classList.add('fa-spin');
 
-            // Add loading overlay on analytics content area
-            const analyticsContent = document.getElementById('analyticsTab') || document.getElementById('tab-analytics');
-            const statsTable = document.getElementById('userStatsTableBody');
-            const tableWrapper = statsTable ? (statsTable.closest('.bg-white, .dark\\:bg-slate-800') || statsTable.parentElement) : null;
-            if (tableWrapper && !tableWrapper.querySelector('.filter-loading-overlay')) {
-                tableWrapper.style.position = 'relative';
-                const overlay = document.createElement('div');
-                overlay.className = 'filter-loading-overlay';
-                overlay.innerHTML = '<div class="filter-loading-spinner"><i class="fa-solid fa-circle-notch"></i> Loading analytics...</div>';
-                tableWrapper.appendChild(overlay);
+                // Add loading overlay on analytics content area
+                const statsTable = document.getElementById('userStatsTableBody');
+                const tableWrapper = statsTable ? (statsTable.closest('.bg-white, .dark\\:bg-slate-800') || statsTable.parentElement) : null;
+                if (tableWrapper && !tableWrapper.querySelector('.filter-loading-overlay')) {
+                    tableWrapper.style.position = 'relative';
+                    const overlay = document.createElement('div');
+                    overlay.className = 'filter-loading-overlay';
+                    overlay.innerHTML = '<div class="filter-loading-spinner"><i class="fa-solid fa-circle-notch"></i> Loading analytics...</div>';
+                    tableWrapper.appendChild(overlay);
+                }
             }
 
             google.script.run.withSuccessHandler(data => {
                 // Race condition guard: ignore stale responses
                 if (currentRequestId !== _analyticsRequestId) return;
 
-                // Remove loading animation
+                // Always clean up any loading overlay (handles race condition where a
+                // filter-change overlay was created but its response was superseded)
                 if (refreshBtn) refreshBtn.classList.remove('fa-spin');
+                const statsTable = document.getElementById('userStatsTableBody');
+                const tableWrapper = statsTable ? (statsTable.closest('.bg-white, .dark\\:bg-slate-800') || statsTable.parentElement) : null;
                 const overlay = tableWrapper ? tableWrapper.querySelector('.filter-loading-overlay') : null;
                 if (overlay) overlay.remove();
 
@@ -9678,7 +9696,7 @@
                 setTimeout(() => {
                     btn.classList.remove('success');
                 }, 1500);
-            });
+            }, true);
         }
 
         function showAnalyticsAccessDenied() {
@@ -12131,16 +12149,17 @@
 
         // Load My Jobs data
         function loadMyJobs(showTableLoading = true, isManualRefresh = false) {
-            // Add spin animation to refresh button
             const refreshIcon = document.getElementById('myJobsRefreshIcon');
             const refreshBtn = document.getElementById('myJobsRefreshBtn');
 
-            if (refreshIcon) refreshIcon.classList.add('fa-spin');
-            if (refreshBtn) {
-                refreshBtn.disabled = true;
-                // Enhanced animation: change button appearance during refresh
-                refreshBtn.innerHTML = '<i id="myJobsRefreshIcon" class="fa-solid fa-rotate fa-spin mr-1"></i> Refreshing...';
-                refreshBtn.classList.add('animate-pulse', 'bg-indigo-50', 'dark:bg-indigo-900/30', 'border-indigo-300', 'dark:border-indigo-700');
+            // Only show refresh button animation on manual refresh, not tab switch
+            if (isManualRefresh) {
+                if (refreshIcon) refreshIcon.classList.add('fa-spin');
+                if (refreshBtn) {
+                    refreshBtn.disabled = true;
+                    refreshBtn.innerHTML = '<i id="myJobsRefreshIcon" class="fa-solid fa-rotate fa-spin mr-1"></i> Refreshing...';
+                    refreshBtn.classList.add('animate-pulse', 'bg-indigo-50', 'dark:bg-indigo-900/30', 'border-indigo-300', 'dark:border-indigo-700');
+                }
             }
 
             // Show loading in table if requested
@@ -12160,8 +12179,8 @@
 
             google.script.run
                 .withSuccessHandler(function(result) {
-                    // Reset refresh button to original state
-                    if (refreshBtn) {
+                    // Reset refresh button to original state (only if animation was shown)
+                    if (isManualRefresh && refreshBtn) {
                         refreshBtn.disabled = false;
                         refreshBtn.innerHTML = '<i id="myJobsRefreshIcon" class="fa-solid fa-rotate mr-1"></i> Refresh';
                         refreshBtn.classList.remove('animate-pulse', 'bg-indigo-50', 'dark:bg-indigo-900/30', 'border-indigo-300', 'dark:border-indigo-700');
@@ -12184,8 +12203,8 @@
                     }
                 })
                 .withFailureHandler(function(err) {
-                    // Reset refresh button to original state
-                    if (refreshBtn) {
+                    // Reset refresh button to original state (only if animation was shown)
+                    if (isManualRefresh && refreshBtn) {
                         refreshBtn.disabled = false;
                         refreshBtn.innerHTML = '<i id="myJobsRefreshIcon" class="fa-solid fa-rotate mr-1"></i> Refresh';
                         refreshBtn.classList.remove('animate-pulse', 'bg-indigo-50', 'dark:bg-indigo-900/30', 'border-indigo-300', 'dark:border-indigo-700');
