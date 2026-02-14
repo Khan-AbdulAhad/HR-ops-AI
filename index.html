@@ -5984,16 +5984,16 @@
                 // Race condition guard: ignore stale responses
                 if (currentRequestId !== _taskRequestId) return;
 
-                // Remove loading states (only if filter animations were shown)
-                if (isFilterChange) {
-                    jobFilter.classList.remove('filter-loading');
-                    statusFilter.classList.remove('filter-loading');
-                    const tableWrapper = tbody.closest('.bg-white, .dark\\:bg-slate-800') || tbody.parentElement;
-                    const overlay = tableWrapper ? tableWrapper.querySelector('.filter-loading-overlay') : null;
-                    if (overlay) overlay.remove();
-                    const refreshBtn = document.querySelector('#tasksTab .fa-rotate');
-                    if (refreshBtn) refreshBtn.classList.remove('fa-spin');
-                }
+                // Always clean up any loading states (handles race condition where a
+                // filter-change overlay was created but its response was superseded)
+                jobFilter.classList.remove('filter-loading');
+                statusFilter.classList.remove('filter-loading');
+                const tableWrapper = tbody.closest('.bg-white, .dark\\:bg-slate-800') || tbody.parentElement;
+                const overlay = tableWrapper ? tableWrapper.querySelector('.filter-loading-overlay') : null;
+                if (overlay) overlay.remove();
+                const refreshBtn = document.querySelector('#tasksTab .fa-rotate');
+                if (refreshBtn) refreshBtn.classList.remove('fa-spin');
+
                 // Update Stats
                 if(res.stats) {
                     document.getElementById('statTotal').textContent = res.stats.total;
@@ -6285,16 +6285,15 @@
                 // Race condition guard: ignore stale responses
                 if (currentRequestId !== _followUpRequestId) return;
 
-                // Remove loading states (only if filter animations were shown)
-                if (isFilterChange) {
-                    fuJobFilter.classList.remove('filter-loading');
-                    fuStatusFilter.classList.remove('filter-loading');
-                    const tableWrapper = tbody.closest('.bg-white, .dark\\:bg-slate-800') || tbody.parentElement;
-                    const overlay = tableWrapper ? tableWrapper.querySelector('.filter-loading-overlay') : null;
-                    if (overlay) overlay.remove();
-                    const refreshBtn = document.querySelector('#followupsTab .fa-rotate');
-                    if (refreshBtn) refreshBtn.classList.remove('fa-spin');
-                }
+                // Always clean up any loading states (handles race condition where a
+                // filter-change overlay was created but its response was superseded)
+                fuJobFilter.classList.remove('filter-loading');
+                fuStatusFilter.classList.remove('filter-loading');
+                const tableWrapper = tbody.closest('.bg-white, .dark\\:bg-slate-800') || tbody.parentElement;
+                const overlay = tableWrapper ? tableWrapper.querySelector('.filter-loading-overlay') : null;
+                if (overlay) overlay.remove();
+                const refreshBtn = document.querySelector('#followupsTab .fa-rotate');
+                if (refreshBtn) refreshBtn.classList.remove('fa-spin');
 
                 // Update Stats Cards
                 if(res.stats) {
@@ -9064,14 +9063,13 @@
                 // Race condition guard: ignore stale responses
                 if (currentRequestId !== _analyticsRequestId) return;
 
-                // Remove loading animation (only if filter animations were shown)
-                if (isFilterChange) {
-                    if (refreshBtn) refreshBtn.classList.remove('fa-spin');
-                    const statsTable = document.getElementById('userStatsTableBody');
-                    const tableWrapper = statsTable ? (statsTable.closest('.bg-white, .dark\\:bg-slate-800') || statsTable.parentElement) : null;
-                    const overlay = tableWrapper ? tableWrapper.querySelector('.filter-loading-overlay') : null;
-                    if (overlay) overlay.remove();
-                }
+                // Always clean up any loading overlay (handles race condition where a
+                // filter-change overlay was created but its response was superseded)
+                if (refreshBtn) refreshBtn.classList.remove('fa-spin');
+                const statsTable = document.getElementById('userStatsTableBody');
+                const tableWrapper = statsTable ? (statsTable.closest('.bg-white, .dark\\:bg-slate-800') || statsTable.parentElement) : null;
+                const overlay = tableWrapper ? tableWrapper.querySelector('.filter-loading-overlay') : null;
+                if (overlay) overlay.remove();
 
                 if(data.error) { console.error('Analytics error:', data.error); return; }
 
