@@ -12539,6 +12539,50 @@ function getUserAnalytics(filterEmail, filterJobId, startDate, endDate) {
     analytics.negotiationStats = negotiationStats;
     analytics.followUpStats = followUpStats;
 
+    // FIX: Override totalCompleted from Negotiation_Completed sheet (source of truth)
+    // Activity_Log can miss entries if logging fails, so count actual completed records
+    try {
+      const completedSheet = ss.getSheetByName('Negotiation_Completed');
+      if (completedSheet && completedSheet.getLastRow() > 1) {
+        const completedData = completedSheet.getDataRange().getValues();
+        let completedCount = 0;
+        for (let i = 1; i < completedData.length; i++) {
+          if (!completedData[i][2]) continue; // Skip if no email
+          const cJobId = String(completedData[i][1] || '');
+          const cTimestamp = completedData[i][0];
+
+          // Apply job filter if specified
+          if (jobIdFilter && cJobId !== jobIdFilter) continue;
+
+          // Apply date range filter if specified
+          if (cTimestamp && (startDateFilter || endDateFilter)) {
+            const rowDate = new Date(cTimestamp);
+            if (startDateFilter && rowDate < startDateFilter) continue;
+            if (endDateFilter && rowDate > endDateFilter) continue;
+          }
+
+          completedCount++;
+        }
+        analytics.totalCompleted = completedCount;
+
+        // Also update per-user completed counts from Negotiation_Completed
+        // Since Activity_Log tracks who performed the action, but may miss entries,
+        // recalculate per-user completed from the authoritative source
+        if (analytics.userStats.length > 0) {
+          // Sum completed from Negotiation_Completed and distribute to the user(s)
+          // Since all completions are done by authenticated users, attribute to existing users
+          const totalFromLogs = analytics.userStats.reduce((sum, u) => sum + (u.completed || 0), 0);
+          if (completedCount > totalFromLogs && analytics.userStats.length === 1) {
+            // Single user case: assign all completed to that user
+            analytics.userStats[0].completed = completedCount;
+          }
+        }
+      }
+    } catch (e) {
+      console.error("Error counting completed from Negotiation_Completed:", e);
+      // Fall back to Activity_Log count (already set)
+    }
+
     return analytics;
   } catch (e) {
     console.error("Error getting user analytics:", e);
@@ -12648,10 +12692,54 @@ function getDetailedEmailStats(filterEmail, filterJobId, startDate, endDate) {
       } else if (action === 'data_fetched') {
         stats.totalDataFetches += count;
       } else if (action === 'task_completed') {
-        stats.totalCompleted += count;
-        stats.completedByJob[jobId] = (stats.completedByJob[jobId] || 0) + count;
+        // Still track per-user completed from Activity_Log (only source with user attribution)
         stats.completedByUser[userEmail] = (stats.completedByUser[userEmail] || 0) + count;
       }
+    }
+
+    // FIX: Count totalCompleted and completedByJob from Negotiation_Completed sheet (source of truth)
+    // Activity_Log can miss entries if logging fails during moveToCompleted()
+    try {
+      const completedSheet = ss.getSheetByName('Negotiation_Completed');
+      if (completedSheet && completedSheet.getLastRow() > 1) {
+        const completedData = completedSheet.getDataRange().getValues();
+        let completedTotal = 0;
+        const completedByJobMap = {};
+
+        for (let i = 1; i < completedData.length; i++) {
+          if (!completedData[i][2]) continue; // Skip if no email
+          const cTimestamp = completedData[i][0];
+          const cJobId = String(completedData[i][1] || 'Unknown');
+
+          // Apply job ID filter if specified
+          if (jobIdFilter && cJobId !== jobIdFilter) continue;
+
+          // Apply date range filter if specified
+          if (cTimestamp && (startDateFilter || endDateFilter)) {
+            const rowDate = new Date(cTimestamp);
+            if (startDateFilter && rowDate < startDateFilter) continue;
+            if (endDateFilter && rowDate > endDateFilter) continue;
+          }
+
+          completedTotal++;
+          completedByJobMap[cJobId] = (completedByJobMap[cJobId] || 0) + 1;
+        }
+
+        stats.totalCompleted = completedTotal;
+        stats.completedByJob = completedByJobMap;
+
+        // Also reconcile completedByUser: if single user and their count is less than total
+        const userKeys = Object.keys(stats.completedByUser);
+        if (userKeys.length === 1 && stats.completedByUser[userKeys[0]] < completedTotal) {
+          stats.completedByUser[userKeys[0]] = completedTotal;
+        } else if (userKeys.length === 0 && completedTotal > 0 && emailFilter) {
+          // If no Activity_Log entries but completions exist, attribute to filtered user
+          stats.completedByUser[emailFilter] = completedTotal;
+        }
+      }
+    } catch (e) {
+      console.error("Error counting completed from Negotiation_Completed:", e);
+      // Fall back to Activity_Log counts (already partially set above)
     }
 
     return stats;
@@ -12950,11 +13038,10 @@ function getJobPerformanceMetrics(startDate, endDate) {
       jobMetrics.get(jobId).outreach.add(email);
     }
 
-    // Count responses and acceptances per job
+    // Count responses from Negotiation_State (candidates who replied)
     for (let i = 1; i < stateData.length; i++) {
       const email = normalizeEmail(stateData[i][0]);
       const jobId = String(stateData[i][1] || '').trim();
-      const status = String(stateData[i][3] || '').toLowerCase();
       const lastReplyTime = stateData[i][5];
 
       if (!jobId || !jobMetrics.has(jobId)) continue;
@@ -12963,10 +13050,39 @@ function getJobPerformanceMetrics(startDate, endDate) {
       if (lastReplyTime) {
         jobMetrics.get(jobId).responses.add(email);
       }
+    }
 
-      // Count acceptances
-      if (status === 'accepted' || status === 'accept') {
+    // FIX: Count acceptances from Negotiation_Completed sheet (source of truth)
+    // When candidates are accepted/completed, they are MOVED from Negotiation_State
+    // to Negotiation_Completed, so Negotiation_State will never have "accepted" status
+    const completedSheet = ss.getSheetByName('Negotiation_Completed');
+    const completedData = completedSheet ? completedSheet.getDataRange().getValues() : [];
+
+    for (let i = 1; i < completedData.length; i++) {
+      const email = normalizeEmail(completedData[i][2]); // Column 2 = Email
+      const jobId = String(completedData[i][1] || '').trim(); // Column 1 = Job ID
+      const finalStatus = String(completedData[i][4] || '').toLowerCase(); // Column 4 = Final Status
+      const timestamp = completedData[i][0];
+
+      if (!jobId) continue;
+
+      // Apply date filter
+      if (timestamp && startDateFilter && new Date(timestamp) < startDateFilter) continue;
+      if (timestamp && endDateFilter && new Date(timestamp) > endDateFilter) continue;
+
+      // Initialize job metrics if not exists (in case completed job wasn't in Email_Logs)
+      if (!jobMetrics.has(jobId)) {
+        jobMetrics.set(jobId, { outreach: new Set(), responses: new Set(), accepted: new Set() });
+      }
+
+      // Count as accepted if status indicates acceptance/completion
+      if (finalStatus.includes('accept') || finalStatus.includes('complete')) {
         jobMetrics.get(jobId).accepted.add(email);
+      }
+
+      // Also count completed candidates as responses (they must have responded to reach completion)
+      if (email) {
+        jobMetrics.get(jobId).responses.add(email);
       }
     }
 
