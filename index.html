@@ -4109,7 +4109,7 @@
                     <option value="manager">Manager</option>
                     <option value="admin">Admin</option>
                 </select>
-                <button onclick="addViewer()" class="bg-blue-600 hover:bg-blue-700 text-white px-3 rounded-lg transition"><i class="fa-solid fa-plus"></i></button>
+                <button id="addViewerBtn" onclick="addViewer()" class="bg-blue-600 hover:bg-blue-700 text-white px-3 rounded-lg transition"><i class="fa-solid fa-plus"></i></button>
             </div>
             <div id="viewersList" class="max-h-48 overflow-y-auto space-y-2 mb-4"></div>
 
@@ -9878,7 +9878,7 @@
                                 <span class="font-medium text-sm text-slate-800 dark:text-white">${v.email}</span>
                                 <span class="text-xs px-2 py-0.5 rounded-full ${colorClass}">${roleLabel}</span>
                             </div>
-                            <button onclick="removeViewer('${v.email}')" class="text-red-500 hover:text-red-700"><i class="fa-solid fa-trash"></i></button>
+                            <button onclick="removeViewer('${v.email}', this)" class="text-red-500 hover:text-red-700"><i class="fa-solid fa-trash"></i></button>
                         </div>
                     `;
                 });
@@ -9888,7 +9888,12 @@
             const email = document.getElementById('newViewerEmail').value;
             const level = document.getElementById('newViewerLevel').value;
             if(!email) return;
+            const btn = document.getElementById('addViewerBtn');
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>';
             google.script.run.withSuccessHandler(res => {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fa-solid fa-plus"></i>';
                 if(res.success) {
                     showToast("User Added", "success");
                     loadViewers();
@@ -9897,13 +9902,27 @@
                     google.script.run.markUserReviewed(email);
                 }
                 else showToast(res.error, "error");
+            }).withFailureHandler(() => {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fa-solid fa-plus"></i>';
+                showToast("Failed to add user", "error");
             }).addAnalyticsViewer(email, level);
         }
-        function removeViewer(email) {
+        function removeViewer(email, btnEl) {
             if(!confirm("Remove this user?")) return;
+            if(btnEl) {
+                btnEl.disabled = true;
+                btnEl.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>';
+            }
             google.script.run.withSuccessHandler(res => {
                 if(res.success) { showToast("Removed", "success"); loadViewers(); }
-                else showToast(res.error, "error");
+                else {
+                    showToast(res.error, "error");
+                    if(btnEl) { btnEl.disabled = false; btnEl.innerHTML = '<i class="fa-solid fa-trash"></i>'; }
+                }
+            }).withFailureHandler(() => {
+                showToast("Failed to remove user", "error");
+                if(btnEl) { btnEl.disabled = false; btnEl.innerHTML = '<i class="fa-solid fa-trash"></i>'; }
             }).removeAnalyticsViewer(email);
         }
         function openViewersModal() {
