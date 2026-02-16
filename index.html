@@ -4210,7 +4210,7 @@
                             </div>
                         </div>
 
-                        <button onclick="hierAssignTLToManager()" class="mt-4 w-full bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2.5 rounded-lg text-sm font-medium transition shadow-sm">
+                        <button id="hierAssignTLBtn" onclick="hierAssignTLToManager()" class="mt-4 w-full bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2.5 rounded-lg text-sm font-medium transition shadow-sm">
                             <i class="fa-solid fa-link mr-2"></i>Assign Team Lead to Manager
                         </button>
                     </div>
@@ -4253,7 +4253,7 @@
                             </div>
                         </div>
 
-                        <button onclick="hierAssignTOSToTL()" class="mt-4 w-full bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2.5 rounded-lg text-sm font-medium transition shadow-sm">
+                        <button id="hierAssignTOSBtn" onclick="hierAssignTOSToTL()" class="mt-4 w-full bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2.5 rounded-lg text-sm font-medium transition shadow-sm">
                             <i class="fa-solid fa-link mr-2"></i>Assign TOS to Team Lead
                         </button>
                     </div>
@@ -10072,7 +10072,12 @@
                 return;
             }
 
+            const btn = document.getElementById('hierAssignTLBtn');
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin mr-2"></i>Assigning...';
             google.script.run.withSuccessHandler(res => {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fa-solid fa-link mr-2"></i>Assign Team Lead to Manager';
                 if (res.success) {
                     showToast('Team Lead assigned to Manager successfully', 'success');
                     loadHierarchyTree();
@@ -10083,6 +10088,10 @@
                 } else {
                     showToast(res.error || 'Failed to assign', 'error');
                 }
+            }).withFailureHandler(() => {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fa-solid fa-link mr-2"></i>Assign Team Lead to Manager';
+                showToast('Failed to assign Team Lead to Manager', 'error');
             }).assignTLToManager(managerEmail, tlEmail);
         }
 
@@ -10099,7 +10108,12 @@
                 return;
             }
 
+            const btn = document.getElementById('hierAssignTOSBtn');
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin mr-2"></i>Assigning...';
             google.script.run.withSuccessHandler(res => {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fa-solid fa-link mr-2"></i>Assign TOS to Team Lead';
                 if (res.success) {
                     showToast('TOS member assigned to Team Lead successfully', 'success');
                     loadHierarchyTree();
@@ -10110,32 +10124,44 @@
                 } else {
                     showToast(res.error || 'Failed to assign', 'error');
                 }
+            }).withFailureHandler(() => {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fa-solid fa-link mr-2"></i>Assign TOS to Team Lead';
+                showToast('Failed to assign TOS to Team Lead', 'error');
             }).assignTOSToTL(tlEmail, tosEmail);
         }
 
-        function hierRemoveTL(managerEmail, tlEmail) {
+        function hierRemoveTL(managerEmail, tlEmail, btnEl) {
             if (!confirm(`Remove ${tlEmail} from ${managerEmail}'s team?`)) return;
-
+            if (btnEl) { btnEl.disabled = true; btnEl.innerHTML = '<i class="fa-solid fa-spinner fa-spin text-xs"></i>'; }
             google.script.run.withSuccessHandler(res => {
                 if (res.success) {
                     showToast('Team Lead removed from Manager', 'success');
                     loadHierarchyTree();
                 } else {
                     showToast(res.error || 'Failed to remove', 'error');
+                    if (btnEl) { btnEl.disabled = false; btnEl.innerHTML = '<i class="fa-solid fa-times text-xs"></i>'; }
                 }
+            }).withFailureHandler(() => {
+                showToast('Failed to remove Team Lead', 'error');
+                if (btnEl) { btnEl.disabled = false; btnEl.innerHTML = '<i class="fa-solid fa-times text-xs"></i>'; }
             }).removeTLFromManager(managerEmail, tlEmail);
         }
 
-        function hierRemoveTOS(tlEmail, tosEmail) {
+        function hierRemoveTOS(tlEmail, tosEmail, btnEl) {
             if (!confirm(`Remove ${tosEmail} from ${tlEmail}'s team?`)) return;
-
+            if (btnEl) { btnEl.disabled = true; btnEl.innerHTML = '<i class="fa-solid fa-spinner fa-spin text-xs"></i>'; }
             google.script.run.withSuccessHandler(res => {
                 if (res.success) {
                     showToast('TOS member removed from Team Lead', 'success');
                     loadHierarchyTree();
                 } else {
                     showToast(res.error || 'Failed to remove', 'error');
+                    if (btnEl) { btnEl.disabled = false; btnEl.innerHTML = '<i class="fa-solid fa-times text-xs"></i>'; }
                 }
+            }).withFailureHandler(() => {
+                showToast('Failed to remove TOS member', 'error');
+                if (btnEl) { btnEl.disabled = false; btnEl.innerHTML = '<i class="fa-solid fa-times text-xs"></i>'; }
             }).removeTOSFromTL(tlEmail, tosEmail);
         }
 
@@ -10191,7 +10217,7 @@
                                     <i class="fa-solid fa-user text-indigo-500 text-xs"></i>
                                     <span class="text-sm text-indigo-700 dark:text-indigo-300 flex-1 truncate">${tlEmail}</span>
                                     <span class="px-1.5 py-0.5 rounded text-[10px] font-medium bg-indigo-100 text-indigo-700 dark:bg-indigo-900 dark:text-indigo-300">TL</span>
-                                    <button onclick="hierRemoveTL('${managerEmail}', '${tlEmail}')"
+                                    <button onclick="hierRemoveTL('${managerEmail}', '${tlEmail}', this)"
                                         class="opacity-0 group-hover:opacity-100 text-red-400 hover:text-red-600 transition-all p-1" title="Remove from team">
                                         <i class="fa-solid fa-trash-can text-xs"></i>
                                     </button>
@@ -10207,7 +10233,7 @@
                                         <i class="fa-solid fa-user text-emerald-500 text-xs"></i>
                                         <span class="text-xs text-emerald-700 dark:text-emerald-300 flex-1 truncate">${tosEmail}</span>
                                         <span class="px-1.5 py-0.5 rounded text-[10px] font-medium bg-emerald-100 text-emerald-700 dark:bg-emerald-900 dark:text-emerald-300">TOS</span>
-                                        <button onclick="hierRemoveTOS('${tlEmail}', '${tosEmail}')"
+                                        <button onclick="hierRemoveTOS('${tlEmail}', '${tosEmail}', this)"
                                             class="opacity-0 group-hover:opacity-100 text-red-400 hover:text-red-600 transition-all p-1" title="Remove from team">
                                             <i class="fa-solid fa-trash-can text-xs"></i>
                                         </button>
@@ -10257,7 +10283,7 @@
                                         <i class="fa-solid fa-user text-emerald-500 text-xs"></i>
                                         <span class="text-xs text-emerald-700 dark:text-emerald-300 flex-1 truncate">${tosEmail}</span>
                                         <span class="px-1.5 py-0.5 rounded text-[10px] font-medium bg-emerald-100 text-emerald-700 dark:bg-emerald-900 dark:text-emerald-300">TOS</span>
-                                        <button onclick="hierRemoveTOS('${tlEmail}', '${tosEmail}')"
+                                        <button onclick="hierRemoveTOS('${tlEmail}', '${tosEmail}', this)"
                                             class="opacity-0 group-hover:opacity-100 text-red-400 hover:text-red-600 transition-all p-1" title="Remove from team">
                                             <i class="fa-solid fa-trash-can text-xs"></i>
                                         </button>
