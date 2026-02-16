@@ -16262,9 +16262,12 @@ function getJobQuestionsInfo(jobId) {
 // ============================================================
 
 /**
- * Get all jobs assigned to the current user
+ * Get all jobs assigned to the current user (or team for TL/Manager roles)
+ * TL: sees own jobs + all TOS members' jobs under them
+ * Manager: sees own jobs + all TLs' jobs + all TOS members' jobs under those TLs
+ * Admin: sees all jobs across all users
  * @param {string} filterStatus - Optional: 'Active', 'Fulfilled', 'Stopped', or 'all' (default: 'all')
- * @returns {Object} { success, jobs: [...] }
+ * @returns {Object} { success, jobs: [...], isTeamView: boolean, teamMembers: [...] }
  */
 function getMyJobs(filterStatus) {
   try {
@@ -16277,7 +16280,7 @@ function getMyJobs(filterStatus) {
     const sheet = ss.getSheetByName('Job_Assignments');
     if (!sheet) {
       debugLog('getMyJobs: Job_Assignments sheet not found');
-      return { success: true, jobs: [] };
+      return { success: true, jobs: [], isTeamView: false, teamMembers: [] };
     }
 
     const lastRow = sheet.getLastRow();
@@ -16285,15 +16288,30 @@ function getMyJobs(filterStatus) {
 
     if (lastRow <= 1) {
       debugLog('getMyJobs: Sheet is empty (only headers or no data)');
-      return { success: true, jobs: [] };
+      return { success: true, jobs: [], isTeamView: false, teamMembers: [] };
     }
 
     const userEmail = Session.getActiveUser().getEmail();
     debugLog('getMyJobs: Looking for jobs for user: ' + userEmail);
 
+    // Determine user role and team visibility
+    const access = checkAnalyticsAccess();
+    const role = (access.accessLevel || 'other').toLowerCase();
+    const isTeamRole = (role === 'tl' || role === 'manager' || role === 'admin');
+
+    // Get visible team members for TL/Manager/Admin
+    let visibleEmails = [userEmail.toLowerCase()];
+    if (role === 'tl' || role === 'manager') {
+      visibleEmails = getTeamMembersForUser(userEmail, role);
+    } else if (role === 'admin') {
+      // Admin sees all users - we'll collect unique emails from the data
+      visibleEmails = null; // null means no filter (show all)
+    }
+
     const data = sheet.getDataRange().getValues();
     debugLog('getMyJobs: Total rows in sheet: ' + data.length);
     const jobs = [];
+    const teamMemberSet = {};
 
     for (let i = 1; i < data.length; i++) {
       const row = data[i];
@@ -16305,22 +16323,28 @@ function getMyJobs(filterStatus) {
         debugLog('getMyJobs: Row ' + i + ' - agent=' + agentEmail + ', jobId=' + rowJobId);
       }
 
-      // Only show jobs for current user
-      if (agentEmail !== userEmail.toLowerCase()) continue;
+      // Filter by visible emails (null means admin sees all)
+      if (visibleEmails !== null && !visibleEmails.includes(agentEmail)) continue;
 
       const status = String(row[2] || 'Active');
 
       // Apply status filter if specified
       if (filterStatus && filterStatus !== 'all' && status !== filterStatus) continue;
 
+      // Track unique team members for the filter dropdown
+      if (isTeamRole && agentEmail) {
+        teamMemberSet[agentEmail] = true;
+      }
+
       jobs.push({
         rowIndex: i + 1, // 1-indexed for sheet operations
-        agentEmail: row[0],
+        agentEmail: String(row[0] || ''),
         jobId: String(row[1]),
         status: status,
         assignedDate: row[3] ? new Date(row[3]).toISOString() : null,
         closedDate: row[4] ? new Date(row[4]).toISOString() : null,
-        notes: row[5] || ''
+        notes: row[5] || '',
+        isOwnJob: agentEmail === userEmail.toLowerCase()
       });
     }
 
@@ -16331,8 +16355,17 @@ function getMyJobs(filterStatus) {
       return new Date(b.assignedDate) - new Date(a.assignedDate);
     });
 
-    debugLog('getMyJobs: Found ' + jobs.length + ' jobs for user ' + userEmail);
-    return { success: true, jobs: jobs };
+    // Build team members list for filter dropdown
+    const teamMembers = Object.keys(teamMemberSet).sort();
+
+    debugLog('getMyJobs: Found ' + jobs.length + ' jobs for user ' + userEmail + ' (team view: ' + isTeamRole + ', members: ' + teamMembers.length + ')');
+    return {
+      success: true,
+      jobs: jobs,
+      isTeamView: isTeamRole,
+      teamMembers: teamMembers,
+      currentUserEmail: userEmail.toLowerCase()
+    };
   } catch (e) {
     console.error('Error in getMyJobs:', e);
     return { success: false, error: e.message };
@@ -16832,10 +16865,12 @@ function getJobAssignmentMetrics() {
 
 /**
  * Delete a job assignment (only if status is not Active)
+ * TL/Manager/Admin can delete their team members' jobs too
  * @param {string} jobId - The Job ID
+ * @param {string} agentEmail - Optional: the agent's email (for TL/Manager deleting team member's job)
  * @returns {Object} { success, message }
  */
-function deleteJobAssignment(jobId) {
+function deleteJobAssignment(jobId, agentEmail) {
   try {
     if (!jobId) return { success: false, error: 'Job ID is required' };
 
@@ -16850,8 +16885,29 @@ function deleteJobAssignment(jobId) {
     const jobIdStr = String(jobId);
     const data = sheet.getDataRange().getValues();
 
+    // Determine target email - if agentEmail provided and user has team permissions, use it
+    let targetEmail = userEmail.toLowerCase();
+    if (agentEmail && agentEmail.toLowerCase() !== userEmail.toLowerCase()) {
+      // Verify the caller has permission to delete this team member's job
+      const access = checkAnalyticsAccess();
+      const role = (access.accessLevel || 'other').toLowerCase();
+
+      if (role === 'admin') {
+        targetEmail = agentEmail.toLowerCase();
+      } else if (role === 'tl' || role === 'manager') {
+        const visibleEmails = getTeamMembersForUser(userEmail, role);
+        if (visibleEmails.includes(agentEmail.toLowerCase())) {
+          targetEmail = agentEmail.toLowerCase();
+        } else {
+          return { success: false, error: 'You do not have permission to delete this team member\'s job' };
+        }
+      } else {
+        return { success: false, error: 'You can only delete your own jobs' };
+      }
+    }
+
     for (let i = 1; i < data.length; i++) {
-      if (String(data[i][0]).toLowerCase() === userEmail.toLowerCase() &&
+      if (String(data[i][0]).toLowerCase() === targetEmail &&
           String(data[i][1]) === jobIdStr) {
 
         const status = String(data[i][2] || 'Active');
@@ -16864,11 +16920,12 @@ function deleteJobAssignment(jobId) {
         // Delete the row
         sheet.deleteRow(i + 1);
 
-        return { success: true, message: `Job ${jobId} removed from your list` };
+        const isOwnJob = targetEmail === userEmail.toLowerCase();
+        return { success: true, message: `Job ${jobId} removed from ${isOwnJob ? 'your' : targetEmail + "'s"} list` };
       }
     }
 
-    return { success: false, error: `Job ${jobId} not found in your list` };
+    return { success: false, error: `Job ${jobId} not found` };
   } catch (e) {
     console.error('Error in deleteJobAssignment:', e);
     return { success: false, error: e.message };

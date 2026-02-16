@@ -2081,7 +2081,7 @@
                 <div id="tab-myjobs" class="tab-content hidden-tab">
                     <div class="flex flex-col gap-4 mb-6">
                         <div class="flex justify-between items-center">
-                            <h3 class="text-xl font-bold text-slate-800 dark:text-white">My Jobs</h3>
+                            <h3 class="text-xl font-bold text-slate-800 dark:text-white" id="myJobsPageTitle">My Jobs</h3>
                             <div class="flex gap-2">
                                 <button id="myJobsRefreshBtn" onclick="refreshMyJobs()" class="refresh-btn bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 px-3 py-2 rounded-lg text-sm hover:bg-slate-50 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200">
                                     <i id="myJobsRefreshIcon" class="fa-solid fa-rotate mr-1"></i> Refresh
@@ -2141,7 +2141,7 @@
                         </div>
 
                         <!-- Filter Tabs -->
-                        <div class="flex gap-2 bg-white dark:bg-slate-800 p-2 rounded-lg border border-slate-200 dark:border-slate-700">
+                        <div class="flex flex-wrap gap-2 bg-white dark:bg-slate-800 p-2 rounded-lg border border-slate-200 dark:border-slate-700">
                             <button onclick="filterMyJobs('all')" class="my-jobs-filter-btn px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 active:scale-95 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200" data-filter="all">
                                 All Jobs
                             </button>
@@ -2158,6 +2158,24 @@
                                 <i class="fa-solid fa-share mr-1 text-amber-500"></i> Transferred
                             </button>
                         </div>
+
+                        <!-- Team Agent Filter (visible only for TL/Manager/Admin) -->
+                        <div id="myJobsTeamFilterContainer" class="hidden">
+                            <div class="bg-white dark:bg-slate-800 p-3 rounded-lg border border-slate-200 dark:border-slate-700">
+                                <div class="flex items-center gap-3 flex-wrap">
+                                    <div class="flex items-center gap-2">
+                                        <i class="fa-solid fa-users-gear text-indigo-500"></i>
+                                        <span class="text-sm font-semibold text-slate-700 dark:text-slate-200">Team View</span>
+                                    </div>
+                                    <div class="flex-1 min-w-[200px]">
+                                        <select id="myJobsAgentFilter" onchange="filterMyJobsByAgent()" class="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 bg-white dark:bg-slate-700 text-slate-800 dark:text-white">
+                                            <option value="all">All Team Members</option>
+                                        </select>
+                                    </div>
+                                    <div id="myJobsTeamCount" class="text-xs text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-700 px-2 py-1 rounded-full"></div>
+                                </div>
+                            </div>
+                        </div>
                     </div>
 
                     <!-- Jobs Table -->
@@ -2165,8 +2183,9 @@
                         <div class="overflow-x-auto">
                             <table class="w-full text-left text-sm">
                                 <thead class="bg-slate-50 dark:bg-slate-900 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase">
-                                    <tr>
+                                    <tr id="myJobsTableHeader">
                                         <th class="px-6 py-3">Job ID</th>
+                                        <th class="px-6 py-3 hidden" id="myJobsAgentHeader">Agent</th>
                                         <th class="px-6 py-3">Status</th>
                                         <th class="px-6 py-3">Assigned Date</th>
                                         <th class="px-6 py-3">Closed Date</th>
@@ -4704,7 +4723,7 @@
                 'negotiation': 'Job Configuration',
                 'tasks': 'Task List',
                 'followups': 'Follow-Ups',
-                'myjobs': 'My Jobs',
+                'myjobs': myJobsIsTeamView ? 'Team Jobs' : 'My Jobs',
                 'analytics': 'Analytics',
                 'learning': 'AI Learning Center',
                 'aitesting': 'AI Testing', // AI TESTING FEATURE - DELETE FOR PRODUCTION
@@ -12404,6 +12423,10 @@
 
         let myJobsData = [];
         let myJobsCurrentFilter = 'all';
+        let myJobsAgentFilter = 'all'; // For TL/Manager team view
+        let myJobsIsTeamView = false;
+        let myJobsTeamMembers = [];
+        let myJobsCurrentUserEmail = '';
         let pendingStatusChange = null;
         let pendingDateEdit = null;
         let pendingTransfer = null;
@@ -12428,11 +12451,12 @@
             if (showTableLoading) {
                 const tbody = document.getElementById('myJobsTableBody');
                 if (tbody) {
+                    const colSpan = myJobsIsTeamView ? 7 : 6;
                     tbody.innerHTML = `
                         <tr>
-                            <td colspan="6" class="px-6 py-12 text-center text-slate-400">
+                            <td colspan="${colSpan}" class="px-6 py-12 text-center text-slate-400">
                                 <i class="fa-solid fa-spinner fa-spin text-4xl mb-3 block text-indigo-400"></i>
-                                <span class="text-sm">Loading your jobs...</span>
+                                <span class="text-sm">Loading ${myJobsIsTeamView ? 'team' : 'your'} jobs...</span>
                             </td>
                         </tr>
                     `;
@@ -12450,6 +12474,13 @@
 
                     if (result.success) {
                         myJobsData = result.jobs || [];
+                        myJobsIsTeamView = result.isTeamView || false;
+                        myJobsTeamMembers = result.teamMembers || [];
+                        myJobsCurrentUserEmail = (result.currentUserEmail || '').toLowerCase();
+
+                        // Setup team view UI if applicable
+                        setupMyJobsTeamView();
+
                         renderMyJobs();
                         updateMyJobsStats();
                         setCacheValid('myjobs', true);
@@ -12484,13 +12515,65 @@
             loadMyJobs(true, true); // Pass true for isManualRefresh to show toast
         }
 
+        // Setup team view UI (agent filter dropdown, agent column header)
+        function setupMyJobsTeamView() {
+            const container = document.getElementById('myJobsTeamFilterContainer');
+            const agentHeader = document.getElementById('myJobsAgentHeader');
+            const select = document.getElementById('myJobsAgentFilter');
+            const teamCount = document.getElementById('myJobsTeamCount');
+
+            const pageTitle = document.getElementById('myJobsPageTitle');
+
+            if (myJobsIsTeamView && myJobsTeamMembers.length > 0) {
+                // Update page title
+                if (pageTitle) pageTitle.textContent = 'Team Jobs';
+
+                // Show team filter
+                container.classList.remove('hidden');
+                agentHeader.classList.remove('hidden');
+
+                // Populate agent dropdown
+                select.innerHTML = '<option value="all">All Team Members</option>';
+                // Add "My Jobs" option to quickly filter to own jobs
+                select.innerHTML += '<option value="' + myJobsCurrentUserEmail + '">My Jobs Only</option>';
+                myJobsTeamMembers.forEach(function(email) {
+                    if (email.toLowerCase() !== myJobsCurrentUserEmail) {
+                        const displayName = email.split('@')[0].replace(/\./g, ' ').replace(/\b\w/g, function(l) { return l.toUpperCase(); });
+                        select.innerHTML += '<option value="' + email + '">' + displayName + ' (' + email + ')</option>';
+                    }
+                });
+
+                // Update team count
+                teamCount.textContent = myJobsTeamMembers.length + ' member' + (myJobsTeamMembers.length !== 1 ? 's' : '');
+
+                // Restore previous agent filter selection
+                if (myJobsAgentFilter !== 'all') {
+                    select.value = myJobsAgentFilter;
+                }
+            } else {
+                if (pageTitle) pageTitle.textContent = 'My Jobs';
+                container.classList.add('hidden');
+                agentHeader.classList.add('hidden');
+                myJobsAgentFilter = 'all';
+            }
+        }
+
+        // Filter by agent (team view)
+        function filterMyJobsByAgent() {
+            const select = document.getElementById('myJobsAgentFilter');
+            myJobsAgentFilter = select.value;
+            renderMyJobs();
+            updateMyJobsStats();
+        }
+
         // Render empty state
         function renderEmptyMyJobs(message, isError) {
             const tbody = document.getElementById('myJobsTableBody');
             const icon = isError ? 'fa-exclamation-circle text-red-300' : 'fa-briefcase opacity-30';
+            const colSpan = myJobsIsTeamView ? 7 : 6;
             tbody.innerHTML = `
                 <tr>
-                    <td colspan="6" class="px-6 py-12 text-center text-slate-400">
+                    <td colspan="${colSpan}" class="px-6 py-12 text-center text-slate-400">
                         <i class="fa-solid ${icon} text-4xl mb-3 block"></i>
                         <span class="text-sm">${message || 'No jobs yet. Click "Add Job" to add one manually, or jobs will be auto-added when you send outreach.'}</span>
                     </td>
@@ -12500,10 +12583,16 @@
 
         // Update stats counters
         function updateMyJobsStats() {
-            const active = myJobsData.filter(j => j.status === 'Active').length;
-            const fulfilled = myJobsData.filter(j => j.status === 'Fulfilled').length;
-            const stopped = myJobsData.filter(j => j.status === 'Stopped').length;
-            const transferred = myJobsData.filter(j => j.status === 'Transferred').length;
+            // Apply agent filter before counting stats
+            let dataForStats = myJobsData;
+            if (myJobsIsTeamView && myJobsAgentFilter !== 'all') {
+                dataForStats = myJobsData.filter(j => (j.agentEmail || '').toLowerCase() === myJobsAgentFilter.toLowerCase());
+            }
+
+            const active = dataForStats.filter(j => j.status === 'Active').length;
+            const fulfilled = dataForStats.filter(j => j.status === 'Fulfilled').length;
+            const stopped = dataForStats.filter(j => j.status === 'Stopped').length;
+            const transferred = dataForStats.filter(j => j.status === 'Transferred').length;
 
             document.getElementById('myJobsActiveCount').textContent = active;
             document.getElementById('myJobsFulfilledCount').textContent = fulfilled;
@@ -12526,15 +12615,23 @@
         function renderMyJobs() {
             const tbody = document.getElementById('myJobsTableBody');
 
-            // Filter jobs based on current filter
+            // Filter jobs based on current status filter
             let filteredJobs = myJobsData;
             if (myJobsCurrentFilter !== 'all') {
-                filteredJobs = myJobsData.filter(j => j.status === myJobsCurrentFilter);
+                filteredJobs = filteredJobs.filter(j => j.status === myJobsCurrentFilter);
+            }
+
+            // Apply agent filter for team view
+            if (myJobsIsTeamView && myJobsAgentFilter !== 'all') {
+                filteredJobs = filteredJobs.filter(j => (j.agentEmail || '').toLowerCase() === myJobsAgentFilter.toLowerCase());
             }
 
             if (filteredJobs.length === 0) {
-                if (myJobsCurrentFilter === 'all') {
+                if (myJobsCurrentFilter === 'all' && myJobsAgentFilter === 'all') {
                     renderEmptyMyJobs('No jobs yet. Click "Add Job" to add one manually, or jobs will be auto-added when you send outreach.');
+                } else if (myJobsAgentFilter !== 'all') {
+                    const agentName = myJobsAgentFilter.split('@')[0].replace(/\./g, ' ').replace(/\b\w/g, function(l) { return l.toUpperCase(); });
+                    renderEmptyMyJobs(`No ${myJobsCurrentFilter !== 'all' ? myJobsCurrentFilter.toLowerCase() + ' ' : ''}jobs found for ${agentName}.`);
                 } else {
                     renderEmptyMyJobs(`No ${myJobsCurrentFilter.toLowerCase()} jobs found.`);
                 }
@@ -12560,11 +12657,34 @@
                 const assignedDate = job.assignedDate ? new Date(job.assignedDate).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }) : '-';
                 const closedDate = job.closedDate ? new Date(job.closedDate).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }) : '-';
 
+                // Agent column for team view
+                const agentEmail = (job.agentEmail || '').toLowerCase();
+                const agentDisplayName = agentEmail ? agentEmail.split('@')[0].replace(/\./g, ' ').replace(/\b\w/g, function(l) { return l.toUpperCase(); }) : '-';
+                const isOwnJob = job.isOwnJob;
+                const agentColumnHtml = myJobsIsTeamView ? `
+                        <td class="px-6 py-4">
+                            <div class="flex items-center gap-2">
+                                <div class="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold text-white ${isOwnJob ? 'bg-indigo-500' : 'bg-slate-400'}">
+                                    ${agentDisplayName.charAt(0)}
+                                </div>
+                                <div>
+                                    <div class="text-sm font-medium text-slate-800 dark:text-slate-200">${escapeHtml(agentDisplayName)}${isOwnJob ? ' <span class="text-xs text-indigo-500">(You)</span>' : ''}</div>
+                                    <div class="text-xs text-slate-400">${escapeHtml(agentEmail)}</div>
+                                </div>
+                            </div>
+                        </td>
+                ` : '';
+
+                // For team view, TL/Manager can see actions but only modify own jobs directly
+                // For non-own jobs in team view, show view-only badge
+                const isViewOnly = myJobsIsTeamView && !isOwnJob;
+
                 return `
-                    <tr class="hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors" data-job-index="${index}">
+                    <tr class="hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors ${isViewOnly ? 'bg-slate-50/50 dark:bg-slate-800/50' : ''}" data-job-index="${index}">
                         <td class="px-6 py-4">
                             <span class="font-mono font-bold text-indigo-600 dark:text-indigo-400">${safeJobId}</span>
                         </td>
+                        ${agentColumnHtml}
                         <td class="px-6 py-4">
                             <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${statusClasses[job.status] || statusClasses['Active']}">
                                 <i class="fa-solid ${statusIcons[job.status] || statusIcons['Active']}"></i>
@@ -12572,10 +12692,12 @@
                             </span>
                         </td>
                         <td class="px-6 py-4 text-slate-600 dark:text-slate-300">
-                            <span class="cursor-pointer hover:text-indigo-600 dark:hover:text-indigo-400" onclick="openEditDateModalByIndex(${index})" title="Click to edit">
-                                ${assignedDate}
-                                <i class="fa-solid fa-pen text-xs ml-1 opacity-50"></i>
-                            </span>
+                            ${isOwnJob || !myJobsIsTeamView ? `
+                                <span class="cursor-pointer hover:text-indigo-600 dark:hover:text-indigo-400" onclick="openEditDateModalByIndex(${index})" title="Click to edit">
+                                    ${assignedDate}
+                                    <i class="fa-solid fa-pen text-xs ml-1 opacity-50"></i>
+                                </span>
+                            ` : `<span>${assignedDate}</span>`}
                         </td>
                         <td class="px-6 py-4 text-slate-600 dark:text-slate-300">${closedDate}</td>
                         <td class="px-6 py-4 text-slate-500 dark:text-slate-400 max-w-[250px]">
@@ -12586,36 +12708,52 @@
                                         <button onclick="openViewNotesModalByIndex(${index})" class="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 rounded transition-all duration-200 active:scale-90" title="View notes">
                                             <i class="fa-solid fa-eye text-xs"></i>
                                         </button>
-                                        <button onclick="openEditNotesModalByIndex(${index})" class="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 rounded transition-all duration-200 active:scale-90" title="Edit notes">
-                                            <i class="fa-solid fa-pen text-xs"></i>
-                                        </button>
+                                        ${isOwnJob || !myJobsIsTeamView ? `
+                                            <button onclick="openEditNotesModalByIndex(${index})" class="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 rounded transition-all duration-200 active:scale-90" title="Edit notes">
+                                                <i class="fa-solid fa-pen text-xs"></i>
+                                            </button>
+                                        ` : ''}
                                     </div>
                                 </div>
                             ` : `
-                                <button onclick="openEditNotesModalByIndex(${index})" class="text-sm text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition-all duration-200 active:scale-95" title="Add notes">
-                                    <i class="fa-solid fa-plus mr-1"></i>Add notes
-                                </button>
+                                ${isOwnJob || !myJobsIsTeamView ? `
+                                    <button onclick="openEditNotesModalByIndex(${index})" class="text-sm text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition-all duration-200 active:scale-95" title="Add notes">
+                                        <i class="fa-solid fa-plus mr-1"></i>Add notes
+                                    </button>
+                                ` : '<span class="text-xs text-slate-400">-</span>'}
                             `}
                         </td>
                         <td class="px-6 py-4">
                             <div class="flex items-center justify-center gap-1">
-                                ${job.status === 'Active' ? `
-                                    <button onclick="openJobStatusModalByIndex(${index}, 'Fulfilled')" class="px-2.5 py-1.5 text-xs font-medium text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/30 rounded-lg transition-all duration-200 active:scale-90" title="Mark as Fulfilled">
-                                        <i class="fa-solid fa-check mr-1"></i>Fulfilled
-                                    </button>
-                                    <button onclick="openJobStatusModalByIndex(${index}, 'Stopped')" class="px-2.5 py-1.5 text-xs font-medium text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg transition-all duration-200 active:scale-90" title="Mark as Stopped">
-                                        <i class="fa-solid fa-stop mr-1"></i>Stop
-                                    </button>
-                                    <button onclick="openTransferModalByIndex(${index})" class="px-2.5 py-1.5 text-xs font-medium text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-900/30 rounded-lg transition-all duration-200 active:scale-90" title="Transfer to another TOS">
-                                        <i class="fa-solid fa-share mr-1"></i>Transfer
-                                    </button>
+                                ${isViewOnly ? `
+                                    ${job.status !== 'Active' ? `
+                                        <button onclick="deleteJobByIndex(${index})" class="px-2.5 py-1.5 text-xs font-medium text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-all duration-200 active:scale-90" title="Delete from list">
+                                            <i class="fa-solid fa-trash mr-1"></i>Delete
+                                        </button>
+                                    ` : `
+                                        <span class="px-2.5 py-1.5 text-xs font-medium text-slate-400 bg-slate-50 dark:bg-slate-700 rounded-lg">
+                                            <i class="fa-solid fa-eye mr-1"></i>View Only
+                                        </span>
+                                    `}
                                 ` : `
-                                    <button onclick="openJobStatusModalByIndex(${index}, 'Active')" class="px-2.5 py-1.5 text-xs font-medium text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-900/30 rounded-lg transition-all duration-200 active:scale-90" title="Reactivate">
-                                        <i class="fa-solid fa-redo mr-1"></i>Reactivate
-                                    </button>
-                                    <button onclick="deleteJobByIndex(${index})" class="px-2.5 py-1.5 text-xs font-medium text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-all duration-200 active:scale-90" title="Delete from list">
-                                        <i class="fa-solid fa-trash mr-1"></i>Delete
-                                    </button>
+                                    ${job.status === 'Active' ? `
+                                        <button onclick="openJobStatusModalByIndex(${index}, 'Fulfilled')" class="px-2.5 py-1.5 text-xs font-medium text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/30 rounded-lg transition-all duration-200 active:scale-90" title="Mark as Fulfilled">
+                                            <i class="fa-solid fa-check mr-1"></i>Fulfilled
+                                        </button>
+                                        <button onclick="openJobStatusModalByIndex(${index}, 'Stopped')" class="px-2.5 py-1.5 text-xs font-medium text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg transition-all duration-200 active:scale-90" title="Mark as Stopped">
+                                            <i class="fa-solid fa-stop mr-1"></i>Stop
+                                        </button>
+                                        <button onclick="openTransferModalByIndex(${index})" class="px-2.5 py-1.5 text-xs font-medium text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-900/30 rounded-lg transition-all duration-200 active:scale-90" title="Transfer to another TOS">
+                                            <i class="fa-solid fa-share mr-1"></i>Transfer
+                                        </button>
+                                    ` : `
+                                        <button onclick="openJobStatusModalByIndex(${index}, 'Active')" class="px-2.5 py-1.5 text-xs font-medium text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-900/30 rounded-lg transition-all duration-200 active:scale-90" title="Reactivate">
+                                            <i class="fa-solid fa-redo mr-1"></i>Reactivate
+                                        </button>
+                                        <button onclick="deleteJobByIndex(${index})" class="px-2.5 py-1.5 text-xs font-medium text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-all duration-200 active:scale-90" title="Delete from list">
+                                            <i class="fa-solid fa-trash mr-1"></i>Delete
+                                        </button>
+                                    `}
                                 `}
                             </div>
                         </td>
@@ -12706,10 +12844,15 @@
 
         // Helper function to get filtered jobs (same logic as renderMyJobs)
         function getFilteredJobs() {
+            let filtered = myJobsData;
             if (myJobsCurrentFilter !== 'all') {
-                return myJobsData.filter(j => j.status === myJobsCurrentFilter);
+                filtered = filtered.filter(j => j.status === myJobsCurrentFilter);
             }
-            return myJobsData;
+            // Apply agent filter for team view
+            if (myJobsIsTeamView && myJobsAgentFilter !== 'all') {
+                filtered = filtered.filter(j => (j.agentEmail || '').toLowerCase() === myJobsAgentFilter.toLowerCase());
+            }
+            return filtered;
         }
 
         // Open Job Status Modal by index (safe from special characters)
@@ -12742,7 +12885,7 @@
                 return;
             }
             const job = filteredJobs[index];
-            deleteJob(job.jobId);
+            deleteJob(job.jobId, job.agentEmail);
         }
 
         // Open Job Status Modal (for confirmation)
@@ -13322,8 +13465,13 @@
         }
 
         // Delete Job
-        function deleteJob(jobId) {
-            if (!confirm(`Are you sure you want to remove Job ${jobId} from your list?`)) {
+        function deleteJob(jobId, agentEmail) {
+            const isTeamMemberJob = agentEmail && agentEmail.toLowerCase() !== myJobsCurrentUserEmail;
+            const confirmMsg = isTeamMemberJob
+                ? `Are you sure you want to remove Job ${jobId} from ${agentEmail}'s list?`
+                : `Are you sure you want to remove Job ${jobId} from your list?`;
+
+            if (!confirm(confirmMsg)) {
                 return;
             }
 
@@ -13360,7 +13508,7 @@
                     });
                     showToast('Failed to remove job: ' + err.message, 'error');
                 })
-                .deleteJobAssignment(jobId);
+                .deleteJobAssignment(jobId, agentEmail || '');
         }
 
         // ============================================================
