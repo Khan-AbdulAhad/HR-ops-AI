@@ -14143,12 +14143,17 @@ function getUsersByRole() {
     const result = {
       managers: [],
       tls: [],
-      tos: []
+      tos: [],
+      allUsers: [] // All users with role info for hierarchy assignment dropdowns
     };
 
     for (let i = 1; i < data.length; i++) {
       const email = String(data[i][0] || '').toLowerCase().trim();
       const role = String(data[i][3] || 'other').toLowerCase();
+
+      if (email) {
+        result.allUsers.push({ email: email, role: role });
+      }
 
       if (role === 'manager') {
         result.managers.push(email);
