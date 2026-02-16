@@ -16398,6 +16398,13 @@ function addJobAssignment(jobId, notes) {
       }
     }
 
+    // Format notes in structured format if provided
+    var formattedNotes = '';
+    if (notes && notes.trim()) {
+      var today = new Date().toISOString().split('T')[0];
+      formattedNotes = 'N|' + today + '|' + notes.trim() + '|';
+    }
+
     // Add new job assignment
     sheet.appendRow([
       userEmail,
@@ -16405,7 +16412,7 @@ function addJobAssignment(jobId, notes) {
       'Active',
       new Date(), // Assigned Date
       '',         // Closed Date (empty)
-      notes || ''
+      formattedNotes
     ]);
 
     // Log to analytics
@@ -16513,13 +16520,15 @@ function transferJobAssignment(jobId, transferTo, transferNotes) {
         // Set Closed Date (column 5)
         sheet.getRange(i + 1, 5).setValue(new Date());
 
-        // Build transfer note and prepend to existing notes (column 6)
+        // Build transfer note in structured format and prepend to existing notes (column 6)
         var existingNotes = String(data[i][5] || '');
+        var today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
         var transferDate = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
-        var transferInfo = '[TRANSFERRED to ' + transferTo + ' on ' + transferDate + ']\nReason: ' + transferNotes.trim();
+        var transferContent = '[TRANSFERRED to ' + transferTo + ' on ' + transferDate + '] Reason: ' + transferNotes.trim();
+        var transferEntry = 'N|' + today + '|' + transferContent + '|';
         var updatedNotes = existingNotes
-          ? transferInfo + '\n---\n' + existingNotes
-          : transferInfo;
+          ? transferEntry + '\n' + existingNotes
+          : transferEntry;
         sheet.getRange(i + 1, 6).setValue(updatedNotes);
 
         // Log to analytics

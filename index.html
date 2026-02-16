@@ -2353,12 +2353,73 @@
                 </div>
 
                 <!-- Edit Notes Modal -->
+                <!-- Unified Notes & Tasks Modal -->
+                <div id="notesTasksModal" class="fixed inset-0 bg-black/50 z-50 hidden flex items-center justify-center p-4">
+                    <div class="bg-white dark:bg-slate-800 rounded-xl shadow-xl w-full max-w-xl max-h-[85vh] flex flex-col">
+                        <!-- Header -->
+                        <div class="p-5 border-b border-slate-200 dark:border-slate-700">
+                            <div class="flex justify-between items-center">
+                                <div>
+                                    <h3 class="text-lg font-bold text-slate-800 dark:text-white">
+                                        <i class="fa-solid fa-clipboard-list mr-2 text-indigo-500"></i>Notes & Tasks
+                                    </h3>
+                                    <p class="text-sm text-slate-500 dark:text-slate-400 mt-0.5">Job <span class="font-mono font-bold text-indigo-600 dark:text-indigo-400" id="ntModalJobId">-</span></p>
+                                </div>
+                                <button onclick="closeNotesTasksModal()" class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 transition-all duration-200 active:scale-90">
+                                    <i class="fa-solid fa-times text-lg"></i>
+                                </button>
+                            </div>
+                            <!-- Read-only banner for team view -->
+                            <div id="ntReadOnlyBanner" class="hidden mt-3 px-3 py-2 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg text-sm text-amber-700 dark:text-amber-400">
+                                <i class="fa-solid fa-eye mr-1"></i> View only — this job belongs to <span id="ntOwnerName" class="font-semibold"></span>
+                            </div>
+                            <!-- Tabs -->
+                            <div class="flex gap-1 mt-3 bg-slate-100 dark:bg-slate-700 p-1 rounded-lg">
+                                <button onclick="switchNtTab('notes')" id="ntTabNotes" class="nt-tab-btn flex-1 px-3 py-2 rounded-md text-sm font-medium transition-all duration-200 bg-white dark:bg-slate-600 text-slate-800 dark:text-white shadow-sm">
+                                    <i class="fa-solid fa-sticky-note mr-1.5 text-amber-500"></i>Notes <span id="ntNotesCount" class="ml-1 text-xs bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 px-1.5 py-0.5 rounded-full">0</span>
+                                </button>
+                                <button onclick="switchNtTab('tasks')" id="ntTabTasks" class="nt-tab-btn flex-1 px-3 py-2 rounded-md text-sm font-medium transition-all duration-200 text-slate-500 dark:text-slate-400 hover:bg-white/50 dark:hover:bg-slate-600/50">
+                                    <i class="fa-solid fa-list-check mr-1.5 text-indigo-500"></i>Tasks <span id="ntTasksCount" class="ml-1 text-xs bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400 px-1.5 py-0.5 rounded-full">0</span>
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Content Area -->
+                        <div class="flex-1 overflow-auto p-5 min-h-[300px]">
+                            <!-- Notes Tab Content -->
+                            <div id="ntNotesContent" class="space-y-2">
+                                <!-- Rendered notes entries will go here -->
+                            </div>
+
+                            <!-- Tasks Tab Content -->
+                            <div id="ntTasksContent" class="hidden space-y-2">
+                                <!-- Rendered tasks entries will go here -->
+                            </div>
+                        </div>
+
+                        <!-- Quick Add Bar -->
+                        <div id="ntQuickAddBar" class="p-4 border-t border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/50">
+                            <div class="flex gap-2">
+                                <select id="ntAddType" class="px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-slate-700 dark:text-slate-200 font-medium min-w-[100px]">
+                                    <option value="note">Note</option>
+                                    <option value="task">Task</option>
+                                </select>
+                                <input type="text" id="ntAddInput" class="flex-1 px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-slate-800 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" placeholder="Type a note or task..." onkeydown="if(event.key==='Enter'){event.preventDefault();addNtEntry();}">
+                                <button onclick="addNtEntry()" class="px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 transition-all duration-200 active:scale-95 whitespace-nowrap">
+                                    <i class="fa-solid fa-plus mr-1"></i>Add
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Legacy Edit Notes Modal (kept for raw editing fallback) -->
                 <div id="editNotesModal" class="fixed inset-0 bg-black/50 z-50 hidden flex items-center justify-center p-4">
                     <div class="bg-white dark:bg-slate-800 rounded-xl shadow-xl w-full max-w-lg">
                         <div class="p-6 border-b border-slate-200 dark:border-slate-700">
                             <div class="flex justify-between items-center">
                                 <h3 class="text-lg font-bold text-slate-800 dark:text-white">
-                                    <i class="fa-solid fa-pen-to-square mr-2 text-indigo-500"></i>Edit Notes
+                                    <i class="fa-solid fa-code mr-2 text-slate-500"></i>Raw Notes Editor
                                 </h3>
                                 <button onclick="closeEditNotesModal()" class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 transition-all duration-200 active:scale-90">
                                     <i class="fa-solid fa-times"></i>
@@ -2368,86 +2429,14 @@
                         <div class="p-6 space-y-4">
                             <p class="text-slate-600 dark:text-slate-300">Job ID: <span class="font-mono font-bold text-indigo-600 dark:text-indigo-400" id="editNotesJobId">-</span></p>
                             <div>
-                                <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">Notes</label>
-                                <!-- Formatting Toolbar -->
-                                <div class="flex items-center gap-1 p-2 bg-slate-100 dark:bg-slate-700 rounded-t-lg border border-b-0 border-slate-300 dark:border-slate-600">
-                                    <button type="button" onclick="insertNotesFormat('bullet')" class="p-2 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600 rounded transition-colors" title="Bullet Point">
-                                        <i class="fa-solid fa-list-ul"></i>
-                                    </button>
-                                    <button type="button" onclick="insertNotesFormat('numbered')" class="p-2 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600 rounded transition-colors" title="Numbered List">
-                                        <i class="fa-solid fa-list-ol"></i>
-                                    </button>
-                                    <button type="button" onclick="insertNotesFormat('checkbox')" class="p-2 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600 rounded transition-colors" title="Checkbox">
-                                        <i class="fa-solid fa-square-check"></i>
-                                    </button>
-                                    <div class="w-px h-5 bg-slate-300 dark:bg-slate-500 mx-1"></div>
-                                    <button type="button" onclick="insertNotesFormat('bold')" class="p-2 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600 rounded transition-colors font-bold" title="Bold">
-                                        B
-                                    </button>
-                                    <button type="button" onclick="insertNotesFormat('italic')" class="p-2 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600 rounded transition-colors italic" title="Italic">
-                                        I
-                                    </button>
-                                    <div class="w-px h-5 bg-slate-300 dark:bg-slate-500 mx-1"></div>
-                                    <button type="button" onclick="insertNotesFormat('heading')" class="p-2 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600 rounded transition-colors" title="Heading">
-                                        <i class="fa-solid fa-heading"></i>
-                                    </button>
-                                    <button type="button" onclick="insertNotesFormat('divider')" class="p-2 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600 rounded transition-colors" title="Divider">
-                                        <i class="fa-solid fa-minus"></i>
-                                    </button>
-                                    <div class="flex-1"></div>
-                                    <span class="text-xs text-slate-400 dark:text-slate-500">Markdown supported</span>
-                                </div>
-                                <textarea id="editNotesInput" rows="8" class="w-full px-4 py-3 border border-slate-300 dark:border-slate-600 rounded-b-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 bg-white dark:bg-slate-700 text-slate-800 dark:text-white font-mono text-sm" placeholder="Add notes about this job...&#10;&#10;Tips:&#10;• Use bullet points with • or -&#10;• Use **bold** or *italic*&#10;• Use [ ] for checkboxes"></textarea>
+                                <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">Raw Notes Data</label>
+                                <textarea id="editNotesInput" rows="10" class="w-full px-4 py-3 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 bg-white dark:bg-slate-700 text-slate-800 dark:text-white font-mono text-sm" placeholder="Raw notes data..."></textarea>
                             </div>
                         </div>
-                        <div class="p-6 border-t border-slate-200 dark:border-slate-700 flex justify-between">
-                            <button onclick="previewNotes()" class="px-4 py-2 text-sm font-medium text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg transition-all duration-200 active:scale-95">
-                                <i class="fa-solid fa-eye mr-1"></i>Preview
-                            </button>
-                            <div class="flex gap-3">
-                                <button onclick="closeEditNotesModal()" class="px-4 py-2 text-sm font-medium text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white rounded-lg transition-all duration-200 active:scale-95 hover:bg-slate-100 dark:hover:bg-slate-700">Cancel</button>
-                                <button id="editNotesSubmitBtn" onclick="submitEditNotes()" class="px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 transition-all duration-200 active:scale-95">
-                                    <i class="fa-solid fa-save mr-1"></i>Save
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- View Notes Modal -->
-                <div id="viewNotesModal" class="fixed inset-0 bg-black/50 z-50 hidden flex items-center justify-center p-4">
-                    <div class="bg-white dark:bg-slate-800 rounded-xl shadow-xl w-full max-w-lg max-h-[80vh] flex flex-col">
-                        <div class="p-6 border-b border-slate-200 dark:border-slate-700">
-                            <div class="flex justify-between items-center">
-                                <h3 class="text-lg font-bold text-slate-800 dark:text-white">
-                                    <i class="fa-solid fa-file-lines mr-2 text-indigo-500"></i>Job Notes
-                                </h3>
-                                <button onclick="closeViewNotesModal()" class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 transition-all duration-200 active:scale-90">
-                                    <i class="fa-solid fa-times"></i>
-                                </button>
-                            </div>
-                        </div>
-                        <div class="p-6 flex-1 overflow-auto">
-                            <div class="flex items-center justify-between mb-4">
-                                <p class="text-slate-600 dark:text-slate-300">Job ID: <span class="font-mono font-bold text-indigo-600 dark:text-indigo-400" id="viewNotesJobId">-</span></p>
-                                <div class="flex gap-2">
-                                    <button onclick="copyNotesToClipboard()" class="px-3 py-1.5 text-xs font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg transition-all duration-200 active:scale-95" title="Copy to clipboard">
-                                        <i class="fa-solid fa-copy mr-1"></i>Copy
-                                    </button>
-                                    <button onclick="editFromView()" class="px-3 py-1.5 text-xs font-medium text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 rounded-lg transition-all duration-200 active:scale-95" title="Edit notes">
-                                        <i class="fa-solid fa-pen mr-1"></i>Edit
-                                    </button>
-                                </div>
-                            </div>
-                            <div id="viewNotesContent" class="prose prose-sm dark:prose-invert max-w-none p-4 bg-slate-50 dark:bg-slate-700/50 rounded-lg border border-slate-200 dark:border-slate-600 min-h-[150px]">
-                                <!-- Rendered notes content -->
-                            </div>
-                            <!-- Raw notes for copying (hidden) -->
-                            <textarea id="viewNotesRaw" class="hidden"></textarea>
-                        </div>
-                        <div class="p-6 border-t border-slate-200 dark:border-slate-700 flex justify-end">
-                            <button onclick="closeViewNotesModal()" class="px-4 py-2 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 text-sm font-medium rounded-lg hover:bg-slate-200 dark:hover:bg-slate-600 transition-all duration-200 active:scale-95">
-                                Close
+                        <div class="p-6 border-t border-slate-200 dark:border-slate-700 flex justify-end gap-3">
+                            <button onclick="closeEditNotesModal()" class="px-4 py-2 text-sm font-medium text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white rounded-lg transition-all duration-200 active:scale-95 hover:bg-slate-100 dark:hover:bg-slate-700">Cancel</button>
+                            <button id="editNotesSubmitBtn" onclick="submitEditNotes()" class="px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 transition-all duration-200 active:scale-95">
+                                <i class="fa-solid fa-save mr-1"></i>Save
                             </button>
                         </div>
                     </div>
@@ -12391,7 +12380,6 @@
                 };
 
                 const safeJobId = escapeHtml(job.jobId);
-                const safeNotes = escapeHtml(job.notes);
                 const assignedDate = job.assignedDate ? new Date(job.assignedDate).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }) : '-';
                 const closedDate = job.closedDate ? new Date(job.closedDate).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }) : '-';
 
@@ -12438,29 +12426,23 @@
                             ` : `<span>${assignedDate}</span>`}
                         </td>
                         <td class="px-6 py-4 text-slate-600 dark:text-slate-300">${closedDate}</td>
-                        <td class="px-6 py-4 text-slate-500 dark:text-slate-400 max-w-[250px]">
-                            ${safeNotes ? `
-                                <div class="flex items-center gap-2">
-                                    <span class="truncate flex-1 text-sm" title="${safeNotes}">${safeNotes.substring(0, 50)}${safeNotes.length > 50 ? '...' : ''}</span>
-                                    <div class="flex items-center gap-1 flex-shrink-0">
-                                        <button onclick="openViewNotesModalByIndex(${index})" class="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 rounded transition-all duration-200 active:scale-90" title="View notes">
-                                            <i class="fa-solid fa-eye text-xs"></i>
-                                        </button>
-                                        ${isOwnJob || !myJobsIsTeamView ? `
-                                            <button onclick="openEditNotesModalByIndex(${index})" class="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 rounded transition-all duration-200 active:scale-90" title="Edit notes">
-                                                <i class="fa-solid fa-pen text-xs"></i>
-                                            </button>
-                                        ` : ''}
-                                    </div>
-                                </div>
-                            ` : `
-                                ${isOwnJob || !myJobsIsTeamView ? `
-                                    <button onclick="openEditNotesModalByIndex(${index})" class="text-sm text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition-all duration-200 active:scale-95" title="Add notes">
-                                        <i class="fa-solid fa-plus mr-1"></i>Add notes
-                                    </button>
-                                ` : '<span class="text-xs text-slate-400">-</span>'}
-                            `}
-                        </td>
+                        ${(function() {
+                            var summary = getNoteSummary(job.notes);
+                            if (summary.totalEntries > 0) {
+                                return '<td class="px-6 py-4 max-w-[250px]">' +
+                                    '<div class="flex items-center gap-2 cursor-pointer group" onclick="openNotesTasksModalByIndex(' + index + ')" onmouseenter="showNtTooltip(event,' + index + ')" onmouseleave="hideNtTooltip()">' +
+                                    (summary.noteCount > 0 ? '<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400"><i class="fa-solid fa-sticky-note text-[10px]"></i>' + summary.noteCount + '</span>' : '') +
+                                    (summary.taskCount > 0 ? '<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ' + (summary.pendingCount > 0 ? 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400' : 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400') + '"><i class="fa-solid fa-list-check text-[10px]"></i>' + summary.doneCount + '/' + summary.taskCount + '</span>' : '') +
+                                    '<i class="fa-solid fa-chevron-right text-[10px] text-slate-300 dark:text-slate-600 opacity-0 group-hover:opacity-100 transition-opacity ml-1"></i>' +
+                                    '</div></td>';
+                            } else {
+                                return '<td class="px-6 py-4">' +
+                                    (isOwnJob || !myJobsIsTeamView
+                                        ? '<button onclick="openNotesTasksModalByIndex(' + index + ')" class="text-sm text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition-all duration-200 active:scale-95" title="Add notes & tasks"><i class="fa-solid fa-plus mr-1"></i>Add</button>'
+                                        : '<span class="text-xs text-slate-400">-</span>') +
+                                    '</td>';
+                            }
+                        })()}
                         <td class="px-6 py-4">
                             <div class="flex items-center justify-center gap-1">
                                 ${isViewOnly ? `
@@ -12941,10 +12923,532 @@
                 .updateJobAssignedDate(jobId, newDate);
         }
 
-        // Track pending notes edit
+        // Track pending notes edit (legacy raw editor)
         let pendingNotesEdit = null;
         let currentViewJobId = null;
         let currentViewNotes = null;
+
+        // ============================================================
+        // NOTES & TASKS SYSTEM
+        // ============================================================
+        let ntCurrentJobId = null;
+        let ntCurrentJobIndex = null;
+        let ntEntries = [];
+        let ntIsReadOnly = false;
+        let ntCurrentTab = 'notes';
+        let ntRawNotes = '';
+        let ntSaveTimeout = null;
+
+        // Parse raw notes text into structured entries
+        function parseNotesEntries(rawText) {
+            if (!rawText || rawText.trim() === '') return [];
+
+            const lines = rawText.split('\n');
+            const entries = [];
+            let legacyBuffer = [];
+
+            for (let i = 0; i < lines.length; i++) {
+                const line = lines[i];
+                if (!line.trim()) {
+                    if (legacyBuffer.length > 0) legacyBuffer.push('');
+                    continue;
+                }
+
+                // Match structured format: N|YYYY-MM-DD|content| or T|YYYY-MM-DD|content|status
+                const pipeIdx1 = line.indexOf('|');
+                if (pipeIdx1 === 1 && (line[0] === 'N' || line[0] === 'T')) {
+                    const pipeIdx2 = line.indexOf('|', pipeIdx1 + 1);
+                    if (pipeIdx2 > 0) {
+                        const dateStr = line.substring(pipeIdx1 + 1, pipeIdx2);
+                        if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+                            // Flush any accumulated legacy lines first
+                            if (legacyBuffer.length > 0) {
+                                const legacyText = legacyBuffer.join('\n').trim();
+                                if (legacyText) {
+                                    entries.push({ type: 'N', date: null, content: legacyText, status: '', isLegacy: true });
+                                }
+                                legacyBuffer = [];
+                            }
+
+                            const rest = line.substring(pipeIdx2 + 1);
+                            const lastPipe = rest.lastIndexOf('|');
+                            let content, status;
+                            if (lastPipe > 0) {
+                                content = rest.substring(0, lastPipe);
+                                status = rest.substring(lastPipe + 1);
+                            } else if (lastPipe === 0) {
+                                content = '';
+                                status = '';
+                            } else {
+                                content = rest;
+                                status = '';
+                            }
+
+                            entries.push({
+                                type: line[0],
+                                date: dateStr,
+                                content: content,
+                                status: status || '',
+                                isLegacy: false
+                            });
+                            continue;
+                        }
+                    }
+                }
+
+                // Legacy unstructured line
+                legacyBuffer.push(line);
+            }
+
+            // Flush remaining legacy lines
+            if (legacyBuffer.length > 0) {
+                const legacyText = legacyBuffer.join('\n').trim();
+                if (legacyText) {
+                    entries.push({ type: 'N', date: null, content: legacyText, status: '', isLegacy: true });
+                }
+            }
+
+            return entries;
+        }
+
+        // Serialize entries back to raw text
+        function serializeNotesEntries(entries) {
+            return entries.map(function(entry) {
+                if (entry.isLegacy && entry.date === null) {
+                    return entry.content;
+                }
+                var status = entry.type === 'T' ? (entry.status || 'pending') : '';
+                return entry.type + '|' + entry.date + '|' + entry.content + '|' + status;
+            }).join('\n');
+        }
+
+        // Get summary for table badges and tooltip
+        function getNoteSummary(notesRaw) {
+            var entries = parseNotesEntries(notesRaw);
+            var notes = entries.filter(function(e) { return e.type === 'N'; });
+            var tasks = entries.filter(function(e) { return e.type === 'T'; });
+            var doneCount = tasks.filter(function(t) { return t.status === 'done'; }).length;
+
+            return {
+                noteCount: notes.length,
+                taskCount: tasks.length,
+                doneCount: doneCount,
+                pendingCount: tasks.length - doneCount,
+                totalEntries: entries.length,
+                recent: entries.slice(0, 3),
+                entries: entries
+            };
+        }
+
+        // Format date for display
+        function formatNtDate(dateStr) {
+            if (!dateStr) return 'Legacy';
+            try {
+                var d = new Date(dateStr + 'T00:00:00');
+                return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+            } catch (e) {
+                return dateStr;
+            }
+        }
+
+        // Open unified Notes & Tasks modal
+        function openNotesTasksModal(jobId, notes, isOwnJob, agentEmail) {
+            ntCurrentJobId = jobId;
+            ntRawNotes = notes || '';
+            ntIsReadOnly = !isOwnJob;
+            ntEntries = parseNotesEntries(ntRawNotes);
+            ntCurrentTab = 'notes';
+
+            document.getElementById('ntModalJobId').textContent = jobId;
+
+            // Handle read-only banner
+            var banner = document.getElementById('ntReadOnlyBanner');
+            var quickAddBar = document.getElementById('ntQuickAddBar');
+            if (ntIsReadOnly) {
+                banner.classList.remove('hidden');
+                var ownerName = (agentEmail || '').split('@')[0].replace(/\./g, ' ').replace(/\b\w/g, function(l) { return l.toUpperCase(); });
+                document.getElementById('ntOwnerName').textContent = ownerName;
+                quickAddBar.classList.add('hidden');
+            } else {
+                banner.classList.add('hidden');
+                quickAddBar.classList.remove('hidden');
+            }
+
+            renderNtNotes();
+            renderNtTasks();
+            updateNtCounts();
+            switchNtTab('notes');
+
+            document.getElementById('notesTasksModal').classList.remove('hidden');
+
+            if (!ntIsReadOnly) {
+                setTimeout(function() { document.getElementById('ntAddInput').focus(); }, 100);
+            }
+        }
+
+        // Open by index (safe accessor)
+        function openNotesTasksModalByIndex(index) {
+            var filteredJobs = getFilteredJobs();
+            if (index < 0 || index >= filteredJobs.length) {
+                showToast('Job not found', 'error');
+                return;
+            }
+            var job = filteredJobs[index];
+            ntCurrentJobIndex = index;
+            var isOwnJob = job.isOwnJob !== undefined ? job.isOwnJob : true;
+            openNotesTasksModal(job.jobId, job.notes, isOwnJob || !myJobsIsTeamView, job.agentEmail);
+        }
+
+        // Close modal
+        function closeNotesTasksModal() {
+            document.getElementById('notesTasksModal').classList.add('hidden');
+            ntCurrentJobId = null;
+            ntCurrentJobIndex = null;
+            ntEntries = [];
+            ntIsReadOnly = false;
+            ntRawNotes = '';
+            if (ntSaveTimeout) { clearTimeout(ntSaveTimeout); ntSaveTimeout = null; }
+        }
+
+        // Switch between Notes and Tasks tabs
+        function switchNtTab(tab) {
+            ntCurrentTab = tab;
+            var notesBtn = document.getElementById('ntTabNotes');
+            var tasksBtn = document.getElementById('ntTabTasks');
+            var notesContent = document.getElementById('ntNotesContent');
+            var tasksContent = document.getElementById('ntTasksContent');
+
+            var activeClass = 'bg-white dark:bg-slate-600 text-slate-800 dark:text-white shadow-sm';
+            var inactiveClass = 'text-slate-500 dark:text-slate-400 hover:bg-white/50 dark:hover:bg-slate-600/50';
+
+            if (tab === 'notes') {
+                notesBtn.className = 'nt-tab-btn flex-1 px-3 py-2 rounded-md text-sm font-medium transition-all duration-200 ' + activeClass;
+                tasksBtn.className = 'nt-tab-btn flex-1 px-3 py-2 rounded-md text-sm font-medium transition-all duration-200 ' + inactiveClass;
+                notesContent.classList.remove('hidden');
+                tasksContent.classList.add('hidden');
+            } else {
+                tasksBtn.className = 'nt-tab-btn flex-1 px-3 py-2 rounded-md text-sm font-medium transition-all duration-200 ' + activeClass;
+                notesBtn.className = 'nt-tab-btn flex-1 px-3 py-2 rounded-md text-sm font-medium transition-all duration-200 ' + inactiveClass;
+                tasksContent.classList.remove('hidden');
+                notesContent.classList.add('hidden');
+            }
+
+            // Update quick-add type selector to match tab
+            var typeSelect = document.getElementById('ntAddType');
+            var input = document.getElementById('ntAddInput');
+            if (typeSelect && input) {
+                if (tab === 'notes') {
+                    typeSelect.value = 'note';
+                    input.placeholder = 'Type a note...';
+                } else {
+                    typeSelect.value = 'task';
+                    input.placeholder = 'Type a task...';
+                }
+            }
+        }
+
+        // Render Notes tab content
+        function renderNtNotes() {
+            var container = document.getElementById('ntNotesContent');
+            var notes = ntEntries.filter(function(e) { return e.type === 'N'; });
+
+            if (notes.length === 0) {
+                container.innerHTML = '<div class="flex flex-col items-center justify-center py-10 text-slate-400 dark:text-slate-500">' +
+                    '<i class="fa-solid fa-sticky-note text-4xl mb-3 opacity-30"></i>' +
+                    '<p class="text-sm">No notes yet</p>' +
+                    (!ntIsReadOnly ? '<p class="text-xs mt-1">Add one using the bar below</p>' : '') + '</div>';
+                return;
+            }
+
+            // Sort newest first
+            var sortedNotes = notes.slice().sort(function(a, b) {
+                if (!a.date && !b.date) return 0;
+                if (!a.date) return 1;
+                if (!b.date) return -1;
+                return b.date.localeCompare(a.date);
+            });
+
+            var html = '';
+            var currentDate = null;
+
+            sortedNotes.forEach(function(note) {
+                var dateLabel = note.date
+                    ? new Date(note.date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+                    : 'Legacy Note';
+
+                if (dateLabel !== currentDate) {
+                    currentDate = dateLabel;
+                    html += '<div class="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider ' + (html ? 'mt-4' : '') + ' mb-1.5">' +
+                        '<i class="fa-regular fa-calendar mr-1"></i>' + escapeHtml(dateLabel) + '</div>';
+                }
+
+                var originalIndex = ntEntries.indexOf(note);
+                var isTransfer = note.content.indexOf('[TRANSFERRED') === 0;
+                var iconClass = isTransfer ? 'fa-share text-amber-500' : 'fa-sticky-note text-amber-400';
+                var bgClass = isTransfer ? 'bg-amber-50 dark:bg-amber-900/10 border-amber-200 dark:border-amber-800' : 'bg-white dark:bg-slate-700/50 border-slate-200 dark:border-slate-700';
+
+                html += '<div class="flex gap-3 p-3 rounded-lg border ' + bgClass + ' group transition-all hover:shadow-sm">' +
+                    '<div class="mt-0.5 flex-shrink-0"><i class="fa-solid ' + iconClass + ' text-sm"></i></div>' +
+                    '<div class="flex-1 text-sm text-slate-700 dark:text-slate-300 whitespace-pre-wrap">' + escapeHtml(note.content) + '</div>' +
+                    (!ntIsReadOnly ? '<button onclick="deleteNtEntry(' + originalIndex + ')" class="opacity-0 group-hover:opacity-100 text-slate-300 hover:text-red-500 transition-all p-1 flex-shrink-0 self-start" title="Delete note"><i class="fa-solid fa-trash text-xs"></i></button>' : '') +
+                    '</div>';
+            });
+
+            container.innerHTML = html;
+        }
+
+        // Render Tasks tab content
+        function renderNtTasks() {
+            var container = document.getElementById('ntTasksContent');
+            var tasks = ntEntries.filter(function(e) { return e.type === 'T'; });
+
+            if (tasks.length === 0) {
+                container.innerHTML = '<div class="flex flex-col items-center justify-center py-10 text-slate-400 dark:text-slate-500">' +
+                    '<i class="fa-solid fa-list-check text-4xl mb-3 opacity-30"></i>' +
+                    '<p class="text-sm">No tasks yet</p>' +
+                    (!ntIsReadOnly ? '<p class="text-xs mt-1">Add one using the bar below</p>' : '') + '</div>';
+                return;
+            }
+
+            // Sort: pending first, then done; within each group newest first
+            var sorted = tasks.slice().sort(function(a, b) {
+                if (a.status === 'pending' && b.status === 'done') return -1;
+                if (a.status === 'done' && b.status === 'pending') return 1;
+                return (b.date || '').localeCompare(a.date || '');
+            });
+
+            var html = '';
+            var showedDoneSeparator = false;
+
+            sorted.forEach(function(task) {
+                var originalIndex = ntEntries.indexOf(task);
+                var isDone = task.status === 'done';
+                var dateStr = task.date ? formatNtDate(task.date) : '';
+
+                // Add separator before done tasks
+                if (isDone && !showedDoneSeparator && sorted.some(function(t) { return t.status === 'pending'; })) {
+                    showedDoneSeparator = true;
+                    html += '<div class="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mt-3 mb-1.5"><i class="fa-solid fa-check-double mr-1 text-green-400"></i>Completed</div>';
+                }
+
+                var checkIcon = isDone
+                    ? 'fa-solid fa-circle-check text-green-500'
+                    : 'fa-regular fa-circle text-slate-300 dark:text-slate-500';
+                var textClass = isDone
+                    ? 'line-through text-slate-400 dark:text-slate-500'
+                    : 'text-slate-700 dark:text-slate-300';
+                var rowBg = isDone
+                    ? 'bg-green-50/50 dark:bg-green-900/5 border-green-100 dark:border-green-900/20'
+                    : 'bg-white dark:bg-slate-700/50 border-slate-200 dark:border-slate-700';
+
+                html += '<div class="flex items-center gap-3 p-3 rounded-lg border ' + rowBg + ' group transition-all hover:shadow-sm">';
+
+                if (!ntIsReadOnly) {
+                    html += '<button onclick="toggleNtTask(' + originalIndex + ')" class="flex-shrink-0 transition-all duration-200 active:scale-90 hover:scale-110" title="' + (isDone ? 'Mark as pending' : 'Mark as done') + '">' +
+                        '<i class="' + checkIcon + ' text-lg"></i></button>';
+                } else {
+                    html += '<i class="' + checkIcon + ' text-lg flex-shrink-0"></i>';
+                }
+
+                html += '<div class="flex-1 min-w-0">' +
+                    '<span class="text-sm ' + textClass + '">' + escapeHtml(task.content) + '</span>' +
+                    '</div>' +
+                    (dateStr ? '<span class="text-xs text-slate-400 dark:text-slate-500 flex-shrink-0">' + dateStr + '</span>' : '');
+
+                if (!ntIsReadOnly) {
+                    html += '<button onclick="deleteNtEntry(' + originalIndex + ')" class="opacity-0 group-hover:opacity-100 text-slate-300 hover:text-red-500 transition-all p-1 flex-shrink-0" title="Delete task"><i class="fa-solid fa-trash text-xs"></i></button>';
+                }
+
+                html += '</div>';
+            });
+
+            container.innerHTML = html;
+        }
+
+        // Update tab badge counts
+        function updateNtCounts() {
+            var noteCount = ntEntries.filter(function(e) { return e.type === 'N'; }).length;
+            var taskCount = ntEntries.filter(function(e) { return e.type === 'T'; }).length;
+            document.getElementById('ntNotesCount').textContent = noteCount;
+            document.getElementById('ntTasksCount').textContent = taskCount;
+        }
+
+        // Add a new entry from the quick-add bar
+        function addNtEntry() {
+            if (ntIsReadOnly) return;
+
+            var typeSelect = document.getElementById('ntAddType');
+            var input = document.getElementById('ntAddInput');
+            var content = input.value.trim();
+
+            if (!content) {
+                showToast('Please enter some text', 'warning');
+                input.focus();
+                return;
+            }
+
+            var type = typeSelect.value === 'task' ? 'T' : 'N';
+            var today = new Date().toISOString().split('T')[0];
+
+            var newEntry = {
+                type: type,
+                date: today,
+                content: content,
+                status: type === 'T' ? 'pending' : '',
+                isLegacy: false
+            };
+
+            // Prepend to entries (newest first)
+            ntEntries.unshift(newEntry);
+
+            input.value = '';
+            input.focus();
+
+            renderNtNotes();
+            renderNtTasks();
+            updateNtCounts();
+
+            // Switch to the relevant tab
+            switchNtTab(type === 'T' ? 'tasks' : 'notes');
+
+            saveNtEntries();
+        }
+
+        // Toggle task completion
+        function toggleNtTask(index) {
+            if (ntIsReadOnly || index < 0 || index >= ntEntries.length) return;
+            var entry = ntEntries[index];
+            if (entry.type !== 'T') return;
+
+            entry.status = entry.status === 'done' ? 'pending' : 'done';
+
+            renderNtTasks();
+            updateNtCounts();
+            saveNtEntries();
+        }
+
+        // Delete an entry (note or task)
+        function deleteNtEntry(index) {
+            if (ntIsReadOnly || index < 0 || index >= ntEntries.length) return;
+
+            var entry = ntEntries[index];
+            var label = entry.type === 'T' ? 'task' : 'note';
+            if (!confirm('Delete this ' + label + '?')) return;
+
+            ntEntries.splice(index, 1);
+
+            renderNtNotes();
+            renderNtTasks();
+            updateNtCounts();
+            saveNtEntries();
+        }
+
+        // Save entries to backend (debounced auto-save)
+        function saveNtEntries() {
+            if (!ntCurrentJobId || ntIsReadOnly) return;
+
+            // Auto-migrate legacy entries on save
+            ntEntries.forEach(function(entry) {
+                if (entry.isLegacy && entry.date === null) {
+                    entry.date = new Date().toISOString().split('T')[0];
+                    entry.isLegacy = false;
+                }
+            });
+
+            var serialized = serializeNotesEntries(ntEntries);
+            var jobId = ntCurrentJobId;
+
+            // Debounce saves to avoid rapid-fire API calls
+            if (ntSaveTimeout) clearTimeout(ntSaveTimeout);
+            ntSaveTimeout = setTimeout(function() {
+                google.script.run
+                    .withSuccessHandler(function(result) {
+                        if (result.success) {
+                            // Update local cache
+                            for (var i = 0; i < myJobsData.length; i++) {
+                                if (myJobsData[i].jobId === jobId && myJobsData[i].isOwnJob) {
+                                    myJobsData[i].notes = serialized;
+                                    break;
+                                }
+                            }
+                            renderMyJobs();
+                            updateMyJobsStats();
+                        } else {
+                            showToast(result.error || 'Failed to save', 'error');
+                        }
+                    })
+                    .withFailureHandler(function(err) {
+                        showToast('Failed to save: ' + err.message, 'error');
+                    })
+                    .updateJobNotes(jobId, serialized);
+            }, 500);
+        }
+
+        // Open raw editor from the modal
+        function openRawEditorFromNt() {
+            var jobId = ntCurrentJobId;
+            var rawNotes = serializeNotesEntries(ntEntries);
+            closeNotesTasksModal();
+            openEditNotesModal(jobId, rawNotes);
+        }
+
+        // Show hover tooltip for notes/tasks
+        function showNtTooltip(event, index) {
+            var filteredJobs = getFilteredJobs();
+            if (index < 0 || index >= filteredJobs.length) return;
+
+            var job = filteredJobs[index];
+            var summary = getNoteSummary(job.notes);
+            if (summary.totalEntries === 0) return;
+
+            var tooltip = document.getElementById('ntTooltip');
+            var content = document.getElementById('ntTooltipContent');
+
+            var html = '<div class="font-semibold text-indigo-300 mb-2">Job ' + escapeHtml(job.jobId) + '</div>';
+
+            // Counts
+            html += '<div class="flex gap-3 mb-2">';
+            if (summary.noteCount > 0) {
+                html += '<span class="text-amber-400"><i class="fa-solid fa-sticky-note mr-1"></i>' + summary.noteCount + ' note' + (summary.noteCount !== 1 ? 's' : '') + '</span>';
+            }
+            if (summary.taskCount > 0) {
+                html += '<span class="text-indigo-300"><i class="fa-solid fa-list-check mr-1"></i>' + summary.doneCount + '/' + summary.taskCount + ' tasks</span>';
+            }
+            html += '</div>';
+
+            // Recent entries
+            html += '<div class="space-y-1.5 border-t border-slate-600 pt-2">';
+            summary.recent.forEach(function(e) {
+                var icon = e.type === 'T'
+                    ? (e.status === 'done' ? '<i class="fa-solid fa-circle-check text-green-400"></i>' : '<i class="fa-regular fa-circle text-slate-400"></i>')
+                    : '<i class="fa-solid fa-sticky-note text-amber-400"></i>';
+                var textClass = (e.type === 'T' && e.status === 'done') ? 'line-through text-slate-400' : 'text-white';
+                var dateLabel = e.date ? e.date.slice(5) : '??';
+                var truncated = e.content.length > 50 ? e.content.substring(0, 50) + '...' : e.content;
+                html += '<div class="flex items-start gap-2">' + icon + ' <span class="' + textClass + ' flex-1">' + escapeHtml(truncated) + '</span><span class="text-slate-500 ml-1 flex-shrink-0">' + dateLabel + '</span></div>';
+            });
+            if (summary.totalEntries > 3) {
+                html += '<div class="text-slate-500 text-center mt-1.5">+ ' + (summary.totalEntries - 3) + ' more &middot; click to view</div>';
+            }
+            html += '</div>';
+
+            content.innerHTML = html;
+
+            // Position tooltip below the cell
+            var td = event.target.closest('td');
+            if (td) {
+                var rect = td.getBoundingClientRect();
+                tooltip.style.left = Math.min(rect.left, window.innerWidth - 340) + 'px';
+                tooltip.style.top = (rect.bottom + 8) + 'px';
+            }
+
+            tooltip.classList.remove('hidden');
+        }
+
+        // Hide hover tooltip
+        function hideNtTooltip() {
+            document.getElementById('ntTooltip').classList.add('hidden');
+        }
 
         // Open Edit Notes Modal by index (safe from special characters)
         function openEditNotesModalByIndex(index) {
@@ -12971,200 +13475,7 @@
             pendingNotesEdit = null;
         }
 
-        // Insert formatting into notes textarea
-        function insertNotesFormat(format) {
-            const textarea = document.getElementById('editNotesInput');
-            const start = textarea.selectionStart;
-            const end = textarea.selectionEnd;
-            const text = textarea.value;
-            const selectedText = text.substring(start, end);
-            let insertText = '';
-            let cursorOffset = 0;
-
-            switch (format) {
-                case 'bullet':
-                    if (selectedText) {
-                        // Convert selected lines to bullet points
-                        insertText = selectedText.split('\n').map(line => '• ' + line).join('\n');
-                    } else {
-                        insertText = '• ';
-                        cursorOffset = 2;
-                    }
-                    break;
-                case 'numbered':
-                    if (selectedText) {
-                        insertText = selectedText.split('\n').map((line, i) => (i + 1) + '. ' + line).join('\n');
-                    } else {
-                        insertText = '1. ';
-                        cursorOffset = 3;
-                    }
-                    break;
-                case 'checkbox':
-                    if (selectedText) {
-                        insertText = selectedText.split('\n').map(line => '[ ] ' + line).join('\n');
-                    } else {
-                        insertText = '[ ] ';
-                        cursorOffset = 4;
-                    }
-                    break;
-                case 'bold':
-                    if (selectedText) {
-                        insertText = '**' + selectedText + '**';
-                    } else {
-                        insertText = '**bold**';
-                        cursorOffset = 2;
-                    }
-                    break;
-                case 'italic':
-                    if (selectedText) {
-                        insertText = '*' + selectedText + '*';
-                    } else {
-                        insertText = '*italic*';
-                        cursorOffset = 1;
-                    }
-                    break;
-                case 'heading':
-                    if (selectedText) {
-                        insertText = '## ' + selectedText;
-                    } else {
-                        insertText = '## Heading';
-                        cursorOffset = 3;
-                    }
-                    break;
-                case 'divider':
-                    insertText = '\n---\n';
-                    cursorOffset = 5;
-                    break;
-            }
-
-            // Insert the text
-            textarea.value = text.substring(0, start) + insertText + text.substring(end);
-
-            // Set cursor position
-            if (selectedText) {
-                textarea.selectionStart = start;
-                textarea.selectionEnd = start + insertText.length;
-            } else {
-                textarea.selectionStart = textarea.selectionEnd = start + cursorOffset;
-            }
-
-            textarea.focus();
-        }
-
-        // Preview notes with rendered markdown
-        function previewNotes() {
-            const notes = document.getElementById('editNotesInput').value;
-            const jobId = pendingNotesEdit;
-
-            currentViewJobId = jobId;
-            currentViewNotes = notes;
-
-            document.getElementById('viewNotesJobId').textContent = jobId;
-            document.getElementById('viewNotesRaw').value = notes;
-            document.getElementById('viewNotesContent').innerHTML = renderNotesMarkdown(notes);
-            document.getElementById('viewNotesModal').classList.remove('hidden');
-        }
-
-        // Open View Notes Modal by index
-        function openViewNotesModalByIndex(index) {
-            const filteredJobs = getFilteredJobs();
-            if (index < 0 || index >= filteredJobs.length) {
-                showToast('Job not found', 'error');
-                return;
-            }
-            const job = filteredJobs[index];
-            openViewNotesModal(job.jobId, job.notes);
-        }
-
-        // Open View Notes Modal
-        function openViewNotesModal(jobId, notes) {
-            currentViewJobId = jobId;
-            currentViewNotes = notes;
-
-            document.getElementById('viewNotesJobId').textContent = jobId;
-            document.getElementById('viewNotesRaw').value = notes || '';
-            document.getElementById('viewNotesContent').innerHTML = renderNotesMarkdown(notes || '');
-            document.getElementById('viewNotesModal').classList.remove('hidden');
-        }
-
-        // Close View Notes Modal
-        function closeViewNotesModal() {
-            document.getElementById('viewNotesModal').classList.add('hidden');
-            currentViewJobId = null;
-            currentViewNotes = null;
-        }
-
-        // Edit from view modal
-        function editFromView() {
-            closeViewNotesModal();
-            openEditNotesModal(currentViewJobId, currentViewNotes);
-        }
-
-        // Copy notes to clipboard
-        function copyNotesToClipboard() {
-            const notes = document.getElementById('viewNotesRaw').value;
-
-            if (!notes) {
-                showToast('No notes to copy', 'warning');
-                return;
-            }
-
-            navigator.clipboard.writeText(notes).then(() => {
-                showToast('Notes copied to clipboard', 'success');
-            }).catch(err => {
-                // Fallback for older browsers
-                const textarea = document.getElementById('viewNotesRaw');
-                textarea.classList.remove('hidden');
-                textarea.select();
-                document.execCommand('copy');
-                textarea.classList.add('hidden');
-                showToast('Notes copied to clipboard', 'success');
-            });
-        }
-
-        // Render markdown-like notes to HTML
-        function renderNotesMarkdown(text) {
-            if (!text || text.trim() === '') {
-                return '<p class="text-slate-400 dark:text-slate-500 italic">No notes added yet.</p>';
-            }
-
-            let html = escapeHtml(text);
-
-            // Process headings (## Heading)
-            html = html.replace(/^## (.+)$/gm, '<h3 class="text-lg font-bold text-slate-800 dark:text-white mt-3 mb-2">$1</h3>');
-            html = html.replace(/^# (.+)$/gm, '<h2 class="text-xl font-bold text-slate-800 dark:text-white mt-3 mb-2">$1</h2>');
-
-            // Process horizontal rules
-            html = html.replace(/^---$/gm, '<hr class="my-3 border-slate-300 dark:border-slate-600">');
-
-            // Process checkboxes [x] and [ ]
-            html = html.replace(/\[x\] (.+)/gi, '<div class="flex items-start gap-2 my-1"><i class="fa-solid fa-square-check text-green-500 mt-0.5"></i><span class="line-through text-slate-500">$1</span></div>');
-            html = html.replace(/\[ \] (.+)/g, '<div class="flex items-start gap-2 my-1"><i class="fa-regular fa-square text-slate-400 mt-0.5"></i><span>$1</span></div>');
-
-            // Process bullet points (• or -)
-            html = html.replace(/^[•\-] (.+)$/gm, '<div class="flex items-start gap-2 my-1"><span class="text-indigo-500 mt-0.5">•</span><span>$1</span></div>');
-
-            // Process numbered lists
-            html = html.replace(/^(\d+)\. (.+)$/gm, '<div class="flex items-start gap-2 my-1"><span class="text-indigo-500 font-medium min-w-[20px]">$1.</span><span>$2</span></div>');
-
-            // Process bold **text**
-            html = html.replace(/\*\*(.+?)\*\*/g, '<strong class="font-bold">$1</strong>');
-
-            // Process italic *text*
-            html = html.replace(/\*(.+?)\*/g, '<em class="italic">$1</em>');
-
-            // Process line breaks
-            html = html.replace(/\n/g, '<br>');
-
-            // Clean up excessive breaks after block elements
-            html = html.replace(/<\/div><br>/g, '</div>');
-            html = html.replace(/<\/h[23]><br>/g, '</h$1>');
-            html = html.replace(/<hr[^>]*><br>/g, '<hr class="my-3 border-slate-300 dark:border-slate-600">');
-
-            return '<div class="notes-content">' + html + '</div>';
-        }
-
-        // Submit Edit Notes
+        // Submit Edit Notes (legacy raw editor)
         function submitEditNotes() {
             if (!pendingNotesEdit) return;
 
@@ -13186,7 +13497,6 @@
                     if (result.success) {
                         showToast(result.message || 'Notes updated', 'success');
                         closeEditNotesModal();
-                        closeViewNotesModal();
                         refreshMyJobs();
                     } else {
                         showToast(result.error || 'Failed to update notes', 'error');
@@ -13469,5 +13779,10 @@
         }
 
     </script>
+
+    <!-- Notes & Tasks Hover Tooltip -->
+    <div id="ntTooltip" class="fixed z-[9999] hidden pointer-events-none bg-slate-800 dark:bg-slate-700 text-white rounded-lg shadow-xl px-4 py-3 max-w-[320px] text-xs" style="transition: opacity 0.15s;">
+        <div id="ntTooltipContent"></div>
+    </div>
 </body>
 </html>
