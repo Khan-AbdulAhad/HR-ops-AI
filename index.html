@@ -7910,9 +7910,11 @@
             if (VALID_REGIONS.map(r => r.toLowerCase()).includes(normalized)) {
                 return { region: VALID_REGIONS.find(r => r.toLowerCase() === normalized), warning: null };
             }
-            // Check country mapping
+            // Check country mapping - store the country name (properly capitalized), NOT the parent region
+            // Rate tier lookups in the backend will still use COUNTRY_TO_REGION_MAP for region resolution
             if (COUNTRY_TO_REGION_MAP[normalized]) {
-                return { region: COUNTRY_TO_REGION_MAP[normalized], warning: null, mapped: input };
+                const properName = input.trim().split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
+                return { region: properName, warning: null, mapped: COUNTRY_TO_REGION_MAP[normalized] };
             }
             // Unknown region - keep original but warn
             return { region: input.trim(), warning: `Unknown region "${input}" - will use as-is` };
