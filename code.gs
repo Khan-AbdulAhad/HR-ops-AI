@@ -5629,14 +5629,28 @@ Return ONLY the JSON object, no other text.
         'Human-Negotiation'
       );
 
-      escalateToHuman(thread, "Max AI attempts reached", candidateName, `We've had ${attempts} negotiation rounds. ${comprehensiveSummary}`);
+      // After max attempts: only update status for human handoff, do NOT send email to candidate
+      // The Human-Negotiation label is still applied so the thread is visible in Gmail
+      try {
+        const label = GmailApp.getUserLabelByName("Human-Negotiation") || GmailApp.createLabel("Human-Negotiation");
+        thread.addLabel(label);
+      } catch(labelErr) { console.error("Failed to add Human-Negotiation label:", labelErr); }
+
       if(stateRowIndex > -1) {
         stateSheet.getRange(stateRowIndex, 5).setValue("Human-Negotiation");
         stateSheet.getRange(stateRowIndex, 9).setValue(comprehensiveSummary);
       }
 
-      // Remove Awaiting-Response label since we've responded and escalated
+      // Remove Awaiting-Response label since escalation is complete
       updateFollowUpLabels(thread.getId(), 'responded');
+
+      // Send internal escalation notification (to recruiter/manager, NOT to candidate)
+      try {
+        const escalationEmail = rules.escalationEmail || '';
+        if (escalationEmail) {
+          sendEscalationEmail(jobId, candidateName, candidateEmail, thread, "Max AI attempts reached", escalationEmail);
+        }
+      } catch(notifyErr) { console.error("Failed to send escalation notification:", notifyErr); }
 
       // Update job details sheet with escalation status (data already saved above)
       try {
@@ -5646,7 +5660,7 @@ Return ONLY the JSON object, no other text.
       }
 
       jobStats.escalated++;
-      jobStats.log.push({type: 'warning', message: `${candidateEmail} escalated: Max attempts reached (data was extracted)`});
+      jobStats.log.push({type: 'warning', message: `${candidateEmail} escalated: Max attempts reached (no email sent to candidate)`});
       return;
     }
 
@@ -6152,15 +6166,32 @@ Write ONLY the email, nothing else.
           'Human-Negotiation'
         );
 
-        // Escalate to human with detailed handoff
-        escalateToHuman(thread, escalationReason, candidateName, comprehensiveSummary);
+        // Only send handoff email to candidate for sensitive questions (immediate escalation)
+        // For attempt-based escalation (attempts >= 2), do NOT email the candidate
+        if (isSensitiveQuestion) {
+          escalateToHuman(thread, escalationReason, candidateName, comprehensiveSummary);
+        } else {
+          // Just add the Human-Negotiation label without emailing the candidate
+          try {
+            const label = GmailApp.getUserLabelByName("Human-Negotiation") || GmailApp.createLabel("Human-Negotiation");
+            thread.addLabel(label);
+          } catch(labelErr) { console.error("Failed to add Human-Negotiation label:", labelErr); }
+
+          // Send internal escalation notification (to recruiter/manager, NOT to candidate)
+          try {
+            const escalationEmailAddr = rules.escalationEmail || '';
+            if (escalationEmailAddr) {
+              sendEscalationEmail(jobId, candidateName, candidateEmail, thread, escalationReason, escalationEmailAddr);
+            }
+          } catch(notifyErr) { console.error("Failed to send escalation notification:", notifyErr); }
+        }
 
         if(stateRowIndex > -1) {
           stateSheet.getRange(stateRowIndex, 5).setValue("Human-Negotiation");
           stateSheet.getRange(stateRowIndex, 9).setValue(comprehensiveSummary);
         }
 
-        // Remove Awaiting-Response label since we've responded and escalated
+        // Remove Awaiting-Response label since escalation is complete
         updateFollowUpLabels(thread.getId(), 'responded');
 
         // Update job-specific details sheet with escalation status
@@ -6171,7 +6202,7 @@ Write ONLY the email, nothing else.
         }
 
         jobStats.escalated++;
-        jobStats.log.push({type: 'warning', message: `${candidateEmail} escalated: ${escalationReason}`});
+        jobStats.log.push({type: 'warning', message: `${candidateEmail} escalated: ${escalationReason}${isSensitiveQuestion ? '' : ' (no email sent to candidate)'}`});
         return; // Skip the rest of negotiation logic
       }
     }
@@ -6814,11 +6845,27 @@ Write ONLY the email, nothing else.
         'Human-Negotiation'
       );
 
-      escalateToHuman(thread, finalReason, candidateName, comprehensiveSummary);
+      // After max attempts: only update status for human handoff, do NOT send email to candidate
+      try {
+        const label = GmailApp.getUserLabelByName("Human-Negotiation") || GmailApp.createLabel("Human-Negotiation");
+        thread.addLabel(label);
+      } catch(labelErr) { console.error("Failed to add Human-Negotiation label:", labelErr); }
+
       if(stateRowIndex > -1) {
         stateSheet.getRange(stateRowIndex, 5).setValue("Human-Negotiation");
         stateSheet.getRange(stateRowIndex, 9).setValue(comprehensiveSummary);
       }
+
+      // Remove Awaiting-Response label since escalation is complete
+      updateFollowUpLabels(thread.getId(), 'responded');
+
+      // Send internal escalation notification (to recruiter/manager, NOT to candidate)
+      try {
+        const escalationEmailAddr = rules.escalationEmail || '';
+        if (escalationEmailAddr) {
+          sendEscalationEmail(jobId, candidateName, candidateEmail, thread, finalReason, escalationEmailAddr);
+        }
+      } catch(notifyErr) { console.error("Failed to send escalation notification:", notifyErr); }
 
       // Update job-specific details sheet with escalation status
       try {
@@ -6828,7 +6875,7 @@ Write ONLY the email, nothing else.
       }
 
       jobStats.escalated++;
-      jobStats.log.push({type: 'warning', message: `${candidateEmail} escalated: ${finalReason}`});
+      jobStats.log.push({type: 'warning', message: `${candidateEmail} escalated: ${finalReason} (no email sent to candidate)`});
     }
     else if (aiResponse.includes("ACTION: ACCEPT")) {
       const rateMatch = aiResponse.match(/\[([^\]]+)\]/);
@@ -7633,7 +7680,7 @@ Be specific with numbers. Write ONLY the summary.`;
  */
 function generateMissingSummaries(ss) {
   const result = { generated: 0, log: [] };
-  const MAX_TO_PROCESS = 10; // Limit to avoid timeout
+  const MAX_AI_SUMMARIES = 10; // Limit AI-generated summaries to avoid timeout
 
   try {
     const stateSheet = ss.getSheetByName('Negotiation_State');
@@ -7665,9 +7712,10 @@ function generateMissingSummaries(ss) {
 
     const data = stateSheet.getDataRange().getValues();
 
-    // Find candidates missing AI notes (column 9, index 8)
+    // Find ALL candidates missing AI notes (column 9, index 8) — no limit here
+    // The AI summary generation limit is applied later, but "No Updates Yet" is free
     const candidatesToProcess = [];
-    for (let i = 1; i < data.length && candidatesToProcess.length < MAX_TO_PROCESS; i++) {
+    for (let i = 1; i < data.length; i++) {
       const email = data[i][0];
       const jobId = data[i][1];
       const aiNotes = data[i][8];
@@ -7692,6 +7740,9 @@ function generateMissingSummaries(ss) {
     }
 
     // Process each candidate
+    // Track AI-generated summaries separately — "No Updates Yet" is free (no AI call)
+    let aiSummariesGenerated = 0;
+
     for (const candidate of candidatesToProcess) {
       try {
         // Check if candidate is still in initial outreach with no meaningful updates
@@ -7708,6 +7759,12 @@ function generateMissingSummaries(ss) {
           result.generated++;
           result.log.push({ type: 'info', message: `${candidate.email} - No updates yet (initial outreach, awaiting response)` });
           continue;
+        }
+
+        // Enforce AI summary limit to avoid timeout (only for AI-generated summaries)
+        if (aiSummariesGenerated >= MAX_AI_SUMMARIES) {
+          result.log.push({ type: 'info', message: `AI summary limit (${MAX_AI_SUMMARIES}) reached, remaining candidates will be processed next run` });
+          break;
         }
 
         // Find Gmail thread
@@ -7775,6 +7832,7 @@ function generateMissingSummaries(ss) {
         stateSheet.getRange(candidate.rowIndex, 9).setValue(summary); // Column 9 = AI Notes
 
         result.generated++;
+        aiSummariesGenerated++;
         result.log.push({ type: 'success', message: `Generated summary for ${candidate.email}` });
 
       } catch (e) {
