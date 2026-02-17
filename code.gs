@@ -1652,6 +1652,9 @@ const COUNTRY_TO_REGION_MAP = {
   'pk': 'Middle East',
   'bangladesh': 'Middle East',
   'bd': 'Middle East',
+  'turkey': 'Middle East',
+  'tr': 'Middle East',
+  'qatar': 'Middle East',
   'middle east': 'Middle East'
 };
 
@@ -7691,6 +7694,22 @@ function generateMissingSummaries(ss) {
     // Process each candidate
     for (const candidate of candidatesToProcess) {
       try {
+        // Check if candidate is still in initial outreach with no meaningful updates
+        // If so, set a generic message instead of calling AI to generate a summary
+        const statusLower = candidate.status.toLowerCase();
+        const isInitialOutreach = statusLower.includes('initial outreach') || statusLower.includes('initial sent');
+        const hasFollowUpAction = candidate.followUpInfo &&
+            (candidate.followUpInfo.f1Done || candidate.followUpInfo.f2Done ||
+             candidate.followUpInfo.status === 'Responded' || candidate.followUpInfo.status === 'Unresponsive');
+
+        if (isInitialOutreach && !hasFollowUpAction) {
+          // No meaningful action taken yet — set generic message instead of calling AI
+          stateSheet.getRange(candidate.rowIndex, 9).setValue('No Updates Yet');
+          result.generated++;
+          result.log.push({ type: 'info', message: `${candidate.email} - No updates yet (initial outreach, awaiting response)` });
+          continue;
+        }
+
         // Find Gmail thread
         let thread = null;
         if (candidate.threadId) {
@@ -10914,11 +10933,11 @@ function getDataGatheringStats() {
         total++;
         perJob[jobId].total++;
 
-        // Count ACTIVE data gathering (awaiting candidate data)
-        // Pending = candidates we're actively waiting for data from
-        // Outreach Sent = candidates who received initial outreach but haven't responded yet
-        // NOTE: We do NOT count 'Offer Accepted', 'Data Complete', 'Completed', etc.
-        if (status === 'Pending' || status === 'Outreach Sent') {
+        // Count ACTIVE data gathering (awaiting candidate data after response)
+        // Pending = candidates who responded and we're actively collecting data from
+        // 'Outreach Sent' is NOT counted here — those candidates haven't responded yet
+        // and are tracked under Follow_Up_Queue / Outreach metrics instead
+        if (status === 'Pending') {
           pending++;
           perJob[jobId].pending++;
         } else if (status === 'Data Complete') {
@@ -13038,16 +13057,18 @@ function getJobPerformanceMetrics(startDate, endDate) {
       jobMetrics.get(jobId).outreach.add(email);
     }
 
-    // Count responses from Negotiation_State (candidates who replied)
+    // Count responses from Negotiation_State (candidates who actually replied)
     for (let i = 1; i < stateData.length; i++) {
       const email = normalizeEmail(stateData[i][0]);
       const jobId = String(stateData[i][1] || '').trim();
-      const lastReplyTime = stateData[i][5];
+      const status = String(stateData[i][4] || '').toLowerCase();
 
       if (!jobId || !jobMetrics.has(jobId)) continue;
 
-      // Count as response if they have a reply time
-      if (lastReplyTime) {
+      // Only count as response if candidate is NOT in initial outreach
+      // (lastReplyTime column is set at send time for all candidates, so it's unreliable)
+      const isInitial = status.includes('initial outreach') || status.includes('initial sent');
+      if (!isInitial) {
         jobMetrics.get(jobId).responses.add(email);
       }
     }
@@ -13268,8 +13289,9 @@ function getConversionFunnelData(filterJobId, startDate, endDate) {
       const status = String(stateData[i][4] || '').toLowerCase();
 
       if (filterJobId && jobId !== filterJobId) continue;
-      // Only count as "responded waiting" if NOT completed and NOT actively negotiating
-      if (email && !completedEmails.has(email) && !negotiatingEmails.has(email)) {
+      // Only count as "responded" if NOT in initial outreach (they haven't actually responded yet)
+      const isInitial = status.includes('initial outreach') || status.includes('initial sent');
+      if (email && !completedEmails.has(email) && !negotiatingEmails.has(email) && !isInitial) {
         respondedWaitingEmails.add(email);
       }
     }
