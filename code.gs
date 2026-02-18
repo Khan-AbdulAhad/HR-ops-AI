@@ -4214,6 +4214,162 @@ function getDevelopers(jobId, selectedStages) {
   }
 }
 
+/**
+ * Fetch developer details from the system by Developer IDs.
+ * Used when developers exist in the system but are not in a specific Job ID.
+ * Returns the same data shape as getDevelopers() for seamless table rendering.
+ *
+ * @param {string[]} developerIds - Array of developer IDs to look up
+ * @param {number|string} [jobId] - Optional Job ID to enrich with email/manual sent logs
+ * @returns {Object} { found: [...], notFound: [...] }
+ */
+function getDevelopersByIds(developerIds, jobId) {
+  if (!developerIds || !Array.isArray(developerIds) || developerIds.length === 0) {
+    throw new Error("Please provide at least one Developer ID.");
+  }
+
+  // Sanitize: trim, deduplicate, allow only numeric IDs
+  const cleanIds = [...new Set(developerIds.map(id => String(id).trim()).filter(id => /^\d+$/.test(id)))];
+  if (cleanIds.length === 0) {
+    throw new Error("No valid numeric Developer IDs found. Please check your input.");
+  }
+  if (cleanIds.length > 200) {
+    throw new Error("Maximum 200 Developer IDs allowed per search. You entered " + cleanIds.length + ".");
+  }
+
+  // If job ID provided, fetch logs for sent-status enrichment
+  let logs = new Map();
+  let manualLogs = new Map();
+  if (jobId) {
+    const cleanJobId = Number(jobId);
+    if (cleanJobId) {
+      logs = getEmailLogs(cleanJobId) || new Map();
+      manualLogs = getManualSentLogs(cleanJobId) || new Map();
+    }
+  }
+
+  // Build efficient single-pass SQL: fetch developer profile, country, phone, and agency info
+  const idList = cleanIds.join(',');
+  const innerQuery = `
+    WITH agency_info AS (
+      SELECT
+        ad.dev_id,
+        IF(MAX(IF(ad.developer_type = 'sub_contractor', 1, 0)) = 1, 'Sub Contractor', 'Contractor') AS agency_sub_con,
+        MAX(a.name) AS agency_name
+      FROM ms2_agency_devs ad
+      LEFT JOIN ms2_agencies a ON ad.agency_id = a.id
+      WHERE ad.review_status = 'approved'
+        AND ad.dev_id IN (${idList})
+      GROUP BY ad.dev_id
+    )
+    SELECT
+      d.id AS developer_id,
+      d.full_name,
+      d.email,
+      CASE
+        WHEN ai.agency_sub_con = 'Sub Contractor' THEN 'Agency Sub-Contractor'
+        WHEN ai.agency_sub_con = 'Contractor' THEN 'Agency Contractor'
+        ELSE 'Independent'
+      END AS candidate_status,
+      COALESCE(ai.agency_name, '') AS agency_name,
+      COALESCE(c.name, '') AS developer_country,
+      COALESCE(sl.phone_country_code, '') AS phone_country_code,
+      COALESCE(sl.phone_number, '') AS phone_number
+    FROM user_list_v4 d
+    LEFT JOIN agency_info ai ON d.id = ai.dev_id
+    LEFT JOIN developer_detail dd ON dd.user_id = d.id
+    LEFT JOIN tpm_countries c ON c.id = dd.country_id
+    LEFT JOIN submit_list_v4 sl ON sl.uid = d.id
+    WHERE d.id IN (${idList})
+  `;
+
+  const finalSql = `SELECT * FROM EXTERNAL_QUERY("${CONFIG.EXTERNAL_CONN}", """${innerQuery}""")`;
+
+  try {
+    const startTime = new Date().getTime();
+    const BIGQUERY_TIMEOUT_MS = 120000; // 120s timeout (lighter query than getDevelopers)
+
+    let queryResults = BigQuery.Jobs.query({ query: finalSql, useLegacySql: false }, CONFIG.PROJECT_ID);
+    let job = queryResults.jobReference;
+    let pollAttempts = 0;
+    const MAX_POLL_ATTEMPTS = 240; // 120 seconds at 500ms intervals
+
+    while (!queryResults.jobComplete) {
+      const elapsedTime = new Date().getTime() - startTime;
+      if (elapsedTime > BIGQUERY_TIMEOUT_MS || pollAttempts >= MAX_POLL_ATTEMPTS) {
+        console.error(`getDevelopersByIds: BigQuery timeout after ${elapsedTime}ms`);
+        return {
+          error: 'TIMEOUT',
+          message: 'Search timed out. Please try again with fewer IDs.',
+          canRetry: true
+        };
+      }
+      Utilities.sleep(500);
+      pollAttempts++;
+      queryResults = BigQuery.Jobs.getQueryResults(CONFIG.PROJECT_ID, job.jobId);
+    }
+
+    const endTime = new Date().getTime();
+    const rows = queryResults.rows || [];
+
+    // Log data consumption
+    try {
+      logDataConsumption('BigQuery', 'DevIdSearch', JSON.stringify(rows).length, endTime - startTime, `IDs searched: ${cleanIds.length}, Rows: ${rows.length}`);
+    } catch (le) {
+      console.warn("logDataConsumption call failed:", le);
+    }
+
+    // Map results — same shape as getDevelopers() output
+    const foundDevs = [];
+    const foundIdSet = new Set();
+
+    (rows || []).forEach(row => {
+      const devId    = row.f[0] && row.f[0].v ? String(row.f[0].v) : null;
+      if (!devId || foundIdSet.has(devId)) return;
+      foundIdSet.add(devId);
+
+      const fullName         = row.f[1] && row.f[1].v ? row.f[1].v : '';
+      const email            = row.f[2] && row.f[2].v ? row.f[2].v : '';
+      const candidateStatus  = row.f[3] && row.f[3].v ? row.f[3].v : 'Independent';
+      const agencyName       = row.f[4] && row.f[4].v ? row.f[4].v : '';
+      const developerCountry = row.f[5] && row.f[5].v ? row.f[5].v : '';
+      const phoneCountryCode = row.f[6] && row.f[6].v ? row.f[6].v : '';
+      const phoneNumber      = row.f[7] && row.f[7].v ? row.f[7].v : '';
+
+      const emailLower = String(email).toLowerCase().trim();
+      const log = logs.get(emailLower) || null;
+      const manualLog = manualLogs.get(devId) || null;
+
+      foundDevs.push({
+        developer_id: devId,
+        full_name: fullName,
+        email: email,
+        status: 'System Candidate',
+        is_sent: !!log,
+        sent_count: log ? log.count : 0,
+        is_manual_sent: !!manualLog,
+        manual_sent_count: manualLog ? manualLog.count : 0,
+        manual_sent_note: manualLog ? manualLog.note : null,
+        candidate_status: candidateStatus,
+        agency_name: agencyName,
+        developer_country: developerCountry,
+        phone_country_code: phoneCountryCode,
+        phone_number: phoneNumber
+      });
+    });
+
+    // Determine which IDs were not found
+    const notFoundIds = cleanIds.filter(id => !foundIdSet.has(id));
+
+    debugLog(`getDevelopersByIds: Found ${foundDevs.length}/${cleanIds.length} developers`);
+    return { found: foundDevs, notFound: notFoundIds };
+
+  } catch (e) {
+    console.error("getDevelopersByIds Error:", e);
+    throw new Error(e.toString());
+  }
+}
+
 function getEmailLogs(jobId) {
   const url = getStoredSheetUrl();
   if (!url) return null;
