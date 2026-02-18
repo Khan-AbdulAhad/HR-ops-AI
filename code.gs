@@ -5042,6 +5042,7 @@ function processJobNegotiations(jobId, rules, ss, faqContent, negotiationEnabled
     const stateEntry = {
       rowIndex: r + 1,
       attempts: Number(stateData[r][2]) || 0,
+      lastOffer: stateData[r][3] || '', // Column 4 = Last Offer (contains agreed rate info e.g. "Rate Agreed $14/hr - Data Pending")
       status: stateData[r][4],
       name: stateData[r][7] || 'Unknown',
       devId: stateData[r][6] || 'N/A',
@@ -5488,8 +5489,11 @@ function processJobNegotiations(jobId, rules, ss, faqContent, negotiationEnabled
     if (isRateAlreadyAgreed) {
       jobStats.log.push({type: 'info', message: `${candidateEmail} - Rate already agreed (status: ${currentStatus}). Skipping rate negotiation.`});
 
-      // Extract the agreed rate from status if available (format: "Rate Agreed $XX/hr - Data Pending")
-      const agreedRateMatch = currentStatus.match(/\$(\d+(?:\.\d+)?)/);
+      // Extract the agreed rate - check Last Offer column first (has rate), then status, then AI notes
+      const lastOffer = state?.lastOffer || '';
+      const agreedRateMatch = lastOffer.match(/\$(\d+(?:\.\d+?)?)/) ||
+                              currentStatus.match(/\$(\d+(?:\.\d+?)?)/) ||
+                              (state?.aiNotes || '').match(/\$(\d+(?:\.\d+?)?)\/?hr/);
       const agreedRate = agreedRateMatch ? agreedRateMatch[1] : null;
 
       // If data gathering is pending, send a follow-up for data only (no rate discussion)
