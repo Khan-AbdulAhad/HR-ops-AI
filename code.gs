@@ -3848,6 +3848,20 @@ function getAllTasks(filters) {
     }
   }
 
+  // 5. Load tracking statuses and compute per-job counts
+  const trackingMap = getTaskTrackingStatuses();
+  const jobTrackingCounts = {}; // { jobId: { Pending: N, RFS: N, Backout: N } }
+
+  tasks.forEach(function(t) {
+    const key = normalizeEmail(t.email) + '|' + String(t.jobId);
+    t.trackingStatus = trackingMap[key] || 'Pending';
+
+    if (!jobTrackingCounts[t.jobId]) {
+      jobTrackingCounts[t.jobId] = { Pending: 0, RFS: 0, Backout: 0 };
+    }
+    jobTrackingCounts[t.jobId][t.trackingStatus] = (jobTrackingCounts[t.jobId][t.trackingStatus] || 0) + 1;
+  });
+
   return {
     tasks: tasks,
     jobIds: Array.from(jobIdSet).sort(),
@@ -3859,7 +3873,8 @@ function getAllTasks(filters) {
       initialOutreach: statInitialOutreach,
       completed: statCompleted
     },
-    jobSettings: jobSettingsMap
+    jobSettings: jobSettingsMap,
+    jobTrackingCounts: jobTrackingCounts
   };
 }
 
@@ -3883,6 +3898,84 @@ function bulkComplete(emails, finalStatus) {
   });
   
   return results;
+}
+
+// ========== TASK TRACKING STATUS (Pending / RFS / Backout) ==========
+
+/**
+ * Update the tracking status for a candidate in a job.
+ * Stores in a 'Task_Tracking' sheet with columns: Email | Job ID | Tracking Status | Updated At
+ */
+function updateTaskTrackingStatus(email, jobId, trackingStatus) {
+  const url = getStoredSheetUrl();
+  if (!url) return { success: false, message: 'No config URL' };
+
+  const ss = SpreadsheetApp.openByUrl(url);
+  let sheet = ss.getSheetByName('Task_Tracking');
+
+  // Create the sheet if it doesn't exist
+  if (!sheet) {
+    sheet = ss.insertSheet('Task_Tracking');
+    sheet.appendRow(['Email', 'Job ID', 'Tracking Status', 'Updated At']);
+  }
+
+  const data = sheet.getDataRange().getValues();
+  const normalizedEmail = normalizeEmail(email);
+
+  // Find existing row for this email+jobId
+  for (let i = 1; i < data.length; i++) {
+    if (normalizeEmail(data[i][0]) === normalizedEmail && String(data[i][1]) === String(jobId)) {
+      sheet.getRange(i + 1, 3).setValue(trackingStatus);
+      sheet.getRange(i + 1, 4).setValue(new Date());
+      invalidateSheetCache('Task_Tracking');
+      return { success: true };
+    }
+  }
+
+  // Insert new row
+  sheet.appendRow([email, jobId, trackingStatus, new Date()]);
+  invalidateSheetCache('Task_Tracking');
+  return { success: true };
+}
+
+/**
+ * Bulk update tracking status for multiple candidates.
+ */
+function bulkUpdateTrackingStatus(items, trackingStatus) {
+  const results = { success: 0, failed: 0 };
+  items.forEach(function(item) {
+    try {
+      const res = updateTaskTrackingStatus(item.email, item.jobId, trackingStatus);
+      if (res.success) results.success++;
+      else results.failed++;
+    } catch (e) {
+      results.failed++;
+    }
+  });
+  return results;
+}
+
+/**
+ * Get all tracking statuses as a map: "email|jobId" -> status
+ */
+function getTaskTrackingStatuses() {
+  const url = getStoredSheetUrl();
+  if (!url) return {};
+
+  const ss = SpreadsheetApp.openByUrl(url);
+  const sheet = ss.getSheetByName('Task_Tracking');
+  if (!sheet) return {};
+
+  const data = getCachedSheetData('Task_Tracking', 30);
+  if (!data || data.length < 2) return {};
+
+  const map = {};
+  for (let i = 1; i < data.length; i++) {
+    if (!data[i][0]) continue;
+    const key = normalizeEmail(data[i][0]) + '|' + String(data[i][1]);
+    map[key] = data[i][2] || 'Pending';
+  }
+  return map;
 }
 
 function moveToCompleted(email, finalStatus, jobIdFilter) {
