@@ -3672,6 +3672,7 @@ function getAllTasks(filters) {
   if (filters?.forceRefresh) {
     invalidateSheetCache('Negotiation_State');
     invalidateSheetCache('Negotiation_Tasks');
+    invalidateSheetCache('Task_Tracking');
   }
 
   // Use caching for faster loading
