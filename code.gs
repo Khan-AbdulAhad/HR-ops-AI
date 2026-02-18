@@ -16366,6 +16366,8 @@ function getMyJobs(filterStatus) {
         assignedDate: row[3] ? new Date(row[3]).toISOString() : null,
         closedDate: row[4] ? new Date(row[4]).toISOString() : null,
         notes: row[5] || '',
+        jobName: row[6] || '',  // Job Name (column 7)
+        tm: row[7] || '',       // TM / Talent Manager (column 8)
         isOwnJob: agentEmail === userEmail.toLowerCase()
       });
     }
@@ -16398,9 +16400,11 @@ function getMyJobs(filterStatus) {
  * Manually add a job assignment for the current user
  * @param {string} jobId - The Job ID to add
  * @param {string} notes - Optional notes
+ * @param {string} jobName - Optional job name for identification
+ * @param {string} tm - Optional Talent Manager name
  * @returns {Object} { success, message }
  */
-function addJobAssignment(jobId, notes) {
+function addJobAssignment(jobId, notes, jobName, tm) {
   try {
     if (!jobId) return { success: false, error: 'Job ID is required' };
 
@@ -16432,14 +16436,16 @@ function addJobAssignment(jobId, notes) {
       formattedNotes = 'N|' + today + '|' + notes.trim() + '|';
     }
 
-    // Add new job assignment
+    // Add new job assignment (columns: Email, JobID, Status, AssignedDate, ClosedDate, Notes, JobName, TM)
     sheet.appendRow([
       userEmail,
       jobIdStr,
       'Active',
       new Date(), // Assigned Date
       '',         // Closed Date (empty)
-      formattedNotes
+      formattedNotes,
+      jobName || '',  // Job Name (column 7)
+      tm || ''        // TM / Talent Manager (column 8)
     ]);
 
     // Log to analytics
