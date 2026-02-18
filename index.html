@@ -4008,14 +4008,37 @@
     <!-- Manual Input Modal -->
     <div id="manualInputModal" class="fixed inset-0 z-50 hidden bg-black/50 backdrop-blur-sm flex items-center justify-center" role="dialog" aria-modal="true" aria-label="Manual data entry">
         <div class="bg-white dark:bg-slate-800 p-6 rounded-xl shadow-xl w-full max-w-lg">
-            <h3 class="font-bold mb-2 dark:text-white">Manual Entry</h3>
-            <p class="text-xs text-slate-500 dark:text-slate-400 mb-2">Format: email, name, region/country (one per line)</p>
-            <textarea id="manualDataInput" class="input-field h-32 mb-2" placeholder="john@example.com, John Doe, India&#10;jane@test.com, Jane Smith, Brazil"></textarea>
-            <div id="manualEntryValidation" class="hidden mb-3 p-3 rounded-lg text-sm max-h-32 overflow-y-auto"></div>
-            <div class="flex justify-end gap-2">
-                <button onclick="closeManualEntryModal()" class="px-4 py-2 bg-slate-100 dark:bg-slate-700 dark:text-slate-300 rounded-lg">Cancel</button>
-                <button onclick="validateManualData()" class="px-4 py-2 bg-amber-500 text-white rounded-lg"><i class="fa-solid fa-check-double mr-1"></i>Validate</button>
-                <button onclick="loadManualData()" class="px-4 py-2 bg-blue-600 text-white rounded-lg">Load Data</button>
+            <h3 class="font-bold mb-3 dark:text-white">Manual Entry</h3>
+            <!-- Tab Toggle -->
+            <div class="flex mb-3 bg-slate-100 dark:bg-slate-700 rounded-lg p-0.5">
+                <button id="manualTabText" onclick="switchManualTab('text')" class="flex-1 py-1.5 px-3 rounded-md text-xs font-medium transition bg-white dark:bg-slate-600 text-slate-800 dark:text-white shadow-sm">
+                    <i class="fa-solid fa-pen-to-square mr-1"></i>Manual Text
+                </button>
+                <button id="manualTabDevId" onclick="switchManualTab('devid')" class="flex-1 py-1.5 px-3 rounded-md text-xs font-medium transition text-slate-500 dark:text-slate-400">
+                    <i class="fa-solid fa-magnifying-glass mr-1"></i>Search by Developer ID
+                </button>
+            </div>
+            <!-- Tab: Manual Text Entry (existing) -->
+            <div id="manualTextPanel">
+                <p class="text-xs text-slate-500 dark:text-slate-400 mb-2">Format: email, name, region/country (one per line)</p>
+                <textarea id="manualDataInput" class="input-field h-32 mb-2" placeholder="john@example.com, John Doe, India&#10;jane@test.com, Jane Smith, Brazil"></textarea>
+                <div id="manualEntryValidation" class="hidden mb-3 p-3 rounded-lg text-sm max-h-32 overflow-y-auto"></div>
+                <div class="flex justify-end gap-2">
+                    <button onclick="closeManualEntryModal()" class="px-4 py-2 bg-slate-100 dark:bg-slate-700 dark:text-slate-300 rounded-lg">Cancel</button>
+                    <button onclick="validateManualData()" class="px-4 py-2 bg-amber-500 text-white rounded-lg"><i class="fa-solid fa-check-double mr-1"></i>Validate</button>
+                    <button onclick="loadManualData()" class="px-4 py-2 bg-blue-600 text-white rounded-lg">Load Data</button>
+                </div>
+            </div>
+            <!-- Tab: Search by Developer ID (new) -->
+            <div id="manualDevIdPanel" class="hidden">
+                <p class="text-xs text-slate-500 dark:text-slate-400 mb-2">Enter Developer IDs (one per line or comma-separated) to fetch their details from the system</p>
+                <textarea id="devIdSearchInput" class="input-field h-32 mb-2" placeholder="123456&#10;789012&#10;345678"></textarea>
+                <div id="devIdSearchResults" class="hidden mb-3 p-3 rounded-lg text-sm max-h-40 overflow-y-auto"></div>
+                <div class="flex justify-end gap-2">
+                    <button onclick="closeManualEntryModal()" class="px-4 py-2 bg-slate-100 dark:bg-slate-700 dark:text-slate-300 rounded-lg">Cancel</button>
+                    <button id="devIdSearchBtn" onclick="searchByDeveloperIds()" class="px-4 py-2 bg-amber-500 text-white rounded-lg"><i class="fa-solid fa-search mr-1"></i>Search</button>
+                    <button id="devIdLoadBtn" onclick="loadSystemCandidates()" class="px-4 py-2 bg-blue-600 text-white rounded-lg hidden"><i class="fa-solid fa-download mr-1"></i>Load Data</button>
+                </div>
             </div>
         </div>
     </div>
@@ -7949,6 +7972,11 @@
             document.getElementById('manualInputModal').classList.add('hidden');
             document.getElementById('manualEntryValidation').classList.add('hidden');
             document.getElementById('manualEntryValidation').innerHTML = '';
+            // Clear Developer ID search state
+            document.getElementById('devIdSearchResults').classList.add('hidden');
+            document.getElementById('devIdSearchResults').innerHTML = '';
+            document.getElementById('devIdLoadBtn').classList.add('hidden');
+            _systemCandidatesCache = null;
         }
 
         function validateManualData() {
@@ -8072,6 +8100,165 @@
                 message += ` (${result.warnings.length} warning(s))`;
             }
             showToast(message, result.warnings.length > 0 ? "warning" : "success");
+        }
+
+        // --- Developer ID Search (System Candidates) ---
+        let _systemCandidatesCache = null; // holds fetched results until loaded
+
+        function switchManualTab(tab) {
+            const textPanel = document.getElementById('manualTextPanel');
+            const devIdPanel = document.getElementById('manualDevIdPanel');
+            const textTab = document.getElementById('manualTabText');
+            const devIdTab = document.getElementById('manualTabDevId');
+            const activeClasses = 'bg-white dark:bg-slate-600 text-slate-800 dark:text-white shadow-sm';
+            const inactiveClasses = 'text-slate-500 dark:text-slate-400';
+
+            if (tab === 'text') {
+                textPanel.classList.remove('hidden');
+                devIdPanel.classList.add('hidden');
+                textTab.className = textTab.className.replace(inactiveClasses, '').trim();
+                activeClasses.split(' ').forEach(c => textTab.classList.add(c));
+                inactiveClasses.split(' ').forEach(c => { textTab.classList.remove(c); devIdTab.classList.add(c); });
+                activeClasses.split(' ').forEach(c => devIdTab.classList.remove(c));
+            } else {
+                textPanel.classList.add('hidden');
+                devIdPanel.classList.remove('hidden');
+                devIdTab.className = devIdTab.className.replace(inactiveClasses, '').trim();
+                activeClasses.split(' ').forEach(c => devIdTab.classList.add(c));
+                inactiveClasses.split(' ').forEach(c => { devIdTab.classList.remove(c); textTab.classList.add(c); });
+                activeClasses.split(' ').forEach(c => textTab.classList.remove(c));
+            }
+        }
+
+        function searchByDeveloperIds() {
+            const raw = document.getElementById('devIdSearchInput').value;
+            const resultsDiv = document.getElementById('devIdSearchResults');
+            const searchBtn = document.getElementById('devIdSearchBtn');
+            const loadBtn = document.getElementById('devIdLoadBtn');
+
+            if (!raw.trim()) {
+                resultsDiv.innerHTML = '<span class="text-amber-600"><i class="fa-solid fa-exclamation-triangle mr-1"></i>Please enter at least one Developer ID</span>';
+                resultsDiv.className = 'mb-3 p-3 rounded-lg text-sm max-h-40 overflow-y-auto bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700';
+                resultsDiv.classList.remove('hidden');
+                return;
+            }
+
+            // Parse IDs: split by newlines, commas, or spaces
+            const ids = raw.split(/[\n,\s]+/).map(s => s.trim()).filter(s => s.length > 0);
+            const invalidIds = ids.filter(id => !/^\d+$/.test(id));
+
+            if (invalidIds.length > 0 && invalidIds.length === ids.length) {
+                resultsDiv.innerHTML = `<span class="text-red-600"><i class="fa-solid fa-times-circle mr-1"></i>No valid numeric Developer IDs found. Please enter numeric IDs only.</span>`;
+                resultsDiv.className = 'mb-3 p-3 rounded-lg text-sm max-h-40 overflow-y-auto bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-700';
+                resultsDiv.classList.remove('hidden');
+                return;
+            }
+
+            const validIds = ids.filter(id => /^\d+$/.test(id));
+
+            // Show loading state
+            searchBtn.disabled = true;
+            searchBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin mr-1"></i>Searching...';
+            resultsDiv.innerHTML = '<span class="text-blue-600"><i class="fa-solid fa-spinner fa-spin mr-1"></i>Searching system for ' + validIds.length + ' developer(s)...</span>';
+            resultsDiv.className = 'mb-3 p-3 rounded-lg text-sm max-h-40 overflow-y-auto bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700';
+            resultsDiv.classList.remove('hidden');
+            loadBtn.classList.add('hidden');
+            _systemCandidatesCache = null;
+
+            // Get current job ID if available for log enrichment
+            const jobId = document.getElementById('jobId').value || null;
+
+            google.script.run
+                .withSuccessHandler(function(result) {
+                    searchBtn.disabled = false;
+                    searchBtn.innerHTML = '<i class="fa-solid fa-search mr-1"></i>Search';
+
+                    if (result && result.error === 'TIMEOUT') {
+                        resultsDiv.innerHTML = '<span class="text-red-600"><i class="fa-solid fa-clock mr-1"></i>' + result.message + '</span>';
+                        resultsDiv.className = 'mb-3 p-3 rounded-lg text-sm max-h-40 overflow-y-auto bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-700';
+                        return;
+                    }
+
+                    if (result && result.error) {
+                        resultsDiv.innerHTML = '<span class="text-red-600"><i class="fa-solid fa-times-circle mr-1"></i>' + result.error + '</span>';
+                        resultsDiv.className = 'mb-3 p-3 rounded-lg text-sm max-h-40 overflow-y-auto bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-700';
+                        return;
+                    }
+
+                    const found = result.found || [];
+                    const notFound = result.notFound || [];
+
+                    let html = '';
+
+                    if (found.length > 0) {
+                        html += '<div class="text-green-700 dark:text-green-400 mb-2"><i class="fa-solid fa-check-circle mr-1"></i><strong>' + found.length + ' developer(s) found:</strong></div>';
+                        html += '<div class="space-y-1 mb-2">';
+                        found.forEach(function(dev) {
+                            const sentBadge = dev.is_sent ? ' <span class="text-xs bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 px-1.5 py-0.5 rounded">Sent</span>' : '';
+                            const typeBadge = dev.candidate_status !== 'Independent' ? ' <span class="text-xs bg-purple-100 dark:bg-purple-900/40 text-purple-700 dark:text-purple-300 px-1.5 py-0.5 rounded">' + dev.candidate_status + '</span>' : '';
+                            html += '<div class="flex items-center gap-2 text-xs py-0.5">';
+                            html += '<span class="font-mono text-slate-500 dark:text-slate-400">' + dev.developer_id + '</span>';
+                            html += '<span class="font-medium text-slate-800 dark:text-slate-200">' + dev.full_name + '</span>';
+                            html += '<span class="text-slate-400 dark:text-slate-500">' + dev.email + '</span>';
+                            if (dev.developer_country) html += '<span class="text-slate-400 dark:text-slate-500">' + dev.developer_country + '</span>';
+                            html += sentBadge + typeBadge;
+                            html += '</div>';
+                        });
+                        html += '</div>';
+                    }
+
+                    if (invalidIds.length > 0) {
+                        html += '<div class="text-amber-600 dark:text-amber-400 mb-1"><i class="fa-solid fa-exclamation-triangle mr-1"></i><strong>Skipped (non-numeric):</strong> ' + invalidIds.join(', ') + '</div>';
+                    }
+
+                    if (notFound.length > 0) {
+                        html += '<div class="text-red-600 dark:text-red-400"><i class="fa-solid fa-times-circle mr-1"></i><strong>' + notFound.length + ' not found:</strong> ' + notFound.join(', ') + '</div>';
+                    }
+
+                    if (found.length === 0) {
+                        resultsDiv.className = 'mb-3 p-3 rounded-lg text-sm max-h-40 overflow-y-auto bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-700';
+                    } else if (notFound.length > 0 || invalidIds.length > 0) {
+                        resultsDiv.className = 'mb-3 p-3 rounded-lg text-sm max-h-40 overflow-y-auto bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700';
+                    } else {
+                        resultsDiv.className = 'mb-3 p-3 rounded-lg text-sm max-h-40 overflow-y-auto bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-700';
+                    }
+
+                    resultsDiv.innerHTML = html;
+                    resultsDiv.classList.remove('hidden');
+
+                    if (found.length > 0) {
+                        _systemCandidatesCache = found;
+                        loadBtn.classList.remove('hidden');
+                    } else {
+                        loadBtn.classList.add('hidden');
+                    }
+                })
+                .withFailureHandler(function(err) {
+                    searchBtn.disabled = false;
+                    searchBtn.innerHTML = '<i class="fa-solid fa-search mr-1"></i>Search';
+                    resultsDiv.innerHTML = '<span class="text-red-600"><i class="fa-solid fa-times-circle mr-1"></i>Error: ' + err.message + '</span>';
+                    resultsDiv.className = 'mb-3 p-3 rounded-lg text-sm max-h-40 overflow-y-auto bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-700';
+                    resultsDiv.classList.remove('hidden');
+                })
+                .getDevelopersByIds(validIds, jobId);
+        }
+
+        function loadSystemCandidates() {
+            if (!_systemCandidatesCache || _systemCandidatesCache.length === 0) {
+                showToast("No developers to load. Please search first.", "warning");
+                return;
+            }
+
+            tableData = _systemCandidatesCache;
+            fullTableData = _systemCandidatesCache;
+            document.getElementById('tableContainer').classList.remove('hidden');
+            document.getElementById('statusFilterContainer').classList.remove('hidden');
+            document.getElementById('tableControls').classList.remove('hidden');
+            renderTable(tableData);
+            closeManualEntryModal();
+
+            showToast('Loaded ' + _systemCandidatesCache.length + ' system candidate(s)', 'success');
+            _systemCandidatesCache = null;
         }
 
         // Functions for button calls
