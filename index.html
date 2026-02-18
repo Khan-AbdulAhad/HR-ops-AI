@@ -2185,6 +2185,8 @@
                                 <thead class="bg-slate-50 dark:bg-slate-900 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase">
                                     <tr id="myJobsTableHeader">
                                         <th class="px-6 py-3">Job ID</th>
+                                        <th class="px-6 py-3">Job Name</th>
+                                        <th class="px-6 py-3">TM</th>
                                         <th class="px-6 py-3 hidden" id="myJobsAgentHeader">Agent</th>
                                         <th class="px-6 py-3">Status</th>
                                         <th class="px-6 py-3">Assigned Date</th>
@@ -2195,7 +2197,7 @@
                                 </thead>
                                 <tbody id="myJobsTableBody" class="divide-y divide-slate-100 dark:divide-slate-700">
                                     <tr>
-                                        <td colspan="6" class="px-6 py-12 text-center text-slate-400">
+                                        <td colspan="9" class="px-6 py-12 text-center text-slate-400">
                                             <i class="fa-solid fa-briefcase text-4xl mb-3 block opacity-30"></i>
                                             <span class="text-sm">No jobs yet. Click "Add Job" to add one manually, or jobs will be auto-added when you send outreach.</span>
                                         </td>
@@ -2221,6 +2223,14 @@
                             <div>
                                 <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">Job ID <span class="text-red-500">*</span></label>
                                 <input type="number" id="addJobIdInput" class="w-full px-4 py-2 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 bg-white dark:bg-slate-700 text-slate-800 dark:text-white" placeholder="e.g., 51000">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">Job Name</label>
+                                <input type="text" id="addJobNameInput" class="w-full px-4 py-2 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 bg-white dark:bg-slate-700 text-slate-800 dark:text-white" placeholder="e.g., Senior React Developer">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">TM (Talent Manager)</label>
+                                <input type="text" id="addJobTmInput" class="w-full px-4 py-2 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 bg-white dark:bg-slate-700 text-slate-800 dark:text-white" placeholder="e.g., John Smith">
                             </div>
                             <div>
                                 <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">Notes (optional)</label>
@@ -12485,7 +12495,7 @@
             if (showTableLoading) {
                 const tbody = document.getElementById('myJobsTableBody');
                 if (tbody) {
-                    const colSpan = myJobsIsTeamView ? 7 : 6;
+                    const colSpan = myJobsIsTeamView ? 10 : 9;
                     tbody.innerHTML = `
                         <tr>
                             <td colspan="${colSpan}" class="px-6 py-12 text-center text-slate-400">
@@ -12604,7 +12614,7 @@
         function renderEmptyMyJobs(message, isError) {
             const tbody = document.getElementById('myJobsTableBody');
             const icon = isError ? 'fa-exclamation-circle text-red-300' : 'fa-briefcase opacity-30';
-            const colSpan = myJobsIsTeamView ? 7 : 6;
+            const colSpan = myJobsIsTeamView ? 10 : 9;
             tbody.innerHTML = `
                 <tr>
                     <td colspan="${colSpan}" class="px-6 py-12 text-center text-slate-400">
@@ -12687,6 +12697,8 @@
                 };
 
                 const safeJobId = escapeHtml(job.jobId);
+                const safeJobName = escapeHtml(job.jobName || '');
+                const safeTm = escapeHtml(job.tm || '');
                 const assignedDate = job.assignedDate ? new Date(job.assignedDate).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }) : '-';
                 const closedDate = job.closedDate ? new Date(job.closedDate).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }) : '-';
 
@@ -12717,6 +12729,8 @@
                         <td class="px-6 py-4">
                             <span class="font-mono font-bold text-indigo-600 dark:text-indigo-400">${safeJobId}</span>
                         </td>
+                        <td class="px-6 py-4 text-slate-700 dark:text-slate-300 text-sm">${safeJobName || '<span class="text-slate-300 dark:text-slate-600">-</span>'}</td>
+                        <td class="px-6 py-4 text-slate-700 dark:text-slate-300 text-sm">${safeTm || '<span class="text-slate-300 dark:text-slate-600">-</span>'}</td>
                         ${agentColumnHtml}
                         <td class="px-6 py-4">
                             <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${statusClasses[job.status] || statusClasses['Active']}">
@@ -12754,31 +12768,38 @@
                             <div class="flex items-center justify-center gap-1">
                                 ${isViewOnly ? `
                                     ${job.status !== 'Active' ? `
-                                        <button onclick="deleteJobByIndex(${index})" class="px-2.5 py-1.5 text-xs font-medium text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-all duration-200 active:scale-90" title="Delete from list">
-                                            <i class="fa-solid fa-trash mr-1"></i>Delete
+                                        <button onclick="deleteJobByIndex(${index})" class="relative group/tip w-8 h-8 flex items-center justify-center text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-all duration-200 active:scale-90" title="Delete from list">
+                                            <i class="fa-solid fa-trash text-sm"></i>
+                                            <span class="absolute bottom-full mb-1.5 left-1/2 -translate-x-1/2 px-2 py-1 text-[10px] font-medium text-white bg-slate-800 dark:bg-slate-600 rounded-md whitespace-nowrap opacity-0 group-hover/tip:opacity-100 transition-opacity pointer-events-none z-10">Delete</span>
                                         </button>
                                     ` : `
-                                        <span class="px-2.5 py-1.5 text-xs font-medium text-slate-400 bg-slate-50 dark:bg-slate-700 rounded-lg">
-                                            <i class="fa-solid fa-eye mr-1"></i>View Only
+                                        <span class="relative group/tip w-8 h-8 flex items-center justify-center text-slate-400 bg-slate-50 dark:bg-slate-700 rounded-lg">
+                                            <i class="fa-solid fa-eye text-sm"></i>
+                                            <span class="absolute bottom-full mb-1.5 left-1/2 -translate-x-1/2 px-2 py-1 text-[10px] font-medium text-white bg-slate-800 dark:bg-slate-600 rounded-md whitespace-nowrap opacity-0 group-hover/tip:opacity-100 transition-opacity pointer-events-none z-10">View Only</span>
                                         </span>
                                     `}
                                 ` : `
                                     ${job.status === 'Active' ? `
-                                        <button onclick="openJobStatusModalByIndex(${index}, 'Fulfilled')" class="px-2.5 py-1.5 text-xs font-medium text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/30 rounded-lg transition-all duration-200 active:scale-90" title="Mark as Fulfilled">
-                                            <i class="fa-solid fa-check mr-1"></i>Fulfilled
+                                        <button onclick="openJobStatusModalByIndex(${index}, 'Fulfilled')" class="relative group/tip w-8 h-8 flex items-center justify-center text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/30 rounded-lg transition-all duration-200 active:scale-90" title="Mark as Fulfilled">
+                                            <i class="fa-solid fa-check text-sm"></i>
+                                            <span class="absolute bottom-full mb-1.5 left-1/2 -translate-x-1/2 px-2 py-1 text-[10px] font-medium text-white bg-slate-800 dark:bg-slate-600 rounded-md whitespace-nowrap opacity-0 group-hover/tip:opacity-100 transition-opacity pointer-events-none z-10">Fulfilled</span>
                                         </button>
-                                        <button onclick="openJobStatusModalByIndex(${index}, 'Stopped')" class="px-2.5 py-1.5 text-xs font-medium text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg transition-all duration-200 active:scale-90" title="Mark as Stopped">
-                                            <i class="fa-solid fa-stop mr-1"></i>Stop
+                                        <button onclick="openJobStatusModalByIndex(${index}, 'Stopped')" class="relative group/tip w-8 h-8 flex items-center justify-center text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg transition-all duration-200 active:scale-90" title="Mark as Stopped">
+                                            <i class="fa-solid fa-stop text-sm"></i>
+                                            <span class="absolute bottom-full mb-1.5 left-1/2 -translate-x-1/2 px-2 py-1 text-[10px] font-medium text-white bg-slate-800 dark:bg-slate-600 rounded-md whitespace-nowrap opacity-0 group-hover/tip:opacity-100 transition-opacity pointer-events-none z-10">Stop</span>
                                         </button>
-                                        <button onclick="openTransferModalByIndex(${index})" class="px-2.5 py-1.5 text-xs font-medium text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-900/30 rounded-lg transition-all duration-200 active:scale-90" title="Transfer to another TOS">
-                                            <i class="fa-solid fa-share mr-1"></i>Transfer
+                                        <button onclick="openTransferModalByIndex(${index})" class="relative group/tip w-8 h-8 flex items-center justify-center text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-900/30 rounded-lg transition-all duration-200 active:scale-90" title="Transfer to another TOS">
+                                            <i class="fa-solid fa-share text-sm"></i>
+                                            <span class="absolute bottom-full mb-1.5 left-1/2 -translate-x-1/2 px-2 py-1 text-[10px] font-medium text-white bg-slate-800 dark:bg-slate-600 rounded-md whitespace-nowrap opacity-0 group-hover/tip:opacity-100 transition-opacity pointer-events-none z-10">Transfer</span>
                                         </button>
                                     ` : `
-                                        <button onclick="openJobStatusModalByIndex(${index}, 'Active')" class="px-2.5 py-1.5 text-xs font-medium text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-900/30 rounded-lg transition-all duration-200 active:scale-90" title="Reactivate">
-                                            <i class="fa-solid fa-redo mr-1"></i>Reactivate
+                                        <button onclick="openJobStatusModalByIndex(${index}, 'Active')" class="relative group/tip w-8 h-8 flex items-center justify-center text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-900/30 rounded-lg transition-all duration-200 active:scale-90" title="Reactivate">
+                                            <i class="fa-solid fa-redo text-sm"></i>
+                                            <span class="absolute bottom-full mb-1.5 left-1/2 -translate-x-1/2 px-2 py-1 text-[10px] font-medium text-white bg-slate-800 dark:bg-slate-600 rounded-md whitespace-nowrap opacity-0 group-hover/tip:opacity-100 transition-opacity pointer-events-none z-10">Reactivate</span>
                                         </button>
-                                        <button onclick="deleteJobByIndex(${index})" class="px-2.5 py-1.5 text-xs font-medium text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-all duration-200 active:scale-90" title="Delete from list">
-                                            <i class="fa-solid fa-trash mr-1"></i>Delete
+                                        <button onclick="deleteJobByIndex(${index})" class="relative group/tip w-8 h-8 flex items-center justify-center text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-all duration-200 active:scale-90" title="Delete from list">
+                                            <i class="fa-solid fa-trash text-sm"></i>
+                                            <span class="absolute bottom-full mb-1.5 left-1/2 -translate-x-1/2 px-2 py-1 text-[10px] font-medium text-white bg-slate-800 dark:bg-slate-600 rounded-md whitespace-nowrap opacity-0 group-hover/tip:opacity-100 transition-opacity pointer-events-none z-10">Delete</span>
                                         </button>
                                     `}
                                 `}
@@ -12820,6 +12841,8 @@
         // Open Add Job Modal
         function openAddJobModal() {
             document.getElementById('addJobIdInput').value = '';
+            document.getElementById('addJobNameInput').value = '';
+            document.getElementById('addJobTmInput').value = '';
             document.getElementById('addJobNotesInput').value = '';
             document.getElementById('addJobModal').classList.remove('hidden');
         }
@@ -12832,6 +12855,8 @@
         // Submit Add Job
         function submitAddJob() {
             const jobId = document.getElementById('addJobIdInput').value.trim();
+            const jobName = document.getElementById('addJobNameInput').value.trim();
+            const tm = document.getElementById('addJobTmInput').value.trim();
             const notes = document.getElementById('addJobNotesInput').value.trim();
 
             if (!jobId) {
@@ -12866,7 +12891,7 @@
                     }
                     showToast('Failed to add job: ' + err.message, 'error');
                 })
-                .addJobAssignment(jobId, notes);
+                .addJobAssignment(jobId, notes, jobName, tm);
         }
 
         // Helper function to get filtered jobs (same logic as renderMyJobs)
@@ -13494,10 +13519,11 @@
                 var iconClass = isTransfer ? 'fa-share text-amber-500' : 'fa-sticky-note text-amber-400';
                 var bgClass = isTransfer ? 'bg-amber-50 dark:bg-amber-900/10 border-amber-200 dark:border-amber-800' : 'bg-white dark:bg-slate-700/50 border-slate-200 dark:border-slate-700';
 
-                html += '<div class="flex gap-3 p-3 rounded-lg border ' + bgClass + ' group transition-all hover:shadow-sm">' +
+                html += '<div class="flex gap-3 p-3 rounded-lg border ' + bgClass + ' group transition-all hover:shadow-sm" id="nt-note-' + originalIndex + '">' +
                     '<div class="mt-0.5 flex-shrink-0"><i class="fa-solid ' + iconClass + ' text-sm"></i></div>' +
                     '<div class="flex-1 text-sm text-slate-700 dark:text-slate-300 whitespace-pre-wrap">' + escapeHtml(note.content) + '</div>' +
-                    (!ntIsReadOnly ? '<button onclick="deleteNtEntry(' + originalIndex + ')" class="opacity-0 group-hover:opacity-100 text-slate-300 hover:text-red-500 transition-all p-1 flex-shrink-0 self-start" title="Delete note"><i class="fa-solid fa-trash text-xs"></i></button>' : '') +
+                    (!ntIsReadOnly ? '<button onclick="editNtEntry(' + originalIndex + ')" class="opacity-0 group-hover:opacity-100 text-slate-300 hover:text-indigo-500 transition-all p-1 flex-shrink-0 self-start" title="Edit note"><i class="fa-solid fa-pen text-xs"></i></button>' +
+                    '<button onclick="deleteNtEntry(' + originalIndex + ')" class="opacity-0 group-hover:opacity-100 text-slate-300 hover:text-red-500 transition-all p-1 flex-shrink-0 self-start" title="Delete note"><i class="fa-solid fa-trash text-xs"></i></button>' : '') +
                     '</div>';
             });
 
@@ -13563,6 +13589,7 @@
                     (dateStr ? '<span class="text-xs text-slate-400 dark:text-slate-500 flex-shrink-0">' + dateStr + '</span>' : '');
 
                 if (!ntIsReadOnly) {
+                    html += '<button onclick="editNtEntry(' + originalIndex + ')" class="opacity-0 group-hover:opacity-100 text-slate-300 hover:text-indigo-500 transition-all p-1 flex-shrink-0" title="Edit task"><i class="fa-solid fa-pen text-xs"></i></button>';
                     html += '<button onclick="deleteNtEntry(' + originalIndex + ')" class="opacity-0 group-hover:opacity-100 text-slate-300 hover:text-red-500 transition-all p-1 flex-shrink-0" title="Delete task"><i class="fa-solid fa-trash text-xs"></i></button>';
                 }
 
@@ -13650,17 +13677,46 @@
             saveNtEntries();
         }
 
+        // Edit an entry (note or task) inline
+        function editNtEntry(index) {
+            if (ntIsReadOnly || index < 0 || index >= ntEntries.length) return;
+
+            var entry = ntEntries[index];
+            var label = entry.type === 'T' ? 'task' : 'note';
+            var isNote = entry.type === 'N';
+
+            // Find the entry element and replace content with editable input
+            var entryEl = document.getElementById('nt-note-' + index);
+            if (!entryEl) {
+                // For tasks, find via parent container scan
+                var containers = isNote ? document.getElementById('ntNotesContent') : document.getElementById('ntTasksContent');
+                var items = containers ? containers.querySelectorAll('[id^="nt-note-"]') : [];
+                // Tasks don't have nt-note- ids, so we use a prompt fallback
+            }
+
+            // Use a simple prompt for editing
+            var newContent = prompt('Edit ' + label + ':', entry.content);
+            if (newContent === null) return; // cancelled
+            newContent = newContent.trim();
+            if (!newContent) {
+                showToast('Content cannot be empty', 'warning');
+                return;
+            }
+            if (newContent === entry.content) return; // no change
+
+            entry.content = newContent;
+
+            renderNtNotes();
+            renderNtTasks();
+            saveNtEntries();
+        }
+
         // Save entries to backend (debounced auto-save)
         function saveNtEntries() {
             if (!ntCurrentJobId || ntIsReadOnly) return;
 
-            // Auto-migrate legacy entries on save
-            ntEntries.forEach(function(entry) {
-                if (entry.isLegacy && entry.date === null) {
-                    entry.date = new Date().toISOString().split('T')[0];
-                    entry.isLegacy = false;
-                }
-            });
+            // Note: Legacy entries are preserved as-is to avoid breaking multi-line content.
+            // They remain at the bottom of the notes list under "Legacy Note" grouping.
 
             var serialized = serializeNotesEntries(ntEntries);
             var jobId = ntCurrentJobId;
