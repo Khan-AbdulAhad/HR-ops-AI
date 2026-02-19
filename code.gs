@@ -854,8 +854,9 @@ function saveLogSheetUrl(url) {
 }
 
 function ensureSheetsExist(ss) {
-  // Include new sheets: Manual_Sent_Logs, Data_Fetch_Logs, Follow_Up_Queue, Unresponsive_Devs, Email_Mismatch_Reports, AI_Learning_Cases, Job_Assignments
-  const sheets = ['Email_Logs', 'Email_Templates', 'Negotiation_Config', 'Negotiation_Tasks', 'Negotiation_State', 'Negotiation_FAQs', 'Negotiation_Completed', 'Rate_Tiers', 'Manual_Sent_Logs', 'Data_Fetch_Logs', 'Follow_Up_Queue', 'Unresponsive_Devs', 'Email_Mismatch_Reports', 'AI_Learning_Cases', 'Job_Assignments'];
+  // Include new sheets: Manual_Sent_Logs, Data_Fetch_Logs, Follow_Up_Queue, Unresponsive_Devs, Email_Mismatch_Reports, AI_Learning_Cases
+  // NOTE: Job_Assignments has been moved to the central analytics spreadsheet for cross-user visibility
+  const sheets = ['Email_Logs', 'Email_Templates', 'Negotiation_Config', 'Negotiation_Tasks', 'Negotiation_State', 'Negotiation_FAQs', 'Negotiation_Completed', 'Rate_Tiers', 'Manual_Sent_Logs', 'Data_Fetch_Logs', 'Follow_Up_Queue', 'Unresponsive_Devs', 'Email_Mismatch_Reports', 'AI_Learning_Cases'];
   sheets.forEach(name => {
     if (!ss.getSheetByName(name)) ss.insertSheet(name);
   });
@@ -953,19 +954,7 @@ function ensureSheetsExist(ss) {
     ]);
   }
 
-  // Job_Assignments sheet - for tracking which jobs each agent is working on
-  // Agents can mark jobs as Active, Fulfilled, or Stopped
-  const jobAssignmentsSheet = ss.getSheetByName('Job_Assignments');
-  if (jobAssignmentsSheet && jobAssignmentsSheet.getLastRow() === 0) {
-    jobAssignmentsSheet.appendRow([
-      'Agent Email',     // The TOS handling the job
-      'Job ID',          // The job identifier
-      'Status',          // Active | Fulfilled | Stopped
-      'Assigned Date',   // When agent started on job (auto-captured, editable)
-      'Closed Date',     // When marked fulfilled/stopped (auto-captured)
-      'Notes'            // Optional comments
-    ]);
-  }
+  // NOTE: Job_Assignments sheet is now in the central analytics spreadsheet (see getJobAssignmentsSheet())
 }
 
 /**
@@ -11881,6 +11870,35 @@ function getAnalyticsSpreadsheet() {
 }
 
 /**
+ * Get the Job_Assignments sheet from the CENTRAL analytics spreadsheet.
+ * This ensures all users read/write Job_Assignments from one shared location,
+ * enabling Team Leads and Managers to see their team members' job data.
+ * Auto-creates the sheet with headers if it doesn't exist.
+ * @returns {SpreadsheetApp.Sheet|null} The Job_Assignments sheet, or null if analytics sheet is inaccessible
+ */
+function getJobAssignmentsSheet() {
+  const ss = getAnalyticsSpreadsheet();
+  if (!ss) return null;
+
+  let sheet = ss.getSheetByName('Job_Assignments');
+  if (!sheet) {
+    sheet = ss.insertSheet('Job_Assignments');
+    sheet.appendRow([
+      'Agent Email',     // The agent/TOS handling the job
+      'Job ID',          // The job identifier
+      'Status',          // Active | Fulfilled | Stopped | Transferred
+      'Assigned Date',   // When agent started on job
+      'Closed Date',     // When marked fulfilled/stopped
+      'Notes',           // Optional comments (structured format: N|DATE|NOTE|)
+      'Job Name',        // Human-readable job name
+      'TM'               // Talent Manager contact
+    ]);
+    sheet.setFrozenRows(1);
+  }
+  return sheet;
+}
+
+/**
  * Initialize the analytics sheet with required tabs
  * Call this once or it will auto-create on first log
  */
@@ -11912,6 +11930,17 @@ function initAnalyticsSheet() {
     dataFetchSheet = ss.insertSheet('Data_Fetch_Logs');
     dataFetchSheet.appendRow(['Timestamp', 'Source', 'Context', 'Data Size (Bytes)', 'Duration (ms)', 'Details', 'User']);
     dataFetchSheet.setFrozenRows(1);
+  }
+
+  // Create Job_Assignments sheet (centralized for cross-user visibility)
+  let jobAssignmentsSheet = ss.getSheetByName('Job_Assignments');
+  if (!jobAssignmentsSheet) {
+    jobAssignmentsSheet = ss.insertSheet('Job_Assignments');
+    jobAssignmentsSheet.appendRow([
+      'Agent Email', 'Job ID', 'Status', 'Assigned Date',
+      'Closed Date', 'Notes', 'Job Name', 'TM'
+    ]);
+    jobAssignmentsSheet.setFrozenRows(1);
   }
 
   return { success: true };
@@ -15816,11 +15845,8 @@ function loadMyJobsForOnboardingMonitoring() {
       return { success: false, error: 'Admin access required' };
     }
 
-    const mainUrl = getStoredSheetUrl();
-    if (!mainUrl) return { success: false, error: 'No spreadsheet configured' };
-
-    const mainSs = SpreadsheetApp.openByUrl(mainUrl);
-    const jobSheet = mainSs.getSheetByName('Job_Assignments');
+    // Job_Assignments is now in the central analytics spreadsheet
+    const jobSheet = getJobAssignmentsSheet();
     if (!jobSheet) return { success: true, jobIds: [] };
 
     const userEmail = Session.getActiveUser().getEmail();
@@ -16543,15 +16569,10 @@ function getJobQuestionsInfo(jobId) {
  */
 function getMyJobs(filterStatus) {
   try {
-    const url = getStoredSheetUrl();
-    if (!url) return { success: false, error: 'No spreadsheet configured' };
-
-    const ss = SpreadsheetApp.openByUrl(url);
-    ensureSheetsExist(ss);
-
-    const sheet = ss.getSheetByName('Job_Assignments');
+    // Job_Assignments is now in the central analytics spreadsheet for cross-user visibility
+    const sheet = getJobAssignmentsSheet();
     if (!sheet) {
-      debugLog('getMyJobs: Job_Assignments sheet not found');
+      debugLog('getMyJobs: Job_Assignments sheet not found in central analytics');
       return { success: true, jobs: [], isTeamView: false, teamMembers: [] };
     }
 
@@ -16658,13 +16679,9 @@ function addJobAssignment(jobId, notes, jobName, tm) {
   try {
     if (!jobId) return { success: false, error: 'Job ID is required' };
 
-    const url = getStoredSheetUrl();
-    if (!url) return { success: false, error: 'No spreadsheet configured' };
-
-    const ss = SpreadsheetApp.openByUrl(url);
-    ensureSheetsExist(ss);
-
-    const sheet = ss.getSheetByName('Job_Assignments');
+    // Job_Assignments is now in the central analytics spreadsheet
+    const sheet = getJobAssignmentsSheet();
+    if (!sheet) return { success: false, error: 'Cannot access central Job_Assignments sheet' };
     const userEmail = Session.getActiveUser().getEmail();
     const jobIdStr = String(jobId);
 
@@ -16721,12 +16738,9 @@ function updateJobStatus(jobId, newStatus) {
       return { success: false, error: 'Invalid status. Must be Active, Fulfilled, Stopped, or Transferred' };
     }
 
-    const url = getStoredSheetUrl();
-    if (!url) return { success: false, error: 'No spreadsheet configured' };
-
-    const ss = SpreadsheetApp.openByUrl(url);
-    const sheet = ss.getSheetByName('Job_Assignments');
-    if (!sheet) return { success: false, error: 'Job_Assignments sheet not found' };
+    // Job_Assignments is now in the central analytics spreadsheet
+    const sheet = getJobAssignmentsSheet();
+    if (!sheet) return { success: false, error: 'Cannot access central Job_Assignments sheet' };
 
     const userEmail = Session.getActiveUser().getEmail();
     const jobIdStr = String(jobId);
@@ -16777,12 +16791,9 @@ function transferJobAssignment(jobId, transferTo, transferNotes) {
     if (!transferTo) return { success: false, error: 'Transfer recipient is required' };
     if (!transferNotes || !transferNotes.trim()) return { success: false, error: 'Transfer notes are required' };
 
-    var url = getStoredSheetUrl();
-    if (!url) return { success: false, error: 'No spreadsheet configured' };
-
-    var ss = SpreadsheetApp.openByUrl(url);
-    var sheet = ss.getSheetByName('Job_Assignments');
-    if (!sheet) return { success: false, error: 'Job_Assignments sheet not found' };
+    // Job_Assignments is now in the central analytics spreadsheet
+    var sheet = getJobAssignmentsSheet();
+    if (!sheet) return { success: false, error: 'Cannot access central Job_Assignments sheet' };
 
     var userEmail = Session.getActiveUser().getEmail();
     var jobIdStr = String(jobId);
@@ -16838,10 +16849,10 @@ function getTransferTargets() {
     var userEmail = Session.getActiveUser().getEmail();
     if (!userEmail) return { success: false, error: 'Cannot get user email' };
 
-    var url = getStoredSheetUrl();
-    if (!url) return { success: true, members: [] };
+    // Analytics_Viewers and Team_Hierarchy are in the central analytics spreadsheet
+    var ss = getAnalyticsSpreadsheet();
+    if (!ss) return { success: true, members: [] };
 
-    var ss = SpreadsheetApp.openByUrl(url);
     var members = [];
     var addedEmails = {};
 
@@ -16909,12 +16920,9 @@ function updateJobAssignedDate(jobId, newDate) {
     if (!jobId) return { success: false, error: 'Job ID is required' };
     if (!newDate) return { success: false, error: 'Date is required' };
 
-    const url = getStoredSheetUrl();
-    if (!url) return { success: false, error: 'No spreadsheet configured' };
-
-    const ss = SpreadsheetApp.openByUrl(url);
-    const sheet = ss.getSheetByName('Job_Assignments');
-    if (!sheet) return { success: false, error: 'Job_Assignments sheet not found' };
+    // Job_Assignments is now in the central analytics spreadsheet
+    const sheet = getJobAssignmentsSheet();
+    if (!sheet) return { success: false, error: 'Cannot access central Job_Assignments sheet' };
 
     const userEmail = Session.getActiveUser().getEmail();
     const jobIdStr = String(jobId);
@@ -16948,12 +16956,9 @@ function updateJobNotes(jobId, notes) {
   try {
     if (!jobId) return { success: false, error: 'Job ID is required' };
 
-    const url = getStoredSheetUrl();
-    if (!url) return { success: false, error: 'No spreadsheet configured' };
-
-    const ss = SpreadsheetApp.openByUrl(url);
-    const sheet = ss.getSheetByName('Job_Assignments');
-    if (!sheet) return { success: false, error: 'Job_Assignments sheet not found' };
+    // Job_Assignments is now in the central analytics spreadsheet
+    const sheet = getJobAssignmentsSheet();
+    if (!sheet) return { success: false, error: 'Cannot access central Job_Assignments sheet' };
 
     const userEmail = Session.getActiveUser().getEmail();
     const jobIdStr = String(jobId);
@@ -16988,19 +16993,13 @@ function autoCreateJobAssignment(jobId, ss) {
   try {
     if (!jobId) return { success: false, created: false, error: 'Job ID is required' };
 
-    if (!ss) {
-      const url = getStoredSheetUrl();
-      if (!url) return { success: false, created: false, error: 'No spreadsheet configured' };
-      ss = SpreadsheetApp.openByUrl(url);
-    }
-
-    ensureSheetsExist(ss);
-    const sheet = ss.getSheetByName('Job_Assignments');
+    // Job_Assignments is now in the central analytics spreadsheet (ss parameter ignored for this sheet)
+    const sheet = getJobAssignmentsSheet();
 
     // Critical: check if sheet exists
     if (!sheet) {
-      console.error('autoCreateJobAssignment: Job_Assignments sheet not found after ensureSheetsExist');
-      return { success: false, created: false, error: 'Job_Assignments sheet not found' };
+      console.error('autoCreateJobAssignment: Job_Assignments sheet not found in central analytics');
+      return { success: false, created: false, error: 'Cannot access central Job_Assignments sheet' };
     }
 
     const userEmail = Session.getActiveUser().getEmail();
@@ -17055,13 +17054,8 @@ function getJobAssignmentMetrics() {
     const access = checkAnalyticsAccess();
     const userEmail = Session.getActiveUser().getEmail();
 
-    const url = getStoredSheetUrl();
-    if (!url) return { success: false, error: 'No spreadsheet configured' };
-
-    const ss = SpreadsheetApp.openByUrl(url);
-    ensureSheetsExist(ss);
-
-    const sheet = ss.getSheetByName('Job_Assignments');
+    // Job_Assignments is now in the central analytics spreadsheet
+    const sheet = getJobAssignmentsSheet();
     if (!sheet || sheet.getLastRow() <= 1) {
       return {
         success: true,
@@ -17161,12 +17155,9 @@ function deleteJobAssignment(jobId, agentEmail) {
   try {
     if (!jobId) return { success: false, error: 'Job ID is required' };
 
-    const url = getStoredSheetUrl();
-    if (!url) return { success: false, error: 'No spreadsheet configured' };
-
-    const ss = SpreadsheetApp.openByUrl(url);
-    const sheet = ss.getSheetByName('Job_Assignments');
-    if (!sheet) return { success: false, error: 'Job_Assignments sheet not found' };
+    // Job_Assignments is now in the central analytics spreadsheet
+    const sheet = getJobAssignmentsSheet();
+    if (!sheet) return { success: false, error: 'Cannot access central Job_Assignments sheet' };
 
     const userEmail = Session.getActiveUser().getEmail();
     const jobIdStr = String(jobId);
