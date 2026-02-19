@@ -331,14 +331,16 @@ ${startDatesContext}
 
 === CRITICAL RATE NEGOTIATION RULES ===
 **GOLDEN RULE - NEVER EXCEED TALENT'S ASK:**
-- If a candidate states a rate BELOW your maximum ($${max}/hr), ACCEPT THEIR RATE EXACTLY
+- If a candidate states a SINGLE rate BELOW your maximum ($${max}/hr), ACCEPT THEIR RATE EXACTLY
 - NEVER offer higher than what the candidate asks for
 - Example: If candidate asks $${Math.round(max * 0.7)}/hr and your max is $${max}/hr → Accept $${Math.round(max * 0.7)}/hr (do NOT offer $${max})
+- EXCEPTION FOR RANGES: If a candidate states a RANGE (e.g., "$10-$15/hr") and both ends are within your maximum, propose the LOWER end of their range first. Do NOT auto-accept the upper end.
 
 **NEGOTIATION FLOW:**
 ${attempts === 0 ? `
 This is your FIRST response:
-- If candidate stated a rate ≤ $${max}/hr → Accept their rate exactly
+- If candidate stated a RANGE within your max ($${max}/hr) → Propose the LOWER end of their range. Say: "Based on the scope of this role, we can offer $[lower end]/hr"
+- If candidate stated a single rate ≤ $${max}/hr → Accept their rate exactly
 - If candidate stated a rate > $${max}/hr → Counter with $${secondOfferRate}/hr
 - If candidate hasn't mentioned a rate → Offer $${firstOfferRate}/hr
 - If candidate says "rate is too low" without a number → Ask: "What rate would you be comfortable with?"
@@ -5739,6 +5741,18 @@ IMPORTANT INTERPRETATION RULES:
 - ANY mention of a specific dollar amount by the candidate = Their proposed/expected rate
 - "I am ready to start" WITHOUT agreeing to our rate = Just expressing availability, NOT acceptance
 
+RATE RANGE DETECTION - CRITICAL:
+- If candidate provides a RANGE of rates (e.g., "$10-$15", "$10 to $15", "$10-15/hr", "between $10 and $15", "from $10 to $15"), extract BOTH ends:
+  - rate_range_low = lower number (e.g., 10)
+  - rate_range_high = upper number (e.g., 15)
+  - proposed_rate = upper number (for comparison purposes)
+- A range means the candidate is flexible between those two numbers
+- If only a SINGLE rate is mentioned (not a range), rate_range_low and rate_range_high should both be null
+- Examples:
+  - "$10-$15/hr" → rate_range_low: 10, rate_range_high: 15, proposed_rate: 15
+  - "between $20 and $25 per hour" → rate_range_low: 20, rate_range_high: 25, proposed_rate: 25
+  - "$30/hr" (single rate) → rate_range_low: null, rate_range_high: null, proposed_rate: 30
+
 ACCEPTANCE DETECTION RULES - CRITICAL:
 - Acceptance ONLY applies when candidate agrees to a rate WE proposed
 - "sure", "ok", "okay", "yes", "I agree", "works for me", "that works", "sounds good" IN RESPONSE TO OUR OFFER = ACCEPTING
@@ -5780,9 +5794,10 @@ DECISION RULES (in priority order):
 1. If candidate indicates NOT INTERESTED (see above) → ACTION: NOT_INTERESTED, is_not_interested: true
 2. If candidate asks SENSITIVE QUESTIONS (see above) → ACTION: ESCALATE, escalation_type: "sensitive_question"
 3. If candidate explicitly ACCEPTS a rate WE previously offered → ACTION: AUTO_ACCEPT, is_accepting_offer: true
-4. If candidate PROPOSES a rate AT OR BELOW $${maxRate}/hr → ACTION: AUTO_ACCEPT (accept their proposal - it's within our budget!)
-5. If candidate PROPOSES a rate ABOVE $${maxRate}/hr → ACTION: COUNTER (we will negotiate)
-6. If no clear rate mentioned but message is positive → ACTION: COUNTER
+4. If candidate proposes a RANGE (e.g., "$10-$15") and the UPPER end is AT OR BELOW $${maxRate}/hr → ACTION: COUNTER (we want to propose the LOWER end of their range first to negotiate the best rate). Set rate_range_low and rate_range_high accordingly.
+5. If candidate PROPOSES a SINGLE rate (not a range) AT OR BELOW $${maxRate}/hr → ACTION: AUTO_ACCEPT (accept their exact proposal - it's within our budget!)
+6. If candidate PROPOSES a rate ABOVE $${maxRate}/hr → ACTION: COUNTER (we will negotiate)
+7. If no clear rate mentioned but message is positive → ACTION: COUNTER
 
 IMPORTANT - RATE NEGOTIATION:
 - If rate is ABOVE our max ($${maxRate}), recommend COUNTER - we will try to negotiate
@@ -5797,7 +5812,9 @@ CRITICAL RULES:
 
 RESPONSE FORMAT (JSON only):
 {
-  "proposed_rate": <number - the rate they mentioned/asked for in their LATEST message, or null if none>,
+  "proposed_rate": <number - the rate they mentioned/asked for in their LATEST message. If they gave a RANGE (e.g., "$10-$15"), use the UPPER end here. null if none>,
+  "rate_range_low": <number - if candidate gave a RANGE (e.g., "$10-$15", "$10 to $15"), this is the LOWER end. null if no range given>,
+  "rate_range_high": <number - if candidate gave a RANGE, this is the UPPER end. null if no range given>,
   "agreed_rate": <number - the FINAL negotiated rate from conversation history when accepting (CRITICAL: extract from conversation history if candidate accepts without mentioning a rate), or null if not accepting>,
   "is_accepting_offer": <true/false - ONLY true if they accepted OUR offer>,
   "is_not_interested": <true/false - true if candidate indicates they don't want to proceed>,
@@ -5827,9 +5844,53 @@ Return ONLY the JSON object, no other text.
       // Continue with normal negotiation if analysis fails
     }
 
-    // FALLBACK: If AI rate analysis failed to extract proposed_rate, try regex-based extraction
+    // FALLBACK RANGE DETECTION: First try to detect rate ranges like "$10-$15", "$10 to $15"
+    // This runs even if AI extracted a proposed_rate but missed the range fields
+    let rangeDetected = false;
+    const rangePatterns = [
+      /\$\s*(\d+(?:\.\d+)?)\s*[-–—]\s*\$?\s*(\d+(?:\.\d+)?)\s*(?:\/\s*hr|\/\s*hour|per\s*hour|an\s*hour)?/i,  // "$10-$15", "$10-$15/hr"
+      /\$\s*(\d+(?:\.\d+)?)\s+to\s+\$?\s*(\d+(?:\.\d+)?)\s*(?:\/\s*hr|\/\s*hour|per\s*hour|an\s*hour)?/i,  // "$10 to $15"
+      /(?:between|from)\s+\$?\s*(\d+(?:\.\d+)?)\s+(?:and|to|-)\s+\$?\s*(\d+(?:\.\d+)?)\s*(?:\/\s*hr|\/\s*hour|per\s*hour|an\s*hour)?/i,  // "between $10 and $15"
+      /(\d+(?:\.\d+)?)\s*[-–—]\s*(\d+(?:\.\d+)?)\s*(?:dollars?\s*(?:per|\/|an)\s*hour)/i  // "10-15 dollars per hour"
+    ];
+
+    for (const pattern of rangePatterns) {
+      const match = candidateLatestMessage.match(pattern);
+      if (match && match[1] && match[2]) {
+        const low = parseFloat(match[1]);
+        const high = parseFloat(match[2]);
+        if (low > 0 && high > 0 && low < high) {
+          rangeDetected = true;
+          jobStats.log.push({type: 'info', message: `${candidateEmail} - FALLBACK: Regex detected rate RANGE $${low}-$${high}/hr`});
+          if (rateAnalysis) {
+            rateAnalysis.proposed_rate = rateAnalysis.proposed_rate || high;
+            rateAnalysis.rate_range_low = low;
+            rateAnalysis.rate_range_high = high;
+            // If upper end is within budget, COUNTER with lower end (not auto-accept)
+            if (high <= maxRate && rateAnalysis.action === 'AUTO_ACCEPT') {
+              rateAnalysis.action = 'COUNTER';
+              rateAnalysis.reason = 'Fallback: candidate gave range within budget - counter with lower end';
+            }
+          } else {
+            rateAnalysis = {
+              proposed_rate: high,
+              rate_range_low: low,
+              rate_range_high: high,
+              agreed_rate: null,
+              is_accepting_offer: false,
+              is_not_interested: false,
+              action: high <= maxRate ? 'COUNTER' : 'COUNTER',
+              reason: 'Fallback regex: rate range detected'
+            };
+          }
+          break;
+        }
+      }
+    }
+
+    // FALLBACK: If AI rate analysis failed to extract proposed_rate AND no range was detected, try single-rate regex extraction
     // This handles structured/multi-part responses where AI might miss the rate
-    if (!rateAnalysis || rateAnalysis.proposed_rate === null || rateAnalysis.proposed_rate === undefined) {
+    if (!rangeDetected && (!rateAnalysis || rateAnalysis.proposed_rate === null || rateAnalysis.proposed_rate === undefined)) {
       // Regex patterns to extract rate from candidate message
       // Matches: "$56/hr", "$56 per hour", "rate is $56", "expected rate is $56", "$56/hour", "$56 an hour"
       const ratePatterns = [
@@ -5978,6 +6039,17 @@ Return ONLY the JSON object, no other text.
       jobStats.notInterested++;
       jobStats.log.push({type: 'info', message: `${candidateEmail} marked as Not Interested and moved to completed: ${notInterestedReason}`});
       return;
+    }
+
+    // RANGE NEGOTIATION OVERRIDE: If candidate gave a range and both ends are within budget,
+    // don't auto-accept the upper end - instead counter with the lower end of their range
+    if (rateAnalysis && rateAnalysis.action === 'AUTO_ACCEPT' &&
+        rateAnalysis.rate_range_low && rateAnalysis.rate_range_high &&
+        rateAnalysis.rate_range_high <= maxRate && attempts === 0) {
+      jobStats.log.push({type: 'info', message: `${candidateEmail} - Range detected ($${rateAnalysis.rate_range_low}-$${rateAnalysis.rate_range_high}/hr). Both within budget (max: $${maxRate}). Overriding AUTO_ACCEPT to COUNTER with lower end $${rateAnalysis.rate_range_low}/hr`});
+      rateAnalysis.action = 'COUNTER';
+      rateAnalysis.proposed_rate = rateAnalysis.rate_range_low; // Set to lower end for counter-offer
+      rateAnalysis.reason = 'Range within budget - proposing lower end first';
     }
 
     // If AI recommends AUTO_ACCEPT (rate at or below target, or accepting our offer)
@@ -6451,8 +6523,11 @@ Write ONLY the email, nothing else.
     // CRITICAL SAFEGUARD: Accept any rate the candidate proposes that's within our budget
     // If candidate asks for $41 and our max is $50, we should accept $41 (not re-offer $41!)
     // This also prevents the awkward scenario of re-offering the same rate the candidate just proposed
+    // EXCEPTION: Skip if candidate gave a range within budget on first attempt (we want to counter with lower end)
     const candidateProposedRate = rateAnalysis ? rateAnalysis.proposed_rate : null;
-    if (candidateProposedRate !== null && candidateProposedRate <= maxRate) {
+    const isRangeWithinBudgetFirstAttempt = rateAnalysis && rateAnalysis.rate_range_low && rateAnalysis.rate_range_high &&
+      rateAnalysis.rate_range_high <= maxRate && attempts === 0;
+    if (candidateProposedRate !== null && candidateProposedRate <= maxRate && !isRangeWithinBudgetFirstAttempt) {
       const rate = candidateProposedRate;
 
       // SAFETY CHECK: Validate against regional limits even if within job maxRate
@@ -6770,17 +6845,24 @@ ${rules.startDates.map((d, i) => `  ${i + 1}. ${d}`).join('\n')}
 === YOUR RATE PARAMETERS ===
 - Initial Offer: $${firstOfferRate}/hr
 - Maximum Rate: $${maxRate}/hr (NEVER reveal this to candidate)
-
+${rateAnalysis && rateAnalysis.rate_range_low ? `
+=== DETECTED CANDIDATE RATE RANGE ===
+- Candidate stated a range: $${rateAnalysis.rate_range_low}/hr - $${rateAnalysis.rate_range_high}/hr
+- YOUR COUNTER-OFFER: Propose $${rateAnalysis.rate_range_low}/hr (the lower end of their stated range)
+- Do NOT accept the upper end ($${rateAnalysis.rate_range_high}/hr) - start with the lower end to negotiate the best rate
+` : ''}
 === CRITICAL RATE NEGOTIATION RULES ===
 **GOLDEN RULE - NEVER EXCEED TALENT'S ASK:**
-- If a candidate states a rate BELOW your maximum ($${maxRate}/hr), ACCEPT THEIR RATE EXACTLY
+- If a candidate states a SINGLE rate BELOW your maximum ($${maxRate}/hr), ACCEPT THEIR RATE EXACTLY
 - NEVER offer higher than what the candidate asks for
 - Example: If candidate asks $${Math.round(maxRate * 0.7)}/hr and your max is $${maxRate}/hr → Accept $${Math.round(maxRate * 0.7)}/hr (do NOT offer $${maxRate})
+- EXCEPTION FOR RANGES: If a candidate states a RANGE (e.g., "$10-$15/hr") and both ends are within your maximum, propose the LOWER end of their range first. Do NOT auto-accept the upper end.
 
 **NEGOTIATION FLOW:**
 ${attempts === 0 ? `
 This is your FIRST response:
-- If candidate stated a rate ≤ $${maxRate}/hr → Accept their rate exactly
+- If candidate stated a RANGE within your max ($${maxRate}/hr) → Propose the LOWER end of their range. Say: "Based on the scope of this role, we can offer $[lower end]/hr"
+- If candidate stated a single rate ≤ $${maxRate}/hr → Accept their rate exactly
 - If candidate stated a rate > $${maxRate}/hr → Counter with $${secondOfferRate}/hr
 - If candidate hasn't mentioned a rate → Offer $${firstOfferRate}/hr
 - If candidate says "rate is too low" without a number → Ask: "What rate would you be comfortable with?"
@@ -7769,6 +7851,7 @@ CONTEXT:
 - Job ID: ${jobId}
 - AI Attempts: ${attempts}
 - Current Status: ${currentStatus || 'Active'}
+- IMPORTANT: If the status indicates acceptance (e.g., "Offer Accepted", "Auto-Accepted"), the candidate HAS accepted. Reflect this accurately in your summary.
 
 TASK:
 Create a brief but COMPLETE summary with these sections:
@@ -7788,6 +7871,19 @@ Create a brief but COMPLETE summary with these sections:
 💰 NEGOTIATION (ONLY if rate/compensation was discussed):
 - SKIP this section entirely if no rate, salary, or compensation was mentioned in the conversation
 - If rate was discussed: What rate are they asking for? What offers were made? Are they flexible or firm?
+
+ACCEPTANCE DETECTION - CRITICAL:
+When the recruiter has made a rate offer and the candidate responds with ANY of the following, this IS acceptance - do NOT say "has not explicitly accepted":
+- "yes", "sure", "ok", "okay", "I agree", "agreed"
+- "I acknowledge", "acknowledged", "I confirm"
+- "sounds good", "works for me", "that works", "fine with me", "I'm fine with that"
+- "looking forward", "looking forward to hear from you", "looking forward to working"
+- "I accept", "I'm on board", "let's proceed", "let's do it", "I'm in"
+- "that's fine", "no problem", "I can do that"
+- Any positive affirmation in direct response to a specific rate offer
+When acceptance is detected, you MUST state: "Candidate ACCEPTED the $X/hr offer" (using the exact rate).
+Do NOT say "has not explicitly accepted" when the candidate has clearly given a positive response to an offer.
+Only say "has not accepted" if the candidate genuinely has NOT responded, or expressed hesitation/rejection.
 
 Keep the TOTAL summary under 120 words. Be SPECIFIC with numbers and details.
 DO NOT use generic phrases like "discussed rate" - say the exact rate.
@@ -8123,6 +8219,7 @@ CONTEXT:
 - Job ID: ${jobId}
 - AI Attempts: ${attempts}
 - Current Status: ${currentStatus || 'Active'}
+- IMPORTANT: If the status indicates acceptance (e.g., "Offer Accepted", "Auto-Accepted"), the candidate HAS accepted. Reflect this accurately in your summary.
 
 TASK:
 Create a brief but COMPLETE summary with these sections:
@@ -8155,6 +8252,19 @@ ${dataFollowUpSummary ? `
 💰 NEGOTIATION (ONLY if rate/compensation was discussed):
 - SKIP this section entirely if no rate, salary, or compensation was mentioned in the conversation
 - If rate was discussed: What rate are they asking for? What offers were made? Are they flexible or firm?
+
+ACCEPTANCE DETECTION - CRITICAL:
+When the recruiter has made a rate offer and the candidate responds with ANY of the following, this IS acceptance - do NOT say "has not explicitly accepted":
+- "yes", "sure", "ok", "okay", "I agree", "agreed"
+- "I acknowledge", "acknowledged", "I confirm"
+- "sounds good", "works for me", "that works", "fine with me", "I'm fine with that"
+- "looking forward", "looking forward to hear from you", "looking forward to working"
+- "I accept", "I'm on board", "let's proceed", "let's do it", "I'm in"
+- "that's fine", "no problem", "I can do that"
+- Any positive affirmation in direct response to a specific rate offer
+When acceptance is detected, you MUST state: "Candidate ACCEPTED the $X/hr offer" (using the exact rate).
+Do NOT say "has not explicitly accepted" when the candidate has clearly given a positive response to an offer.
+Only say "has not accepted" if the candidate genuinely has NOT responded, or expressed hesitation/rejection.
 
 Keep the TOTAL summary under 150 words. Be SPECIFIC with numbers and details.
 DO NOT use generic phrases like "discussed rate" - say the exact rate.
