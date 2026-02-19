@@ -382,12 +382,16 @@ Just state your offer directly: "We can offer $X/hr for this role"
 - Do NOT ask for details the candidate has ALREADY provided in this conversation
 - If they say "immediately available" → Do NOT ask for a specific start date
 - If they already stated their rate → Do NOT re-ask what rate they expect
+- NEVER ask about "rate negotiation", "potential rate negotiation", or "response regarding rate negotiation"
+- The rate discussion is handled separately - do NOT add rate-related follow-up questions
 - Only follow up on MISSING information from what was originally asked
 - If they say "comfortable with the other working conditions", "fine with everything else", "agree to all conditions", or similar blanket acceptance → Those conditions are already answered as "Yes" - Do NOT re-ask them
 - If the candidate's response addresses all questions (explicitly or via blanket acceptance), do NOT request any additional information
+- If the candidate asks a question (about payment, process, etc.), ANSWER their question instead of ignoring it
 
 === PENDING INFORMATION TO REQUEST ===
 **CRITICAL: If there are missing items below, include them in your email along with the rate discussion.**
+**NOTE: Rate/negotiation details are NOT listed here - they are handled by the rate negotiation flow above.**
 ${typeof pendingDataQuestions !== 'undefined' && pendingDataQuestions && pendingDataQuestions.length > 0
   ? `The following information is still needed from the candidate:
 ${pendingDataQuestions.map((q, i) => (i+1) + '. ' + q.question).join('\n')}
@@ -5228,6 +5232,37 @@ function processJobNegotiations(jobId, rules, ss, faqContent, negotiationEnabled
         isDataGatheringComplete = saveResult.dataComplete || saveResult.totalQuestions === 0;
         pendingDataQuestions = saveResult.pendingQuestions || [];
 
+        // FIX: Filter out rate/negotiation-related questions from pendingDataQuestions
+        // These are handled by the rate analysis/negotiation logic, NOT by data gathering.
+        // Without this filter, questions like "Negotiation Response" or "Expected Rate" remain
+        // in pendingDataQuestions even after the candidate confirmed their rate, causing the AI
+        // to repeatedly ask "I still need your response regarding rate negotiation" redundantly.
+        const RATE_NEGOTIATION_HEADERS = [
+          'negotiation response', 'expected rate', 'rate', 'negotiation', 'offer response',
+          'candidate offer', 'counter offer', 'final agreed rate', 'agreed rate', 'rate expectation',
+          'rate negotiation', 'salary expectation', 'hourly rate', 'negotiation notes'
+        ];
+        const preFilterCount = pendingDataQuestions.length;
+        pendingDataQuestions = pendingDataQuestions.filter(q => {
+          const headerLower = (q.header || '').toLowerCase().trim();
+          const questionLower = (q.question || '').toLowerCase().trim();
+          const isRateRelated = RATE_NEGOTIATION_HEADERS.some(h => headerLower.includes(h)) ||
+            questionLower.includes('rate negotiation') ||
+            questionLower.includes('response to negotiation') ||
+            questionLower.includes('candidate response to negotiation') ||
+            questionLower.includes('expected rate') ||
+            questionLower.includes('hourly rate');
+          return !isRateRelated;
+        });
+        if (preFilterCount !== pendingDataQuestions.length) {
+          jobStats.log.push({type: 'info', message: `${candidateEmail} - Filtered ${preFilterCount - pendingDataQuestions.length} rate/negotiation questions from pending data (handled by negotiation logic)`});
+        }
+
+        // Recalculate data completeness after filtering rate-related questions
+        if (pendingDataQuestions.length === 0 && saveResult.totalQuestions > 0) {
+          isDataGatheringComplete = true;
+        }
+
         // Check if we need to send a missing info follow-up (Data Gathering mode)
         // IMPORTANT: If data gathering is pending, we should NOT send a separate negotiation email
         // This prevents duplicate emails (one for data gathering, one for negotiation)
@@ -5485,24 +5520,38 @@ CANDIDATE'S MESSAGE:
 
 CANDIDATE NAME: ${candidateName.split(' ')[0]}
 
+CONVERSATION HISTORY:
+${conversationHistory}
+
 MISSING INFORMATION NEEDED:
 ${pendingDataQuestions.map((q, i) => `${i+1}. ${q.question}`).join('\n')}
 
 JOB CONTEXT:
 ${rules.jobDescription || 'Freelance opportunity at Turing'}
 
-IMPORTANT RULES:
-- Do NOT discuss rate or negotiate - the rate is already agreed
-- Do NOT ask about rate expectations
-- If they ask about rate, politely remind them you've already noted their rate
-- Only follow up on the missing information listed above
+${faqContent ? `FAQs (ONLY use if candidate explicitly asks a matching question):\n${faqContent}` : ''}
+
+=== REDIRECT RULES FOR COMMON INQUIRIES ===
+If candidate asks about these topics, provide the appropriate contact:
+- Time tracking/Jibble questions → "Please reach out to peopleoperations@turing.com"
+- Contract/onboarding questions → "Please visit help.turing.com or email onboarding@turing.com"
+- IT access issues → "Please contact TuringITSupport@turing.com"
+- Payment/Deel issues → "Please check the Deel Knowledge Base or contact Deel Support"
+
+CRITICAL RULES:
+- NEVER discuss rate, negotiate, or ask about rate expectations - the rate is ALREADY AGREED
+- NEVER ask about "rate negotiation", "potential rate negotiation", or any rate-related topics
+- NEVER use phrases like "I still need to know your response regarding rate negotiation"
+- If the candidate asks about rate, simply confirm: "We've already noted your rate${agreedRate ? ` of $${agreedRate}/hr` : ''}"
+- If the candidate asks a question (e.g., about payment cycle, process, etc.), ANSWER it from FAQ or redirect appropriately
+- Only follow up on the MISSING INFORMATION listed above (these are NON-rate items)
 - If they provided any of the missing information in their message, acknowledge it
 - Keep the tone professional and friendly
 
 EMAIL FORMAT:
 Hi ${candidateName.split(' ')[0]},
 
-[Acknowledge their message/question if any]
+[Answer their question if they asked one]
 
 [Request the missing information naturally]
 
@@ -5863,6 +5912,48 @@ Return ONLY the JSON object, no other text.
         rateAnalysis.action = 'AUTO_ACCEPT';
         rateAnalysis.proposed_rate = candidateRate;
         rateAnalysis.reason = `Tolerance acceptance: $${formatRate(candidateRate)}/hr within 10% of max $${formatRate(maxRate)}/hr after ${attempts} attempts`;
+      }
+    }
+
+    // FIX: Auto-fill "Negotiation Response" column in job details sheet when rate analysis completes
+    // This prevents the system from treating it as a "pending" data question and repeatedly asking
+    // candidates about rate negotiation when they've already confirmed their rate.
+    if (rateAnalysis && (rateAnalysis.action === 'AUTO_ACCEPT' || rateAnalysis.proposed_rate || rateAnalysis.is_accepting_offer)) {
+      try {
+        const jobsSs = getCachedJobsSpreadsheet();
+        if (jobsSs) {
+          const detailSheet = jobsSs.getSheetByName(`Job_${jobId}_Details`);
+          if (detailSheet) {
+            const detailHeaders = detailSheet.getRange(1, 1, 1, detailSheet.getLastColumn()).getValues()[0];
+            const negResponseColIdx = detailHeaders.indexOf('Negotiation Response');
+            if (negResponseColIdx !== -1) {
+              const detailData = detailSheet.getDataRange().getValues();
+              const normalizedCandidateEmail = normalizeEmail(candidateEmail);
+              for (let i = 1; i < detailData.length; i++) {
+                if (normalizeEmail(detailData[i][detailHeaders.indexOf('Email')]) === normalizedCandidateEmail) {
+                  const existingValue = detailData[i][negResponseColIdx];
+                  if (!existingValue || existingValue === 'NOT_PROVIDED' || existingValue === 'PARSE_ERROR') {
+                    let negotiationResponse = '';
+                    if (rateAnalysis.is_accepting_offer) {
+                      negotiationResponse = `Accepted rate of $${rateAnalysis.agreed_rate || rateAnalysis.proposed_rate || targetRate}/hr`;
+                    } else if (rateAnalysis.proposed_rate) {
+                      negotiationResponse = `Proposed $${rateAnalysis.proposed_rate}/hr`;
+                    } else if (rateAnalysis.action === 'AUTO_ACCEPT') {
+                      negotiationResponse = `Accepted at $${rateAnalysis.agreed_rate || targetRate}/hr`;
+                    }
+                    if (negotiationResponse) {
+                      detailSheet.getRange(i + 1, negResponseColIdx + 1).setValue(negotiationResponse);
+                      jobStats.log.push({type: 'info', message: `${candidateEmail} - Auto-filled Negotiation Response: "${negotiationResponse}"`});
+                    }
+                  }
+                  break;
+                }
+              }
+            }
+          }
+        }
+      } catch (negFillErr) {
+        console.error("Failed to auto-fill Negotiation Response:", negFillErr);
       }
     }
 
@@ -6802,12 +6893,16 @@ Just state your offer directly: "We can offer $X/hr for this role"
 - Do NOT ask for details the candidate has ALREADY provided in this conversation
 - If they say "immediately available" → Do NOT ask for a specific start date
 - If they already stated their rate → Do NOT re-ask what rate they expect
+- NEVER ask about "rate negotiation", "potential rate negotiation", or "response regarding rate negotiation"
+- The rate discussion is handled separately - do NOT add rate-related follow-up questions
 - Only follow up on MISSING information from what was originally asked
 - If they say "comfortable with the other working conditions", "fine with everything else", "agree to all conditions", or similar blanket acceptance → Those conditions are already answered as "Yes" - Do NOT re-ask them
 - If the candidate's response addresses all questions (explicitly or via blanket acceptance), do NOT request any additional information
+- If the candidate asks a question (about payment, process, etc.), ANSWER their question instead of ignoring it
 
 === PENDING INFORMATION TO REQUEST ===
 **CRITICAL: If there are missing items below, include them in your email along with the rate discussion.**
+**NOTE: Rate/negotiation details are NOT listed here - they are handled by the rate negotiation flow above.**
 ${typeof pendingDataQuestions !== 'undefined' && pendingDataQuestions && pendingDataQuestions.length > 0
   ? `The following information is still needed from the candidate:
 ${pendingDataQuestions.map((q, i) => (i+1) + '. ' + q.question).join('\n')}
