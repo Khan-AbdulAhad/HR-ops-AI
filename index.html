@@ -6784,9 +6784,16 @@
         function toggleAllTasks(master) {
             const checks = document.querySelectorAll('.task-check');
             checks.forEach(c => {
-                c.checked = master.checked;
                 const row = c.closest('.task-row');
                 if(row) {
+                    // Skip hidden/filtered rows — only act on visible rows
+                    if(row.style.display === 'none') {
+                        c.checked = false;
+                        selectedTasks.delete(row.dataset.email);
+                        row.classList.remove('selected');
+                        return;
+                    }
+                    c.checked = master.checked;
                     const email = row.dataset.email;
                     if(master.checked) {
                         selectedTasks.add(email);
