@@ -1272,6 +1272,91 @@
             font-size: 0.75rem;
             color: #94a3b8;
         }
+        /* Multi-select filter dropdown */
+        .multi-select-filter {
+            position: relative;
+            display: inline-block;
+        }
+        .multi-select-filter .msf-btn {
+            min-width: 130px;
+            text-align: left;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 6px;
+            cursor: pointer;
+            white-space: nowrap;
+            padding: 0.5rem 0.75rem;
+            font-size: 0.875rem;
+            border: 1px solid #e2e8f0;
+            border-radius: 0.5rem;
+            background: white;
+            color: #334155;
+        }
+        .dark .multi-select-filter .msf-btn {
+            background: #334155;
+            border-color: #475569;
+            color: #e2e8f0;
+        }
+        .multi-select-filter .msf-btn:hover {
+            border-color: #a78bfa;
+        }
+        .multi-select-filter .msf-dropdown {
+            position: absolute;
+            top: 100%;
+            left: 0;
+            z-index: 50;
+            min-width: 220px;
+            max-height: 280px;
+            overflow-y: auto;
+            background: white;
+            border: 1px solid #e2e8f0;
+            border-radius: 0.5rem;
+            box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1), 0 4px 6px -4px rgba(0,0,0,0.1);
+            margin-top: 4px;
+        }
+        .dark .multi-select-filter .msf-dropdown {
+            background: #1e293b;
+            border-color: #475569;
+            box-shadow: 0 10px 15px -3px rgba(0,0,0,0.4);
+        }
+        .multi-select-filter .msf-option {
+            display: flex;
+            align-items: center;
+            padding: 7px 12px;
+            cursor: pointer;
+            font-size: 0.8125rem;
+            transition: background 0.1s;
+            color: #334155;
+        }
+        .dark .multi-select-filter .msf-option {
+            color: #e2e8f0;
+        }
+        .multi-select-filter .msf-option:hover {
+            background: #f1f5f9;
+        }
+        .dark .multi-select-filter .msf-option:hover {
+            background: #334155;
+        }
+        .multi-select-filter .msf-option input[type="checkbox"] {
+            margin-right: 8px;
+            flex-shrink: 0;
+        }
+        .multi-select-filter .msf-select-all {
+            border-bottom: 1px solid #e2e8f0;
+            font-weight: 600;
+        }
+        .dark .multi-select-filter .msf-select-all {
+            border-bottom-color: #475569;
+        }
+        .multi-select-filter .msf-badge {
+            background: #8b5cf6;
+            color: white;
+            font-size: 0.625rem;
+            padding: 1px 5px;
+            border-radius: 9999px;
+            font-weight: 700;
+        }
     </style>
 </head>
 <body class="bg-slate-100 dark:bg-slate-900 text-slate-900 dark:text-slate-100 flex h-screen overflow-hidden">
@@ -1765,7 +1850,7 @@
                 <div id="tab-tasks" class="tab-content hidden-tab">
                     
                     <!-- Stats Cards (New Design) -->
-                    <div class="grid grid-cols-1 md:grid-cols-5 gap-6 mb-8">
+                    <div class="grid grid-cols-1 md:grid-cols-6 gap-6 mb-8">
                         <div class="stat-card border-slate-500">
                             <p class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Total Active</p>
                             <h2 class="text-3xl font-extrabold text-slate-800" id="statTotal">-</h2>
@@ -1806,6 +1891,15 @@
                                 <div class="p-2 bg-teal-50 rounded-lg text-teal-600"><i class="fa-solid fa-flag-checkered"></i></div>
                             </div>
                         </div>
+                        <div class="stat-card border-slate-400">
+                            <div class="flex justify-between items-start">
+                                <div>
+                                    <p class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Not Interested</p>
+                                    <h2 class="text-3xl font-extrabold text-slate-800" id="statNotInterested">-</h2>
+                                </div>
+                                <div class="p-2 bg-slate-50 rounded-lg text-slate-500"><i class="fa-solid fa-ban"></i></div>
+                            </div>
+                        </div>
                     </div>
 
                     <!-- Search Bar for Task List -->
@@ -1838,16 +1932,22 @@
                                 <span class="inline-flex items-center gap-1"><span class="inline-flex items-center justify-center w-5 h-5 rounded-full text-[9px] font-bold bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-400 border border-blue-200 dark:border-blue-700">D</span> Data Gathering</span>
                             </div>
                         </div>
-                        <div class="flex gap-2">
-                            <select id="taskJobFilter" onchange="filterTasks()" class="input-field py-2 w-auto"><option value="all">All Jobs</option></select>
-                            <select id="taskStatusFilter" onchange="filterTasks()" class="input-field py-2 w-auto">
+                        <div class="flex gap-2 flex-wrap items-center">
+                            <!-- Hidden original selects for backward compat (server-side filter still uses these) -->
+                            <select id="taskJobFilter" class="hidden"><option value="all">All Jobs</option></select>
+                            <select id="taskStatusFilter" class="hidden">
                                 <option value="all">All Statuses</option>
                                 <option value="Initial Outreach">Initial Outreach</option>
                                 <option value="Active">AI Active</option>
                                 <option value="Human-Negotiation">Human Required</option>
                                 <option value="Offer Accepted">Accepted</option>
                                 <option value="Completed">Completed</option>
+                                <option value="Not Interested">Not Interested</option>
                             </select>
+                            <!-- Multi-select filter dropdowns -->
+                            <div id="taskJobFilterMSF"></div>
+                            <div id="taskStatusFilterMSF"></div>
+                            <div id="taskTrackingFilterMSF"></div>
                             <button id="runAiBtn" onclick="manualTriggerAI()" class="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg font-medium text-sm flex items-center gap-2 shadow-sm" title="Run AI negotiation: Process candidates, generate responses, and escalate complex cases to humans">
                                 <i class="fa-solid fa-wand-magic-sparkles"></i> Run AI
                             </button>
@@ -1926,6 +2026,7 @@
                             <button onclick="bulkSetTrackingStatus('Pending')" class="bg-yellow-100 text-yellow-700 border border-yellow-300 px-3 py-1 rounded text-sm font-medium">Mark Pending</button>
                             <button onclick="bulkSetTrackingStatus('RFS')" class="bg-green-100 text-green-700 border border-green-300 px-3 py-1 rounded text-sm font-medium">Mark RFS</button>
                             <button onclick="bulkSetTrackingStatus('Backout')" class="bg-red-100 text-red-700 border border-red-300 px-3 py-1 rounded text-sm font-medium">Mark Backout</button>
+                            <button onclick="bulkSetTrackingStatus('On-Hold')" class="bg-blue-100 text-blue-700 border border-blue-300 px-3 py-1 rounded text-sm font-medium">Mark On-Hold</button>
                             <span class="border-l border-slate-300 dark:border-slate-600 mx-1"></span>
                             <button onclick="bulkCompleteSelected()" class="bg-green-600 text-white px-3 py-1 rounded text-sm">Complete Selected</button>
                             <button onclick="clearTaskSelection()" class="bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-200 px-3 py-1 rounded text-sm">Clear</button>
@@ -2037,14 +2138,18 @@
                                 <span class="inline-flex items-center gap-1"><span class="inline-flex items-center justify-center w-5 h-5 rounded-full text-[9px] font-bold bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-400 border border-blue-200 dark:border-blue-700">D</span> Data Gathering</span>
                             </div>
                         </div>
-                        <div class="flex gap-2">
-                            <select id="followUpJobFilter" onchange="loadFollowUpData()" class="input-field w-auto"><option value="all">All Jobs</option></select>
-                            <select id="followUpStatusFilter" onchange="loadFollowUpData()" class="input-field w-auto">
+                        <div class="flex gap-2 flex-wrap items-center">
+                            <!-- Hidden original selects for backward compat -->
+                            <select id="followUpJobFilter" class="hidden"><option value="all">All Jobs</option></select>
+                            <select id="followUpStatusFilter" class="hidden">
                                 <option value="all">All Statuses</option>
                                 <option value="Pending">Pending</option>
                                 <option value="Follow-Up-1-Sent">1st Sent</option>
                                 <option value="Follow-Up-2-Sent">2nd Sent</option>
                             </select>
+                            <!-- Multi-select filter dropdowns -->
+                            <div id="followUpJobFilterMSF"></div>
+                            <div id="followUpStatusFilterMSF"></div>
                             <button id="runFollowUpBtn" onclick="manualTriggerFollowUps()" class="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 shadow-sm" title="Send scheduled follow-ups: 1st email after ~12hrs, 2nd after ~28hrs, then mark as unresponsive">
                                 <i class="fa-solid fa-paper-plane mr-1"></i> Process Queue
                             </button>
@@ -4626,6 +4731,10 @@
                     deleteRateTier(deleteTierBtn.dataset.country, deleteTierBtn.dataset.region);
                 }
             });
+
+            // Initialize multi-select filter dropdowns
+            initTaskMultiSelectFilters();
+            initFollowUpMultiSelectFilters();
         });
 
         // Load permissions from localStorage for instant UI (< 50ms)
@@ -4854,8 +4963,12 @@
                     badges.push('<span class="inline-flex items-center justify-center w-6 h-6 rounded-full text-[10px] font-bold bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-700" title="Follow-up">F</span>');
                 }
 
+                // If not interested, show a ban badge
+                if (tagsLower === 'not interested' || statusLower === 'not interested') {
+                    badges.push('<span class="inline-flex items-center justify-center w-6 h-6 rounded-full text-[10px] font-bold bg-slate-200 dark:bg-slate-600 text-slate-600 dark:text-slate-300 border border-slate-300 dark:border-slate-500" title="Not Interested"><i class="fa-solid fa-ban text-[8px]"></i></span>');
+                }
                 // If accepted, show a checkmark badge (always show - this is a completion status)
-                if (statusLower.includes('accepted') || tagsLower.includes('completed')) {
+                else if (statusLower.includes('accepted') || tagsLower.includes('completed')) {
                     badges.push('<span class="inline-flex items-center justify-center w-6 h-6 rounded-full text-[10px] font-bold bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-400 border border-green-200 dark:border-green-700" title="Completed"><i class="fa-solid fa-check text-[8px]"></i></span>');
                 }
 
@@ -4876,6 +4989,176 @@
         // --- Debug Logging (gated for production) ---
         const DEBUG_MODE = false;
         function debugLog(...args) { if (DEBUG_MODE) debugLog(...args); }
+
+        // --- Multi-Select Filter Component (Google Sheets-style) ---
+        class MultiSelectFilter {
+            constructor(containerId, options = {}) {
+                this.container = document.getElementById(containerId);
+                if (!this.container) return;
+                this.allLabel = options.allLabel || 'All';
+                this.onChange = options.onChange || function() {};
+                this.selectedValues = new Set();
+                this.allValues = [];
+                this.isOpen = false;
+                this._render();
+            }
+
+            _render() {
+                this.container.innerHTML = '';
+                this.container.className = 'multi-select-filter';
+
+                this.btn = document.createElement('button');
+                this.btn.type = 'button';
+                this.btn.className = 'msf-btn';
+                this.btn.innerHTML = '<span class="msf-label">' + this.allLabel + '</span><i class="fa-solid fa-chevron-down text-[10px] text-slate-400"></i>';
+                this.container.appendChild(this.btn);
+
+                this.dropdown = document.createElement('div');
+                this.dropdown.className = 'msf-dropdown hidden';
+                this.container.appendChild(this.dropdown);
+
+                this.labelEl = this.btn.querySelector('.msf-label');
+
+                this.btn.addEventListener('click', (e) => { e.stopPropagation(); this._toggle(); });
+                document.addEventListener('click', (e) => {
+                    if (!this.container.contains(e.target)) this._close();
+                });
+            }
+
+            setOptions(values) {
+                // Preserve current selection when options refresh
+                const prevSelected = new Set(this.selectedValues);
+                this.allValues = [...values];
+                // If first load or all were selected, select all new values
+                if (prevSelected.size === 0 || this._wasAllSelected) {
+                    this.selectedValues = new Set(this.allValues);
+                    this._wasAllSelected = true;
+                } else {
+                    // Keep valid previous selections
+                    this.selectedValues = new Set(this.allValues.filter(v => prevSelected.has(v)));
+                    if (this.selectedValues.size === 0) {
+                        this.selectedValues = new Set(this.allValues);
+                        this._wasAllSelected = true;
+                    }
+                }
+                this._renderDropdown();
+                this._updateLabel();
+            }
+
+            _renderDropdown() {
+                const allChecked = this.selectedValues.size === this.allValues.length;
+                this.dropdown.innerHTML = '';
+
+                // Select All option
+                const selectAllLabel = document.createElement('label');
+                selectAllLabel.className = 'msf-option msf-select-all';
+                const selectAllCb = document.createElement('input');
+                selectAllCb.type = 'checkbox';
+                selectAllCb.className = 'rounded';
+                selectAllCb.checked = allChecked;
+                selectAllCb.addEventListener('change', () => {
+                    if (selectAllCb.checked) {
+                        this.selectedValues = new Set(this.allValues);
+                        this._wasAllSelected = true;
+                    } else {
+                        this.selectedValues.clear();
+                        this._wasAllSelected = false;
+                    }
+                    this._renderDropdown();
+                    this._updateLabel();
+                    this.onChange(this.getSelected());
+                });
+                selectAllLabel.appendChild(selectAllCb);
+                selectAllLabel.appendChild(document.createTextNode(' Select All'));
+                this.dropdown.appendChild(selectAllLabel);
+
+                // Individual options
+                this.allValues.forEach(val => {
+                    const label = document.createElement('label');
+                    label.className = 'msf-option';
+                    const cb = document.createElement('input');
+                    cb.type = 'checkbox';
+                    cb.className = 'rounded';
+                    cb.checked = this.selectedValues.has(val);
+                    cb.addEventListener('change', () => {
+                        if (cb.checked) {
+                            this.selectedValues.add(val);
+                        } else {
+                            this.selectedValues.delete(val);
+                            this._wasAllSelected = false;
+                        }
+                        // Update select-all checkbox
+                        const saCheckbox = this.dropdown.querySelector('.msf-select-all input');
+                        if (saCheckbox) saCheckbox.checked = this.selectedValues.size === this.allValues.length;
+                        if (this.selectedValues.size === this.allValues.length) this._wasAllSelected = true;
+                        this._updateLabel();
+                        this.onChange(this.getSelected());
+                    });
+                    label.appendChild(cb);
+                    label.appendChild(document.createTextNode(' ' + val));
+                    this.dropdown.appendChild(label);
+                });
+            }
+
+            _updateLabel() {
+                if (this.selectedValues.size === this.allValues.length || this.selectedValues.size === 0) {
+                    this.labelEl.innerHTML = this.allLabel;
+                } else if (this.selectedValues.size === 1) {
+                    this.labelEl.textContent = [...this.selectedValues][0];
+                } else {
+                    this.labelEl.innerHTML = this.selectedValues.size + ' selected <span class="msf-badge">' + this.selectedValues.size + '</span>';
+                }
+            }
+
+            getSelected() {
+                if (this.selectedValues.size === this.allValues.length || this.selectedValues.size === 0) return 'all';
+                return [...this.selectedValues];
+            }
+
+            _toggle() { this.isOpen ? this._close() : this._open(); }
+            _open() { this.dropdown.classList.remove('hidden'); this.isOpen = true; }
+            _close() { this.dropdown.classList.add('hidden'); this.isOpen = false; }
+        }
+
+        // Multi-select filter instances
+        let taskJobMSF, taskStatusMSF, taskTrackingMSF;
+        let followUpJobMSF, followUpStatusMSF;
+
+        function initTaskMultiSelectFilters() {
+            taskJobMSF = new MultiSelectFilter('taskJobFilterMSF', {
+                allLabel: 'All Jobs',
+                onChange: applyTaskClientFilters
+            });
+            taskStatusMSF = new MultiSelectFilter('taskStatusFilterMSF', {
+                allLabel: 'All Statuses',
+                onChange: applyTaskClientFilters
+            });
+            taskTrackingMSF = new MultiSelectFilter('taskTrackingFilterMSF', {
+                allLabel: 'All Tracking',
+                onChange: applyTaskClientFilters
+            });
+        }
+
+        function initFollowUpMultiSelectFilters() {
+            followUpJobMSF = new MultiSelectFilter('followUpJobFilterMSF', {
+                allLabel: 'All Jobs',
+                onChange: applyFollowUpClientFilters
+            });
+            followUpStatusMSF = new MultiSelectFilter('followUpStatusFilterMSF', {
+                allLabel: 'All Statuses',
+                onChange: applyFollowUpClientFilters
+            });
+        }
+
+        function applyTaskClientFilters() {
+            // Delegate to filterTaskTable which handles both multi-select and search filters
+            filterTaskTable();
+        }
+
+        function applyFollowUpClientFilters() {
+            // Delegate to filterFollowUpTable which handles both multi-select and search filters
+            filterFollowUpTable();
+        }
 
         // --- HTML Escape Helper ---
         function escapeHtml(text) {
@@ -6155,6 +6438,7 @@
                     document.getElementById('statHuman').textContent = res.stats.human;
                     document.getElementById('statAccepted').textContent = res.stats.accepted;
                     document.getElementById('statCompleted').textContent = res.stats.completed || 0;
+                    document.getElementById('statNotInterested').textContent = res.stats.notInterested || 0;
                 }
                 // Store job settings for badge rendering
                 const jobSettingsMap = res.jobSettings || {};
@@ -6188,10 +6472,12 @@
                         const tr = document.createElement('tr');
                         tr.className = "hover:bg-slate-50 dark:hover:bg-slate-700 border-b border-slate-50 dark:border-slate-700 transition task-row";
                         tr.dataset.email = t.email;
+                        tr.dataset.statusTag = t.tags;
                         
                         // Badge Logic
                         let badgeClass = 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400';
                         if(t.tags.includes('Human')) badgeClass = 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400';
+                        else if(t.tags === 'Not Interested') badgeClass = 'bg-slate-200 dark:bg-slate-600 text-slate-600 dark:text-slate-300';
                         else if(t.status === 'Offer Accepted') badgeClass = 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400';
                         else if(t.status === 'Completed' || t.type === 'Completed') badgeClass = 'bg-teal-100 dark:bg-teal-900/30 text-teal-700 dark:text-teal-400';
 
@@ -6229,12 +6515,14 @@
                                 <select class="tracking-status-select text-xs font-bold px-2 py-1 rounded-lg border cursor-pointer transition
                                     ${t.trackingStatus === 'RFS' ? 'bg-green-100 text-green-700 border-green-300 dark:bg-green-900/30 dark:text-green-400 dark:border-green-700' :
                                       t.trackingStatus === 'Backout' ? 'bg-red-100 text-red-700 border-red-300 dark:bg-red-900/30 dark:text-red-400 dark:border-red-700' :
+                                      t.trackingStatus === 'On-Hold' ? 'bg-blue-100 text-blue-700 border-blue-300 dark:bg-blue-900/30 dark:text-blue-400 dark:border-blue-700' :
                                       'bg-yellow-100 text-yellow-700 border-yellow-300 dark:bg-yellow-900/30 dark:text-yellow-400 dark:border-yellow-700'}"
                                     data-email="${escapeHtml(t.email)}" data-job-id="${escapeHtml(t.jobId)}"
                                     onchange="updateTrackingStatus(this)">
                                     <option value="Pending" ${t.trackingStatus === 'Pending' ? 'selected' : ''}>Pending</option>
                                     <option value="RFS" ${t.trackingStatus === 'RFS' ? 'selected' : ''}>RFS</option>
                                     <option value="Backout" ${t.trackingStatus === 'Backout' ? 'selected' : ''}>Backout</option>
+                                    <option value="On-Hold" ${t.trackingStatus === 'On-Hold' ? 'selected' : ''}>On-Hold</option>
                                 </select>
                             </td>
                         `;
@@ -6246,6 +6534,22 @@
                 }
                 // Render per-job tracking status counts
                 renderJobTrackingCounts(res.jobTrackingCounts || {});
+
+                // Populate multi-select filters with unique values from loaded data
+                if (taskJobMSF && res.jobIds) {
+                    taskJobMSF.setOptions(res.jobIds);
+                }
+                if (taskStatusMSF && tasks.length > 0) {
+                    const uniqueStatuses = [...new Set(tasks.map(t => t.tags))].sort();
+                    taskStatusMSF.setOptions(uniqueStatuses);
+                }
+                if (taskTrackingMSF && tasks.length > 0) {
+                    const uniqueTracking = [...new Set(tasks.map(t => t.trackingStatus || 'Pending'))].sort();
+                    taskTrackingMSF.setOptions(uniqueTracking);
+                }
+                // Apply multi-select client-side filters after render
+                applyTaskClientFilters();
+
                 // Update cache
                 dataCache.tasks = { data: res, lastLoaded: Date.now() };
                 // Call completion callback if provided
@@ -6253,7 +6557,7 @@
             }).getAllTasks(filters);
         }
 
-        function filterTasks() { loadTasks(false, null, true); }
+        function filterTasks() { applyTaskClientFilters(); }
 
         // --- Copy Email to Clipboard ---
         function copyEmail(btn, email) {
@@ -6301,11 +6605,12 @@
             selectEl.className = 'tracking-status-select text-xs font-bold px-2 py-1 rounded-lg border cursor-pointer transition-all duration-200 ' +
                 (newStatus === 'RFS' ? 'bg-green-100 text-green-700 border-green-300 dark:bg-green-900/30 dark:text-green-400 dark:border-green-700' :
                  newStatus === 'Backout' ? 'bg-red-100 text-red-700 border-red-300 dark:bg-red-900/30 dark:text-red-400 dark:border-red-700' :
+                 newStatus === 'On-Hold' ? 'bg-blue-100 text-blue-700 border-blue-300 dark:bg-blue-900/30 dark:text-blue-400 dark:border-blue-700' :
                  'bg-yellow-100 text-yellow-700 border-yellow-300 dark:bg-yellow-900/30 dark:text-yellow-400 dark:border-yellow-700');
 
             // Pulse animation on the dropdown to confirm change
             selectEl.style.transform = 'scale(1.1)';
-            selectEl.style.boxShadow = '0 0 0 3px ' + (newStatus === 'RFS' ? 'rgba(34,197,94,0.3)' : newStatus === 'Backout' ? 'rgba(239,68,68,0.3)' : 'rgba(234,179,8,0.3)');
+            selectEl.style.boxShadow = '0 0 0 3px ' + (newStatus === 'RFS' ? 'rgba(34,197,94,0.3)' : newStatus === 'Backout' ? 'rgba(239,68,68,0.3)' : newStatus === 'On-Hold' ? 'rgba(59,130,246,0.3)' : 'rgba(234,179,8,0.3)');
             setTimeout(function() {
                 selectEl.style.transform = 'scale(1)';
                 selectEl.style.boxShadow = '';
@@ -6343,13 +6648,14 @@
             let html = '<div class="flex flex-wrap gap-3">';
             jobIds.forEach(function(jobId) {
                 const c = _jobTrackingCounts[jobId];
-                const total = (c.Pending || 0) + (c.RFS || 0) + (c.Backout || 0);
+                const total = (c.Pending || 0) + (c.RFS || 0) + (c.Backout || 0) + (c['On-Hold'] || 0);
                 html += '<div class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-4 py-3 min-w-[180px]">' +
                     '<div class="font-mono text-xs font-bold text-slate-700 dark:text-slate-300 mb-2">' + escapeHtml(jobId) + ' <span class="text-slate-400 font-normal">(' + total + ')</span></div>' +
                     '<div class="flex gap-3 text-xs">' +
                     '<span class="inline-flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-yellow-400"></span> Pending: <b>' + (c.Pending || 0) + '</b></span>' +
                     '<span class="inline-flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-green-500"></span> RFS: <b>' + (c.RFS || 0) + '</b></span>' +
                     '<span class="inline-flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-red-500"></span> Backout: <b>' + (c.Backout || 0) + '</b></span>' +
+                    '<span class="inline-flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-blue-500"></span> On-Hold: <b>' + (c['On-Hold'] || 0) + '</b></span>' +
                     '</div></div>';
             });
             html += '</div>';
@@ -6357,7 +6663,7 @@
         }
 
         function updateTrackingCountsLocally(jobId, oldStatus, newStatus) {
-            if (!_jobTrackingCounts[jobId]) _jobTrackingCounts[jobId] = { Pending: 0, RFS: 0, Backout: 0 };
+            if (!_jobTrackingCounts[jobId]) _jobTrackingCounts[jobId] = { Pending: 0, RFS: 0, Backout: 0, 'On-Hold': 0 };
             if (oldStatus && _jobTrackingCounts[jobId][oldStatus] > 0) _jobTrackingCounts[jobId][oldStatus]--;
             _jobTrackingCounts[jobId][newStatus] = (_jobTrackingCounts[jobId][newStatus] || 0) + 1;
             renderJobTrackingCounts(_jobTrackingCounts);
@@ -6426,7 +6732,27 @@
             const rows = document.querySelectorAll('#taskListBody .task-row');
             let visibleCount = 0;
 
+            // Get multi-select filter selections
+            const jobSel = taskJobMSF ? taskJobMSF.getSelected() : 'all';
+            const statusSel = taskStatusMSF ? taskStatusMSF.getSelected() : 'all';
+            const trackingSel = taskTrackingMSF ? taskTrackingMSF.getSelected() : 'all';
+
             rows.forEach(row => {
+                // Check multi-select filters first
+                const jobId = (row.querySelector('td:nth-child(2)') || {}).textContent || '';
+                const statusTag = row.dataset.statusTag || '';
+                const trackingSelect = row.querySelector('.tracking-status-select');
+                const trackingStatus = trackingSelect ? trackingSelect.value : 'Pending';
+
+                const jobMatch = jobSel === 'all' || jobSel.includes(jobId.trim());
+                const statusMatch = statusSel === 'all' || statusSel.includes(statusTag);
+                const trackingMatch = trackingSel === 'all' || trackingSel.includes(trackingStatus);
+
+                if (!jobMatch || !statusMatch || !trackingMatch) {
+                    row.style.display = 'none';
+                    return;
+                }
+
                 if (taskSearchTerms.length === 0) {
                     row.style.display = '';
                     visibleCount++;
@@ -6607,11 +6933,12 @@
                     document.getElementById('emptyFollowUpState').classList.add('hidden');
                     data.forEach(item => {
                         const tr = document.createElement('tr');
-                        tr.className = "hover:bg-slate-50 dark:hover:bg-slate-700 border-b border-slate-50 dark:border-slate-700";
+                        tr.className = "hover:bg-slate-50 dark:hover:bg-slate-700 border-b border-slate-50 dark:border-slate-700 follow-up-row";
 
                         // Status badge colors
                         let statusBadge = '';
                         const status = item.followUpStatus || 'Pending';
+                        tr.dataset.followUpStatus = status;
                         if(status === 'Pending') {
                             statusBadge = '<span class="px-2 py-1 rounded text-xs font-bold bg-slate-100 dark:bg-slate-600 text-slate-700 dark:text-slate-200">Pending</span>';
                         } else if(status.includes('1') || status === 'Follow-Up-1-Sent') {
@@ -6648,6 +6975,17 @@
                         tbody.appendChild(tr);
                     });
                 }
+                // Populate follow-up multi-select filters
+                if (followUpJobMSF && res.jobIds) {
+                    followUpJobMSF.setOptions(res.jobIds);
+                }
+                if (followUpStatusMSF && data.length > 0) {
+                    const uniqueStatuses = [...new Set(data.map(d => d.followUpStatus || 'Pending'))].sort();
+                    followUpStatusMSF.setOptions(uniqueStatuses);
+                }
+                // Apply multi-select client-side filters after render
+                applyFollowUpClientFilters();
+
                 // Update cache
                 dataCache.followups = { data: res, lastLoaded: Date.now() };
                 // Call completion callback if provided
@@ -6655,7 +6993,7 @@
             }).getFollowUpDataCombined(filters);
         }
 
-        function loadFollowUpData() { loadFollowUpStats(false, null, true); }
+        function loadFollowUpData() { applyFollowUpClientFilters(); }
 
         // Refresh Follow-Ups with animation and success message
         function refreshFollowUpsWithAnimation() {
@@ -6720,7 +7058,23 @@
             const rows = document.querySelectorAll('#followUpTableBody tr');
             let visibleCount = 0;
 
+            // Get multi-select filter selections
+            const jobSel = followUpJobMSF ? followUpJobMSF.getSelected() : 'all';
+            const statusSel = followUpStatusMSF ? followUpStatusMSF.getSelected() : 'all';
+
             rows.forEach(row => {
+                // Check multi-select filters first
+                const jobId = (row.querySelector('td:nth-child(1)') || {}).textContent || '';
+                const fuStatus = row.dataset.followUpStatus || '';
+
+                const jobMatch = jobSel === 'all' || jobSel.includes(jobId.trim());
+                const statusMatch = statusSel === 'all' || statusSel.includes(fuStatus);
+
+                if (!jobMatch || !statusMatch) {
+                    row.style.display = 'none';
+                    return;
+                }
+
                 if (followUpSearchTerms.length === 0) {
                     row.style.display = '';
                     visibleCount++;
@@ -8759,6 +9113,7 @@
                         sel.className = 'tracking-status-select text-xs font-bold px-2 py-1 rounded-lg border cursor-pointer transition ' +
                             (status === 'RFS' ? 'bg-green-100 text-green-700 border-green-300 dark:bg-green-900/30 dark:text-green-400 dark:border-green-700' :
                              status === 'Backout' ? 'bg-red-100 text-red-700 border-red-300 dark:bg-red-900/30 dark:text-red-400 dark:border-red-700' :
+                             status === 'On-Hold' ? 'bg-blue-100 text-blue-700 border-blue-300 dark:bg-blue-900/30 dark:text-blue-400 dark:border-blue-700' :
                              'bg-yellow-100 text-yellow-700 border-yellow-300 dark:bg-yellow-900/30 dark:text-yellow-400 dark:border-yellow-700');
                         updateTrackingCountsLocally(sel.dataset.jobId, oldStatus, status);
                         sel._prevStatus = status;
