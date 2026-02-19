@@ -5042,6 +5042,7 @@ function processJobNegotiations(jobId, rules, ss, faqContent, negotiationEnabled
     const stateEntry = {
       rowIndex: r + 1,
       attempts: Number(stateData[r][2]) || 0,
+      lastOffer: stateData[r][3] || '', // Column 4 = Last Offer (contains agreed rate info e.g. "Rate Agreed $14/hr - Data Pending")
       status: stateData[r][4],
       name: stateData[r][7] || 'Unknown',
       devId: stateData[r][6] || 'N/A',
@@ -5228,10 +5229,28 @@ function processJobNegotiations(jobId, rules, ss, faqContent, negotiationEnabled
         isDataGatheringComplete = saveResult.dataComplete || saveResult.totalQuestions === 0;
         pendingDataQuestions = saveResult.pendingQuestions || [];
 
+        // FIX: Filter out questions that are managed by the negotiation process itself.
+        // "Negotiation Response" is a system/meta column added when a negotiation email is sent -
+        // it tracks the negotiation outcome, NOT a question to ask the candidate directly.
+        // "Expected Rate" is handled by the rate analysis and negotiation reply logic (offering,
+        // countering, accepting) - asking it as a separate data gathering question while also
+        // negotiating the rate causes duplicate/confusing emails like
+        // "could you please provide your response to our negotiation proposal?"
+        const NEGOTIATION_MANAGED_HEADERS = ['Negotiation Response', 'Expected Rate'];
+        pendingDataQuestions = pendingDataQuestions.filter(q =>
+          !NEGOTIATION_MANAGED_HEADERS.includes(q.header)
+        );
+
+        // Recalculate data completeness after filtering negotiation-managed fields
+        // If all remaining pending questions were negotiation-managed, data gathering is effectively complete
+        isDataGatheringComplete = isDataGatheringComplete || pendingDataQuestions.length === 0;
+
         // Check if we need to send a missing info follow-up (Data Gathering mode)
         // IMPORTANT: If data gathering is pending, we should NOT send a separate negotiation email
         // This prevents duplicate emails (one for data gathering, one for negotiation)
-        if (saveResult.pendingQuestions && saveResult.pendingQuestions.length > 0 && !saveResult.dataComplete) {
+        // NOTE: Use filtered pendingDataQuestions (excludes negotiation-managed headers) to avoid
+        // sending data gathering emails that ask for "Negotiation Response" or "Expected Rate"
+        if (pendingDataQuestions.length > 0 && !isDataGatheringComplete) {
           // CRITICAL FIX: Check if candidate mentioned a rate in their message OR if rate was already provided
           // If they did, we should NOT send a simple data gathering email - instead let the negotiation
           // logic handle it, which will send a combined "acknowledge rate + request missing info" email
@@ -5280,7 +5299,7 @@ function processJobNegotiations(jobId, rules, ss, faqContent, negotiationEnabled
             try {
               const missingInfoEmail = generateMissingInfoFollowUp(
                 candidateName,
-                saveResult.pendingQuestions,
+                pendingDataQuestions,
                 conversationHistory,
                 rules.jobDescription || '',
                 rules.startDates || []
@@ -5299,7 +5318,7 @@ function processJobNegotiations(jobId, rules, ss, faqContent, negotiationEnabled
                 sendReplyWithSenderName(thread, missingInfoEmail, getEffectiveSenderName());
                 recordMissingInfoFollowUp(jobId, candidateEmail);
                 jobStats.missingInfoFollowUps++;
-                jobStats.log.push({type: 'info', message: `${candidateEmail} - Sent missing info follow-up for ${saveResult.pendingQuestions.length} missing items`});
+                jobStats.log.push({type: 'info', message: `${candidateEmail} - Sent missing info follow-up for ${pendingDataQuestions.length} missing items`});
 
                 // Update follow-up labels
                 updateFollowUpLabels(thread.getId(), 'responded');
@@ -5319,7 +5338,7 @@ function processJobNegotiations(jobId, rules, ss, faqContent, negotiationEnabled
                     {
                       totalQuestions: saveResult.totalQuestions,
                       answeredCount: saveResult.answeredCount,
-                      pendingQuestions: saveResult.pendingQuestions.map(q => q.question),
+                      pendingQuestions: pendingDataQuestions.map(q => q.question),
                       extractedData: saveResult.extractedData || {}
                     }
                   );
@@ -5470,8 +5489,11 @@ function processJobNegotiations(jobId, rules, ss, faqContent, negotiationEnabled
     if (isRateAlreadyAgreed) {
       jobStats.log.push({type: 'info', message: `${candidateEmail} - Rate already agreed (status: ${currentStatus}). Skipping rate negotiation.`});
 
-      // Extract the agreed rate from status if available (format: "Rate Agreed $XX/hr - Data Pending")
-      const agreedRateMatch = currentStatus.match(/\$(\d+(?:\.\d+)?)/);
+      // Extract the agreed rate - check Last Offer column first (has rate), then status, then AI notes
+      const lastOffer = state?.lastOffer || '';
+      const agreedRateMatch = lastOffer.match(/\$(\d+(?:\.\d+?)?)/) ||
+                              currentStatus.match(/\$(\d+(?:\.\d+?)?)/) ||
+                              (state?.aiNotes || '').match(/\$(\d+(?:\.\d+?)?)\/?hr/);
       const agreedRate = agreedRateMatch ? agreedRateMatch[1] : null;
 
       // If data gathering is pending, send a follow-up for data only (no rate discussion)
