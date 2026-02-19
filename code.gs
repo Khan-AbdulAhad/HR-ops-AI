@@ -3794,6 +3794,7 @@ function getAllTasks(filters) {
 
   // 3. Get Completed Negotiations - show completed candidates in Task List
   let statCompleted = 0;
+  let statNotInterested = 0;
   const completedData = getCachedSheetData('Negotiation_Completed', 30); // 30 second cache
   if(completedData && completedData.length > 1) {
     for(let i=1; i<completedData.length; i++) {
@@ -3806,6 +3807,7 @@ function getAllTasks(filters) {
       const notes = completedData[i][5] || '';
       const devId = completedData[i][6] || 'N/A';
       const timestamp = completedData[i][0];
+      const isNotInterested = finalStatus === 'Not Interested';
 
       if(jobId) jobIdSet.add(jobId);
 
@@ -3815,20 +3817,26 @@ function getAllTasks(filters) {
       countedCandidates.add(completedCandidateKey);
 
       // Apply filters BEFORE counting stats so cards reflect filters
-      if(statusFilter !== 'all' && statusFilter !== 'Completed') continue;
+      if(statusFilter === 'Not Interested' && !isNotInterested) continue;
+      if(statusFilter === 'Completed' && isNotInterested) continue;
+      if(statusFilter !== 'all' && statusFilter !== 'Completed' && statusFilter !== 'Not Interested') continue;
       if(jobFilter !== 'all' && jobId !== jobFilter) continue;
 
-      statCompleted++;
+      if (isNotInterested) {
+        statNotInterested++;
+      } else {
+        statCompleted++;
+      }
 
       tasks.push({
         email: email,
         jobId: jobId,
         devId: devId,
         name: name,
-        status: 'Completed',
+        status: isNotInterested ? 'Not Interested' : 'Completed',
         attempts: 'N/A',
-        tags: 'Completed',
-        type: 'Completed',
+        tags: isNotInterested ? 'Not Interested' : 'Completed',
+        type: isNotInterested ? 'Not Interested' : 'Completed',
         aiNotes: notes,
         lastReply: timestamp ? new Date(timestamp).toLocaleString() : 'N/A',
         threadId: ''
@@ -3851,14 +3859,14 @@ function getAllTasks(filters) {
 
   // 5. Load tracking statuses and compute per-job counts
   const trackingMap = getTaskTrackingStatuses();
-  const jobTrackingCounts = {}; // { jobId: { Pending: N, RFS: N, Backout: N } }
+  const jobTrackingCounts = {}; // { jobId: { Pending: N, RFS: N, Backout: N, 'On-Hold': N } }
 
   tasks.forEach(function(t) {
     const key = normalizeEmail(t.email) + '|' + String(t.jobId);
     t.trackingStatus = trackingMap[key] || 'Pending';
 
     if (!jobTrackingCounts[t.jobId]) {
-      jobTrackingCounts[t.jobId] = { Pending: 0, RFS: 0, Backout: 0 };
+      jobTrackingCounts[t.jobId] = { Pending: 0, RFS: 0, Backout: 0, 'On-Hold': 0 };
     }
     jobTrackingCounts[t.jobId][t.trackingStatus] = (jobTrackingCounts[t.jobId][t.trackingStatus] || 0) + 1;
   });
@@ -3872,7 +3880,8 @@ function getAllTasks(filters) {
       human: statHuman,
       accepted: statAccepted,
       initialOutreach: statInitialOutreach,
-      completed: statCompleted
+      completed: statCompleted,
+      notInterested: statNotInterested
     },
     jobSettings: jobSettingsMap,
     jobTrackingCounts: jobTrackingCounts
@@ -5902,59 +5911,12 @@ Return ONLY the JSON object, no other text.
 
     // If AI detects candidate is NOT INTERESTED (declined, accepted another offer, etc.)
     if (rateAnalysis && rateAnalysis.action === 'NOT_INTERESTED') {
-      const notInterestedReason = rateAnalysis.not_interested_reason || rateAnalysis.reason || 'Candidate indicated they are not interested';
-      jobStats.log.push({type: 'info', message: `${candidateEmail} - NOT INTERESTED: ${notInterestedReason}`});
-
-      // Generate AI summary for the not interested case
-      const notInterestedSummary = generateComprehensiveAISummary(
-        conversationHistory,
-        candidateEmail,
-        jobId,
-        attempts,
-        'Not Interested'
-      );
-
-      // Update Negotiation_State status and summary
-      if (stateRowIndex > -1) {
-        stateSheet.getRange(stateRowIndex, 5).setValue("Not Interested");
-        stateSheet.getRange(stateRowIndex, 9).setValue(`${notInterestedReason}. ${notInterestedSummary}`);
-      }
-
-      // Update Job Details sheet with Not Interested status
-      try {
-        updateJobCandidateStatus(ss, jobId, candidateEmail, 'Not Interested', null);
-      } catch(detailsErr) {
-        console.error("Failed to update job details sheet:", detailsErr);
-      }
-
-      // Add to Negotiation_Completed sheet for tracking
-      const completedSheet = ss.getSheetByName('Negotiation_Completed');
-      if (completedSheet) {
-        completedSheet.appendRow([
-          new Date(),
-          jobId,
-          candidateEmail,
-          candidateName,
-          "Not Interested",
-          `${notInterestedReason}. ${notInterestedSummary}`,
-          devId,
-          candidateRegion || ''
-        ]);
-      }
-
-      // Remove from Negotiation_State since this candidate is done
-      if (stateRowIndex > -1) {
-        stateSheet.deleteRow(stateRowIndex);
-        stateMap.delete(stateKey);
-      }
-
-      // Mark thread as completed and remove from follow-up
-      markCompleted(thread);
-      updateFollowUpLabels(thread.getId(), 'responded');
-
-      // Track as a completion (declined)
-      jobStats.notInterested++;
-      jobStats.log.push({type: 'info', message: `${candidateEmail} marked as Not Interested and moved to completed: ${notInterestedReason}`});
+      handleNotInterested({
+        jobStats, candidateEmail, conversationHistory, jobId, attempts,
+        stateRowIndex, stateSheet, stateMap, stateKey, ss, candidateName,
+        devId, candidateRegion, thread,
+        reason: rateAnalysis.not_interested_reason || rateAnalysis.reason || 'Candidate indicated they are not interested'
+      });
       return;
     }
 
@@ -6719,6 +6681,40 @@ Write ONLY the email, nothing else.
       } // Close else block for shouldSkipAcceptanceForRegionalLimit
     }
 
+    // SAFETY NET: Regex-based "not interested" detection before fallback prompt
+    // This catches cases where the AI rate analysis (Path 1) failed to detect disinterest
+    const notInterestedPatterns = [
+      /\bnot\s+interested\b/i,
+      /\bno\s+longer\s+interested\b/i,
+      /\balready\s+accepted\s+(another|a|an)\s+(offer|position|job|role)\b/i,
+      /\baccepted\s+(a|another)\s+(position|offer|job|role)\s+elsewhere\b/i,
+      /\bdecided\s+to\s+go\s+with\s+(another|a\s+different)\b/i,
+      /\bwithdrawing\s+my\s+application\b/i,
+      /\bplease\s+remove\s+me\b/i,
+      /\bnot\s+looking\s+(anymore|any\s*more)\b/i,
+      /\bno\s+longer\s+available\b/i,
+      /\bfound\s+another\s+(role|job|position|opportunity)\b/i,
+      /\bgoing\s+in\s+a\s+different\s+direction\b/i,
+      /\bdeclining\s+this\s+opportunity\b/i,
+      /\bnot\s+the\s+right\s+fit\b/i,
+      /\bcircumstances\s+have\s+changed\b/i,
+      /\btook\s+another\s+(job|offer|position)\b/i,
+      /\bdon'?t\s+want\s+to\s+(proceed|continue|move\s+forward)\b/i,
+      /\bpass\s+on\s+this\s+(opportunity|role|offer|position)\b/i
+    ];
+
+    const isNotInterestedByRegex = notInterestedPatterns.some(p => p.test(candidateLatestMessage));
+    if (isNotInterestedByRegex) {
+      jobStats.log.push({type: 'info', message: `${candidateEmail} - NOT INTERESTED (SAFETY NET): Regex detected disinterest in message`});
+      handleNotInterested({
+        jobStats, candidateEmail, conversationHistory, jobId, attempts,
+        stateRowIndex, stateSheet, stateMap, stateKey, ss, candidateName,
+        devId, candidateRegion, thread,
+        reason: 'Candidate indicated not interested (safety net detection)'
+      });
+      return;
+    }
+
     // ENHANCED AI PROMPT with better negotiation strategy
     const prompt = `
 You are a recruiter at Turing discussing a freelance opportunity.
@@ -6890,15 +6886,19 @@ ${isFirstResponse ? `
 2. If they refuse your offer or ask sensitive questions outside the FAQ:
    Reply with: ACTION: ESCALATE [REASON: brief reason]
 
-3. Otherwise, write a professional email (no internal terminology)
+3. If the candidate indicates they are NOT INTERESTED (declined, accepted another offer, no longer available, not looking, withdrawing, going in a different direction, etc.):
+   Reply with: ACTION: NOT_INTERESTED [REASON: brief reason]
+   Do NOT write a negotiation email to someone who has declined or expressed disinterest.
+
+4. Otherwise, write a professional email (no internal terminology)
 
 Respond with ONLY the email text OR the ACTION code. No other explanations.
     `;
-    
+
     const aiResponse = callAI(prompt);
-    
+
     jobStats.log.push({type: 'info', message: `${candidateEmail} - AI response: ${aiResponse.substring(0, 50)}...`});
-    
+
     // Extract escalation reason
     let escalationReason = "";
     const reasonMatch = aiResponse.match(/\[REASON:\s*([^\]]+)\]/i);
@@ -6915,7 +6915,22 @@ Respond with ONLY the email text OR the ACTION code. No other explanations.
       }
     }
     
-    // Handle AI response
+    // Handle AI response - check NOT_INTERESTED first (before ESCALATE)
+    if (aiResponse.includes("ACTION: NOT_INTERESTED")) {
+      let niReason = "Candidate indicated they are not interested";
+      const niReasonMatch = aiResponse.match(/\[REASON:\s*([^\]]+)\]/i);
+      if (niReasonMatch) {
+        niReason = niReasonMatch[1].trim();
+      }
+      jobStats.log.push({type: 'info', message: `${candidateEmail} - NOT INTERESTED (fallback AI detection): ${niReason}`});
+      handleNotInterested({
+        jobStats, candidateEmail, conversationHistory, jobId, attempts,
+        stateRowIndex, stateSheet, stateMap, stateKey, ss, candidateName,
+        devId, candidateRegion, thread, reason: niReason
+      });
+      return;
+    }
+
     if (aiResponse.includes("ACTION: ESCALATE")) {
       if(attempts < 2) {
         // Continue negotiation on early attempts - log helpful summary
@@ -8217,6 +8232,63 @@ function markCompleted(thread) {
   } catch(e) {
     console.error("Failed to add Completed label:", e);
   }
+}
+
+/**
+ * Handles the NOT_INTERESTED flow for a candidate.
+ * Generates AI summary, updates state/completed sheets, marks thread as completed, and cleans up.
+ * Used by: rate analysis detection (Path 1), regex safety net (Path 2 guard), and fallback AI detection (Path 2).
+ */
+function handleNotInterested(params) {
+  const { jobStats, candidateEmail, conversationHistory, jobId, attempts,
+          stateRowIndex, stateSheet, stateMap, stateKey, ss, candidateName,
+          devId, candidateRegion, thread, reason } = params;
+
+  const notInterestedReason = reason || 'Candidate indicated they are not interested';
+  jobStats.log.push({type: 'info', message: `${candidateEmail} - NOT INTERESTED: ${notInterestedReason}`});
+
+  // Generate AI summary for the not interested case
+  const notInterestedSummary = generateComprehensiveAISummary(
+    conversationHistory, candidateEmail, jobId, attempts, 'Not Interested'
+  );
+
+  // Update Negotiation_State status and summary
+  if (stateRowIndex > -1) {
+    stateSheet.getRange(stateRowIndex, 5).setValue("Not Interested");
+    stateSheet.getRange(stateRowIndex, 9).setValue(`${notInterestedReason}. ${notInterestedSummary}`);
+  }
+
+  // Update Job Details sheet with Not Interested status
+  try {
+    updateJobCandidateStatus(ss, jobId, candidateEmail, 'Not Interested', null);
+  } catch(detailsErr) {
+    console.error("Failed to update job details sheet:", detailsErr);
+  }
+
+  // Add to Negotiation_Completed sheet for tracking
+  const completedSheet = ss.getSheetByName('Negotiation_Completed');
+  if (completedSheet) {
+    completedSheet.appendRow([
+      new Date(), jobId, candidateEmail, candidateName,
+      "Not Interested",
+      `${notInterestedReason}. ${notInterestedSummary}`,
+      devId, candidateRegion || ''
+    ]);
+  }
+
+  // Remove from Negotiation_State since this candidate is done
+  if (stateRowIndex > -1) {
+    stateSheet.deleteRow(stateRowIndex);
+    stateMap.delete(stateKey);
+  }
+
+  // Mark thread as completed and remove from follow-up
+  markCompleted(thread);
+  updateFollowUpLabels(thread.getId(), 'responded');
+
+  // Track as a completion (declined)
+  jobStats.notInterested++;
+  jobStats.log.push({type: 'info', message: `${candidateEmail} marked as Not Interested and moved to completed: ${notInterestedReason}`});
 }
 
 /**
