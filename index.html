@@ -6468,12 +6468,25 @@
                     document.getElementById('emptyTaskState').classList.add('hidden');
                     tbody.parentElement.classList.remove('hidden');
                     
+                    // Pre-compute active search terms so rows are filtered during creation
+                    const activeSearchTerms = taskSearchTerms.length > 0 ? taskSearchTerms : [];
+
                     tasks.forEach(t => {
                         const tr = document.createElement('tr');
                         tr.className = "hover:bg-slate-50 dark:hover:bg-slate-700 border-b border-slate-50 dark:border-slate-700 transition task-row";
                         tr.dataset.email = t.email;
                         tr.dataset.statusTag = t.tags;
-                        
+
+                        // Hide row immediately if it doesn't match active search
+                        if (activeSearchTerms.length > 0) {
+                            const emailLower = (t.email || '').toLowerCase();
+                            const devIdLower = (t.devId || '').toLowerCase();
+                            const matchesSearch = activeSearchTerms.some(term =>
+                                emailLower.includes(term) || devIdLower.includes(term)
+                            );
+                            if (!matchesSearch) tr.style.display = 'none';
+                        }
+
                         // Badge Logic
                         let badgeClass = 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400';
                         if(t.tags.includes('Human')) badgeClass = 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400';
@@ -6532,22 +6545,28 @@
                         if (sel) sel._prevStatus = t.trackingStatus || 'Pending';
                     });
                 }
-                // Render per-job tracking status counts
-                renderJobTrackingCounts(res.jobTrackingCounts || {});
+                // Render per-job tracking status counts and update filters.
+                // Wrap in try-catch to guarantee filters are always re-applied
+                // even if a rendering step fails (prevents search from being lost).
+                try {
+                    renderJobTrackingCounts(res.jobTrackingCounts || {});
 
-                // Populate multi-select filters with unique values from loaded data
-                if (taskJobMSF && res.jobIds) {
-                    taskJobMSF.setOptions(res.jobIds);
+                    // Populate multi-select filters with unique values from loaded data
+                    if (taskJobMSF && res.jobIds) {
+                        taskJobMSF.setOptions(res.jobIds);
+                    }
+                    if (taskStatusMSF && tasks.length > 0) {
+                        const uniqueStatuses = [...new Set(tasks.map(t => t.tags))].sort();
+                        taskStatusMSF.setOptions(uniqueStatuses);
+                    }
+                    if (taskTrackingMSF && tasks.length > 0) {
+                        const uniqueTracking = [...new Set(tasks.map(t => t.trackingStatus || 'Pending'))].sort();
+                        taskTrackingMSF.setOptions(uniqueTracking);
+                    }
+                } catch (e) {
+                    console.error('Error updating filters after task load:', e);
                 }
-                if (taskStatusMSF && tasks.length > 0) {
-                    const uniqueStatuses = [...new Set(tasks.map(t => t.tags))].sort();
-                    taskStatusMSF.setOptions(uniqueStatuses);
-                }
-                if (taskTrackingMSF && tasks.length > 0) {
-                    const uniqueTracking = [...new Set(tasks.map(t => t.trackingStatus || 'Pending'))].sort();
-                    taskTrackingMSF.setOptions(uniqueTracking);
-                }
-                // Apply multi-select client-side filters after render
+                // Always re-apply client-side filters (search + multi-select) after render
                 applyTaskClientFilters();
 
                 // Update cache
@@ -6784,9 +6803,16 @@
         function toggleAllTasks(master) {
             const checks = document.querySelectorAll('.task-check');
             checks.forEach(c => {
-                c.checked = master.checked;
                 const row = c.closest('.task-row');
                 if(row) {
+                    // Skip hidden/filtered rows — only act on visible rows
+                    if(row.style.display === 'none') {
+                        c.checked = false;
+                        selectedTasks.delete(row.dataset.email);
+                        row.classList.remove('selected');
+                        return;
+                    }
+                    c.checked = master.checked;
                     const email = row.dataset.email;
                     if(master.checked) {
                         selectedTasks.add(email);
