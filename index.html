@@ -14527,9 +14527,9 @@
                     ? (e.status === 'done' ? '<i class="fa-solid fa-circle-check text-green-400"></i>' : '<i class="fa-regular fa-circle text-slate-400"></i>')
                     : '<i class="fa-solid fa-sticky-note text-amber-400"></i>';
                 var textClass = (e.type === 'T' && e.status === 'done') ? 'line-through text-slate-400' : 'text-white';
-                var dateLabel = e.date ? e.date.slice(5) : '??';
+                var dateLabel = e.date ? e.date.slice(5) : '';
                 var truncated = e.content.length > 50 ? e.content.substring(0, 50) + '...' : e.content;
-                html += '<div class="flex items-start gap-2">' + icon + ' <span class="' + textClass + ' flex-1">' + escapeHtml(truncated) + '</span><span class="text-slate-500 ml-1 flex-shrink-0">' + dateLabel + '</span></div>';
+                html += '<div class="flex items-start gap-2">' + icon + ' <span class="' + textClass + ' flex-1">' + escapeHtml(truncated) + '</span>' + (dateLabel ? '<span class="text-slate-500 ml-1 flex-shrink-0">' + dateLabel + '</span>' : '') + '</div>';
             });
             if (summary.totalEntries > 3) {
                 html += '<div class="text-slate-500 text-center mt-1.5">+ ' + (summary.totalEntries - 3) + ' more &middot; click to view</div>';
@@ -14538,15 +14538,25 @@
 
             content.innerHTML = html;
 
-            // Position tooltip below the cell
+            // Position tooltip relative to the cell, flipping above if near bottom
             var td = event.target.closest('td');
             if (td) {
                 var rect = td.getBoundingClientRect();
                 tooltip.style.left = Math.min(rect.left, window.innerWidth - 340) + 'px';
-                tooltip.style.top = (rect.bottom + 8) + 'px';
+                // Temporarily show to measure height
+                tooltip.style.visibility = 'hidden';
+                tooltip.classList.remove('hidden');
+                var tooltipHeight = tooltip.offsetHeight;
+                tooltip.style.visibility = '';
+                // If tooltip would overflow below viewport, show it above the cell
+                if (rect.bottom + 8 + tooltipHeight > window.innerHeight) {
+                    tooltip.style.top = Math.max(4, rect.top - tooltipHeight - 8) + 'px';
+                } else {
+                    tooltip.style.top = (rect.bottom + 8) + 'px';
+                }
+            } else {
+                tooltip.classList.remove('hidden');
             }
-
-            tooltip.classList.remove('hidden');
         }
 
         // Hide hover tooltip
