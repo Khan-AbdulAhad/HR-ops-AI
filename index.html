@@ -6532,10 +6532,10 @@
                                       'bg-yellow-100 text-yellow-700 border-yellow-300 dark:bg-yellow-900/30 dark:text-yellow-400 dark:border-yellow-700'}"
                                     data-email="${escapeHtml(t.email)}" data-job-id="${escapeHtml(t.jobId)}"
                                     onchange="updateTrackingStatus(this)">
-                                    <option value="Pending" ${t.trackingStatus === 'Pending' ? 'selected' : ''}>Pending</option>
-                                    <option value="RFS" ${t.trackingStatus === 'RFS' ? 'selected' : ''}>RFS</option>
-                                    <option value="Backout" ${t.trackingStatus === 'Backout' ? 'selected' : ''}>Backout</option>
-                                    <option value="On-Hold" ${t.trackingStatus === 'On-Hold' ? 'selected' : ''}>On-Hold</option>
+                                    <option value="Pending" ${t.trackingStatus === 'Pending' ? 'selected' : ''} style="background-color:#fef9c3;color:#a16207;">Pending</option>
+                                    <option value="RFS" ${t.trackingStatus === 'RFS' ? 'selected' : ''} style="background-color:#dcfce7;color:#15803d;">RFS</option>
+                                    <option value="Backout" ${t.trackingStatus === 'Backout' ? 'selected' : ''} style="background-color:#fee2e2;color:#b91c1c;">Backout</option>
+                                    <option value="On-Hold" ${t.trackingStatus === 'On-Hold' ? 'selected' : ''} style="background-color:#dbeafe;color:#1d4ed8;">On-Hold</option>
                                 </select>
                             </td>
                         `;
