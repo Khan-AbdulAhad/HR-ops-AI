@@ -7991,8 +7991,9 @@ function updateNotesForAcceptance(existingNotes, rate, candidateName, acceptance
     return `Offer Accepted at $${rate}/hr - ${acceptanceType}`;
   }
 
-  // Check if notes have stale "Awaiting" text that needs updating
-  const hasStaleText = /awaiting.*response|awaiting.*rate/i.test(existingNotes);
+  // Check if notes have stale "Awaiting" or "Pending" text that needs updating
+  // FIX: Also catch "Response: Pending", "Negotiation Response: Pending", and similar patterns
+  const hasStaleText = /awaiting.*response|awaiting.*rate|pending.*response|response.*pending|negotiation.*pending/i.test(existingNotes);
 
   if (!hasStaleText) {
     // No stale text - just append the acceptance marker
@@ -8004,7 +8005,10 @@ function updateNotesForAcceptance(existingNotes, rate, candidateName, acceptance
     // Replace various "Awaiting" patterns with acceptance status
     .replace(/Awaiting candidate's response to the offered rate\.?/gi, `Candidate accepted at $${rate}/hr.`)
     .replace(/Awaiting.*?response.*?(?:offered\s*)?rate\.?/gi, `Candidate accepted at $${rate}/hr.`)
-    .replace(/-\s*Awaiting.*$/gm, `- Accepted at $${rate}/hr | ${acceptanceType}`);
+    .replace(/-\s*Awaiting.*$/gm, `- Accepted at $${rate}/hr | ${acceptanceType}`)
+    // FIX: Also replace "Pending" patterns related to negotiation response
+    .replace(/Negotiation Response:\s*Pending\.?/gi, `Negotiation Response: Accepted at $${rate}/hr.`)
+    .replace(/Response:\s*Pending\.?/gi, `Response: Accepted at $${rate}/hr.`);
 
   return updatedNotes + ` | ${acceptanceType}`;
 }
@@ -8029,10 +8033,16 @@ function generateAcceptanceSummaryIfNeeded(existingNotes, conversationHistory, r
   }
 
   // Check if notes have stale negotiation text that would confuse talent ops
-  const hasStaleNegotiationText = /awaiting.*response|awaiting.*rate|pending.*response/i.test(existingNotes);
+  // FIX: Also catch "Response: Pending", "Negotiation Response: Pending", and similar patterns
+  // where "pending" appears after "response" or "negotiation" (not just before)
+  const hasStaleNegotiationText = /awaiting.*response|awaiting.*rate|pending.*response|response.*pending|negotiation.*pending/i.test(existingNotes);
 
-  if (!hasStaleNegotiationText) {
-    // Notes are fine - just append acceptance marker (no AI call needed)
+  // Also check: if notes don't mention acceptance at all, they're stale by definition
+  // (since this function is only called when the candidate HAS accepted)
+  const hasAcceptanceText = /accepted|offer accepted|auto.?accepted|candidate accepted/i.test(existingNotes);
+
+  if (!hasStaleNegotiationText && hasAcceptanceText) {
+    // Notes already reflect acceptance - just append acceptance marker (no AI call needed)
     return existingNotes + ` | ${acceptanceType}`;
   }
 
@@ -8644,9 +8654,20 @@ function syncCompletedFromGmail() {
           const completionStatus = shouldEscalate
             ? `Escalated - Rate Review (Gmail Sync)${extractedRate ? ` - $${extractedRate}/hr` : ''}`
             : 'Completed (Gmail Sync)';
+          // FIX: If aiNotes is still empty after summary generation, provide useful context
+          // instead of the unhelpful 'Marked complete directly in Gmail' message
+          let stateCompletionNotes = aiNotes;
+          if (!stateCompletionNotes && !shouldEscalate) {
+            // Try one more time to generate a summary from the thread
+            try {
+              stateCompletionNotes = generateConversationSummary(msgs, candidateEmail, myEmail);
+            } catch(retryErr) {
+              console.error("Gmail Sync (State) - Retry summary generation failed:", retryErr);
+            }
+          }
           const completionNotes = shouldEscalate
             ? escalationReason
-            : (aiNotes || 'Marked complete directly in Gmail');
+            : (stateCompletionNotes || `Completed via Gmail sync - ${lastStatus}. Review thread for details.`);
 
           compSheet.appendRow([
             new Date(),
@@ -8696,6 +8717,18 @@ function syncCompletedFromGmail() {
           const name = taskData[r][2] || candidateName || 'Unknown';
           const agreedRate = taskData[r][4] || 'N/A';
 
+          // FIX: Generate AI summary from conversation instead of hardcoded text
+          // This gives the recruiter useful context about what happened in the negotiation
+          let taskCompletionNotes = '';
+          try {
+            taskCompletionNotes = generateConversationSummary(msgs, candidateEmail, myEmail);
+          } catch(summaryErr) {
+            console.error("Gmail Sync (Task) - Failed to generate conversation summary:", summaryErr);
+          }
+          if (!taskCompletionNotes) {
+            taskCompletionNotes = `Accepted at $${agreedRate}/hr - Completed via Gmail sync`;
+          }
+
           // Add to completed sheet
           compSheet.appendRow([
             new Date(),
@@ -8703,7 +8736,7 @@ function syncCompletedFromGmail() {
             candidateEmail,
             name,
             `Accepted at $${agreedRate}/hr (Gmail Sync)`,
-            'Marked complete directly in Gmail',
+            taskCompletionNotes,
             devId,
             taskData[r][8] || ''
           ]);
