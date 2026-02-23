@@ -1850,7 +1850,7 @@
                 <div id="tab-tasks" class="tab-content hidden-tab">
                     
                     <!-- Stats Cards (New Design) -->
-                    <div class="grid grid-cols-1 md:grid-cols-6 gap-6 mb-8">
+                    <div class="grid grid-cols-1 md:grid-cols-7 gap-6 mb-8">
                         <div class="stat-card border-slate-500">
                             <p class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Total Active</p>
                             <h2 class="text-3xl font-extrabold text-slate-800" id="statTotal">-</h2>
@@ -1900,6 +1900,15 @@
                                 <div class="p-2 bg-slate-50 rounded-lg text-slate-500"><i class="fa-solid fa-ban"></i></div>
                             </div>
                         </div>
+                        <div class="stat-card border-red-400">
+                            <div class="flex justify-between items-start">
+                                <div>
+                                    <p class="text-xs font-bold text-red-400 uppercase tracking-wider mb-1">Unresponsive</p>
+                                    <h2 class="text-3xl font-extrabold text-slate-800" id="statUnresponsive">-</h2>
+                                </div>
+                                <div class="p-2 bg-red-50 rounded-lg text-red-500"><i class="fa-solid fa-user-xmark"></i></div>
+                            </div>
+                        </div>
                     </div>
 
                     <!-- Search Bar for Task List -->
@@ -1943,6 +1952,7 @@
                                 <option value="Offer Accepted">Accepted</option>
                                 <option value="Completed">Completed</option>
                                 <option value="Not Interested">Not Interested</option>
+                                <option value="Unresponsive">Unresponsive</option>
                             </select>
                             <!-- Multi-select filter dropdowns -->
                             <div id="taskJobFilterMSF"></div>
@@ -4963,8 +4973,12 @@
                     badges.push('<span class="inline-flex items-center justify-center w-6 h-6 rounded-full text-[10px] font-bold bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-700" title="Follow-up">F</span>');
                 }
 
+                // If unresponsive, show an xmark badge
+                if (tagsLower === 'unresponsive' || statusLower === 'unresponsive') {
+                    badges.push('<span class="inline-flex items-center justify-center w-6 h-6 rounded-full text-[10px] font-bold bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-400 border border-red-200 dark:border-red-700" title="Unresponsive"><i class="fa-solid fa-user-xmark text-[8px]"></i></span>');
+                }
                 // If not interested, show a ban badge
-                if (tagsLower === 'not interested' || statusLower === 'not interested') {
+                else if (tagsLower === 'not interested' || statusLower === 'not interested') {
                     badges.push('<span class="inline-flex items-center justify-center w-6 h-6 rounded-full text-[10px] font-bold bg-slate-200 dark:bg-slate-600 text-slate-600 dark:text-slate-300 border border-slate-300 dark:border-slate-500" title="Not Interested"><i class="fa-solid fa-ban text-[8px]"></i></span>');
                 }
                 // If accepted, show a checkmark badge (always show - this is a completion status)
@@ -6439,6 +6453,7 @@
                     document.getElementById('statAccepted').textContent = res.stats.accepted;
                     document.getElementById('statCompleted').textContent = res.stats.completed || 0;
                     document.getElementById('statNotInterested').textContent = res.stats.notInterested || 0;
+                    document.getElementById('statUnresponsive').textContent = res.stats.unresponsive || 0;
                 }
                 // Store job settings for badge rendering
                 const jobSettingsMap = res.jobSettings || {};
@@ -6489,7 +6504,8 @@
 
                         // Badge Logic
                         let badgeClass = 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400';
-                        if(t.tags.includes('Human')) badgeClass = 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400';
+                        if(t.tags === 'Unresponsive') badgeClass = 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400';
+                        else if(t.tags.includes('Human')) badgeClass = 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400';
                         else if(t.tags === 'Not Interested') badgeClass = 'bg-slate-200 dark:bg-slate-600 text-slate-600 dark:text-slate-300';
                         else if(t.status === 'Offer Accepted') badgeClass = 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400';
                         else if(t.status === 'Completed' || t.type === 'Completed') badgeClass = 'bg-teal-100 dark:bg-teal-900/30 text-teal-700 dark:text-teal-400';
