@@ -13033,11 +13033,14 @@ function getUserAnalytics(filterEmail, filterJobId, startDate, endDate) {
     const perJobFollowUps = followUpStats.perJob || {};
 
     // Get per-job completed counts from Negotiation_Completed (source of truth)
-    // Activity_Log can miss task_completed entries if logging fails
+    // IMPORTANT: Negotiation_Completed is in the MAIN spreadsheet, not the analytics spreadsheet
+    // getUserAnalytics() uses getAnalyticsSpreadsheet() (ss) which only has Activity_Log.
+    // We must use getCachedSpreadsheet() to access the main operational spreadsheet.
     const completedPerJob = {};
     let totalCompletedFromSheet = 0;
     try {
-      const completedSheet = ss.getSheetByName('Negotiation_Completed');
+      const mainSs = getCachedSpreadsheet();
+      const completedSheet = mainSs ? mainSs.getSheetByName('Negotiation_Completed') : null;
       if (completedSheet && completedSheet.getLastRow() > 1) {
         const completedData = completedSheet.getDataRange().getValues();
         for (let i = 1; i < completedData.length; i++) {
