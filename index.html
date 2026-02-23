@@ -1964,6 +1964,9 @@
                             <button id="processHumanBtn" onclick="processCompletedHumanEscalations()" class="bg-amber-500 hover:bg-amber-600 text-white px-4 py-2 rounded-lg font-medium text-sm flex items-center gap-2 shadow-sm" title="Import human-completed negotiations: Scans Gmail for threads with 'Completed' + 'Human-Negotiation' labels">
                                 <i class="fa-solid fa-user-check"></i> Sync Human
                             </button>
+                            <button id="fixWithdrawalsBtn" onclick="runRetroactiveWithdrawalScan()" class="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-lg font-medium text-sm flex items-center gap-2 shadow-sm" title="Scan Gmail threads for candidates who withdrew but status was never updated. Fixes missed Not Interested statuses.">
+                                <i class="fa-solid fa-magnifying-glass-minus"></i> Fix Withdrawals
+                            </button>
                             <button id="taskRefreshBtn" onclick="refreshTasksWithAnimation()" class="refresh-btn bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-600 text-slate-600 dark:text-slate-200 px-3 py-2 rounded-lg transition" title="Refresh task list">
                                 <i class="fa-solid fa-rotate"></i>
                             </button>
@@ -7752,6 +7755,44 @@
                     showToast("Error: " + err.message, "error");
                 })
                 .processCompletedHumanEscalations();
+        }
+
+        function runRetroactiveWithdrawalScan() {
+            if (!confirm("Scan all active candidates for missed withdrawals?\n\nThis will check Gmail threads for candidates who said they're not interested but whose status was never updated. Found issues will be fixed automatically.")) return;
+
+            const btn = document.getElementById('fixWithdrawalsBtn');
+            const originalContent = btn.innerHTML;
+
+            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Scanning...';
+            btn.disabled = true;
+
+            google.script.run
+                .withSuccessHandler(res => {
+                    btn.innerHTML = originalContent;
+                    btn.disabled = false;
+
+                    // Show results in AI log panel
+                    const logContainer = document.getElementById('aiLogContainer');
+                    const progressPanel = document.getElementById('aiProgressPanel');
+                    if (logContainer && res.log) {
+                        if (progressPanel) progressPanel.classList.remove('hidden');
+                        res.log.forEach(l => addLog(l.type, l.message));
+                    }
+
+                    if (res.fixed > 0) {
+                        showToast(`Fixed ${res.fixed} missed withdrawal(s) out of ${res.scanned} scanned`, "success");
+                        // Refresh task list to show updated statuses
+                        loadTasks();
+                    } else {
+                        showToast(`Scanned ${res.scanned} candidates - no missed withdrawals found`, "info");
+                    }
+                })
+                .withFailureHandler(err => {
+                    btn.innerHTML = originalContent;
+                    btn.disabled = false;
+                    showToast("Error: " + err.message, "error");
+                })
+                .retroactiveScanNotInterested();
         }
 
         // ==========================================

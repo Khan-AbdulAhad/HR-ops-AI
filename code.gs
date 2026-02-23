@@ -8652,6 +8652,265 @@ function handleNotInterested(params) {
 }
 
 /**
+ * RETROACTIVE SCAN: Find candidates whose messages indicate "Not Interested" / withdrawal
+ * but whose status was never updated (e.g., still "Initial Outreach", "Negotiating", etc.)
+ *
+ * This scans Negotiation_State for candidates with active statuses, reads their Gmail threads,
+ * and checks the candidate's messages for not-interested patterns. If found, it applies the
+ * same status updates as handleNotInterested() would have.
+ *
+ * Also scans Follow_Up_Queue for candidates stuck in follow-up who already withdrew.
+ *
+ * Call from the dashboard UI via the "Fix Missed Withdrawals" button.
+ */
+function retroactiveScanNotInterested() {
+  const results = { fixed: 0, scanned: 0, errors: 0, alreadyCorrect: 0, log: [] };
+
+  try {
+    const url = getStoredSheetUrl();
+    if (!url) {
+      results.log.push({ type: 'error', message: 'No config URL set' });
+      return results;
+    }
+
+    const ss = SpreadsheetApp.openByUrl(url);
+    ensureSheetsExist(ss);
+
+    const stateSheet = ss.getSheetByName('Negotiation_State');
+    const compSheet = ss.getSheetByName('Negotiation_Completed');
+
+    if (!stateSheet || !compSheet) {
+      results.log.push({ type: 'error', message: 'Required sheets not found' });
+      return results;
+    }
+
+    const myEmail = Session.getActiveUser().getEmail().toLowerCase();
+
+    // Not-interested patterns (same as the ones used in processJobNegotiations)
+    const notInterestedPatterns = [
+      /\bnot\s+interested\b/i,
+      /\bno\s+longer\s+interested\b/i,
+      /\bwithdraw(?:ing)?\s+(?:my|the)\s+application\b/i,
+      /\b(?:would|i'?d)\s+like\s+to\s+withdraw\b/i,
+      /\b(?:wish|want)\s+to\s+withdraw\b/i,
+      /\balready\s+accepted\s+(another|a|an)\s+(offer|position|job|role)\b/i,
+      /\baccepted\s+(a|another)\s+(position|offer|job|role)\s+elsewhere\b/i,
+      /\bdecided\s+to\s+go\s+with\s+(another|a\s+different)\b/i,
+      /\bplease\s+remove\s+me\b/i,
+      /\bnot\s+looking\s+(anymore|any\s*more)\b/i,
+      /\bno\s+longer\s+available\b/i,
+      /\bgoing\s+in\s+a\s+different\s+direction\b/i,
+      /\bdeclining\s+this\s+opportunity\b/i,
+      /\bnot\s+(?:looking\s+for|interested\s+in)\s+(?:a\s+)?(?:contract(?:ual)?|freelance|part[\s-]?time)\b/i,
+      /\btook\s+another\s+(job|offer|position)\b/i,
+      /\bfound\s+another\s+(role|job|position|opportunity)\b/i,
+      /\bdon'?t\s+want\s+to\s+(proceed|continue|move\s+forward)\b/i,
+      /\bpass\s+on\s+this\s+(opportunity|role|offer|position)\b/i,
+      /\bnot\s+the\s+right\s+fit\b/i,
+      /\bcircumstances\s+have\s+changed\b/i
+    ];
+
+    // Helper: check if any candidate message in thread matches not-interested patterns
+    function checkThreadForNotInterested(thread) {
+      if (!thread) return { matched: false };
+      const msgs = thread.getMessages();
+      // Check candidate messages (non-me senders) from newest to oldest
+      for (let m = msgs.length - 1; m >= 0; m--) {
+        const from = msgs[m].getFrom().toLowerCase();
+        if (from.indexOf(myEmail) !== -1) continue; // skip our own messages
+
+        const body = msgs[m].getPlainBody() || '';
+        for (const pattern of notInterestedPatterns) {
+          if (pattern.test(body)) {
+            // Extract a snippet around the match for the reason
+            const match = body.match(pattern);
+            const snippet = match ? match[0] : 'withdrawal detected';
+            return { matched: true, reason: snippet, messageBody: body.substring(0, 300) };
+          }
+        }
+      }
+      return { matched: false };
+    }
+
+    // ---- PART 1: Scan Negotiation_State for candidates with active statuses ----
+    results.log.push({ type: 'info', message: 'Scanning Negotiation_State for missed withdrawals...' });
+
+    // Re-read state data each iteration since we may delete rows
+    let stateData = stateSheet.getDataRange().getValues();
+    const rowsToProcess = [];
+
+    for (let i = 1; i < stateData.length; i++) {
+      const email = String(stateData[i][0] || '').toLowerCase().trim();
+      const jobId = String(stateData[i][1] || '');
+      const status = String(stateData[i][4] || '');
+      const threadId = stateData[i][9] || '';
+
+      if (!email || !jobId) continue;
+
+      // Skip candidates already marked as Not Interested or Completed
+      if (status === 'Not Interested' || status === 'Completed' || status === 'Offer Accepted') {
+        results.alreadyCorrect++;
+        continue;
+      }
+
+      rowsToProcess.push({
+        rowIndex: i + 1, // 1-based sheet row
+        email, jobId, status, threadId,
+        name: stateData[i][7] || 'Unknown',
+        devId: stateData[i][6] || 'N/A',
+        region: stateData[i][10] || '',
+        attempts: Number(stateData[i][2]) || 0
+      });
+    }
+
+    results.log.push({ type: 'info', message: `Found ${rowsToProcess.length} active candidates to check` });
+
+    // Process from bottom to top so row deletions don't shift indices
+    const sortedRows = rowsToProcess.sort((a, b) => b.rowIndex - a.rowIndex);
+
+    for (const candidate of sortedRows) {
+      results.scanned++;
+
+      try {
+        if (!candidate.threadId) {
+          continue; // No thread ID to check
+        }
+
+        const thread = GmailApp.getThreadById(candidate.threadId);
+        const check = checkThreadForNotInterested(thread);
+
+        if (!check.matched) continue;
+
+        // Found a missed not-interested candidate!
+        results.log.push({
+          type: 'success',
+          message: `FIXING: ${candidate.name} (${candidate.email}) - Job ${candidate.jobId} - Was "${candidate.status}" - Detected: "${check.reason}"`
+        });
+
+        // 1. Update Job Details sheet
+        try {
+          updateJobCandidateStatus(ss, candidate.jobId, candidate.email, 'Not Interested', null);
+        } catch (e) {
+          console.error('Failed to update job details for ' + candidate.email + ':', e);
+        }
+
+        // 2. Add to Negotiation_Completed
+        compSheet.appendRow([
+          new Date(), candidate.jobId, candidate.email, candidate.name,
+          'Not Interested',
+          `Retroactive fix: ${check.reason}. Previously "${candidate.status}".`,
+          candidate.devId, candidate.region
+        ]);
+
+        // 3. Mark Gmail thread as completed
+        try {
+          markCompleted(thread);
+        } catch (e) {
+          console.error('Failed to mark thread completed for ' + candidate.email + ':', e);
+        }
+
+        // 4. Update follow-up labels
+        try {
+          updateFollowUpLabels(candidate.threadId, 'responded');
+        } catch (e) {
+          console.error('Failed to update follow-up labels for ' + candidate.email + ':', e);
+        }
+
+        // 5. Update Follow_Up_Queue status if entry exists
+        try {
+          const followUpSheet = ss.getSheetByName('Follow_Up_Queue');
+          if (followUpSheet) {
+            const fuData = followUpSheet.getDataRange().getValues();
+            const normalizedEmail = normalizeEmail(candidate.email);
+            for (let f = fuData.length - 1; f >= 1; f--) {
+              if (normalizeEmail(fuData[f][0]) === normalizedEmail && String(fuData[f][1]) === candidate.jobId) {
+                followUpSheet.getRange(f + 1, 9).setValue('Responded'); // Status column
+                followUpSheet.getRange(f + 1, 10).setValue(new Date()); // Last Updated
+                break;
+              }
+            }
+          }
+        } catch (e) {
+          console.error('Failed to update Follow_Up_Queue for ' + candidate.email + ':', e);
+        }
+
+        // 6. Delete from Negotiation_State (LAST - after all updates)
+        stateSheet.deleteRow(candidate.rowIndex);
+
+        results.fixed++;
+
+      } catch (e) {
+        results.errors++;
+        results.log.push({ type: 'error', message: `Error checking ${candidate.email}: ${e.message}` });
+      }
+    }
+
+    // ---- PART 2: Scan Follow_Up_Queue for stuck entries ----
+    results.log.push({ type: 'info', message: 'Scanning Follow_Up_Queue for missed withdrawals...' });
+
+    const followUpSheet = ss.getSheetByName('Follow_Up_Queue');
+    if (followUpSheet) {
+      const fuData = followUpSheet.getDataRange().getValues();
+      let fuFixed = 0;
+
+      for (let f = fuData.length - 1; f >= 1; f--) {
+        const email = String(fuData[f][0] || '').toLowerCase().trim();
+        const jobId = String(fuData[f][1] || '');
+        const threadId = fuData[f][2] || '';
+        const fuStatus = String(fuData[f][8] || '');
+
+        if (!email || !threadId) continue;
+        if (fuStatus === 'Responded' || fuStatus === 'Unresponsive') continue;
+
+        try {
+          const thread = GmailApp.getThreadById(threadId);
+          const check = checkThreadForNotInterested(thread);
+
+          if (!check.matched) continue;
+
+          // Check if we already fixed this in Part 1 (state sheet scan)
+          // If not in state sheet anymore, just update the follow-up queue status
+          followUpSheet.getRange(f + 1, 9).setValue('Responded');
+          followUpSheet.getRange(f + 1, 10).setValue(new Date());
+
+          try {
+            updateFollowUpLabels(threadId, 'responded');
+          } catch (e) { /* ignore label errors */ }
+
+          fuFixed++;
+          results.log.push({
+            type: 'success',
+            message: `FIXED Follow-Up: ${email} - Job ${jobId} - Detected: "${check.reason}"`
+          });
+
+        } catch (e) {
+          // Skip thread access errors
+        }
+      }
+
+      if (fuFixed > 0) {
+        results.log.push({ type: 'info', message: `Fixed ${fuFixed} Follow_Up_Queue entries` });
+        results.fixed += fuFixed;
+      }
+    }
+
+    // Flush all changes
+    SpreadsheetApp.flush();
+
+    results.log.push({
+      type: 'info',
+      message: `Scan complete: ${results.scanned} candidates checked, ${results.fixed} fixed, ${results.errors} errors`
+    });
+
+  } catch (e) {
+    console.error('retroactiveScanNotInterested error:', e);
+    results.log.push({ type: 'error', message: `Fatal error: ${e.message}` });
+  }
+
+  return results;
+}
+
+/**
  * GMAIL → APP SYNC
  * Scans for threads marked "Completed" in Gmail and syncs them to sheets
  * This allows recruiters to mark complete directly in Gmail
