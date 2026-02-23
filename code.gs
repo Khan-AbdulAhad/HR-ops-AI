@@ -3697,19 +3697,46 @@ function getAllTasks(filters) {
   const stateData = getCachedSheetData('Negotiation_State', 30); // 30 second cache
   if(!stateData || stateData.length === 0) return { tasks: [], jobIds: [], stats: { total: 0, active: 0, human: 0, accepted: 0, initialOutreach: 0 }, jobSettings: {} };
 
+  // Build a Set of unresponsive candidates by cross-referencing Follow_Up_Queue and Unresponsive_Devs
+  // This ensures candidates already marked unresponsive (before Negotiation_State was updated) show correctly
+  const unresponsiveSet = new Set();
+  const followUpData = getCachedSheetData('Follow_Up_Queue', 30);
+  if(followUpData && followUpData.length > 1) {
+    for(let f = 1; f < followUpData.length; f++) {
+      if(followUpData[f][8] === 'Unresponsive') { // Column 9 (index 8) = Status
+        const fuKey = normalizeEmail(followUpData[f][0]) + '|' + String(followUpData[f][1]);
+        unresponsiveSet.add(fuKey);
+      }
+    }
+  }
+  const unresponsiveDevsData = getCachedSheetData('Unresponsive_Devs', 30);
+  if(unresponsiveDevsData && unresponsiveDevsData.length > 1) {
+    for(let u = 1; u < unresponsiveDevsData.length; u++) {
+      if(unresponsiveDevsData[u][0]) {
+        const udKey = normalizeEmail(unresponsiveDevsData[u][0]) + '|' + String(unresponsiveDevsData[u][1]);
+        unresponsiveSet.add(udKey);
+      }
+    }
+  }
+
   for(let i=1; i<stateData.length; i++) {
     if(!stateData[i][0]) continue;
 
     const jobId = String(stateData[i][1]);
-    const status = stateData[i][4] || 'Active';
+    let status = stateData[i][4] || 'Active';
     const attempts = Number(stateData[i][2]) || 0;
     const settings = getJobSettingsCached(jobId);
+
+    // Override status to 'Unresponsive' if candidate is found in Follow_Up_Queue or Unresponsive_Devs
+    const candidateKey = normalizeEmail(stateData[i][0]) + '|' + jobId;
+    if(status === 'Initial Outreach' && unresponsiveSet.has(candidateKey)) {
+      status = 'Unresponsive';
+    }
 
     // Collect all job IDs for filter dropdown
     jobIdSet.add(jobId);
 
     // FIX: Use normalizeEmail to deduplicate Gmail dot-variants across sheets
-    const candidateKey = normalizeEmail(stateData[i][0]) + '|' + jobId;
     if (countedCandidates.has(candidateKey)) continue;
     countedCandidates.add(candidateKey);
 
