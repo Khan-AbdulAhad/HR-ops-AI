@@ -13028,6 +13028,42 @@ function getUserAnalytics(filterEmail, filterJobId, startDate, endDate) {
     const negotiationStats = getActiveNegotiationStats();
     const perJobNegotiations = negotiationStats.perJob || {};
 
+    // Get follow-up queue stats - MOVED UP to use in job breakdown
+    const followUpStats = getFollowUpStats();
+    const perJobFollowUps = followUpStats.perJob || {};
+
+    // Get per-job completed counts from Negotiation_Completed (source of truth)
+    // Activity_Log can miss task_completed entries if logging fails
+    const completedPerJob = {};
+    let totalCompletedFromSheet = 0;
+    try {
+      const completedSheet = ss.getSheetByName('Negotiation_Completed');
+      if (completedSheet && completedSheet.getLastRow() > 1) {
+        const completedData = completedSheet.getDataRange().getValues();
+        for (let i = 1; i < completedData.length; i++) {
+          if (!completedData[i][2]) continue; // Skip if no email
+          const cJobId = String(completedData[i][1] || '');
+          const cTimestamp = completedData[i][0];
+
+          // Apply job filter if specified
+          if (jobIdFilter && cJobId !== jobIdFilter) continue;
+
+          // Apply date range filter if specified
+          if (cTimestamp && (startDateFilter || endDateFilter)) {
+            const rowDate = new Date(cTimestamp);
+            if (startDateFilter && rowDate < startDateFilter) continue;
+            if (endDateFilter && rowDate > endDateFilter) continue;
+          }
+
+          if (!completedPerJob[cJobId]) completedPerJob[cJobId] = 0;
+          completedPerJob[cJobId]++;
+          totalCompletedFromSheet++;
+        }
+      }
+    } catch (e) {
+      console.error("Error counting completed per job from Negotiation_Completed:", e);
+    }
+
     // Convert user map to sorted array with job breakdown
     analytics.userStats = Array.from(userMap.values())
       .sort((a, b) => {
@@ -13039,9 +13075,12 @@ function getUserAnalytics(filterEmail, filterJobId, startDate, endDate) {
         // Calculate totals for this user across all their jobs
         let userActiveDataGathering = 0;
         let userActiveNegotiations = 0;
+        let userActiveFollowUps = 0;
+        let userCompletedFromSheet = 0;
         Object.keys(u.jobBreakdown).forEach(jobKey => {
           const jobDgStats = perJobDataGathering[jobKey];
           const jobNegStats = perJobNegotiations[jobKey];
+          const jobFuStats = perJobFollowUps[jobKey];
           if (jobDgStats) {
             userActiveDataGathering += jobDgStats.pending || 0;
           }
@@ -13049,7 +13088,18 @@ function getUserAnalytics(filterEmail, filterJobId, startDate, endDate) {
             // Count active + human escalated as total active negotiations
             userActiveNegotiations += (jobNegStats.active || 0) + (jobNegStats.humanEscalated || 0);
           }
+          // FIXED: Count active follow-ups (candidates in follow-up queue, not responded/unresponsive)
+          if (jobFuStats) {
+            userActiveFollowUps += (jobFuStats.pending || 0) + (jobFuStats.followUp1Done || 0) + (jobFuStats.followUp2Done || 0);
+          }
+          // FIXED: Use completed count from Negotiation_Completed (source of truth)
+          if (completedPerJob[jobKey]) {
+            userCompletedFromSheet += completedPerJob[jobKey];
+          }
         });
+
+        // Use Negotiation_Completed count if available, fall back to Activity_Log
+        const userCompleted = userCompletedFromSheet > 0 ? userCompletedFromSheet : (u.completed || 0);
 
         return {
           email: u.email,
@@ -13058,9 +13108,11 @@ function getUserAnalytics(filterEmail, filterJobId, startDate, endDate) {
           dataFetches: userActiveDataGathering,
           // FIXED: Show active negotiations, not cumulative log counts
           negotiations: userActiveNegotiations,
-          followUps: u.followUps,
-          completed: u.completed || 0,
-          totalActions: u.emailsSent + u.followUps,
+          // FIXED: Show active follow-up candidates, not cumulative follow-up emails sent
+          followUps: userActiveFollowUps,
+          // FIXED: Use Negotiation_Completed as source of truth for completed count
+          completed: userCompleted,
+          totalActions: u.emailsSent + userActiveFollowUps,
           lastActive: u.lastActive && !isNaN(u.lastActive.getTime()) ? u.lastActive.toISOString() : null,
           // NEW: Include job breakdown sorted by last active
           jobBreakdown: Object.values(u.jobBreakdown)
@@ -13078,6 +13130,13 @@ function getUserAnalytics(filterEmail, filterJobId, startDate, endDate) {
               const jobNegStats = perJobNegotiations[j.jobId];
               const activeNegotiations = jobNegStats ? ((jobNegStats.active || 0) + (jobNegStats.humanEscalated || 0)) : 0;
 
+              // FIXED: Use active follow-up count from Follow_Up_Queue instead of cumulative sends from Activity_Log
+              const jobFuStats = perJobFollowUps[j.jobId];
+              const activeFollowUps = jobFuStats ? ((jobFuStats.pending || 0) + (jobFuStats.followUp1Done || 0) + (jobFuStats.followUp2Done || 0)) : 0;
+
+              // FIXED: Use completed count from Negotiation_Completed (source of truth), fall back to Activity_Log
+              const jobCompletedCount = completedPerJob[j.jobId] || j.completed || 0;
+
               return {
                 jobId: j.jobId,
                 emailsSent: j.emailsSent,
@@ -13085,9 +13144,11 @@ function getUserAnalytics(filterEmail, filterJobId, startDate, endDate) {
                 dataFetches: activeDataGathering,
                 // FIXED: Show active negotiations, not cumulative log counts
                 negotiations: activeNegotiations,
-                followUps: j.followUps,
-                completed: j.completed || 0,
-                totalActions: j.emailsSent + j.followUps,
+                // FIXED: Show active follow-up candidates, not cumulative follow-up emails sent
+                followUps: activeFollowUps,
+                // FIXED: Use Negotiation_Completed as source of truth
+                completed: jobCompletedCount,
+                totalActions: j.emailsSent + activeFollowUps,
                 lastActive: j.lastActive && !isNaN(j.lastActive.getTime()) ? j.lastActive.toISOString() : null
               };
             })
@@ -13115,9 +13176,6 @@ function getUserAnalytics(filterEmail, filterJobId, startDate, endDate) {
       }
     }
 
-    // Get pending follow-ups count (candidates awaiting follow-up)
-    const followUpStats = getFollowUpStats();
-
     // Apply job filter to active/pending stats cards (use perJob data when filtered)
     if (jobIdFilter) {
       const jobDg = dataGatheringStats.perJob ? dataGatheringStats.perJob[jobIdFilter] : null;
@@ -13126,60 +13184,24 @@ function getUserAnalytics(filterEmail, filterJobId, startDate, endDate) {
       const jobNeg = negotiationStats.perJob ? negotiationStats.perJob[jobIdFilter] : null;
       analytics.activeNegotiations = jobNeg ? ((jobNeg.active || 0) + (jobNeg.humanEscalated || 0)) : 0;
 
+      // FIXED: Show total active follow-ups (candidates still in follow-up pipeline), not just awaiting first
       const jobFu = followUpStats.perJob ? followUpStats.perJob[jobIdFilter] : null;
-      analytics.pendingFollowUps = jobFu ? jobFu.pending : 0;
+      analytics.pendingFollowUps = jobFu ? ((jobFu.pending || 0) + (jobFu.followUp1Done || 0) + (jobFu.followUp2Done || 0)) : 0;
     } else {
       analytics.pendingDataGathering = dataGatheringStats.pending;
       analytics.activeNegotiations = negotiationStats.active + negotiationStats.humanEscalated;
-      analytics.pendingFollowUps = followUpStats.pending;
+      // FIXED: Show total active follow-ups (candidates still in follow-up pipeline), not just awaiting first
+      analytics.pendingFollowUps = (followUpStats.pending || 0) + (followUpStats.followUp1Done || 0) + (followUpStats.followUp2Done || 0);
     }
 
     analytics.dataGatheringStats = dataGatheringStats;
     analytics.negotiationStats = negotiationStats;
     analytics.followUpStats = followUpStats;
 
-    // FIX: Override totalCompleted from Negotiation_Completed sheet (source of truth)
-    // Activity_Log can miss entries if logging fails, so count actual completed records
-    try {
-      const completedSheet = ss.getSheetByName('Negotiation_Completed');
-      if (completedSheet && completedSheet.getLastRow() > 1) {
-        const completedData = completedSheet.getDataRange().getValues();
-        let completedCount = 0;
-        for (let i = 1; i < completedData.length; i++) {
-          if (!completedData[i][2]) continue; // Skip if no email
-          const cJobId = String(completedData[i][1] || '');
-          const cTimestamp = completedData[i][0];
-
-          // Apply job filter if specified
-          if (jobIdFilter && cJobId !== jobIdFilter) continue;
-
-          // Apply date range filter if specified
-          if (cTimestamp && (startDateFilter || endDateFilter)) {
-            const rowDate = new Date(cTimestamp);
-            if (startDateFilter && rowDate < startDateFilter) continue;
-            if (endDateFilter && rowDate > endDateFilter) continue;
-          }
-
-          completedCount++;
-        }
-        analytics.totalCompleted = completedCount;
-
-        // Also update per-user completed counts from Negotiation_Completed
-        // Since Activity_Log tracks who performed the action, but may miss entries,
-        // recalculate per-user completed from the authoritative source
-        if (analytics.userStats.length > 0) {
-          // Sum completed from Negotiation_Completed and distribute to the user(s)
-          // Since all completions are done by authenticated users, attribute to existing users
-          const totalFromLogs = analytics.userStats.reduce((sum, u) => sum + (u.completed || 0), 0);
-          if (completedCount > totalFromLogs && analytics.userStats.length === 1) {
-            // Single user case: assign all completed to that user
-            analytics.userStats[0].completed = completedCount;
-          }
-        }
-      }
-    } catch (e) {
-      console.error("Error counting completed from Negotiation_Completed:", e);
-      // Fall back to Activity_Log count (already set)
+    // Override totalCompleted from Negotiation_Completed sheet (source of truth)
+    // Per-job and per-user completed are already sourced from completedPerJob above
+    if (totalCompletedFromSheet > 0) {
+      analytics.totalCompleted = totalCompletedFromSheet;
     }
 
     return analytics;
