@@ -3770,7 +3770,7 @@ function getAllTasks(filters) {
       countedCandidates.add(taskCandidateKey);
 
       // Apply filters BEFORE counting stats so cards reflect filters
-      if(statusFilter !== 'all' && statusFilter !== 'Offer Accepted') continue;
+      if(statusFilter !== 'all' && statusFilter !== 'Accepted' && statusFilter !== 'Offer Accepted') continue;
       if(jobFilter !== 'all' && jobId !== jobFilter) continue;
 
       statAccepted++;
@@ -3782,7 +3782,7 @@ function getAllTasks(filters) {
         name: taskData[i][2] || 'Unknown',
         status: 'Offer Accepted',
         attempts: 'N/A',
-        tags: 'Completed',
+        tags: 'Accepted',
         type: 'Accepted',
         agreedRate: taskData[i][4] || 'N/A',
         lastReply: taskData[i][0] ? new Date(taskData[i][0]).toLocaleString() : 'N/A',
