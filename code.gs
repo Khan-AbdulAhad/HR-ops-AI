@@ -5281,12 +5281,36 @@ function processJobNegotiations(jobId, rules, ss, faqContent, negotiationEnabled
         // If all remaining pending questions were negotiation-managed, data gathering is effectively complete
         isDataGatheringComplete = isDataGatheringComplete || pendingDataQuestions.length === 0;
 
+        // FIX: Check for not-interested/withdrawal BEFORE data gathering
+        // This prevents sending data gathering emails to candidates who want to withdraw
+        const notInterestedGuardPatterns = [
+          /\bnot\s+interested\b/i,
+          /\bno\s+longer\s+interested\b/i,
+          /\bwithdraw(?:ing)?\s+(?:my|the)\s+application\b/i,
+          /\b(?:would|i'?d)\s+like\s+to\s+withdraw\b/i,
+          /\b(?:wish|want)\s+to\s+withdraw\b/i,
+          /\balready\s+accepted\s+(another|a|an)\s+(offer|position|job|role)\b/i,
+          /\baccepted\s+(a|another)\s+(position|offer|job|role)\s+elsewhere\b/i,
+          /\bdecided\s+to\s+go\s+with\s+(another|a\s+different)\b/i,
+          /\bplease\s+remove\s+me\b/i,
+          /\bnot\s+looking\s+(anymore|any\s*more)\b/i,
+          /\bno\s+longer\s+available\b/i,
+          /\bgoing\s+in\s+a\s+different\s+direction\b/i,
+          /\bdeclining\s+this\s+opportunity\b/i,
+          /\bnot\s+(?:looking\s+for|interested\s+in)\s+(?:a\s+)?(?:contract(?:ual)?|freelance|part[\s-]?time)\b/i
+        ];
+        const isNotInterestedEarly = notInterestedGuardPatterns.some(p => p.test(candidateLatestMessage));
+        if (isNotInterestedEarly) {
+          jobStats.log.push({type: 'info', message: `${candidateEmail} - NOT INTERESTED detected before data gathering. Skipping data follow-up to let negotiation flow handle status update.`});
+          // Don't return early - fall through to negotiation logic which has proper NOT_INTERESTED handling
+        }
+
         // Check if we need to send a missing info follow-up (Data Gathering mode)
         // IMPORTANT: If data gathering is pending, we should NOT send a separate negotiation email
         // This prevents duplicate emails (one for data gathering, one for negotiation)
         // NOTE: Use filtered pendingDataQuestions (excludes negotiation-managed headers) to avoid
         // sending data gathering emails that ask for "Negotiation Response" or "Expected Rate"
-        if (pendingDataQuestions.length > 0 && !isDataGatheringComplete) {
+        if (pendingDataQuestions.length > 0 && !isDataGatheringComplete && !isNotInterestedEarly) {
           // CRITICAL FIX: Check if candidate mentioned a rate in their message OR if rate was already provided
           // If they did, we should NOT send a simple data gathering email - instead let the negotiation
           // logic handle it, which will send a combined "acknowledge rate + request missing info" email
@@ -5821,8 +5845,10 @@ NOT INTERESTED DETECTION (candidate declining to proceed):
 - "already accepted another offer" or "already received an offer"
 - "accepted a position elsewhere" or "took another job"
 - "decided to go with another company/opportunity"
-- "withdrawing my application" or "please remove me"
+- "withdraw my application" or "withdrawing my application" or "would like to withdraw"
+- "please remove me"
 - "not looking anymore" or "no longer available"
+- "not looking for a contractual role" or "not interested in contract/freelance work"
 - "found another role/job/position"
 - "going in a different direction"
 - "declining this opportunity"
@@ -6898,7 +6924,7 @@ Write ONLY the email, nothing else.
       /\balready\s+accepted\s+(another|a|an)\s+(offer|position|job|role)\b/i,
       /\baccepted\s+(a|another)\s+(position|offer|job|role)\s+elsewhere\b/i,
       /\bdecided\s+to\s+go\s+with\s+(another|a\s+different)\b/i,
-      /\bwithdrawing\s+my\s+application\b/i,
+      /\bwithdraw(?:ing)?\s+(?:my|the)\s+application\b/i,
       /\bplease\s+remove\s+me\b/i,
       /\bnot\s+looking\s+(anymore|any\s*more)\b/i,
       /\bno\s+longer\s+available\b/i,
@@ -6909,7 +6935,10 @@ Write ONLY the email, nothing else.
       /\bcircumstances\s+have\s+changed\b/i,
       /\btook\s+another\s+(job|offer|position)\b/i,
       /\bdon'?t\s+want\s+to\s+(proceed|continue|move\s+forward)\b/i,
-      /\bpass\s+on\s+this\s+(opportunity|role|offer|position)\b/i
+      /\bpass\s+on\s+this\s+(opportunity|role|offer|position)\b/i,
+      /\b(?:would|i'?d)\s+like\s+to\s+withdraw\b/i,
+      /\b(?:wish|want)\s+to\s+withdraw\b/i,
+      /\bnot\s+(?:looking\s+for|interested\s+in)\s+(?:a\s+)?(?:contract(?:ual)?|freelance|part[\s-]?time)\b/i
     ];
 
     const isNotInterestedByRegex = notInterestedPatterns.some(p => p.test(candidateLatestMessage));
@@ -7106,7 +7135,7 @@ ${isFirstResponse ? `
 2. If they refuse your offer or ask sensitive questions outside the FAQ:
    Reply with: ACTION: ESCALATE [REASON: brief reason]
 
-3. If the candidate indicates they are NOT INTERESTED (declined, accepted another offer, no longer available, not looking, withdrawing, going in a different direction, etc.):
+3. If the candidate indicates they are NOT INTERESTED (declined, accepted another offer, no longer available, not looking, withdrawing/withdraw application, not interested in contractual/freelance role, going in a different direction, etc.):
    Reply with: ACTION: NOT_INTERESTED [REASON: brief reason]
    Do NOT write a negotiation email to someone who has declined or expressed disinterest.
 
@@ -7682,6 +7711,52 @@ Write ONLY the email, nothing else.
       } // Close else block for shouldSkipActionAccept
     }
     else {
+      // FIX: Final safety net - check if the candidate's ORIGINAL message indicated not-interested
+      // This catches cases where the AI wrote a goodbye email but forgot the ACTION: NOT_INTERESTED tag
+      const fallbackNotInterestedPatterns = [
+        /\bnot\s+interested\b/i,
+        /\bno\s+longer\s+interested\b/i,
+        /\bwithdraw(?:ing)?\s+(?:my|the)\s+application\b/i,
+        /\b(?:would|i'?d)\s+like\s+to\s+withdraw\b/i,
+        /\b(?:wish|want)\s+to\s+withdraw\b/i,
+        /\balready\s+accepted\s+(another|a|an)\s+(offer|position|job|role)\b/i,
+        /\baccepted\s+(a|another)\s+(position|offer|job|role)\s+elsewhere\b/i,
+        /\bdecided\s+to\s+go\s+with\s+(another|a\s+different)\b/i,
+        /\bplease\s+remove\s+me\b/i,
+        /\bnot\s+looking\s+(anymore|any\s*more)\b/i,
+        /\bno\s+longer\s+available\b/i,
+        /\bgoing\s+in\s+a\s+different\s+direction\b/i,
+        /\bdeclining\s+this\s+opportunity\b/i,
+        /\bnot\s+(?:looking\s+for|interested\s+in)\s+(?:a\s+)?(?:contract(?:ual)?|freelance|part[\s-]?time)\b/i,
+        /\btook\s+another\s+(job|offer|position)\b/i,
+        /\bfound\s+another\s+(role|job|position|opportunity)\b/i,
+        /\bdon'?t\s+want\s+to\s+(proceed|continue|move\s+forward)\b/i,
+        /\bpass\s+on\s+this\s+(opportunity|role|offer|position)\b/i
+      ];
+      const isFallbackNotInterested = fallbackNotInterestedPatterns.some(p => p.test(candidateLatestMessage));
+
+      if (isFallbackNotInterested) {
+        // AI wrote a reply (possibly acknowledging withdrawal) but didn't use ACTION: NOT_INTERESTED
+        // Send the AI's reply (it likely acknowledged the withdrawal properly), then update status
+        // SECURITY: Validate AI response before sending
+        if (!validateEmailForSending(aiResponse, { jobId: jobId, targetRate: targetRate, maxRate: maxRate })) {
+          console.error(`BLOCKED: Negotiation email to ${candidateEmail} contained sensitive data.`);
+          jobStats.log.push({type: 'error', message: `${candidateEmail} - Email blocked due to sensitive content. Check Security_Audit_Log.`});
+          return;
+        }
+
+        sendReplyWithSenderName(thread, aiResponse, getEffectiveSenderName());
+
+        jobStats.log.push({type: 'info', message: `${candidateEmail} - NOT INTERESTED (fallback else block): Candidate message matched disinterest pattern. AI replied but missed ACTION tag. Updating status.`});
+        handleNotInterested({
+          jobStats, candidateEmail, conversationHistory, jobId, attempts,
+          stateRowIndex, stateSheet, stateMap, stateKey, ss, candidateName,
+          devId, candidateRegion, thread,
+          reason: 'Candidate indicated not interested (fallback detection after AI reply)'
+        });
+        return;
+      }
+
       // SECURITY: Validate AI response before sending
       if (!validateEmailForSending(aiResponse, { jobId: jobId, targetRate: targetRate, maxRate: maxRate })) {
         console.error(`BLOCKED: Negotiation email to ${candidateEmail} contained sensitive data.`);
