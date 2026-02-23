@@ -3676,7 +3676,7 @@ function getAllTasks(filters) {
   const jobSettingsMap = {}; // Cache job settings to avoid repeated lookups
 
   // Stats counters
-  let statActive = 0, statHuman = 0, statAccepted = 0, statInitialOutreach = 0;
+  let statActive = 0, statHuman = 0, statAccepted = 0, statInitialOutreach = 0, statUnresponsive = 0;
 
   // FIX: Track unique candidates across sheets to prevent double-counting
   const countedCandidates = new Set();
@@ -3718,7 +3718,9 @@ function getAllTasks(filters) {
     if(statusFilter !== 'all' && status !== statusFilter) continue;
 
     // Count stats - only for candidates that pass filters
-    if(status === 'Human-Negotiation') {
+    if(status === 'Unresponsive') {
+      statUnresponsive++;
+    } else if(status === 'Human-Negotiation') {
       statHuman++;
     } else if(status === 'Initial Outreach' || attempts === 0) {
       statInitialOutreach++;
@@ -3727,7 +3729,9 @@ function getAllTasks(filters) {
     }
 
     let tag = '';
-    if(status === 'Human-Negotiation') {
+    if(status === 'Unresponsive') {
+      tag = 'Unresponsive';
+    } else if(status === 'Human-Negotiation') {
       tag = 'Human-Negotiation';
     } else if(status === 'Initial Outreach' || attempts === 0) {
       tag = 'Initial Outreach';
@@ -3876,7 +3880,8 @@ function getAllTasks(filters) {
       accepted: statAccepted,
       initialOutreach: statInitialOutreach,
       completed: statCompleted,
-      notInterested: statNotInterested
+      notInterested: statNotInterested,
+      unresponsive: statUnresponsive
     },
     jobSettings: jobSettingsMap,
     jobTrackingCounts: jobTrackingCounts
@@ -10671,6 +10676,24 @@ function moveToUnresponsive(ss, email, jobId, name, devId, threadId, initialSend
       updateJobCandidateStatus(ss, jobId, email, 'Unresponsive', null);
     } catch(detailsErr) {
       console.error("Failed to update job details sheet for unresponsive:", detailsErr);
+    }
+
+    // Update Negotiation_State status to 'Unresponsive' so the Task List tag reflects the correct state
+    try {
+      const stateSheet = ss.getSheetByName('Negotiation_State');
+      if(stateSheet) {
+        const stateData = stateSheet.getDataRange().getValues();
+        const normalizedEmail = normalizeEmail(email);
+        for(let r = 1; r < stateData.length; r++) {
+          if(normalizeEmail(stateData[r][0]) === normalizedEmail && String(stateData[r][1]) === String(jobId)) {
+            stateSheet.getRange(r + 1, 5).setValue('Unresponsive'); // Column 5 = Status
+            invalidateSheetCache('Negotiation_State');
+            break;
+          }
+        }
+      }
+    } catch(stateErr) {
+      console.error("Failed to update Negotiation_State for unresponsive:", stateErr);
     }
 
     return { success: true };
