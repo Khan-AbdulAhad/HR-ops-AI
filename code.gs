@@ -13067,6 +13067,16 @@ function getUserAnalytics(filterEmail, filterJobId, startDate, endDate) {
       console.error("Error counting completed per job from Negotiation_Completed:", e);
     }
 
+    // Build map of how many users work on each job (for multi-user attribution)
+    // If multiple users share a job, we can't attribute Negotiation_Completed entries
+    // to individual users, so we fall back to Activity_Log counts to avoid double-counting
+    const jobUserCount = {};
+    Array.from(userMap.values()).forEach(u => {
+      Object.keys(u.jobBreakdown).forEach(jobKey => {
+        jobUserCount[jobKey] = (jobUserCount[jobKey] || 0) + 1;
+      });
+    });
+
     // Convert user map to sorted array with job breakdown
     analytics.userStats = Array.from(userMap.values())
       .sort((a, b) => {
@@ -13096,13 +13106,17 @@ function getUserAnalytics(filterEmail, filterJobId, startDate, endDate) {
             userActiveFollowUps += (jobFuStats.pending || 0) + (jobFuStats.followUp1Done || 0) + (jobFuStats.followUp2Done || 0);
           }
           // FIXED: Use completed count from Negotiation_Completed (source of truth)
-          if (completedPerJob[jobKey]) {
+          // For shared jobs (multiple users), fall back to Activity_Log to avoid double-counting
+          const isSharedJob = (jobUserCount[jobKey] || 0) > 1;
+          if (!isSharedJob && completedPerJob[jobKey]) {
             userCompletedFromSheet += completedPerJob[jobKey];
+          } else {
+            userCompletedFromSheet += u.jobBreakdown[jobKey].completed || 0;
           }
         });
 
-        // Use Negotiation_Completed count if available, fall back to Activity_Log
-        const userCompleted = userCompletedFromSheet > 0 ? userCompletedFromSheet : (u.completed || 0);
+        // Use accumulated count (Negotiation_Completed for single-user jobs, Activity_Log for shared)
+        const userCompleted = userCompletedFromSheet;
 
         return {
           email: u.email,
@@ -13137,8 +13151,10 @@ function getUserAnalytics(filterEmail, filterJobId, startDate, endDate) {
               const jobFuStats = perJobFollowUps[j.jobId];
               const activeFollowUps = jobFuStats ? ((jobFuStats.pending || 0) + (jobFuStats.followUp1Done || 0) + (jobFuStats.followUp2Done || 0)) : 0;
 
-              // FIXED: Use completed count from Negotiation_Completed (source of truth), fall back to Activity_Log
-              const jobCompletedCount = completedPerJob[j.jobId] || j.completed || 0;
+              // FIXED: Use completed count from Negotiation_Completed (source of truth)
+              // For shared jobs (multiple users), fall back to Activity_Log to avoid double-counting
+              const isSharedJob = (jobUserCount[j.jobId] || 0) > 1;
+              const jobCompletedCount = (!isSharedJob && completedPerJob[j.jobId]) ? completedPerJob[j.jobId] : (j.completed || 0);
 
               return {
                 jobId: j.jobId,
