@@ -12389,6 +12389,228 @@ function logFollowUpToAnalytics(jobId, candidateEmail, candidateName, action, de
 }
 
 /**
+ * Backfill historical data from the current user's personal sheets into the
+ * centralized analytics sheets (Completed_Analytics & FollowUp_Analytics).
+ *
+ * Each user must run this once from the UI. It reads:
+ *   - Negotiation_Completed  → writes to Completed_Analytics
+ *   - Follow_Up_Queue        → writes to FollowUp_Analytics
+ *
+ * Safe to run multiple times — deduplicates against existing centralized data.
+ *
+ * @returns {Object} { success, completedMigrated, followUpsMigrated, skippedDuplicates, log[] }
+ */
+function backfillAnalyticsData() {
+  const log = [];
+  let completedMigrated = 0;
+  let followUpsMigrated = 0;
+  let skippedDuplicates = 0;
+
+  try {
+    const userEmail = Session.getActiveUser().getEmail();
+    if (!userEmail) {
+      return { success: false, error: "Could not determine current user email", log: log };
+    }
+    log.push("Running backfill for user: " + userEmail);
+
+    // --- Access the user's personal spreadsheet ---
+    const personalUrl = getStoredSheetUrl();
+    if (!personalUrl) {
+      return { success: false, error: "No personal sheet URL configured. Please set up your sheet first.", log: log };
+    }
+
+    let personalSs;
+    try {
+      personalSs = SpreadsheetApp.openByUrl(personalUrl);
+    } catch (e) {
+      return { success: false, error: "Cannot open personal spreadsheet: " + e.message, log: log };
+    }
+
+    // --- Access the centralized analytics spreadsheet ---
+    const analyticsSs = getAnalyticsSpreadsheet();
+    if (!analyticsSs) {
+      return { success: false, error: "Cannot access centralized analytics spreadsheet", log: log };
+    }
+
+    // ============================================================
+    // PART 1: Backfill Negotiation_Completed → Completed_Analytics
+    // ============================================================
+    const completedSheet = personalSs.getSheetByName('Negotiation_Completed');
+    if (completedSheet && completedSheet.getLastRow() > 1) {
+      const completedData = completedSheet.getDataRange().getValues();
+      // Negotiation_Completed columns: [0]=Timestamp, [1]=Job ID, [2]=Email, [3]=Name, [4]=Final Status, [5]=Notes, [6]=Dev ID, [7]=Region
+
+      // Load existing Completed_Analytics to check for duplicates
+      let caSheet = analyticsSs.getSheetByName('Completed_Analytics');
+      if (!caSheet) {
+        caSheet = analyticsSs.insertSheet('Completed_Analytics');
+        caSheet.appendRow(['Timestamp', 'User Email', 'Job ID', 'Candidate Email', 'Candidate Name', 'Final Status', 'Dev ID', 'Region']);
+        caSheet.setFrozenRows(1);
+      }
+
+      const existingCA = caSheet.getDataRange().getValues();
+      const existingKeys = new Set();
+      for (let i = 1; i < existingCA.length; i++) {
+        const eUser = String(existingCA[i][1] || '').toLowerCase().trim();
+        const eCandidate = String(existingCA[i][3] || '').toLowerCase().trim();
+        const eJobId = String(existingCA[i][2] || '');
+        existingKeys.add(eUser + '|' + eCandidate + '|' + eJobId);
+      }
+
+      const rowsToAdd = [];
+      for (let i = 1; i < completedData.length; i++) {
+        const timestamp = completedData[i][0];
+        const jobId = String(completedData[i][1] || '');
+        const candidateEmail = String(completedData[i][2] || '').trim();
+        const candidateName = String(completedData[i][3] || '');
+        const finalStatus = String(completedData[i][4] || 'Completed');
+        const devId = String(completedData[i][6] || '');
+        const region = String(completedData[i][7] || '');
+
+        if (!candidateEmail) continue;
+
+        const dedupKey = userEmail.toLowerCase() + '|' + candidateEmail.toLowerCase() + '|' + jobId;
+        if (existingKeys.has(dedupKey)) {
+          skippedDuplicates++;
+          continue;
+        }
+        existingKeys.add(dedupKey);
+
+        rowsToAdd.push([
+          timestamp || new Date(),
+          userEmail,
+          jobId,
+          candidateEmail,
+          candidateName,
+          finalStatus,
+          devId,
+          region
+        ]);
+        completedMigrated++;
+      }
+
+      if (rowsToAdd.length > 0) {
+        caSheet.getRange(caSheet.getLastRow() + 1, 1, rowsToAdd.length, 8).setValues(rowsToAdd);
+      }
+      log.push("Completed: migrated " + completedMigrated + " rows, skipped " + skippedDuplicates + " duplicates");
+    } else {
+      log.push("No Negotiation_Completed data found in personal sheet");
+    }
+
+    // ============================================================
+    // PART 2: Backfill Follow_Up_Queue → FollowUp_Analytics
+    // ============================================================
+    const fuSheet = personalSs.getSheetByName('Follow_Up_Queue');
+    if (fuSheet && fuSheet.getLastRow() > 1) {
+      const fuData = fuSheet.getDataRange().getValues();
+      // Follow_Up_Queue columns: [0]=Email, [1]=Job ID, [2]=Thread ID, [3]=Name, [4]=Dev ID,
+      //   [5]=Initial Send Time, [6]=Follow Up 1 Sent, [7]=Follow Up 2 Sent, [8]=Status, [9]=Last Updated
+
+      // Load existing FollowUp_Analytics to check for duplicates
+      let fuaSheet = analyticsSs.getSheetByName('FollowUp_Analytics');
+      if (!fuaSheet) {
+        fuaSheet = analyticsSs.insertSheet('FollowUp_Analytics');
+        fuaSheet.appendRow(['Timestamp', 'User Email', 'Job ID', 'Candidate Email', 'Candidate Name', 'Action', 'Details']);
+        fuaSheet.setFrozenRows(1);
+      }
+
+      const existingFUA = fuaSheet.getDataRange().getValues();
+      const existingFUKeys = new Set();
+      for (let i = 1; i < existingFUA.length; i++) {
+        const eUser = String(existingFUA[i][1] || '').toLowerCase().trim();
+        const eCandidate = String(existingFUA[i][3] || '').toLowerCase().trim();
+        const eJobId = String(existingFUA[i][2] || '');
+        const eAction = String(existingFUA[i][5] || '');
+        existingFUKeys.add(eUser + '|' + eCandidate + '|' + eJobId + '|' + eAction);
+      }
+
+      const fuRowsToAdd = [];
+      let fuDuplicatesSkipped = 0;
+
+      for (let i = 1; i < fuData.length; i++) {
+        const candidateEmail = String(fuData[i][0] || '').trim();
+        const jobId = String(fuData[i][1] || '');
+        const candidateName = String(fuData[i][3] || '');
+        const initialSendTime = fuData[i][5];
+        const fu1Sent = fuData[i][6];
+        const fu2Sent = fuData[i][7];
+        const status = String(fuData[i][8] || 'Pending');
+        const lastUpdated = fuData[i][9];
+
+        if (!candidateEmail) continue;
+
+        // Derive the latest action from the Follow_Up_Queue row state
+        // The centralized sheet expects event-based actions
+        let latestAction = 'added';
+        let timestamp = initialSendTime || new Date();
+        let details = 'Backfill from personal sheet';
+
+        if (status === 'Responded') {
+          latestAction = 'responded';
+          timestamp = lastUpdated || timestamp;
+        } else if (status === 'Unresponsive') {
+          latestAction = 'unresponsive';
+          timestamp = lastUpdated || timestamp;
+        } else if (fu2Sent === true || fu2Sent === 'TRUE' || (fu2Sent instanceof Date)) {
+          latestAction = 'followup_2_sent';
+          timestamp = (fu2Sent instanceof Date) ? fu2Sent : (lastUpdated || timestamp);
+        } else if (fu1Sent === true || fu1Sent === 'TRUE' || (fu1Sent instanceof Date)) {
+          latestAction = 'followup_1_sent';
+          timestamp = (fu1Sent instanceof Date) ? fu1Sent : (lastUpdated || timestamp);
+        }
+
+        const dedupKey = userEmail.toLowerCase() + '|' + candidateEmail.toLowerCase() + '|' + jobId + '|' + latestAction;
+        if (existingFUKeys.has(dedupKey)) {
+          fuDuplicatesSkipped++;
+          continue;
+        }
+        existingFUKeys.add(dedupKey);
+
+        fuRowsToAdd.push([
+          timestamp || new Date(),
+          userEmail,
+          jobId,
+          candidateEmail,
+          candidateName,
+          latestAction,
+          details
+        ]);
+        followUpsMigrated++;
+      }
+
+      if (fuRowsToAdd.length > 0) {
+        fuaSheet.getRange(fuaSheet.getLastRow() + 1, 1, fuRowsToAdd.length, 7).setValues(fuRowsToAdd);
+      }
+      log.push("Follow-ups: migrated " + followUpsMigrated + " rows, skipped " + fuDuplicatesSkipped + " duplicates");
+      skippedDuplicates += fuDuplicatesSkipped;
+    } else {
+      log.push("No Follow_Up_Queue data found in personal sheet");
+    }
+
+    log.push("Backfill completed successfully!");
+    return {
+      success: true,
+      completedMigrated: completedMigrated,
+      followUpsMigrated: followUpsMigrated,
+      skippedDuplicates: skippedDuplicates,
+      log: log
+    };
+
+  } catch (e) {
+    console.error("Backfill error:", e);
+    log.push("ERROR: " + e.message);
+    return {
+      success: false,
+      error: e.message,
+      completedMigrated: completedMigrated,
+      followUpsMigrated: followUpsMigrated,
+      skippedDuplicates: skippedDuplicates,
+      log: log
+    };
+  }
+}
+
+/**
  * Check if current user has access to analytics dashboard
  * Role-based access control (RBAC):
  * - admin: Full operational access + All analytics + Manage users
