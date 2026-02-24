@@ -4020,6 +4020,7 @@ function moveToCompleted(email, finalStatus, jobIdFilter) {
       };
       compSheet.appendRow([new Date(), taskData[i][1], email, taskData[i][2], finalStatus || "Accepted", "Moved from Task List", taskData[i][6] || 'N/A', taskData[i][8] || '']);
       logAnalytics('task_completed', taskData[i][1], 1, finalStatus || "Accepted - Moved from Task List");
+      logCompletedToAnalytics(taskData[i][1], email, taskData[i][2], finalStatus || "Accepted", taskData[i][6] || 'N/A', taskData[i][8] || '');
       taskSheet.deleteRow(i+1);
       moved = true;
       break;
@@ -4046,6 +4047,7 @@ function moveToCompleted(email, finalStatus, jobIdFilter) {
         };
         compSheet.appendRow([new Date(), stateData[i][1], email, stateData[i][7] || 'Unknown', finalStatus || stateData[i][4], "Moved from State List", stateData[i][6] || 'N/A', stateData[i][10] || '']);
         logAnalytics('task_completed', stateData[i][1], 1, finalStatus || "Moved from State List");
+        logCompletedToAnalytics(stateData[i][1], email, stateData[i][7] || 'Unknown', finalStatus || stateData[i][4], stateData[i][6] || 'N/A', stateData[i][10] || '');
         moved = true;
       }
       // Capture threadId if not already captured
@@ -4762,6 +4764,10 @@ function sendBulkEmails(recipients, senderName, subject, htmlBody, jobId, opts) 
   // Log to central analytics
   if (count > 0) {
     logAnalytics('email_sent', jobId, count, `Initial outreach emails`);
+    // Log each candidate to centralized follow-up analytics
+    followUpRows.forEach(fr => {
+      logFollowUpToAnalytics(jobId, fr.row[0], fr.row[3], 'added', 'Initial outreach');
+    });
   }
 
   // Auto-capture job assignment for the agent
@@ -5678,6 +5684,7 @@ Write ONLY the email, nothing else.
               devId,
               candidateRegion || ''
             ]);
+            logCompletedToAnalytics(jobId, candidateEmail, candidateName, `Offer Accepted${agreedRate ? ` at $${agreedRate}/hr` : ''}`, devId, candidateRegion || '');
           }
 
           // Remove from state sheet
@@ -6109,6 +6116,7 @@ Return ONLY the JSON object, no other text.
             devId,
             candidateRegion || ''
           ]);
+          logCompletedToAnalytics(jobId, candidateEmail, candidateName, "Escalated - Rate Review", devId, candidateRegion || '');
 
           // Send escalation notification
           sendEscalationEmail(jobId, candidateName, candidateEmail, thread, escalationReason, rules.escalationEmail);
@@ -6160,6 +6168,7 @@ Return ONLY the JSON object, no other text.
           devId,
           candidateRegion || ''
         ]);
+        logCompletedToAnalytics(jobId, candidateEmail, candidateName, "Escalated - Rate Exceeds Max", devId, candidateRegion || '');
 
         // Send escalation notification
         sendEscalationEmail(jobId, candidateName, candidateEmail, thread, escalationReason, rules.escalationEmail);
@@ -6454,6 +6463,7 @@ Write ONLY the email, nothing else.
           candidateRegion || ''
         ]);
       }
+      logCompletedToAnalytics(jobId, candidateEmail, candidateName, `Offer Accepted at $${rate}/hr`, devId, candidateRegion || '');
 
       // Remove from state sheet
       if(stateRowIndex > -1) {
@@ -6579,6 +6589,7 @@ Write ONLY the email, nothing else.
             devId,
             candidateRegion || ''
           ]);
+          logCompletedToAnalytics(jobId, candidateEmail, candidateName, "Escalated - Rate Review", devId, candidateRegion || '');
 
           sendEscalationEmail(jobId, candidateName, candidateEmail, thread, escalationReason, rules.escalationEmail);
           updateFollowUpLabels(thread.getId(), 'responded');
@@ -7291,6 +7302,7 @@ Write ONLY the email, nothing else.
             devId,
             candidateRegion || ''
           ]);
+          logCompletedToAnalytics(jobId, candidateEmail, candidateName, "Escalated - Rate Exceeds Max", devId, candidateRegion || '');
 
           sendEscalationEmail(jobId, candidateName, candidateEmail, thread, escalationReason, rules.escalationEmail);
           updateFollowUpLabels(thread.getId(), 'responded');
@@ -7338,6 +7350,7 @@ Write ONLY the email, nothing else.
             devId,
             candidateRegion || ''
           ]);
+          logCompletedToAnalytics(jobId, candidateEmail, candidateName, "Escalated - Rate Review", devId, candidateRegion || '');
 
           sendEscalationEmail(jobId, candidateName, candidateEmail, thread, escalationReason, rules.escalationEmail);
           updateFollowUpLabels(thread.getId(), 'responded');
@@ -7584,6 +7597,7 @@ Write ONLY the email, nothing else.
           candidateRegion || ''
         ]);
       }
+      logCompletedToAnalytics(jobId, candidateEmail, candidateName, `Offer Accepted at $${rate}/hr`, devId, candidateRegion || '');
 
       // Remove from state sheet
       if(stateRowIndex > -1) {
@@ -8470,6 +8484,7 @@ function handleNotInterested(params) {
       devId, candidateRegion || ''
     ]);
   }
+  logCompletedToAnalytics(jobId, candidateEmail, candidateName, "Not Interested", devId, candidateRegion || '');
 
   // Remove from Negotiation_State since this candidate is done
   if (stateRowIndex > -1) {
@@ -8679,6 +8694,7 @@ function syncCompletedFromGmail() {
             devId,
             region || ''
           ]);
+          logCompletedToAnalytics(jobId, candidateEmail, name, completionStatus, devId, region || '');
 
           // Log completion to analytics
           logAnalytics('task_completed', jobId, 1, completionStatus);
@@ -8740,6 +8756,7 @@ function syncCompletedFromGmail() {
             devId,
             taskData[r][8] || ''
           ]);
+          logCompletedToAnalytics(jobId, candidateEmail, name, `Accepted at $${agreedRate}/hr (Gmail Sync)`, devId, taskData[r][8] || '');
 
           // Log completion to analytics
           logAnalytics('task_completed', jobId, 1, `Accepted at $${agreedRate}/hr (Gmail Sync)`);
@@ -10404,6 +10421,7 @@ function processFollowUpQueue() {
         sheet.getRange(i + 1, 9).setValue('Responded');
         sheet.getRange(i + 1, 10).setValue(new Date());
         updateFollowUpLabels(threadId, 'responded');
+        logFollowUpToAnalytics(jobId, email, name, 'responded', 'Auto-detected in negotiations');
         const reason = activeNegotiations.has(negotiationKey) ? 'in active negotiation' :
                        completedNegotiations.has(negotiationKey) ? 'in completed negotiations' : 'has accepted offer';
         log.push({ type: 'success', message: `${email} ${reason} - marked as responded` });
@@ -10476,6 +10494,7 @@ function processFollowUpQueue() {
               sheet.getRange(i + 1, 9).setValue('Responded');
               sheet.getRange(i + 1, 10).setValue(new Date());
               updateFollowUpLabels(threadId, 'responded');
+              logFollowUpToAnalytics(jobId, email, name, 'responded', 'Thread-based detection');
               log.push({ type: 'success', message: `${email} has responded (thread-based detection) - marked in queue` });
               processed++;
               continue;
@@ -10504,6 +10523,7 @@ function processFollowUpQueue() {
           sheet.getRange(i + 1, 9).setValue('Responded');
           sheet.getRange(i + 1, 10).setValue(new Date());
           updateFollowUpLabels(threadId, 'responded');
+          logFollowUpToAnalytics(jobId, email, name, 'responded', 'Safety check - found in negotiations');
           log.push({ type: 'success', message: `${email} found in negotiations (safety check) - marked as responded` });
           processed++;
           continue;
@@ -10515,6 +10535,7 @@ function processFollowUpQueue() {
           sheet.getRange(i + 1, 9).setValue('Unresponsive');
           sheet.getRange(i + 1, 10).setValue(new Date());
           updateFollowUpLabels(threadId, 'unresponsive');
+          logFollowUpToAnalytics(jobId, email, name, 'unresponsive', `After ${hoursSinceSend.toFixed(1)}hrs`);
           unresponsiveMarked++;
           log.push({ type: 'warning', message: `${email} marked unresponsive (${hoursSinceSend.toFixed(1)}hrs since initial)` });
         }
@@ -10529,6 +10550,7 @@ function processFollowUpQueue() {
           sheet.getRange(i + 1, 7).setValue(true); // Mark Follow Up 1 Sent
           sheet.getRange(i + 1, 10).setValue(new Date());
           updateFollowUpLabels(threadId, 'followup1');
+          logFollowUpToAnalytics(jobId, email, name, 'followup_1_sent', '1st follow-up');
           followUp1Sent++;
           log.push({ type: 'success', message: `Sent 1st follow-up to ${email} (${hoursSinceSend.toFixed(1)}hrs)` });
         } else {
@@ -10543,6 +10565,7 @@ function processFollowUpQueue() {
           sheet.getRange(i + 1, 8).setValue(true); // Mark Follow Up 2 Sent
           sheet.getRange(i + 1, 10).setValue(new Date());
           updateFollowUpLabels(threadId, 'followup2');
+          logFollowUpToAnalytics(jobId, email, name, 'followup_2_sent', '2nd follow-up');
           followUp2Sent++;
           log.push({ type: 'success', message: `Sent 2nd follow-up to ${email} (${hoursSinceSend.toFixed(1)}hrs)` });
         } else {
@@ -12282,6 +12305,90 @@ function logAnalytics(action, jobId, count, details) {
 }
 
 /**
+ * Log a completed negotiation to centralized Completed_Analytics sheet.
+ * This sheet lives in the SHARED analytics spreadsheet so TLs/Admins/Managers
+ * can see completed counts for all team members (unlike per-user Negotiation_Completed).
+ * Append-only log — deduplication happens at read time by normalizedEmail+jobId.
+ *
+ * @param {string} jobId - The job identifier
+ * @param {string} candidateEmail - The candidate's email
+ * @param {string} candidateName - The candidate's name
+ * @param {string} finalStatus - The completion status (e.g., "Offer Accepted", "Not Interested")
+ * @param {string} devId - Optional developer ID
+ * @param {string} region - Optional region
+ */
+function logCompletedToAnalytics(jobId, candidateEmail, candidateName, finalStatus, devId, region) {
+  try {
+    const ss = getAnalyticsSpreadsheet();
+    if (!ss) return;
+
+    let sheet = ss.getSheetByName('Completed_Analytics');
+    if (!sheet) {
+      sheet = ss.insertSheet('Completed_Analytics');
+      sheet.appendRow(['Timestamp', 'User Email', 'Job ID', 'Candidate Email', 'Candidate Name', 'Final Status', 'Dev ID', 'Region']);
+      sheet.setFrozenRows(1);
+    }
+
+    const userEmail = Session.getActiveUser().getEmail() || 'Unknown';
+
+    sheet.appendRow([
+      new Date(),
+      userEmail,
+      String(jobId || ''),
+      candidateEmail || '',
+      candidateName || '',
+      finalStatus || 'Completed',
+      devId || '',
+      region || ''
+    ]);
+  } catch (e) {
+    console.error("Failed to log completed to analytics:", e);
+  }
+}
+
+/**
+ * Log a follow-up event to centralized FollowUp_Analytics sheet.
+ * This sheet lives in the SHARED analytics spreadsheet so TLs/Admins/Managers
+ * can see follow-up status for all team members (unlike per-user Follow_Up_Queue).
+ * Append-only event log — current state derived at read time by taking latest event per candidate+job.
+ *
+ * Actions: 'added', 'followup_1_sent', 'followup_2_sent', 'responded', 'unresponsive'
+ *
+ * @param {string} jobId - The job identifier
+ * @param {string} candidateEmail - The candidate's email
+ * @param {string} candidateName - The candidate's name
+ * @param {string} action - The follow-up event type
+ * @param {string} details - Optional details
+ */
+function logFollowUpToAnalytics(jobId, candidateEmail, candidateName, action, details) {
+  try {
+    const ss = getAnalyticsSpreadsheet();
+    if (!ss) return;
+
+    let sheet = ss.getSheetByName('FollowUp_Analytics');
+    if (!sheet) {
+      sheet = ss.insertSheet('FollowUp_Analytics');
+      sheet.appendRow(['Timestamp', 'User Email', 'Job ID', 'Candidate Email', 'Candidate Name', 'Action', 'Details']);
+      sheet.setFrozenRows(1);
+    }
+
+    const userEmail = Session.getActiveUser().getEmail() || 'Unknown';
+
+    sheet.appendRow([
+      new Date(),
+      userEmail,
+      String(jobId || ''),
+      candidateEmail || '',
+      candidateName || '',
+      action || '',
+      details || ''
+    ]);
+  } catch (e) {
+    console.error("Failed to log follow-up to analytics:", e);
+  }
+}
+
+/**
  * Check if current user has access to analytics dashboard
  * Role-based access control (RBAC):
  * - admin: Full operational access + All analytics + Manage users
@@ -13028,25 +13135,30 @@ function getUserAnalytics(filterEmail, filterJobId, startDate, endDate) {
     const negotiationStats = getActiveNegotiationStats();
     const perJobNegotiations = negotiationStats.perJob || {};
 
-    // Get follow-up queue stats - MOVED UP to use in job breakdown
-    const followUpStats = getFollowUpStats();
-    const perJobFollowUps = followUpStats.perJob || {};
+    // ====================================================================
+    // CENTRALIZED ANALYTICS: Read from shared analytics spreadsheet
+    // These sheets are accessible to ALL users (TLs, Admins, Managers)
+    // unlike per-user Negotiation_Completed and Follow_Up_Queue
+    // ====================================================================
 
-    // Get per-job completed counts from Negotiation_Completed (source of truth)
-    // IMPORTANT: Negotiation_Completed is in the MAIN spreadsheet, not the analytics spreadsheet
-    // getUserAnalytics() uses getAnalyticsSpreadsheet() (ss) which only has Activity_Log.
-    // We must use getCachedSpreadsheet() to access the main operational spreadsheet.
-    const completedPerJob = {};
+    // --- Completed counts from Completed_Analytics (shared) ---
+    // Per-user per-job completed counts for accurate multi-user attribution
+    const completedPerUserJob = {}; // key: "userEmail|jobId" → count
+    const completedPerJob = {};     // key: jobId → total count
     let totalCompletedFromSheet = 0;
     try {
-      const mainSs = getCachedSpreadsheet();
-      const completedSheet = mainSs ? mainSs.getSheetByName('Negotiation_Completed') : null;
-      if (completedSheet && completedSheet.getLastRow() > 1) {
-        const completedData = completedSheet.getDataRange().getValues();
+      const completedAnalyticsSheet = ss.getSheetByName('Completed_Analytics');
+      if (completedAnalyticsSheet && completedAnalyticsSheet.getLastRow() > 1) {
+        const completedData = completedAnalyticsSheet.getDataRange().getValues();
+        // Deduplicate by normalizedCandidateEmail+jobId (append-only log may have duplicates)
+        const seenCompleted = new Set();
         for (let i = 1; i < completedData.length; i++) {
-          if (!completedData[i][2]) continue; // Skip if no email
-          const cJobId = String(completedData[i][1] || '');
+          const cUserEmail = String(completedData[i][1] || '').toLowerCase();
+          const cJobId = String(completedData[i][2] || '');
+          const cCandidateEmail = completedData[i][3];
           const cTimestamp = completedData[i][0];
+
+          if (!cCandidateEmail) continue;
 
           // Apply job filter if specified
           if (jobIdFilter && cJobId !== jobIdFilter) continue;
@@ -13058,24 +13170,91 @@ function getUserAnalytics(filterEmail, filterJobId, startDate, endDate) {
             if (endDateFilter && rowDate > endDateFilter) continue;
           }
 
+          // Apply team-based access filtering (same as Activity_Log filtering)
+          if (allowedEmails !== null && !allowedEmails.includes(cUserEmail)) continue;
+          if (emailFilter && cUserEmail !== emailFilter) continue;
+
+          // Deduplicate by normalized candidate email + jobId
+          const dedupeKey = normalizeEmail(cCandidateEmail) + '|' + cJobId;
+          if (seenCompleted.has(dedupeKey)) continue;
+          seenCompleted.add(dedupeKey);
+
+          // Per-user per-job count
+          const userJobKey = cUserEmail + '|' + cJobId;
+          if (!completedPerUserJob[userJobKey]) completedPerUserJob[userJobKey] = 0;
+          completedPerUserJob[userJobKey]++;
+
+          // Per-job total count
           if (!completedPerJob[cJobId]) completedPerJob[cJobId] = 0;
           completedPerJob[cJobId]++;
           totalCompletedFromSheet++;
         }
       }
     } catch (e) {
-      console.error("Error counting completed per job from Negotiation_Completed:", e);
+      console.error("Error reading Completed_Analytics:", e);
     }
 
-    // Build map of how many users work on each job (for multi-user attribution)
-    // If multiple users share a job, we can't attribute Negotiation_Completed entries
-    // to individual users, so we fall back to Activity_Log counts to avoid double-counting
-    const jobUserCount = {};
-    Array.from(userMap.values()).forEach(u => {
-      Object.keys(u.jobBreakdown).forEach(jobKey => {
-        jobUserCount[jobKey] = (jobUserCount[jobKey] || 0) + 1;
-      });
-    });
+    // --- Follow-up status from FollowUp_Analytics (shared) ---
+    // Derive current follow-up state per user per job from event log
+    // Actions: 'added', 'followup_1_sent', 'followup_2_sent', 'responded', 'unresponsive'
+    const followUpActivePerUserJob = {}; // key: "userEmail|jobId" → active count
+    const followUpActivePerJob = {};     // key: jobId → active count
+    let totalActiveFollowUps = 0;
+    try {
+      const fuAnalyticsSheet = ss.getSheetByName('FollowUp_Analytics');
+      if (fuAnalyticsSheet && fuAnalyticsSheet.getLastRow() > 1) {
+        const fuData = fuAnalyticsSheet.getDataRange().getValues();
+        // Build latest state per candidate+job by processing all events
+        const candidateState = {}; // key: normalizedEmail|jobId → { userEmail, action, timestamp }
+        for (let i = 1; i < fuData.length; i++) {
+          const fuUserEmail = String(fuData[i][1] || '').toLowerCase();
+          const fuJobId = String(fuData[i][2] || '');
+          const fuCandidateEmail = fuData[i][3];
+          const fuAction = String(fuData[i][5] || '');
+          const fuTimestamp = fuData[i][0];
+
+          if (!fuCandidateEmail || !fuJobId) continue;
+
+          // Apply job filter
+          if (jobIdFilter && fuJobId !== jobIdFilter) continue;
+
+          // Apply team-based access filtering
+          if (allowedEmails !== null && !allowedEmails.includes(fuUserEmail)) continue;
+          if (emailFilter && fuUserEmail !== emailFilter) continue;
+
+          const stateKey = normalizeEmail(fuCandidateEmail) + '|' + fuJobId;
+          const existing = candidateState[stateKey];
+
+          // Take the latest event per candidate+job
+          if (!existing || new Date(fuTimestamp) > new Date(existing.timestamp)) {
+            candidateState[stateKey] = { userEmail: fuUserEmail, jobId: fuJobId, action: fuAction, timestamp: fuTimestamp };
+          }
+        }
+
+        // Count active follow-ups: candidates whose latest action is NOT 'responded' or 'unresponsive'
+        const terminalActions = new Set(['responded', 'unresponsive']);
+        Object.values(candidateState).forEach(state => {
+          if (!terminalActions.has(state.action)) {
+            // This candidate is still in active follow-up
+            const userJobKey = state.userEmail + '|' + state.jobId;
+            if (!followUpActivePerUserJob[userJobKey]) followUpActivePerUserJob[userJobKey] = 0;
+            followUpActivePerUserJob[userJobKey]++;
+
+            if (!followUpActivePerJob[state.jobId]) followUpActivePerJob[state.jobId] = 0;
+            followUpActivePerJob[state.jobId]++;
+            totalActiveFollowUps++;
+          }
+        });
+      }
+    } catch (e) {
+      console.error("Error reading FollowUp_Analytics:", e);
+    }
+
+    // Fallback: If centralized sheets are empty (not yet populated with historical data),
+    // try reading from per-user sheets as fallback for the current user's own data
+    const followUpStats = getFollowUpStats();
+    const hasCentralizedFollowUps = totalActiveFollowUps > 0 || (ss.getSheetByName('FollowUp_Analytics') !== null);
+    const hasCentralizedCompleted = totalCompletedFromSheet > 0 || (ss.getSheetByName('Completed_Analytics') !== null);
 
     // Convert user map to sorted array with job breakdown
     analytics.userStats = Array.from(userMap.values())
@@ -13089,49 +13268,49 @@ function getUserAnalytics(filterEmail, filterJobId, startDate, endDate) {
         let userActiveDataGathering = 0;
         let userActiveNegotiations = 0;
         let userActiveFollowUps = 0;
-        let userCompletedFromSheet = 0;
+        let userCompletedTotal = 0;
+        const userEmailLower = u.email.toLowerCase();
         Object.keys(u.jobBreakdown).forEach(jobKey => {
           const jobDgStats = perJobDataGathering[jobKey];
           const jobNegStats = perJobNegotiations[jobKey];
-          const jobFuStats = perJobFollowUps[jobKey];
           if (jobDgStats) {
             userActiveDataGathering += jobDgStats.pending || 0;
           }
           if (jobNegStats) {
-            // Count active + human escalated as total active negotiations
             userActiveNegotiations += (jobNegStats.active || 0) + (jobNegStats.humanEscalated || 0);
           }
-          // FIXED: Count active follow-ups (candidates in follow-up queue, not responded/unresponsive)
-          if (jobFuStats) {
-            userActiveFollowUps += (jobFuStats.pending || 0) + (jobFuStats.followUp1Done || 0) + (jobFuStats.followUp2Done || 0);
-          }
-          // FIXED: Use completed count from Negotiation_Completed (source of truth)
-          // For shared jobs (multiple users), fall back to Activity_Log to avoid double-counting
-          const isSharedJob = (jobUserCount[jobKey] || 0) > 1;
-          if (!isSharedJob && completedPerJob[jobKey]) {
-            userCompletedFromSheet += completedPerJob[jobKey];
+
+          // Completed: Use centralized Completed_Analytics (per-user per-job)
+          const userJobKey = userEmailLower + '|' + jobKey;
+          if (hasCentralizedCompleted && completedPerUserJob[userJobKey]) {
+            userCompletedTotal += completedPerUserJob[userJobKey];
           } else {
-            userCompletedFromSheet += u.jobBreakdown[jobKey].completed || 0;
+            // Fallback to Activity_Log count if centralized data not yet available
+            userCompletedTotal += u.jobBreakdown[jobKey].completed || 0;
+          }
+
+          // Follow-ups: Use centralized FollowUp_Analytics (per-user per-job)
+          if (hasCentralizedFollowUps && followUpActivePerUserJob[userJobKey] !== undefined) {
+            userActiveFollowUps += followUpActivePerUserJob[userJobKey];
+          } else {
+            // Fallback: use per-user Follow_Up_Queue for current user's own data
+            const perJobFu = followUpStats.perJob || {};
+            const jobFuStats = perJobFu[jobKey];
+            if (jobFuStats) {
+              userActiveFollowUps += (jobFuStats.pending || 0) + (jobFuStats.followUp1Done || 0) + (jobFuStats.followUp2Done || 0);
+            }
           }
         });
-
-        // Use accumulated count (Negotiation_Completed for single-user jobs, Activity_Log for shared)
-        const userCompleted = userCompletedFromSheet;
 
         return {
           email: u.email,
           emailsSent: u.emailsSent,
-          // FIXED: Show active data gathering candidates, not cumulative fetch counts
           dataFetches: userActiveDataGathering,
-          // FIXED: Show active negotiations, not cumulative log counts
           negotiations: userActiveNegotiations,
-          // FIXED: Show active follow-up candidates, not cumulative follow-up emails sent
           followUps: userActiveFollowUps,
-          // FIXED: Use Negotiation_Completed as source of truth for completed count
-          completed: userCompleted,
+          completed: userCompletedTotal,
           totalActions: u.emailsSent + userActiveFollowUps,
           lastActive: u.lastActive && !isNaN(u.lastActive.getTime()) ? u.lastActive.toISOString() : null,
-          // NEW: Include job breakdown sorted by last active
           jobBreakdown: Object.values(u.jobBreakdown)
             .sort((a, b) => {
               const bTime = b.lastActive && !isNaN(b.lastActive.getTime()) ? b.lastActive.getTime() : 0;
@@ -13139,33 +13318,38 @@ function getUserAnalytics(filterEmail, filterJobId, startDate, endDate) {
               return bTime - aTime;
             })
             .map(j => {
-              // FIXED: Use active data gathering count from getDataGatheringStats() instead of fetch log count
               const jobDgStats = perJobDataGathering[j.jobId];
               const activeDataGathering = jobDgStats ? (jobDgStats.pending || 0) : 0;
 
-              // FIXED: Use active negotiation count from getActiveNegotiationStats() instead of log count
               const jobNegStats = perJobNegotiations[j.jobId];
               const activeNegotiations = jobNegStats ? ((jobNegStats.active || 0) + (jobNegStats.humanEscalated || 0)) : 0;
 
-              // FIXED: Use active follow-up count from Follow_Up_Queue instead of cumulative sends from Activity_Log
-              const jobFuStats = perJobFollowUps[j.jobId];
-              const activeFollowUps = jobFuStats ? ((jobFuStats.pending || 0) + (jobFuStats.followUp1Done || 0) + (jobFuStats.followUp2Done || 0)) : 0;
+              // Per-job completed: use centralized per-user-per-job count
+              const jobUserKey = userEmailLower + '|' + j.jobId;
+              let jobCompletedCount = j.completed || 0;
+              if (hasCentralizedCompleted && completedPerUserJob[jobUserKey]) {
+                jobCompletedCount = completedPerUserJob[jobUserKey];
+              }
 
-              // FIXED: Use completed count from Negotiation_Completed (source of truth)
-              // For shared jobs (multiple users), fall back to Activity_Log to avoid double-counting
-              const isSharedJob = (jobUserCount[j.jobId] || 0) > 1;
-              const jobCompletedCount = (!isSharedJob && completedPerJob[j.jobId]) ? completedPerJob[j.jobId] : (j.completed || 0);
+              // Per-job follow-ups: use centralized per-user-per-job count
+              let activeFollowUps = 0;
+              if (hasCentralizedFollowUps && followUpActivePerUserJob[jobUserKey] !== undefined) {
+                activeFollowUps = followUpActivePerUserJob[jobUserKey];
+              } else {
+                // Fallback to per-user Follow_Up_Queue
+                const perJobFu = followUpStats.perJob || {};
+                const jobFuStats = perJobFu[j.jobId];
+                if (jobFuStats) {
+                  activeFollowUps = (jobFuStats.pending || 0) + (jobFuStats.followUp1Done || 0) + (jobFuStats.followUp2Done || 0);
+                }
+              }
 
               return {
                 jobId: j.jobId,
                 emailsSent: j.emailsSent,
-                // FIXED: Show active candidates in data gathering (pending status), not fetch action counts
                 dataFetches: activeDataGathering,
-                // FIXED: Show active negotiations, not cumulative log counts
                 negotiations: activeNegotiations,
-                // FIXED: Show active follow-up candidates, not cumulative follow-up emails sent
                 followUps: activeFollowUps,
-                // FIXED: Use Negotiation_Completed as source of truth
                 completed: jobCompletedCount,
                 totalActions: j.emailsSent + activeFollowUps,
                 lastActive: j.lastActive && !isNaN(j.lastActive.getTime()) ? j.lastActive.toISOString() : null
