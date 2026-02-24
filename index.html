@@ -2593,6 +2593,9 @@
                                 <button id="teamHierarchyBtn" onclick="openTeamHierarchyModal()" class="hidden bg-purple-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-purple-700">
                                     <i class="fa-solid fa-sitemap mr-1"></i> Teams
                                 </button>
+                                <button id="backfillAnalyticsBtn" onclick="runAnalyticsBackfill()" class="bg-teal-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-teal-700" title="Sync your historical completed & follow-up data to the shared analytics dashboard">
+                                    <i class="fa-solid fa-database mr-1"></i> Sync History
+                                </button>
                                 <button id="manageViewersBtn" onclick="openViewersModal()" class="bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-indigo-700">
                                     <i class="fa-solid fa-users-gear mr-1"></i> Access
                                 </button>
@@ -10578,6 +10581,46 @@
                     btn.classList.remove('success');
                 }, 1500);
             }, true);
+        }
+
+        function runAnalyticsBackfill() {
+            const btn = document.getElementById('backfillAnalyticsBtn');
+            if (!btn || btn.disabled) return;
+
+            if (!confirm('This will sync your historical Completed and Follow-Up data to the shared analytics dashboard.\n\nSafe to run multiple times (duplicates are skipped).\n\nProceed?')) {
+                return;
+            }
+
+            const originalHTML = btn.innerHTML;
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin mr-1"></i> Syncing...';
+            btn.classList.replace('bg-teal-600', 'bg-teal-400');
+
+            google.script.run
+                .withSuccessHandler(function(result) {
+                    btn.disabled = false;
+                    btn.innerHTML = originalHTML;
+                    btn.classList.replace('bg-teal-400', 'bg-teal-600');
+
+                    if (result.success) {
+                        const msg = `Sync complete! Completed: ${result.completedMigrated}, Follow-ups: ${result.followUpsMigrated}` +
+                            (result.skippedDuplicates > 0 ? ` (${result.skippedDuplicates} already synced)` : '');
+                        showToast(msg, 'success');
+                        // Auto-refresh analytics to show updated numbers
+                        refreshAnalyticsWithAnimation();
+                    } else {
+                        showToast('Sync failed: ' + (result.error || 'Unknown error'), 'error');
+                    }
+                    console.log('Backfill result:', result);
+                })
+                .withFailureHandler(function(err) {
+                    btn.disabled = false;
+                    btn.innerHTML = originalHTML;
+                    btn.classList.replace('bg-teal-400', 'bg-teal-600');
+                    showToast('Sync failed: ' + err.message, 'error');
+                    console.error('Backfill error:', err);
+                })
+                .backfillAnalyticsData();
         }
 
         function showAnalyticsAccessDenied() {
