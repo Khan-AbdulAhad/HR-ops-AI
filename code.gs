@@ -8710,19 +8710,73 @@ function retroactiveScanNotInterested() {
       /\bcircumstances\s+have\s+changed\b/i
     ];
 
+    // Helper: strip quoted reply text from an email body so we only check the candidate's own words
+    function stripQuotedText(body) {
+      if (!body) return '';
+      const lines = body.split('\n');
+      const cleanLines = [];
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        // Stop at common quote headers (e.g. "On Mon, Jan 5, 2026, ... wrote:")
+        if (/^On\s+.{10,80}\s+wrote:\s*$/i.test(line)) break;
+        // Stop at forwarded message markers
+        if (/^-{3,}\s*(Forwarded|Original)\s+message/i.test(line)) break;
+        // Stop at "From: ..." header blocks in quoted replies
+        if (/^From:\s+.+@.+/i.test(line)) break;
+        // Skip lines starting with ">" (inline quoted text)
+        if (/^\s*>/.test(line)) continue;
+        cleanLines.push(line);
+      }
+      return cleanLines.join('\n');
+    }
+
+    // Positive-interest patterns: if the candidate's own text matches these, they are clearly interested
+    const positiveInterestPatterns = [
+      /\b(?:i\s+am|i'm|yes[,.]?\s+(?:i\s+am|i'm)?)\s+interested\b/i,
+      /\byes[,.]?\s+(?:i\s+am|i'm|definitely|absolutely|of\s+course)\b/i,
+      /\binterested\s+in\s+(?:this|the)\s+(?:position|role|opportunity|job)\b/i,
+      /\bwould\s+(?:love|like)\s+to\s+(?:proceed|continue|move\s+forward|explore|discuss|know\s+more)\b/i,
+      /\bcount\s+me\s+in\b/i,
+      /\bplease\s+(?:proceed|share|send)\s+(?:the|more)?\s*(?:details|information)\b/i,
+      /\bready\s+to\s+(?:start|proceed|go|begin)\b/i,
+      /\blooking\s+forward\s+to\b/i
+    ];
+
     // Helper: check if any candidate message in thread matches not-interested patterns
+    // FIX: Strips quoted reply text to avoid false positives from our own outreach text
+    // FIX: Checks for positive interest in most recent message to prevent false flags
     function checkThreadForNotInterested(thread) {
       if (!thread) return { matched: false };
       const msgs = thread.getMessages();
-      // Check candidate messages (non-me senders) from newest to oldest
+
+      // First pass: check the MOST RECENT candidate message for positive interest
+      // If the latest candidate message expresses interest, do NOT flag as not-interested
       for (let m = msgs.length - 1; m >= 0; m--) {
         const from = msgs[m].getFrom().toLowerCase();
         if (from.indexOf(myEmail) !== -1) continue; // skip our own messages
 
-        const body = msgs[m].getPlainBody() || '';
+        const latestBody = stripQuotedText(msgs[m].getPlainBody() || '');
+        const isPositive = positiveInterestPatterns.some(p => p.test(latestBody));
+        if (isPositive) {
+          // Most recent candidate message shows clear interest - not a withdrawal
+          return { matched: false };
+        }
+        break; // Only check the most recent candidate message for positive override
+      }
+
+      // Second pass: check candidate messages (newest to oldest) for withdrawal patterns
+      for (let m = msgs.length - 1; m >= 0; m--) {
+        const from = msgs[m].getFrom().toLowerCase();
+        if (from.indexOf(myEmail) !== -1) continue; // skip our own messages
+
+        // Strip quoted text so we only match the candidate's own words
+        const body = stripQuotedText(msgs[m].getPlainBody() || '');
         for (const pattern of notInterestedPatterns) {
           if (pattern.test(body)) {
-            // Extract a snippet around the match for the reason
+            // Double-check: if THIS same message also has positive interest, skip the match
+            const alsoPositive = positiveInterestPatterns.some(p => p.test(body));
+            if (alsoPositive) continue;
+
             const match = body.match(pattern);
             const snippet = match ? match[0] : 'withdrawal detected';
             return { matched: true, reason: snippet, messageBody: body.substring(0, 300) };
