@@ -4476,35 +4476,57 @@ function getDevelopersByIds(developerIds, jobId) {
   // Build efficient single-pass SQL: fetch developer profile, country, phone, and agency info
   const idList = cleanIds.join(',');
   const innerQuery = `
-    WITH agency_info AS (
-      SELECT
-        ad.dev_id,
-        IF(MAX(IF(ad.developer_type = 'sub_contractor', 1, 0)) = 1, 'Sub Contractor', 'Contractor') AS agency_sub_con,
-        MAX(a.name) AS agency_name
-      FROM ms2_agency_devs ad
-      LEFT JOIN ms2_agencies a ON ad.agency_id = a.id
-      WHERE ad.review_status = 'approved'
-        AND ad.dev_id IN (${idList})
-      GROUP BY ad.dev_id
-    )
     SELECT
       d.id AS developer_id,
       d.full_name,
       d.email,
       CASE
-        WHEN ai.agency_sub_con = 'Sub Contractor' THEN 'Agency Sub-Contractor'
-        WHEN ai.agency_sub_con = 'Contractor' THEN 'Agency Contractor'
-        ELSE 'Independent'
+        WHEN ad.agency_sub_con = 'Sub Contractor' THEN 'Agency Sub-Contractor'
+        WHEN ad.agency_sub_con = 'Contractor'     THEN 'Agency Contractor'
+        WHEN ad.agency_sub_con = 'FTE'            THEN 'Independent'
+        WHEN ad.dev_id IS NULL                    THEN 'Independent'
+        ELSE 'no status available'
       END AS candidate_status,
-      COALESCE(ai.agency_name, '') AS agency_name,
-      COALESCE(c.name, '') AS developer_country,
+      COALESCE(ad.agency_name, '') AS agency_name,
+      COALESCE(sl.country, '') AS developer_country,
       COALESCE(sl.phone_country_code, '') AS phone_country_code,
       COALESCE(sl.phone_number, '') AS phone_number
     FROM user_list_v4 d
-    LEFT JOIN agency_info ai ON d.id = ai.dev_id
-    LEFT JOIN developer_detail dd ON dd.user_id = d.id
-    LEFT JOIN tpm_countries c ON c.id = dd.country_id
-    LEFT JOIN submit_list_v4 sl ON sl.uid = d.id
+    LEFT JOIN submit_list_v4 sl
+      ON sl.uid = d.id
+    LEFT JOIN (
+      SELECT
+        x.dev_id,
+        CASE
+          WHEN x.developer_type = 'sub_contractor' THEN 'Sub Contractor'
+          WHEN x.developer_type = 'contractor'     THEN 'Contractor'
+          WHEN x.developer_type = 'fte'            THEN 'FTE'
+          ELSE NULL
+        END AS agency_sub_con,
+        a.name AS agency_name,
+        x.review_status,
+        x.updated_at
+      FROM (
+        SELECT
+          agd.dev_id,
+          agd.agency_id,
+          ada.developer_type,
+          ada.review_status,
+          ada.updated_at,
+          ada.id,
+          ROW_NUMBER() OVER (
+            PARTITION BY agd.dev_id
+            ORDER BY (ada.updated_at IS NULL) ASC, ada.updated_at DESC, ada.id DESC
+          ) AS rn
+        FROM ms2_agency_devs agd
+        LEFT JOIN ms2_agency_devs_applications ada
+          ON agd.id = ada.agency_dev_id
+      ) x
+      LEFT JOIN ms2_agencies a
+        ON x.agency_id = a.id
+      WHERE x.rn = 1
+    ) ad
+      ON d.id = ad.dev_id
     WHERE d.id IN (${idList})
   `;
 
