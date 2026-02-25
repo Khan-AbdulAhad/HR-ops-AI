@@ -8882,15 +8882,48 @@
                 return;
             }
 
-            tableData = _systemCandidatesCache;
-            fullTableData = _systemCandidatesCache;
+            // Reset all selection state
+            selectedDevs.clear();
+            updateBulkUI();
+
+            // Clear paste filter input and hide area
+            document.getElementById('pasteFilterInput').value = '';
+            document.getElementById('pasteFilterArea').classList.add('hidden');
+
+            // Reset all filters to default state
+            activeFilters.status.clear();
+            activeFilters.status.add('all');
+            activeFilters.type.clear();
+            activeFilters.country.clear();
+            document.querySelectorAll('.filter-chip').forEach(chip => {
+                chip.classList.remove('active');
+            });
+            const allFilterChip = document.querySelector('.filter-chip[data-filter="all"]');
+            if (allFilterChip) allFilterChip.classList.add('active');
+            document.getElementById('tableSearch').value = '';
+            const clearBtn = document.getElementById('clearTableSearchBtn');
+            if (clearBtn) clearBtn.classList.add('hidden');
+            updateCountryFilterIcon();
+            updateActiveFiltersIndicator();
+
+            // Load data into both table arrays
+            const data = [..._systemCandidatesCache];
+            tableData = data;
+            fullTableData = data;
+
+            // Show table UI
             document.getElementById('tableContainer').classList.remove('hidden');
             document.getElementById('statusFilterContainer').classList.remove('hidden');
             document.getElementById('tableControls').classList.remove('hidden');
+
+            // Render table and update all counts
             renderTable(tableData);
+            updateCounts(fullTableData);
+            document.getElementById('selectAllCount').textContent = `(${tableData.length})`;
+
             closeManualEntryModal();
 
-            showToast('Loaded ' + _systemCandidatesCache.length + ' system candidate(s)', 'success');
+            showToast('Loaded ' + data.length + ' system candidate(s)', 'success');
             _systemCandidatesCache = null;
         }
 
