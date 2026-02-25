@@ -241,6 +241,99 @@ ${getEffectiveSignature()}
 }
 
 /**
+ * Builds the mid-negotiation follow-up email prompt for candidates who responded initially
+ * but then went silent during the negotiation/conversation flow.
+ * @param {Object} params - { name, jobDescription, followUpNumber, negotiationStatus, lastOffer, aiNotes }
+ * @returns {string} The prompt for AI
+ */
+function buildNegotiationFollowUpPrompt(params) {
+  const { name, jobDescription, followUpNumber, negotiationStatus, lastOffer, aiNotes } = params;
+  const firstName = name ? name.split(' ')[0] : 'there';
+
+  // Build context about where the negotiation stands
+  let statusContext = '';
+  if (negotiationStatus) {
+    const statusLower = String(negotiationStatus).toLowerCase();
+    if (statusLower.includes('counter')) {
+      statusContext = '- The conversation was in a rate negotiation phase (a counter-offer was discussed)';
+    } else if (statusLower.includes('active')) {
+      statusContext = '- The conversation was actively progressing';
+    } else {
+      statusContext = `- Last conversation status: ${negotiationStatus}`;
+    }
+  }
+
+  let offerContext = '';
+  if (lastOffer) {
+    offerContext = `- There was an ongoing discussion about compensation`;
+  }
+
+  let urgencyLevel = '';
+  if (followUpNumber === 1) {
+    urgencyLevel = `
+- This is the FIRST follow-up after their silence during an active conversation
+- Be friendly and warm - they already showed interest by responding initially
+- Gently check in and ask if they had any questions about what was discussed
+- Reference that you were in the middle of a conversation (without revealing internal details)
+- Keep it short (3-4 sentences max)`;
+  } else {
+    urgencyLevel = `
+- This is the SECOND and FINAL follow-up during the active conversation
+- They initially responded and engaged, but have gone silent
+- Be professional and slightly more direct
+- Mention this is a time-sensitive opportunity and you'd like to continue the conversation
+- Let them know you're still interested but need to hear back to proceed
+- Keep it short (3-4 sentences max)`;
+  }
+
+  return `
+You are a recruiter at Turing sending a follow-up email. The candidate INITIALLY RESPONDED to your outreach and engaged in the conversation, but has since gone silent.
+
+IMPORTANT CONTEXT:
+- Candidate Name: ${name}
+${jobDescription ? `- Role Overview: ${jobDescription.substring(0, 400)}...` : ''}
+${statusContext}
+${offerContext}
+- The candidate was previously interested and engaged, but stopped responding
+- This is follow-up ${followUpNumber} of 2 during active conversation
+
+FOLLOW-UP GUIDELINES:
+${urgencyLevel}
+
+=== CRITICAL CONFIDENTIALITY RULES ===
+NEVER include any of the following in your email:
+- Job IDs, reference numbers, or internal identifiers
+- Any specific rates, budgets, or compensation figures
+- Internal status, pipeline stage, or outreach history
+- Dev IDs, thread IDs, or any system identifiers
+- Any terminology like "target rate", "max rate", "counter offer" or specific dollar amounts
+- Information about how many times we've contacted them or our internal processes
+- Details about the negotiation strategy or internal rate analysis
+
+=== IMPORTANT BEHAVIORAL GUIDELINES ===
+**Apply these naturally without stating them explicitly:**
+
+1. **This Conversation Does Not Mean Selection**
+   - This is continuing a conversation, NOT confirming an offer
+   - Keep tone as "continuing our discussion" not "finalizing"
+
+2. **Never Suggest Phone Calls or Meetings**
+   - Keep the conversation email-based
+   - Do NOT offer to schedule a call or suggest a meeting
+
+3. **Acknowledge Their Previous Engagement**
+   - Reference that you were having a productive conversation
+   - Show appreciation for their earlier interest
+   - Make it easy for them to re-engage
+
+Write ONLY the email body (no subject line). Start with "Hi ${firstName}," and end with:
+
+Best regards,
+${getEffectiveSignature()}
+`;
+}
+
+/**
  * Formats a rate number for display in emails/prompts.
  * Whole numbers stay as-is (18 → "18"), decimals get 2 places (20.8 → "20.80").
  */
@@ -10581,7 +10674,11 @@ const FOLLOW_UP_CONFIG_DEFAULTS = {
   DATA_FOLLOW_UP_1_HOURS: 12,  // First data follow-up after 12 hours of no response
   DATA_FOLLOW_UP_2_HOURS: 28,  // Second data follow-up after 28 hours
   DATA_FOLLOW_UP_3_HOURS: 48,  // Third data follow-up after 48 hours
-  DATA_INCOMPLETE_HOURS: 72    // Mark as incomplete data 24 hours after 3rd follow-up (48 + 24 = 72 hours)
+  DATA_INCOMPLETE_HOURS: 72,   // Mark as incomplete data 24 hours after 3rd follow-up (48 + 24 = 72 hours)
+  // Mid-negotiation follow-up timing (candidate responded initially, then went silent during negotiation)
+  NEG_FOLLOW_UP_1_HOURS: 24,   // First negotiation follow-up after 24 hours of silence
+  NEG_FOLLOW_UP_2_HOURS: 48,   // Second negotiation follow-up after 48 hours of silence
+  NEG_UNRESPONSIVE_HOURS: 96   // Mark as unresponsive 48 hours after 2nd negotiation follow-up (48 + 48 = 96 hours)
 };
 
 /**
@@ -10601,7 +10698,11 @@ function getFollowUpTimingConfig() {
         DATA_FOLLOW_UP_1_HOURS: config.DATA_FOLLOW_UP_1_HOURS || FOLLOW_UP_CONFIG_DEFAULTS.DATA_FOLLOW_UP_1_HOURS,
         DATA_FOLLOW_UP_2_HOURS: config.DATA_FOLLOW_UP_2_HOURS || FOLLOW_UP_CONFIG_DEFAULTS.DATA_FOLLOW_UP_2_HOURS,
         DATA_FOLLOW_UP_3_HOURS: config.DATA_FOLLOW_UP_3_HOURS || FOLLOW_UP_CONFIG_DEFAULTS.DATA_FOLLOW_UP_3_HOURS,
-        DATA_INCOMPLETE_HOURS: config.DATA_INCOMPLETE_HOURS || FOLLOW_UP_CONFIG_DEFAULTS.DATA_INCOMPLETE_HOURS
+        DATA_INCOMPLETE_HOURS: config.DATA_INCOMPLETE_HOURS || FOLLOW_UP_CONFIG_DEFAULTS.DATA_INCOMPLETE_HOURS,
+        // Mid-negotiation follow-up timing
+        NEG_FOLLOW_UP_1_HOURS: config.NEG_FOLLOW_UP_1_HOURS || FOLLOW_UP_CONFIG_DEFAULTS.NEG_FOLLOW_UP_1_HOURS,
+        NEG_FOLLOW_UP_2_HOURS: config.NEG_FOLLOW_UP_2_HOURS || FOLLOW_UP_CONFIG_DEFAULTS.NEG_FOLLOW_UP_2_HOURS,
+        NEG_UNRESPONSIVE_HOURS: config.NEG_UNRESPONSIVE_HOURS || FOLLOW_UP_CONFIG_DEFAULTS.NEG_UNRESPONSIVE_HOURS
       };
     } catch (e) {
       console.error('Error parsing follow-up timing config:', e);
@@ -10657,7 +10758,11 @@ const FOLLOW_UP_CONFIG = {
   get DATA_FOLLOW_UP_1_HOURS() { return getFollowUpTimingConfig().DATA_FOLLOW_UP_1_HOURS; },
   get DATA_FOLLOW_UP_2_HOURS() { return getFollowUpTimingConfig().DATA_FOLLOW_UP_2_HOURS; },
   get DATA_FOLLOW_UP_3_HOURS() { return getFollowUpTimingConfig().DATA_FOLLOW_UP_3_HOURS; },
-  get DATA_INCOMPLETE_HOURS() { return getFollowUpTimingConfig().DATA_INCOMPLETE_HOURS; }
+  get DATA_INCOMPLETE_HOURS() { return getFollowUpTimingConfig().DATA_INCOMPLETE_HOURS; },
+  // Mid-negotiation follow-up timing getters
+  get NEG_FOLLOW_UP_1_HOURS() { return getFollowUpTimingConfig().NEG_FOLLOW_UP_1_HOURS; },
+  get NEG_FOLLOW_UP_2_HOURS() { return getFollowUpTimingConfig().NEG_FOLLOW_UP_2_HOURS; },
+  get NEG_UNRESPONSIVE_HOURS() { return getFollowUpTimingConfig().NEG_UNRESPONSIVE_HOURS; }
 };
 
 // Gmail labels for follow-up tracking
@@ -10670,7 +10775,11 @@ const FOLLOW_UP_LABELS = {
   DATA_FOLLOW_UP_1_SENT: 'Data-Follow-Up-1-Sent',
   DATA_FOLLOW_UP_2_SENT: 'Data-Follow-Up-2-Sent',
   DATA_FOLLOW_UP_3_SENT: 'Data-Follow-Up-3-Sent',
-  INCOMPLETE_DATA: 'Incomplete-Data'
+  INCOMPLETE_DATA: 'Incomplete-Data',
+  // Mid-negotiation follow-up labels (candidate responded initially, then went silent)
+  NEG_FOLLOW_UP_1_SENT: 'Neg-Follow-Up-1-Sent',
+  NEG_FOLLOW_UP_2_SENT: 'Neg-Follow-Up-2-Sent',
+  NEG_UNRESPONSIVE: 'Neg-Unresponsive'
 };
 
 /**
@@ -11281,9 +11390,15 @@ function runFollowUpProcessor() {
   const dataResult = processDataGatheringFollowUps();
   debugLog(`Data gathering follow-up processing complete. Results:`, dataResult);
 
+  // Also process mid-negotiation follow-ups (candidate responded initially, then went silent)
+  debugLog("Starting mid-negotiation follow-up processor...");
+  const negResult = processNegotiationFollowUps();
+  debugLog(`Mid-negotiation follow-up processing complete. Results:`, negResult);
+
   return {
     outreach: result,
-    dataGathering: dataResult
+    dataGathering: dataResult,
+    negotiation: negResult
   };
 }
 
@@ -11712,6 +11827,414 @@ function processDataGatheringFollowUps() {
   }
 }
 
+// ======================================================
+// === MID-NEGOTIATION NO-RESPONSE FOLLOW-UP SYSTEM   ===
+// ======================================================
+
+/**
+ * Process mid-negotiation follow-ups for candidates who responded initially
+ * but then went silent during the negotiation/conversation flow.
+ * Scans Negotiation_State for candidates with "Active" or "Counter Offer" status
+ * where the last message in the thread was from US (AI/system) and checks how long ago.
+ *
+ * Follow-up sequence:
+ * - 24 hours of silence after AI reply → 1st negotiation follow-up
+ * - 48 hours of silence after AI reply → 2nd negotiation follow-up
+ * - 96 hours of silence after AI reply → Mark as Unresponsive
+ *
+ * @returns {Object} { processed, negFollowUp1Sent, negFollowUp2Sent, negUnresponsiveMarked, log }
+ */
+function processNegotiationFollowUps() {
+  const url = getStoredSheetUrl();
+  if (!url) return { processed: 0, negFollowUp1Sent: 0, negFollowUp2Sent: 0, negUnresponsiveMarked: 0, log: [] };
+
+  const log = [];
+  let negFollowUp1Sent = 0;
+  let negFollowUp2Sent = 0;
+  let negUnresponsiveMarked = 0;
+  let processed = 0;
+
+  try {
+    const ss = SpreadsheetApp.openByUrl(url);
+    ensureSheetsExist(ss);
+
+    const stateSheet = ss.getSheetByName('Negotiation_State');
+    if (!stateSheet) {
+      log.push({ type: 'warning', message: 'Negotiation_State sheet not found' });
+      return { processed: 0, negFollowUp1Sent: 0, negFollowUp2Sent: 0, negUnresponsiveMarked: 0, log };
+    }
+
+    const stateData = stateSheet.getDataRange().getValues();
+    if (stateData.length <= 1) {
+      log.push({ type: 'info', message: 'No items in Negotiation_State' });
+      return { processed: 0, negFollowUp1Sent: 0, negFollowUp2Sent: 0, negUnresponsiveMarked: 0, log };
+    }
+
+    // Build set of completed negotiations to skip
+    const completedSheet = ss.getSheetByName('Negotiation_Completed');
+    const completedData = completedSheet ? completedSheet.getDataRange().getValues() : [];
+    const completedSet = new Set();
+    for (let j = 1; j < completedData.length; j++) {
+      const compEmail = normalizeEmail(completedData[j][2]);
+      const compJobId = String(completedData[j][1]);
+      if (compEmail && compJobId) completedSet.add(`${compEmail}|${compJobId}`);
+    }
+
+    // Build set of accepted offers to skip
+    const tasksSheet = ss.getSheetByName('Negotiation_Tasks');
+    const tasksData = tasksSheet ? tasksSheet.getDataRange().getValues() : [];
+    const acceptedSet = new Set();
+    for (let j = 1; j < tasksData.length; j++) {
+      const taskEmail = normalizeEmail(tasksData[j][3]);
+      const taskJobId = String(tasksData[j][1]);
+      if (taskEmail && taskJobId) acceptedSet.add(`${taskEmail}|${taskJobId}`);
+    }
+
+    const now = new Date();
+    const myEmail = Session.getActiveUser().getEmail().toLowerCase();
+    const effectiveSender = getEffectiveSenderName().toLowerCase();
+    const ourSenderNames = ['recruiter', 'turing recruitment', 'turing team', EMAIL_SENDER_NAME.toLowerCase(), effectiveSender];
+
+    // Negotiation_State columns:
+    // [0]=Email, [1]=Job ID, [2]=Attempt Count, [3]=Last Offer, [4]=Status,
+    // [5]=Last Reply Time, [6]=Dev ID, [7]=Name, [8]=AI Notes, [9]=Thread ID, [10]=Region
+    // New tracking columns (added by this feature):
+    // [11]=Neg Follow Up 1 Sent, [12]=Neg Follow Up 2 Sent
+
+    // Ensure columns 12 and 13 exist (Neg Follow Up 1 Sent, Neg Follow Up 2 Sent)
+    const headerRow = stateData[0];
+    if (headerRow.length < 13 || headerRow[11] !== 'Neg Follow Up 1 Sent') {
+      // Add missing headers
+      if (headerRow.length <= 11) {
+        stateSheet.getRange(1, 12).setValue('Neg Follow Up 1 Sent');
+        stateSheet.getRange(1, 13).setValue('Neg Follow Up 2 Sent');
+      } else if (headerRow[11] !== 'Neg Follow Up 1 Sent') {
+        // Headers exist but might be wrong - only set if empty
+        if (!headerRow[11]) stateSheet.getRange(1, 12).setValue('Neg Follow Up 1 Sent');
+        if (!headerRow[12]) stateSheet.getRange(1, 13).setValue('Neg Follow Up 2 Sent');
+      }
+    }
+
+    for (let i = 1; i < stateData.length; i++) {
+      const email = String(stateData[i][0]).toLowerCase().trim();
+      const jobId = String(stateData[i][1]);
+      const status = String(stateData[i][4] || '').toLowerCase();
+      const lastReplyTime = stateData[i][5] ? new Date(stateData[i][5]) : null;
+      const devId = stateData[i][6] || '';
+      const name = stateData[i][7] || '';
+      const aiNotes = stateData[i][8] || '';
+      const threadId = stateData[i][9] || '';
+      const lastOffer = stateData[i][3] || '';
+      const negFollowUp1Sent_flag = stateData[i][11] === true || stateData[i][11] === 'TRUE';
+      const negFollowUp2Sent_flag = stateData[i][12] === true || stateData[i][12] === 'TRUE';
+
+      // Only process candidates in active negotiation states
+      // Skip initial outreach (handled by Follow_Up_Queue), completed, unresponsive, escalated, accepted
+      if (!status.includes('active') && !status.includes('counter')) {
+        continue;
+      }
+
+      // Skip if already completed or accepted elsewhere
+      const negotiationKey = `${normalizeEmail(email)}|${jobId}`;
+      if (completedSet.has(negotiationKey) || acceptedSet.has(negotiationKey)) {
+        continue;
+      }
+
+      // Skip if negotiation is not enabled for this job
+      if (!jobHasNegotiation(jobId)) {
+        continue;
+      }
+
+      // Skip if no thread ID
+      if (!threadId) {
+        continue;
+      }
+
+      // Check the Gmail thread to determine:
+      // 1. Is the last message from US (AI) or from the candidate?
+      // 2. When was the last AI message sent?
+      let lastAiMessageTime = null;
+      let lastCandidateMessageTime = null;
+      let lastMessageIsFromUs = false;
+
+      try {
+        const thread = GmailApp.getThreadById(threadId);
+        if (!thread) {
+          log.push({ type: 'warning', message: `${email} - Thread not found, skipping` });
+          continue;
+        }
+
+        // CRITICAL SAFETY CHECK: Only process threads with AI-Managed label
+        const threadLabels = thread.getLabels().map(l => l.getName());
+        if (!threadLabels.includes(AI_MANAGED_LABEL)) {
+          continue;
+        }
+
+        const messages = thread.getMessages();
+        if (messages.length < 2) {
+          continue; // Need at least initial + 1 response to be "mid-negotiation"
+        }
+
+        // Walk messages from newest to oldest to find last AI and last candidate messages
+        for (let m = messages.length - 1; m >= 0; m--) {
+          const msg = messages[m];
+          const sender = msg.getFrom().toLowerCase();
+          const senderEmailMatch = sender.match(/<([^>]+)>/) || [null, sender.replace(/.*<|>.*/g, '').trim()];
+          const senderEmail = senderEmailMatch[1] || sender.trim();
+          const msgDate = msg.getDate();
+
+          const isFromUs = (myEmail && senderEmail.includes(myEmail)) ||
+                           ourSenderNames.some(name => sender.includes(name));
+
+          if (isFromUs) {
+            if (!lastAiMessageTime) {
+              lastAiMessageTime = msgDate;
+            }
+          } else {
+            if (!lastCandidateMessageTime) {
+              lastCandidateMessageTime = msgDate;
+            }
+          }
+
+          // Stop once we have both timestamps
+          if (lastAiMessageTime && lastCandidateMessageTime) break;
+        }
+
+        // Determine if the last message in the thread is from us
+        if (lastAiMessageTime && lastCandidateMessageTime) {
+          lastMessageIsFromUs = lastAiMessageTime > lastCandidateMessageTime;
+        } else if (lastAiMessageTime && !lastCandidateMessageTime) {
+          // Only AI messages found - shouldn't happen in "active" negotiation, skip
+          continue;
+        } else if (!lastAiMessageTime) {
+          // No AI message found - shouldn't happen, skip
+          continue;
+        }
+      } catch (threadError) {
+        console.error(`Error checking negotiation thread for ${email}:`, threadError);
+        continue;
+      }
+
+      // Only process if the LAST message was from US (candidate hasn't replied)
+      if (!lastMessageIsFromUs) {
+        // Candidate's last message is the most recent - they replied, reset follow-up flags if set
+        if (negFollowUp1Sent_flag || negFollowUp2Sent_flag) {
+          stateSheet.getRange(i + 1, 12).setValue(false);
+          stateSheet.getRange(i + 1, 13).setValue(false);
+          log.push({ type: 'info', message: `${email} responded during negotiation - reset neg follow-up flags` });
+        }
+        continue;
+      }
+
+      // Calculate hours since our last AI message (the one the candidate hasn't replied to)
+      const hoursSinceAiMessage = (now - lastAiMessageTime) / (1000 * 60 * 60);
+
+      // Check if should be marked as unresponsive (96 hours default)
+      if (negFollowUp1Sent_flag && negFollowUp2Sent_flag && hoursSinceAiMessage >= FOLLOW_UP_CONFIG.NEG_UNRESPONSIVE_HOURS) {
+        // Mark as Unresponsive in Negotiation_State
+        stateSheet.getRange(i + 1, 5).setValue('Unresponsive'); // Status column
+        stateSheet.getRange(i + 1, 6).setValue(new Date()); // Last Reply Time (update)
+        updateNegotiationFollowUpLabels(threadId, 'unresponsive');
+
+        // Also update Job Details sheet
+        try {
+          updateJobCandidateStatus(ss, jobId, email, 'Unresponsive', null);
+        } catch (detailsErr) {
+          console.error("Failed to update job details for neg-unresponsive:", detailsErr);
+        }
+
+        // Move to Unresponsive_Devs sheet
+        try {
+          const unresponsiveSheet = ss.getSheetByName('Unresponsive_Devs') || ss.insertSheet('Unresponsive_Devs');
+          if (unresponsiveSheet.getLastRow() === 0) {
+            unresponsiveSheet.appendRow(['Email', 'Job ID', 'Name', 'Dev ID', 'Thread ID', 'Initial Send Time', 'Follow Up 1 Time', 'Follow Up 2 Time', 'Marked Unresponsive', 'Days Since Initial']);
+          }
+          const daysSinceFirst = lastCandidateMessageTime
+            ? Math.round((now - lastCandidateMessageTime) / (1000 * 60 * 60 * 24) * 10) / 10
+            : 'N/A';
+          unresponsiveSheet.appendRow([
+            email, jobId, name, devId || 'N/A', threadId || 'N/A',
+            lastReplyTime || 'N/A', // Initial engagement time
+            negFollowUp1Sent_flag ? 'Sent' : 'N/A',
+            negFollowUp2Sent_flag ? 'Sent' : 'N/A',
+            now, daysSinceFirst
+          ]);
+        } catch (unrespErr) {
+          console.error("Failed to move to Unresponsive_Devs:", unrespErr);
+        }
+
+        logFollowUpToAnalytics(jobId, email, name, 'neg_unresponsive', `Mid-negotiation silence after ${hoursSinceAiMessage.toFixed(1)}hrs`);
+        negUnresponsiveMarked++;
+        log.push({ type: 'warning', message: `${email} marked Unresponsive (mid-negotiation silence, ${hoursSinceAiMessage.toFixed(1)}hrs since AI reply)` });
+        processed++;
+        continue;
+      }
+
+      // Check if 2nd negotiation follow-up is due (48 hours)
+      if (negFollowUp1Sent_flag && !negFollowUp2Sent_flag && hoursSinceAiMessage >= FOLLOW_UP_CONFIG.NEG_FOLLOW_UP_2_HOURS) {
+        const result = sendNegotiationFollowUpEmail(email, jobId, threadId, name, 2, status, lastOffer, aiNotes);
+        if (result.success) {
+          stateSheet.getRange(i + 1, 13).setValue(true); // Neg Follow Up 2 Sent
+          updateNegotiationFollowUpLabels(threadId, 'negfollowup2');
+          logFollowUpToAnalytics(jobId, email, name, 'neg_followup_2_sent', '2nd negotiation follow-up');
+          negFollowUp2Sent++;
+          log.push({ type: 'success', message: `Sent 2nd negotiation follow-up to ${email} (${hoursSinceAiMessage.toFixed(1)}hrs since AI reply)` });
+        } else {
+          log.push({ type: 'error', message: `Failed 2nd neg follow-up to ${email}: ${result.error}` });
+        }
+        processed++;
+        continue;
+      }
+
+      // Check if 1st negotiation follow-up is due (24 hours)
+      if (!negFollowUp1Sent_flag && hoursSinceAiMessage >= FOLLOW_UP_CONFIG.NEG_FOLLOW_UP_1_HOURS) {
+        const result = sendNegotiationFollowUpEmail(email, jobId, threadId, name, 1, status, lastOffer, aiNotes);
+        if (result.success) {
+          stateSheet.getRange(i + 1, 12).setValue(true); // Neg Follow Up 1 Sent
+          updateNegotiationFollowUpLabels(threadId, 'negfollowup1');
+          logFollowUpToAnalytics(jobId, email, name, 'neg_followup_1_sent', '1st negotiation follow-up');
+          negFollowUp1Sent++;
+          log.push({ type: 'success', message: `Sent 1st negotiation follow-up to ${email} (${hoursSinceAiMessage.toFixed(1)}hrs since AI reply)` });
+        } else {
+          log.push({ type: 'error', message: `Failed 1st neg follow-up to ${email}: ${result.error}` });
+        }
+        processed++;
+      }
+    }
+
+    SpreadsheetApp.flush();
+    invalidateSheetCache('Negotiation_State');
+
+    log.push({ type: 'info', message: `Negotiation follow-ups: Processed ${processed}. 1st: ${negFollowUp1Sent}, 2nd: ${negFollowUp2Sent}, Unresponsive: ${negUnresponsiveMarked}` });
+
+    return {
+      processed,
+      negFollowUp1Sent,
+      negFollowUp2Sent,
+      negUnresponsiveMarked,
+      log
+    };
+
+  } catch (e) {
+    console.error("Error processing negotiation follow-ups:", e);
+    return { processed: 0, negFollowUp1Sent: 0, negFollowUp2Sent: 0, negUnresponsiveMarked: 0, log: [{ type: 'error', message: e.message }] };
+  }
+}
+
+/**
+ * Send a mid-negotiation follow-up email using AI to generate contextual content
+ * @param {string} email - Recipient email
+ * @param {string} jobId - Job ID
+ * @param {string} threadId - Gmail thread ID to reply to
+ * @param {string} name - Recipient name
+ * @param {number} followUpNumber - 1 for first follow-up, 2 for second
+ * @param {string} negotiationStatus - Current negotiation status (e.g., "Active", "Counter Offer")
+ * @param {string} lastOffer - Last offer details
+ * @param {string} aiNotes - AI notes about the negotiation
+ * @returns {Object} { success: boolean, error?: string }
+ */
+function sendNegotiationFollowUpEmail(email, jobId, threadId, name, followUpNumber, negotiationStatus, lastOffer, aiNotes) {
+  try {
+    // SAFETY: Validate that negotiation is enabled for this job
+    if (!jobHasNegotiation(jobId)) {
+      debugLog(`Negotiation follow-up to ${email} blocked: Negotiation disabled for Job ${jobId}`);
+      return { success: false, error: 'Negotiation is disabled for this job' };
+    }
+
+    // SAFETY: Validate required parameters
+    if (!email || !threadId) {
+      console.error(`Negotiation follow-up blocked: Missing required parameters (email: ${!!email}, threadId: ${!!threadId})`);
+      return { success: false, error: 'Missing required email or thread ID' };
+    }
+
+    // Get job config for context
+    const jobConfig = getNegotiationConfig(jobId);
+    const jobDescription = jobConfig ? jobConfig.jobDescription : '';
+
+    // Generate follow-up email content using the negotiation follow-up prompt builder
+    const prompt = buildNegotiationFollowUpPrompt({
+      name: name,
+      jobDescription: jobDescription,
+      followUpNumber: followUpNumber,
+      negotiationStatus: negotiationStatus,
+      lastOffer: lastOffer,
+      aiNotes: aiNotes
+    });
+
+    const emailBody = callAI(prompt);
+
+    // SECURITY: Validate email content before sending
+    const isContentSafe = validateEmailForSending(emailBody, {
+      jobId: jobId,
+      devId: null
+    });
+
+    if (!isContentSafe) {
+      console.error(`BLOCKED: Negotiation follow-up email to ${email} contained sensitive data. Email not sent.`);
+      return { success: false, error: 'Email content failed security validation' };
+    }
+
+    // Send as reply to existing thread
+    const thread = GmailApp.getThreadById(threadId);
+    if (thread) {
+      // CRITICAL SAFETY: Verify AI-Managed label exists
+      const threadLabels = thread.getLabels().map(l => l.getName());
+      if (!threadLabels.includes(AI_MANAGED_LABEL)) {
+        console.error(`BLOCKED: Negotiation follow-up to ${email} - thread missing "${AI_MANAGED_LABEL}" label`);
+        return { success: false, error: `Thread missing ${AI_MANAGED_LABEL} label` };
+      }
+
+      sendReplyWithSenderName(thread, emailBody, getEffectiveSenderName());
+      debugLog(`Sent negotiation follow-up #${followUpNumber} to ${email} for Job ${jobId}`);
+      return { success: true };
+    }
+
+    return { success: false, error: "Could not find thread to reply to" };
+
+  } catch (e) {
+    console.error(`Error sending negotiation follow-up email to ${email}:`, e);
+    return { success: false, error: e.message };
+  }
+}
+
+/**
+ * Update Gmail labels for mid-negotiation follow-up status changes
+ * @param {string} threadId - Gmail thread ID
+ * @param {string} newStatus - 'negfollowup1', 'negfollowup2', or 'unresponsive'
+ */
+function updateNegotiationFollowUpLabels(threadId, newStatus) {
+  if (!threadId) return;
+
+  try {
+    const thread = GmailApp.getThreadById(threadId);
+    if (!thread) return;
+
+    const negFollowUp1Label = GmailApp.getUserLabelByName(FOLLOW_UP_LABELS.NEG_FOLLOW_UP_1_SENT) ||
+                               GmailApp.createLabel(FOLLOW_UP_LABELS.NEG_FOLLOW_UP_1_SENT);
+    const negFollowUp2Label = GmailApp.getUserLabelByName(FOLLOW_UP_LABELS.NEG_FOLLOW_UP_2_SENT) ||
+                               GmailApp.createLabel(FOLLOW_UP_LABELS.NEG_FOLLOW_UP_2_SENT);
+    const negUnresponsiveLabel = GmailApp.getUserLabelByName(FOLLOW_UP_LABELS.NEG_UNRESPONSIVE) ||
+                                  GmailApp.createLabel(FOLLOW_UP_LABELS.NEG_UNRESPONSIVE);
+
+    if (newStatus === 'negfollowup1') {
+      thread.addLabel(negFollowUp1Label);
+    } else if (newStatus === 'negfollowup2') {
+      thread.addLabel(negFollowUp2Label);
+    } else if (newStatus === 'unresponsive') {
+      // Remove follow-up labels and add unresponsive
+      try { thread.removeLabel(negFollowUp1Label); } catch(e) {}
+      try { thread.removeLabel(negFollowUp2Label); } catch(e) {}
+      thread.addLabel(negUnresponsiveLabel);
+      // Also add the general Unresponsive label for consistency
+      const generalUnresponsiveLabel = GmailApp.getUserLabelByName(FOLLOW_UP_LABELS.UNRESPONSIVE) ||
+                                        GmailApp.createLabel(FOLLOW_UP_LABELS.UNRESPONSIVE);
+      thread.addLabel(generalUnresponsiveLabel);
+    }
+  } catch (e) {
+    console.error(`Error updating negotiation follow-up labels:`, e);
+  }
+}
+
 // REMOVED: Duplicate 5-parameter version of updateJobCandidateStatus was here.
 // It was overriding the full 7-parameter version (with candidateOffer/counterOffer support) at line ~3485,
 // causing Candidate Offer and Counter Offer columns to never be written.
@@ -12021,11 +12544,31 @@ function getFollowUpStats() {
       }
     }
 
-    return { pending, followUp1Done, followUp2Done, responded, unresponsive, perJob, jobIds: Array.from(jobIdSet).sort() };
+    // Count mid-negotiation silent candidates from Negotiation_State
+    let negSilent = 0;
+    try {
+      const stateSheet = ss.getSheetByName('Negotiation_State');
+      if (stateSheet) {
+        const stateData = stateSheet.getDataRange().getValues();
+        for (let j = 1; j < stateData.length; j++) {
+          const stStatus = String(stateData[j][4] || '').toLowerCase();
+          const negF1 = stateData[j][11] === true || stateData[j][11] === 'TRUE';
+          const negF2 = stateData[j][12] === true || stateData[j][12] === 'TRUE';
+          // Count candidates that are in active/counter status AND have negotiation follow-ups sent
+          if ((stStatus.includes('active') || stStatus.includes('counter')) && (negF1 || negF2)) {
+            negSilent++;
+          }
+        }
+      }
+    } catch (negStatErr) {
+      console.error("Error counting neg-silent candidates:", negStatErr);
+    }
+
+    return { pending, followUp1Done, followUp2Done, responded, unresponsive, negSilent, perJob, jobIds: Array.from(jobIdSet).sort() };
 
   } catch(e) {
     console.error("Error getting follow-up stats:", e);
-    return { pending: 0, followUp1Done: 0, followUp2Done: 0, responded: 0, unresponsive: 0, jobIds: [] };
+    return { pending: 0, followUp1Done: 0, followUp2Done: 0, responded: 0, unresponsive: 0, negSilent: 0, jobIds: [] };
   }
 }
 
@@ -12536,8 +13079,27 @@ function getFollowUpDataCombined(filters) {
       return timeB - timeA;
     });
 
+    // Count mid-negotiation silent candidates from Negotiation_State
+    let negSilent = 0;
+    try {
+      const stateSheet = ss.getSheetByName('Negotiation_State');
+      if (stateSheet) {
+        const stateData = stateSheet.getDataRange().getValues();
+        for (let j = 1; j < stateData.length; j++) {
+          const stStatus = String(stateData[j][4] || '').toLowerCase();
+          const negF1 = stateData[j][11] === true || stateData[j][11] === 'TRUE';
+          const negF2 = stateData[j][12] === true || stateData[j][12] === 'TRUE';
+          if ((stStatus.includes('active') || stStatus.includes('counter')) && (negF1 || negF2)) {
+            negSilent++;
+          }
+        }
+      }
+    } catch (negStatErr) {
+      console.error("Error counting neg-silent in combined:", negStatErr);
+    }
+
     return {
-      stats: { pending, followUp1Done, followUp2Done, responded },
+      stats: { pending, followUp1Done, followUp2Done, responded, negSilent },
       data: items,
       jobIds: Array.from(jobIdSet).sort()
     };
@@ -12545,7 +13107,7 @@ function getFollowUpDataCombined(filters) {
   } catch (e) {
     console.error("Error getting combined follow-up data:", e);
     return {
-      stats: { pending: 0, followUp1Done: 0, followUp2Done: 0, responded: 0 },
+      stats: { pending: 0, followUp1Done: 0, followUp2Done: 0, responded: 0, negSilent: 0 },
       data: [],
       jobIds: []
     };
