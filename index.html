@@ -2107,7 +2107,7 @@
                 <div id="tab-followups" class="tab-content hidden-tab">
                     
                     <!-- Stats -->
-                    <div class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+                    <div class="grid grid-cols-1 md:grid-cols-5 gap-6 mb-8">
                         <div class="stat-card border-slate-400">
                             <p class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Awaiting Response</p>
                             <h2 class="text-3xl font-extrabold text-slate-800" id="statPending">-</h2>
@@ -2123,6 +2123,11 @@
                         <div class="stat-card border-green-500">
                             <p class="text-xs font-bold text-green-500 uppercase tracking-wider mb-1">Responded</p>
                             <h2 class="text-3xl font-extrabold text-slate-800" id="statResponded">-</h2>
+                        </div>
+                        <div class="stat-card border-purple-500">
+                            <p class="text-xs font-bold text-purple-500 uppercase tracking-wider mb-1">Neg. Silent</p>
+                            <h2 class="text-3xl font-extrabold text-slate-800" id="statNegSilent">-</h2>
+                            <p class="text-[10px] text-slate-400 mt-0.5">Responded then silent</p>
                         </div>
                     </div>
 
@@ -6984,6 +6989,7 @@
                     document.getElementById('statFollowUp1').textContent = res.stats.followUp1Done;
                     document.getElementById('statFollowUp2').textContent = res.stats.followUp2Done;
                     document.getElementById('statResponded').textContent = res.stats.responded;
+                    document.getElementById('statNegSilent').textContent = res.stats.negSilent || 0;
                 }
 
                 // Populate Job Filter dropdown from response (BUG FIX: was never populated)
