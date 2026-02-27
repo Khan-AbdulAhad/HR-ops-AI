@@ -2939,6 +2939,10 @@
                                     <span class="w-3 h-3 rounded-full bg-slate-400"></span>
                                     <span class="text-slate-600 dark:text-slate-300">Unresponsive: <strong id="outcomeUnresponsive">0</strong></span>
                                 </div>
+                                <div class="flex items-center gap-1.5 text-xs">
+                                    <span class="w-3 h-3 rounded-full bg-indigo-500"></span>
+                                    <span class="text-slate-600 dark:text-slate-300">Pending: <strong id="outcomePending">0</strong></span>
+                                </div>
                             </div>
                         </div>
 
@@ -10440,6 +10444,7 @@
             document.getElementById('outcomeRejected').textContent = outcomes.rejected || 0;
             document.getElementById('outcomeEscalated').textContent = outcomes.escalated || 0;
             document.getElementById('outcomeUnresponsive').textContent = outcomes.unresponsive || 0;
+            document.getElementById('outcomePending').textContent = outcomes.pending || 0;
 
             // Destroy existing chart
             if (outcomeChartInstance) {

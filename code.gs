@@ -15405,7 +15405,7 @@ function getConversionFunnelData(filterJobId, startDate, endDate) {
         respondedCompletedEmails.add(email);
       } else if (status.includes('escalat') || status.includes('human')) {
         escalated++;
-        // Don't add escalated to respondedCompletedEmails since they may not have replied
+        respondedCompletedEmails.add(email);
       }
     }
 
@@ -15440,15 +15440,19 @@ function getConversionFunnelData(filterJobId, startDate, endDate) {
       }
     }
 
-    // Count unresponsive
-    let unresponsive = 0;
+    // Count unresponsive (unique emails only — avoid inflating from duplicate rows)
     const unresponsiveEmails = new Set();
     for (let i = 1; i < unresponsiveData.length; i++) {
       const jobId = String(unresponsiveData[i][1] || '');
       const email = normalizeEmail(unresponsiveData[i][2]);
       if (filterJobId && jobId !== filterJobId) continue;
-      unresponsive++;
       if (email) unresponsiveEmails.add(email);
+    }
+
+    // Remove overlap: candidates in Negotiation_Completed are in a final state,
+    // so they should NOT also count as unresponsive (mutual exclusivity)
+    for (const email of completedEmails) {
+      unresponsiveEmails.delete(email);
     }
 
     // Calculate CURRENT STATE counts for the funnel
@@ -15496,7 +15500,7 @@ function getConversionFunnelData(filterJobId, startDate, endDate) {
       notInterested: notInterested,
       rejected: rejected,
       escalated: escalated,
-      unresponsive: unresponsive,
+      unresponsive: unresponsiveEmails.size,
       pending: negotiatingCount
     };
 
@@ -15508,7 +15512,7 @@ function getConversionFunnelData(filterJobId, startDate, endDate) {
       engaged: respondedWaitingCount + negotiatingCount,
       completed: acceptedCount,
       droppedOff: notInterested + rejected + escalated,
-      unresponsive: unresponsive
+      unresponsive: unresponsiveEmails.size
     };
 
     return {
@@ -15528,7 +15532,7 @@ function getConversionFunnelData(filterJobId, startDate, endDate) {
       totalNotInterested: notInterested,
       totalRejected: rejected,
       totalEscalated: escalated,
-      totalUnresponsive: unresponsive,
+      totalUnresponsive: unresponsiveEmails.size,
       responseRate: parseFloat(responseRate),
       negotiationRate: parseFloat(negotiationRate),
       acceptanceRate: parseFloat(acceptanceRate),
