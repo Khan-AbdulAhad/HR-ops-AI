@@ -2721,60 +2721,66 @@
                         </div>
                     </div>
 
-                    <!-- Analytics Cards -->
+                    <!-- Pipeline Cards — Mutually exclusive stages (every candidate in exactly ONE card) -->
                     <div class="grid grid-cols-1 md:grid-cols-6 gap-6 mb-8">
-                        <div class="stat-card border-indigo-500">
+                        <div class="stat-card border-blue-500">
                             <div class="flex justify-between">
                                 <div>
-                                    <p class="text-xs font-bold text-indigo-500 uppercase tracking-wider mb-1">Active Users</p>
-                                    <h2 class="text-3xl font-extrabold text-slate-800" id="statTotalUsers">-</h2>
+                                    <p class="text-xs font-bold text-blue-500 uppercase tracking-wider mb-1">Total Outreach</p>
+                                    <h2 class="text-3xl font-extrabold text-slate-800 dark:text-white" id="statTotalOutreach">-</h2>
+                                    <p class="text-xs text-slate-400 mt-1">Unique candidates contacted</p>
                                 </div>
-                                <div class="bg-indigo-50 p-2 rounded-lg text-indigo-600"><i class="fa-solid fa-users"></i></div>
+                                <div class="bg-blue-50 dark:bg-blue-900/30 p-2 rounded-lg text-blue-600 dark:text-blue-400"><i class="fa-solid fa-paper-plane"></i></div>
                             </div>
                         </div>
-                        <div class="stat-card border-emerald-500">
+                        <div class="stat-card border-slate-400">
                             <div class="flex justify-between">
                                 <div>
-                                    <p class="text-xs font-bold text-emerald-500 uppercase tracking-wider mb-1">Emails Sent</p>
-                                    <h2 class="text-3xl font-extrabold text-slate-800" id="statTotalEmails">-</h2>
+                                    <p class="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Awaiting Response</p>
+                                    <h2 class="text-3xl font-extrabold text-slate-800 dark:text-white" id="statAwaitingResponse">-</h2>
+                                    <p class="text-xs text-slate-400 mt-1">No reply yet</p>
                                 </div>
-                                <div class="bg-emerald-50 p-2 rounded-lg text-emerald-600"><i class="fa-solid fa-envelope"></i></div>
+                                <div class="bg-slate-100 dark:bg-slate-700 p-2 rounded-lg text-slate-500 dark:text-slate-400"><i class="fa-solid fa-hourglass-half"></i></div>
                             </div>
                         </div>
                         <div class="stat-card border-cyan-500">
                             <div class="flex justify-between">
                                 <div>
-                                    <p class="text-xs font-bold text-cyan-500 uppercase tracking-wider mb-1">Data Gathering</p>
-                                    <h2 class="text-3xl font-extrabold text-slate-800" id="statTotalDataFetches">-</h2>
+                                    <p class="text-xs font-bold text-cyan-500 uppercase tracking-wider mb-1">Engaged</p>
+                                    <h2 class="text-3xl font-extrabold text-slate-800 dark:text-white" id="statEngaged">-</h2>
+                                    <p class="text-xs text-slate-400 mt-1">Responded / Negotiating</p>
                                 </div>
-                                <div class="bg-cyan-50 p-2 rounded-lg text-cyan-600"><i class="fa-solid fa-database"></i></div>
+                                <div class="bg-cyan-50 dark:bg-cyan-900/30 p-2 rounded-lg text-cyan-600 dark:text-cyan-400"><i class="fa-solid fa-comments"></i></div>
+                            </div>
+                        </div>
+                        <div class="stat-card border-emerald-500">
+                            <div class="flex justify-between">
+                                <div>
+                                    <p class="text-xs font-bold text-emerald-500 uppercase tracking-wider mb-1">Completed</p>
+                                    <h2 class="text-3xl font-extrabold text-slate-800 dark:text-white" id="statTotalCompleted">-</h2>
+                                    <p class="text-xs text-slate-400 mt-1">Accepted / Onboarded</p>
+                                </div>
+                                <div class="bg-emerald-50 dark:bg-emerald-900/30 p-2 rounded-lg text-emerald-600 dark:text-emerald-400"><i class="fa-solid fa-check-circle"></i></div>
+                            </div>
+                        </div>
+                        <div class="stat-card border-red-400">
+                            <div class="flex justify-between">
+                                <div>
+                                    <p class="text-xs font-bold text-red-500 uppercase tracking-wider mb-1">Dropped Off</p>
+                                    <h2 class="text-3xl font-extrabold text-slate-800 dark:text-white" id="statDroppedOff">-</h2>
+                                    <p class="text-xs text-slate-400 mt-1">Not Interested / Rejected</p>
+                                </div>
+                                <div class="bg-red-50 dark:bg-red-900/30 p-2 rounded-lg text-red-500 dark:text-red-400"><i class="fa-solid fa-user-xmark"></i></div>
                             </div>
                         </div>
                         <div class="stat-card border-amber-500">
                             <div class="flex justify-between">
                                 <div>
-                                    <p class="text-xs font-bold text-amber-500 uppercase tracking-wider mb-1">Auto Follow-Ups</p>
-                                    <h2 class="text-3xl font-extrabold text-slate-800" id="statTotalFollowUps">-</h2>
+                                    <p class="text-xs font-bold text-amber-500 uppercase tracking-wider mb-1">Unresponsive</p>
+                                    <h2 class="text-3xl font-extrabold text-slate-800 dark:text-white" id="statPipelineUnresponsive">-</h2>
+                                    <p class="text-xs text-slate-400 mt-1">No reply after follow-ups</p>
                                 </div>
-                                <div class="bg-amber-50 p-2 rounded-lg text-amber-600"><i class="fa-solid fa-reply-all"></i></div>
-                            </div>
-                        </div>
-                        <div class="stat-card border-purple-500">
-                            <div class="flex justify-between">
-                                <div>
-                                    <p class="text-xs font-bold text-purple-500 uppercase tracking-wider mb-1">Negotiations</p>
-                                    <h2 class="text-3xl font-extrabold text-slate-800" id="statTotalNegotiations">-</h2>
-                                </div>
-                                <div class="bg-purple-50 p-2 rounded-lg text-purple-600"><i class="fa-solid fa-handshake"></i></div>
-                            </div>
-                        </div>
-                        <div class="stat-card border-green-500">
-                            <div class="flex justify-between">
-                                <div>
-                                    <p class="text-xs font-bold text-green-500 uppercase tracking-wider mb-1">Completed</p>
-                                    <h2 class="text-3xl font-extrabold text-slate-800" id="statTotalCompleted">-</h2>
-                                </div>
-                                <div class="bg-green-50 p-2 rounded-lg text-green-600"><i class="fa-solid fa-check-circle"></i></div>
+                                <div class="bg-amber-50 dark:bg-amber-900/30 p-2 rounded-lg text-amber-600 dark:text-amber-400"><i class="fa-solid fa-clock-rotate-left"></i></div>
                             </div>
                         </div>
                     </div>
@@ -2804,8 +2810,7 @@
                                         <th class="px-6 py-3 w-8"></th>
                                         <th class="px-6 py-3">User Email / Job ID</th>
                                         <th class="px-6 py-3 text-center">Emails Sent</th>
-                                        <th class="px-6 py-3 text-center">Data Gathering</th>
-                                        <th class="px-6 py-3 text-center">Negotiations</th>
+                                        <th class="px-6 py-3 text-center">Engaged</th>
                                         <th class="px-6 py-3 text-center">Follow-Ups</th>
                                         <th class="px-6 py-3 text-center">Completed</th>
                                         <th class="px-6 py-3">Last Active</th>
@@ -2813,7 +2818,7 @@
                                 </thead>
                                 <tbody id="userStatsTableBody" class="divide-y divide-slate-100 dark:divide-slate-700">
                                     <tr id="userStatsEmptyState">
-                                        <td colspan="8" class="px-6 py-8 text-center text-slate-400">
+                                        <td colspan="7" class="px-6 py-8 text-center text-slate-400">
                                             <i class="fa-regular fa-folder-open text-2xl mb-2 block"></i>
                                             No user activity recorded yet
                                         </td>
@@ -2919,6 +2924,10 @@
                                     <span class="text-slate-600 dark:text-slate-300">Accepted: <strong id="outcomeAccepted">0</strong></span>
                                 </div>
                                 <div class="flex items-center gap-1.5 text-xs">
+                                    <span class="w-3 h-3 rounded-full bg-orange-500"></span>
+                                    <span class="text-slate-600 dark:text-slate-300">Not Interested: <strong id="outcomeNotInterested">0</strong></span>
+                                </div>
+                                <div class="flex items-center gap-1.5 text-xs">
                                     <span class="w-3 h-3 rounded-full bg-red-500"></span>
                                     <span class="text-slate-600 dark:text-slate-300">Rejected: <strong id="outcomeRejected">0</strong></span>
                                 </div>
@@ -2933,18 +2942,18 @@
                             </div>
                         </div>
 
-                        <!-- Top Performing Jobs -->
+                        <!-- Job Pipeline Status -->
                         <div class="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 p-6">
                             <div class="flex items-center gap-3 mb-4">
                                 <div class="bg-gradient-to-br from-amber-500 to-orange-600 p-2 rounded-lg">
-                                    <i class="fa-solid fa-trophy text-white"></i>
+                                    <i class="fa-solid fa-bars-progress text-white"></i>
                                 </div>
                                 <div>
-                                    <h4 class="font-bold text-slate-800 dark:text-white">Top Performing Jobs</h4>
-                                    <p class="text-xs text-slate-500 dark:text-slate-400">Jobs with best response & acceptance rates</p>
+                                    <h4 class="font-bold text-slate-800 dark:text-white">Job Pipeline Status</h4>
+                                    <p class="text-xs text-slate-500 dark:text-slate-400">Where each job stands — pipeline breakdown per job</p>
                                 </div>
                             </div>
-                            <div id="topJobsList" class="space-y-3 max-h-64 overflow-y-auto">
+                            <div id="topJobsList" class="space-y-3 max-h-80 overflow-y-auto">
                                 <div id="topJobsEmpty" class="text-center py-8 text-slate-400">
                                     <i class="fa-regular fa-briefcase text-2xl mb-2 block"></i>
                                     <span class="text-sm">No job data yet</span>
@@ -2957,81 +2966,8 @@
                         </div>
                     </div>
 
-                    <!-- Split Charts -->
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        <div class="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 p-6">
-                            <div class="flex items-center gap-3 mb-4">
-                                <div class="bg-emerald-100 dark:bg-emerald-900/30 p-2 rounded-lg">
-                                    <i class="fa-solid fa-user-check text-emerald-600 dark:text-emerald-400"></i>
-                                </div>
-                                <div>
-                                    <h4 class="font-bold text-slate-800 dark:text-white">Emails by User</h4>
-                                    <p class="text-xs text-slate-500 dark:text-slate-400">Email distribution across team members</p>
-                                </div>
-                            </div>
-                            <div id="emailUsersList" class="space-y-3">
-                                <div id="emailUsersEmpty" class="text-center py-6 text-slate-400">
-                                    <i class="fa-regular fa-envelope text-2xl mb-2 block"></i>
-                                    <span class="text-sm">No emails sent yet</span>
-                                </div>
-                            </div>
-                        </div>
-                        <div class="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 p-6">
-                            <div class="flex items-center gap-3 mb-4">
-                                <div class="bg-amber-100 dark:bg-amber-900/30 p-2 rounded-lg">
-                                    <i class="fa-solid fa-briefcase text-amber-600 dark:text-amber-400"></i>
-                                </div>
-                                <div>
-                                    <h4 class="font-bold text-slate-800 dark:text-white">Emails by Job</h4>
-                                    <p class="text-xs text-slate-500 dark:text-slate-400">Email activity grouped by job ID</p>
-                                </div>
-                            </div>
-                            <div id="emailJobsList" class="space-y-2">
-                                <div id="emailJobsEmpty" class="text-center py-6 text-slate-400">
-                                    <i class="fa-regular fa-envelope text-2xl mb-2 block"></i>
-                                    <span class="text-sm">No emails sent yet</span>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Completed Breakdown Section -->
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mt-6">
-                        <div class="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 p-6">
-                            <div class="flex items-center gap-3 mb-4">
-                                <div class="bg-blue-100 dark:bg-blue-900/30 p-2 rounded-lg">
-                                    <i class="fa-solid fa-user-check text-blue-600 dark:text-blue-400"></i>
-                                </div>
-                                <div>
-                                    <h4 class="font-bold text-slate-800 dark:text-white">Completed by User</h4>
-                                    <p class="text-xs text-slate-500 dark:text-slate-400">Completion distribution across team members</p>
-                                </div>
-                            </div>
-                            <div id="completedUsersList" class="space-y-3">
-                                <div id="completedUsersEmpty" class="text-center py-6 text-slate-400">
-                                    <i class="fa-regular fa-check-circle text-2xl mb-2 block"></i>
-                                    <span class="text-sm">No completions yet</span>
-                                </div>
-                            </div>
-                        </div>
-                        <div class="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 p-6">
-                            <div class="flex items-center gap-3 mb-4">
-                                <div class="bg-purple-100 dark:bg-purple-900/30 p-2 rounded-lg">
-                                    <i class="fa-solid fa-clipboard-check text-purple-600 dark:text-purple-400"></i>
-                                </div>
-                                <div>
-                                    <h4 class="font-bold text-slate-800 dark:text-white">Completed by Job</h4>
-                                    <p class="text-xs text-slate-500 dark:text-slate-400">Completions grouped by job ID</p>
-                                </div>
-                            </div>
-                            <div id="completedJobsList" class="space-y-2">
-                                <div id="completedJobsEmpty" class="text-center py-6 text-slate-400">
-                                    <i class="fa-regular fa-check-circle text-2xl mb-2 block"></i>
-                                    <span class="text-sm">No completions yet</span>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
+                    <!-- Removed: Emails by User/Job and Completed by User/Job sections -->
+                    <!-- These metrics are already visible in the User Activity Table (expandable per-job rows) -->
 
                     <!-- Team Job Metrics Section - Shows job assignments per agent -->
                     <div class="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden mt-6">
@@ -10096,15 +10032,8 @@
                 updateAnalyticsAdminUI();
                 updateRoleBasedUI();
 
-                document.getElementById('statTotalUsers').textContent = data.totalUsers || 0;
-                document.getElementById('statTotalEmails').textContent = data.totalEmailsSent || 0;
-                // Show active candidates currently in data gathering phase (not cumulative fetches)
-                document.getElementById('statTotalDataFetches').textContent = data.pendingDataGathering || 0;
-                document.getElementById('statTotalCompleted').textContent = data.totalCompleted || 0;
-                // Show active candidates currently in negotiation (not cumulative actions)
-                document.getElementById('statTotalNegotiations').textContent = data.activeNegotiations || 0;
-                // Show candidates currently awaiting follow-up (not cumulative follow-ups sent)
-                document.getElementById('statTotalFollowUps').textContent = data.pendingFollowUps || 0;
+                // Pipeline cards are now populated by getAnalyticsChartData (funnel data)
+                // getUserAnalytics only populates the user activity table
 
                 const tbody = document.getElementById('userStatsTableBody');
                 tbody.innerHTML = '';
@@ -10117,6 +10046,9 @@
                         ) : [];
                         const hasNonZeroJobs = nonZeroJobs.length > 0;
                         const userRowId = `user-row-${userIndex}`;
+
+                        // Merge Data Gathering + Negotiations into single Engaged count
+                        const userEngaged = (u.dataFetches || 0) + (u.negotiations || 0);
 
                         // Main user row (parent row)
                         const tr = document.createElement('tr');
@@ -10135,8 +10067,7 @@
                                 </div>
                             </td>
                             <td class="px-6 py-3 text-center text-emerald-600 font-bold">${u.emailsSent || 0}</td>
-                            <td class="px-6 py-3 text-center text-cyan-600">${u.dataFetches || 0}</td>
-                            <td class="px-6 py-3 text-center text-purple-600">${u.negotiations || 0}</td>
+                            <td class="px-6 py-3 text-center text-cyan-600 font-semibold">${userEngaged}</td>
                             <td class="px-6 py-3 text-center text-amber-600">${u.followUps || 0}</td>
                             <td class="px-6 py-3 text-center text-green-600 font-bold">${u.completed || 0}</td>
                             <td class="px-6 py-3 text-slate-500 text-xs">${u.lastActive ? new Date(u.lastActive).toLocaleDateString() : '-'}</td>
@@ -10146,6 +10077,7 @@
                         // Job breakdown rows (child rows - initially hidden, only non-zero jobs)
                         if (hasNonZeroJobs) {
                             nonZeroJobs.forEach((job, jobIndex) => {
+                                const jobEngaged = (job.dataFetches || 0) + (job.negotiations || 0);
                                 const jobTr = document.createElement('tr');
                                 jobTr.id = `job-row-${userIndex}-${jobIndex}`;
                                 jobTr.className = "bg-slate-50/50 dark:bg-slate-900/50 border-b border-slate-50 dark:border-slate-700 job-child-row hidden";
@@ -10159,8 +10091,7 @@
                                         </div>
                                     </td>
                                     <td class="px-6 py-2 text-center text-emerald-500">${job.emailsSent || 0}</td>
-                                    <td class="px-6 py-2 text-center text-cyan-500">${job.dataFetches || 0}</td>
-                                    <td class="px-6 py-2 text-center text-purple-500">${job.negotiations || 0}</td>
+                                    <td class="px-6 py-2 text-center text-cyan-500">${jobEngaged}</td>
                                     <td class="px-6 py-2 text-center text-amber-500">${job.followUps || 0}</td>
                                     <td class="px-6 py-2 text-center text-green-500">${job.completed || 0}</td>
                                     <td class="px-6 py-2 text-slate-400 text-xs">${job.lastActive ? new Date(job.lastActive).toLocaleDateString() : '-'}</td>
@@ -10170,7 +10101,7 @@
                         }
                     });
                 } else {
-                    tbody.innerHTML = `<tr><td colspan="8" class="px-6 py-8 text-center text-slate-400">
+                    tbody.innerHTML = `<tr><td colspan="7" class="px-6 py-8 text-center text-slate-400">
                         <i class="fa-regular fa-folder-open text-2xl mb-2 block"></i>
                         ${hasFilters ? 'No activity found for the selected filters' : 'No user activity recorded yet'}
                     </td></tr>`;
@@ -10181,72 +10112,7 @@
                 if (onComplete) onComplete(data);
             }).getUserAnalytics(filterEmail, filterJobId, startDate, endDate);
 
-            google.script.run.withSuccessHandler(stats => {
-                if(stats.error) return;
-                // Note: statTotalFollowUps and statTotalNegotiations are already set by getUserAnalytics
-                // to show active/pending counts instead of cumulative action counts
-
-                // Render charts (simplified lists)
-                const uList = document.getElementById('emailUsersList');
-                const userEntries = stats.emailsByUser ? Object.entries(stats.emailsByUser).sort((a,b)=>b[1]-a[1]) : [];
-                if(userEntries.length > 0) {
-                    uList.innerHTML = '';
-                    userEntries.forEach(([k,v]) => {
-                        uList.innerHTML += `<div class="flex justify-between text-sm mb-2 p-2 bg-slate-50 dark:bg-slate-700 rounded"><span class="text-slate-700 dark:text-slate-300">${k}</span><span class="font-bold text-emerald-600">${v}</span></div>`;
-                    });
-                } else {
-                    uList.innerHTML = `<div class="text-center py-6 text-slate-400">
-                        <i class="fa-regular fa-envelope text-2xl mb-2 block"></i>
-                        <span class="text-sm">${hasFilters ? 'No emails found for the selected filters' : 'No emails sent yet'}</span>
-                    </div>`;
-                }
-
-                const jList = document.getElementById('emailJobsList');
-                const jobEntries = stats.emailsByJob ? Object.entries(stats.emailsByJob).sort((a,b)=>b[1]-a[1]) : [];
-                if(jobEntries.length > 0) {
-                    jList.innerHTML = '';
-                    jobEntries.forEach(([k,v]) => {
-                        jList.innerHTML += `<div class="flex justify-between text-sm mb-2 p-2 bg-slate-50 dark:bg-slate-700 rounded"><span class="text-slate-700 dark:text-slate-300">Job ${k}</span><span class="font-bold text-amber-600">${v}</span></div>`;
-                    });
-                } else {
-                    jList.innerHTML = `<div class="text-center py-6 text-slate-400">
-                        <i class="fa-regular fa-envelope text-2xl mb-2 block"></i>
-                        <span class="text-sm">${hasFilters ? 'No emails found for the selected filters' : 'No emails sent yet'}</span>
-                    </div>`;
-                }
-
-                // Render completed by user breakdown
-                const cuList = document.getElementById('completedUsersList');
-                const completedUserEntries = stats.completedByUser ? Object.entries(stats.completedByUser).sort((a,b)=>b[1]-a[1]) : [];
-                if(completedUserEntries.length > 0) {
-                    cuList.innerHTML = '';
-                    completedUserEntries.forEach(([k,v]) => {
-                        cuList.innerHTML += `<div class="flex justify-between text-sm mb-2 p-2 bg-slate-50 dark:bg-slate-700 rounded"><span class="text-slate-700 dark:text-slate-300">${k}</span><span class="font-bold text-blue-600">${v}</span></div>`;
-                    });
-                } else {
-                    cuList.innerHTML = `<div class="text-center py-6 text-slate-400">
-                        <i class="fa-regular fa-check-circle text-2xl mb-2 block"></i>
-                        <span class="text-sm">${hasFilters ? 'No completions found for the selected filters' : 'No completions yet'}</span>
-                    </div>`;
-                }
-
-                // Render completed by job breakdown
-                const cjList = document.getElementById('completedJobsList');
-                const completedJobEntries = stats.completedByJob ? Object.entries(stats.completedByJob).sort((a,b)=>b[1]-a[1]) : [];
-                if(completedJobEntries.length > 0) {
-                    cjList.innerHTML = '';
-                    completedJobEntries.forEach(([k,v]) => {
-                        cjList.innerHTML += `<div class="flex justify-between text-sm mb-2 p-2 bg-slate-50 dark:bg-slate-700 rounded"><span class="text-slate-700 dark:text-slate-300">Job ${k}</span><span class="font-bold text-purple-600">${v}</span></div>`;
-                    });
-                } else {
-                    cjList.innerHTML = `<div class="text-center py-6 text-slate-400">
-                        <i class="fa-regular fa-check-circle text-2xl mb-2 block"></i>
-                        <span class="text-sm">${hasFilters ? 'No completions found for the selected filters' : 'No completions yet'}</span>
-                    </div>`;
-                }
-            }).getDetailedEmailStats(filterEmail, filterJobId, startDate, endDate);
-
-            // Load chart data
+            // Load chart data (also populates pipeline summary cards)
             loadAnalyticsCharts(filterJobId, startDate, endDate);
 
             // Load team job metrics (shows job assignments per agent)
@@ -10369,6 +10235,24 @@
                     }
                 }
 
+                // Populate pipeline summary cards from funnel data (mutually exclusive stages)
+                if (chartData.conversionFunnel && chartData.conversionFunnel.pipelineCards) {
+                    const pc = chartData.conversionFunnel.pipelineCards;
+                    document.getElementById('statTotalOutreach').textContent = pc.totalOutreach || 0;
+                    document.getElementById('statAwaitingResponse').textContent = pc.awaitingResponse || 0;
+                    document.getElementById('statEngaged').textContent = pc.engaged || 0;
+                    document.getElementById('statTotalCompleted').textContent = pc.completed || 0;
+                    document.getElementById('statDroppedOff').textContent = pc.droppedOff || 0;
+                    document.getElementById('statPipelineUnresponsive').textContent = pc.unresponsive || 0;
+                } else {
+                    document.getElementById('statTotalOutreach').textContent = '0';
+                    document.getElementById('statAwaitingResponse').textContent = '0';
+                    document.getElementById('statEngaged').textContent = '0';
+                    document.getElementById('statTotalCompleted').textContent = '0';
+                    document.getElementById('statDroppedOff').textContent = '0';
+                    document.getElementById('statPipelineUnresponsive').textContent = '0';
+                }
+
                 // Render all charts with available data
                 // Each chart handles missing/empty data gracefully
                 if (chartData.conversionFunnel) {
@@ -10391,7 +10275,7 @@
                     document.getElementById('responseRatePercent').textContent = '0%';
                 }
 
-                // Render Top Performing Jobs chart
+                // Render Top Performing Jobs (full pipeline per job)
                 if (chartData.jobPerformance) {
                     renderTopJobsChart(chartData.jobPerformance);
                 } else {
@@ -10552,6 +10436,7 @@
 
             // Update stats
             document.getElementById('outcomeAccepted').textContent = outcomes.accepted || 0;
+            document.getElementById('outcomeNotInterested').textContent = outcomes.notInterested || 0;
             document.getElementById('outcomeRejected').textContent = outcomes.rejected || 0;
             document.getElementById('outcomeEscalated').textContent = outcomes.escalated || 0;
             document.getElementById('outcomeUnresponsive').textContent = outcomes.unresponsive || 0;
@@ -10561,9 +10446,10 @@
                 outcomeChartInstance.destroy();
             }
 
-            const labels = ['Accepted', 'Rejected', 'Escalated', 'Unresponsive', 'Pending'];
+            const labels = ['Accepted', 'Not Interested', 'Rejected', 'Escalated', 'Unresponsive', 'Pending'];
             const values = [
                 outcomes.accepted || 0,
+                outcomes.notInterested || 0,
                 outcomes.rejected || 0,
                 outcomes.escalated || 0,
                 outcomes.unresponsive || 0,
@@ -10590,6 +10476,7 @@
                         data: values,
                         backgroundColor: [
                             'rgba(16, 185, 129, 0.8)',   // emerald - accepted
+                            'rgba(249, 115, 22, 0.8)',   // orange - not interested
                             'rgba(239, 68, 68, 0.8)',   // red - rejected
                             'rgba(245, 158, 11, 0.8)',  // amber - escalated
                             'rgba(148, 163, 184, 0.8)', // slate - unresponsive
@@ -10597,6 +10484,7 @@
                         ],
                         borderColor: [
                             'rgb(16, 185, 129)',
+                            'rgb(249, 115, 22)',
                             'rgb(239, 68, 68)',
                             'rgb(245, 158, 11)',
                             'rgb(148, 163, 184)',
@@ -10653,32 +10541,36 @@
 
             if (emptyState) emptyState.style.display = 'none';
 
-            // Render job items
-            jobs.forEach((job, index) => {
+            // Render job pipeline items — each shows a visual breakdown bar
+            jobs.forEach((job) => {
                 const jobItem = document.createElement('div');
-                jobItem.className = 'job-item flex items-center justify-between p-3 bg-slate-50 rounded-lg hover:bg-slate-100 transition-colors';
+                jobItem.className = 'job-item p-3 bg-slate-50 dark:bg-slate-700/50 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors';
 
-                // Determine badge color based on response rate
-                let badgeColor = 'bg-slate-200 text-slate-600';
-                if (job.responseRate >= 50) badgeColor = 'bg-emerald-100 text-emerald-700';
-                else if (job.responseRate >= 25) badgeColor = 'bg-amber-100 text-amber-700';
-                else if (job.responseRate > 0) badgeColor = 'bg-red-100 text-red-700';
+                const total = job.outreach || 1;
+                const awaitPct = ((job.awaiting || 0) / total * 100).toFixed(0);
+                const engagedPct = ((job.engaged || 0) / total * 100).toFixed(0);
+                const completedPct = ((job.accepted || 0) / total * 100).toFixed(0);
+                const droppedPct = ((job.droppedOff || 0) / total * 100).toFixed(0);
+                const unrespPct = ((job.unresponsive || 0) / total * 100).toFixed(0);
 
                 jobItem.innerHTML = `
-                    <div class="flex items-center gap-3">
-                        <div class="w-6 h-6 flex items-center justify-center rounded-full ${index < 3 ? 'bg-amber-500 text-white' : 'bg-slate-300 text-slate-600'} text-xs font-bold">
-                            ${index + 1}
-                        </div>
-                        <div>
-                            <div class="font-medium text-slate-800 text-sm">${job.jobId}</div>
-                            <div class="text-xs text-slate-500">${job.outreach} outreach / ${job.responses} responses / ${job.accepted} accepted</div>
-                        </div>
+                    <div class="flex items-center justify-between mb-2">
+                        <div class="font-semibold text-slate-800 dark:text-white text-sm">Job ${job.jobId}</div>
+                        <div class="text-xs text-slate-500 dark:text-slate-400">${job.outreach} candidates | ${job.responseRate}% response rate</div>
                     </div>
-                    <div class="text-right">
-                        <div class="px-2 py-1 rounded-full text-xs font-semibold ${badgeColor}">
-                            ${job.responseRate}% response
-                        </div>
-                        ${job.accepted > 0 ? `<div class="text-xs text-emerald-600 mt-1">${job.acceptanceRate}% acceptance</div>` : ''}
+                    <div class="flex h-3 rounded-full overflow-hidden bg-slate-200 dark:bg-slate-600 mb-2">
+                        ${(job.awaiting || 0) > 0 ? `<div class="bg-slate-400" style="width:${awaitPct}%" title="Awaiting: ${job.awaiting}"></div>` : ''}
+                        ${(job.engaged || 0) > 0 ? `<div class="bg-cyan-500" style="width:${engagedPct}%" title="Engaged: ${job.engaged}"></div>` : ''}
+                        ${(job.accepted || 0) > 0 ? `<div class="bg-emerald-500" style="width:${completedPct}%" title="Completed: ${job.accepted}"></div>` : ''}
+                        ${(job.droppedOff || 0) > 0 ? `<div class="bg-red-400" style="width:${droppedPct}%" title="Dropped Off: ${job.droppedOff}"></div>` : ''}
+                        ${(job.unresponsive || 0) > 0 ? `<div class="bg-amber-400" style="width:${unrespPct}%" title="Unresponsive: ${job.unresponsive}"></div>` : ''}
+                    </div>
+                    <div class="flex flex-wrap gap-x-3 gap-y-1 text-xs">
+                        <span class="text-slate-500 dark:text-slate-400"><span class="inline-block w-2 h-2 rounded-full bg-slate-400 mr-1"></span>Awaiting ${job.awaiting || 0}</span>
+                        <span class="text-cyan-600 dark:text-cyan-400"><span class="inline-block w-2 h-2 rounded-full bg-cyan-500 mr-1"></span>Engaged ${job.engaged || 0}</span>
+                        <span class="text-emerald-600 dark:text-emerald-400"><span class="inline-block w-2 h-2 rounded-full bg-emerald-500 mr-1"></span>Completed ${job.accepted || 0}</span>
+                        <span class="text-red-500 dark:text-red-400"><span class="inline-block w-2 h-2 rounded-full bg-red-400 mr-1"></span>Dropped ${job.droppedOff || 0}</span>
+                        <span class="text-amber-600 dark:text-amber-400"><span class="inline-block w-2 h-2 rounded-full bg-amber-400 mr-1"></span>Unresponsive ${job.unresponsive || 0}</span>
                     </div>
                 `;
                 container.appendChild(jobItem);

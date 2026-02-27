@@ -15139,8 +15139,8 @@ function getJobPerformanceMetrics(startDate, endDate) {
     const emailData = emailLogsSheet.getDataRange().getValues();
     const stateData = stateSheet ? stateSheet.getDataRange().getValues() : [];
 
-    // Build job metrics map
-    const jobMetrics = new Map(); // jobId -> { outreach: Set, responses: Set, accepted: Set }
+    // Build job metrics map — full pipeline per job
+    const jobMetrics = new Map();
 
     // Count outreach emails per job
     // FIX: Use normalizeEmail to deduplicate Gmail dot-variants
@@ -15159,7 +15159,10 @@ function getJobPerformanceMetrics(startDate, endDate) {
       if (timestamp && endDateFilter && new Date(timestamp) > endDateFilter) continue;
 
       if (!jobMetrics.has(jobId)) {
-        jobMetrics.set(jobId, { outreach: new Set(), responses: new Set(), accepted: new Set() });
+        jobMetrics.set(jobId, {
+          outreach: new Set(), responses: new Set(), accepted: new Set(),
+          droppedOff: new Set(), unresponsive: new Set()
+        });
       }
       jobMetrics.get(jobId).outreach.add(email);
     }
@@ -15200,21 +15203,45 @@ function getJobPerformanceMetrics(startDate, endDate) {
 
       // Initialize job metrics if not exists (in case completed job wasn't in Email_Logs)
       if (!jobMetrics.has(jobId)) {
-        jobMetrics.set(jobId, { outreach: new Set(), responses: new Set(), accepted: new Set() });
+        jobMetrics.set(jobId, {
+          outreach: new Set(), responses: new Set(), accepted: new Set(),
+          droppedOff: new Set(), unresponsive: new Set()
+        });
       }
+      const jm = jobMetrics.get(jobId);
 
-      // Count as accepted if status indicates acceptance/completion
+      // Count by final status
       if (finalStatus.includes('accept') || finalStatus.includes('complete')) {
-        jobMetrics.get(jobId).accepted.add(email);
+        jm.accepted.add(email);
+      } else if (finalStatus.includes('not interested') || finalStatus.includes('reject') || finalStatus.includes('declined')) {
+        jm.droppedOff.add(email);
+      } else if (finalStatus.includes('escalat') || finalStatus.includes('human')) {
+        jm.droppedOff.add(email);
       }
 
       // Also count completed candidates as responses (they must have responded to reach completion)
       if (email) {
-        jobMetrics.get(jobId).responses.add(email);
+        jm.responses.add(email);
       }
     }
 
-    // Calculate metrics for each job
+    // Read Unresponsive_Devs for per-job unresponsive counts
+    const unresponsiveSheet = ss.getSheetByName('Unresponsive_Devs');
+    const unresponsiveData = unresponsiveSheet ? unresponsiveSheet.getDataRange().getValues() : [];
+    for (let i = 1; i < unresponsiveData.length; i++) {
+      const jobId = String(unresponsiveData[i][1] || '').trim();
+      const email = normalizeEmail(unresponsiveData[i][2]);
+      if (!jobId || !email) continue;
+      if (!jobMetrics.has(jobId)) {
+        jobMetrics.set(jobId, {
+          outreach: new Set(), responses: new Set(), accepted: new Set(),
+          droppedOff: new Set(), unresponsive: new Set()
+        });
+      }
+      jobMetrics.get(jobId).unresponsive.add(email);
+    }
+
+    // Calculate metrics for each job — full pipeline view
     const jobsList = [];
     let totalResponseRate = 0;
     let jobsWithOutreach = 0;
@@ -15223,6 +15250,13 @@ function getJobPerformanceMetrics(startDate, endDate) {
       const outreachCount = metrics.outreach.size;
       const responseCount = metrics.responses.size;
       const acceptedCount = metrics.accepted.size;
+      const droppedOffCount = metrics.droppedOff ? metrics.droppedOff.size : 0;
+      const unresponsiveCount = metrics.unresponsive ? metrics.unresponsive.size : 0;
+
+      // Engaged = responded/active candidates minus those who completed or dropped off
+      const engagedCount = Math.max(0, responseCount - acceptedCount - droppedOffCount);
+      // Awaiting = outreach minus everyone in a later stage
+      const awaitingCount = Math.max(0, outreachCount - responseCount - unresponsiveCount);
 
       if (outreachCount > 0) {
         const responseRate = ((responseCount / outreachCount) * 100);
@@ -15233,6 +15267,10 @@ function getJobPerformanceMetrics(startDate, endDate) {
           outreach: outreachCount,
           responses: responseCount,
           accepted: acceptedCount,
+          droppedOff: droppedOffCount,
+          unresponsive: unresponsiveCount,
+          engaged: engagedCount,
+          awaiting: awaitingCount,
           responseRate: parseFloat(responseRate.toFixed(1)),
           acceptanceRate: parseFloat(acceptanceRate.toFixed(1))
         });
@@ -15242,17 +15280,16 @@ function getJobPerformanceMetrics(startDate, endDate) {
       }
     });
 
-    // Sort by response rate (descending), then by outreach count
+    // Sort by outreach count (descending), then by response rate
     jobsList.sort((a, b) => {
-      if (b.responseRate !== a.responseRate) return b.responseRate - a.responseRate;
-      return b.outreach - a.outreach;
+      if (b.outreach !== a.outreach) return b.outreach - a.outreach;
+      return b.responseRate - a.responseRate;
     });
 
-    // Return top 10 jobs
     const avgResponseRate = jobsWithOutreach > 0 ? (totalResponseRate / jobsWithOutreach).toFixed(1) : 0;
 
     return {
-      jobs: jobsList.slice(0, 10),
+      jobs: jobsList,
       totalJobs: jobsList.length,
       avgResponseRate: parseFloat(avgResponseRate)
     };
@@ -15463,9 +15500,21 @@ function getConversionFunnelData(filterJobId, startDate, endDate) {
       pending: negotiatingCount
     };
 
+    // Pipeline cards: mutually exclusive stages that sum to totalOutreach
+    // Every candidate appears in exactly ONE stage
+    const pipelineCards = {
+      totalOutreach: totalOutreach,
+      awaitingResponse: outreachWaitingCount,
+      engaged: respondedWaitingCount + negotiatingCount,
+      completed: acceptedCount,
+      droppedOff: notInterested + rejected + escalated,
+      unresponsive: unresponsive
+    };
+
     return {
       funnel: funnelData,
       outcomes: outcomeBreakdown,
+      pipelineCards: pipelineCards,
       // Current state counts (for funnel display)
       currentOutreach: outreachWaitingCount,
       currentResponded: respondedWaitingCount,
