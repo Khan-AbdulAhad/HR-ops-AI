@@ -14445,7 +14445,9 @@ function getUserAnalytics(filterEmail, filterJobId, startDate, endDate) {
 
     // --- Completed counts from Completed_Analytics (shared) ---
     // Per-user per-job completed counts for accurate multi-user attribution
+    // Also track "Not Interested" per user per job for Dropped Off column
     const completedPerUserJob = {}; // key: "userEmail|jobId" → count
+    const droppedPerUserJob = {};   // key: "userEmail|jobId" → count (Not Interested)
     const completedPerJob = {};     // key: jobId → total count
     let totalCompletedFromSheet = 0;
     try {
@@ -14458,6 +14460,7 @@ function getUserAnalytics(filterEmail, filterJobId, startDate, endDate) {
           const cUserEmail = String(completedData[i][1] || '').toLowerCase();
           const cJobId = String(completedData[i][2] || '');
           const cCandidateEmail = completedData[i][3];
+          const cFinalStatus = String(completedData[i][5] || '').toLowerCase();
           const cTimestamp = completedData[i][0];
 
           if (!cCandidateEmail) continue;
@@ -14481,15 +14484,22 @@ function getUserAnalytics(filterEmail, filterJobId, startDate, endDate) {
           if (seenCompleted.has(dedupeKey)) continue;
           seenCompleted.add(dedupeKey);
 
-          // Per-user per-job count
           const userJobKey = cUserEmail + '|' + cJobId;
-          if (!completedPerUserJob[userJobKey]) completedPerUserJob[userJobKey] = 0;
-          completedPerUserJob[userJobKey]++;
 
-          // Per-job total count
-          if (!completedPerJob[cJobId]) completedPerJob[cJobId] = 0;
-          completedPerJob[cJobId]++;
-          totalCompletedFromSheet++;
+          // Separate "Not Interested" into droppedOff, rest into completed
+          if (cFinalStatus.includes('not interested')) {
+            if (!droppedPerUserJob[userJobKey]) droppedPerUserJob[userJobKey] = 0;
+            droppedPerUserJob[userJobKey]++;
+          } else {
+            // Per-user per-job completed count
+            if (!completedPerUserJob[userJobKey]) completedPerUserJob[userJobKey] = 0;
+            completedPerUserJob[userJobKey]++;
+
+            // Per-job total count
+            if (!completedPerJob[cJobId]) completedPerJob[cJobId] = 0;
+            completedPerJob[cJobId]++;
+            totalCompletedFromSheet++;
+          }
         }
       }
     } catch (e) {
@@ -14533,12 +14543,16 @@ function getUserAnalytics(filterEmail, filterJobId, startDate, endDate) {
           }
         }
 
-        // Count active follow-ups: candidates whose latest action is NOT 'responded' or 'unresponsive'
+        // Count active follow-ups and unresponsive per user per job
         const terminalActions = new Set(['responded', 'unresponsive']);
         Object.values(candidateState).forEach(state => {
-          if (!terminalActions.has(state.action)) {
+          const userJobKey = state.userEmail + '|' + state.jobId;
+          if (state.action === 'unresponsive') {
+            // Track unresponsive per user per job for Dropped Off column
+            if (!droppedPerUserJob[userJobKey]) droppedPerUserJob[userJobKey] = 0;
+            droppedPerUserJob[userJobKey]++;
+          } else if (!terminalActions.has(state.action)) {
             // This candidate is still in active follow-up
-            const userJobKey = state.userEmail + '|' + state.jobId;
             if (!followUpActivePerUserJob[userJobKey]) followUpActivePerUserJob[userJobKey] = 0;
             followUpActivePerUserJob[userJobKey]++;
 
@@ -14560,17 +14574,14 @@ function getUserAnalytics(filterEmail, filterJobId, startDate, endDate) {
 
     // Convert user map to sorted array with job breakdown
     analytics.userStats = Array.from(userMap.values())
-      .sort((a, b) => {
-        const bTime = b.lastActive && !isNaN(b.lastActive.getTime()) ? b.lastActive.getTime() : 0;
-        const aTime = a.lastActive && !isNaN(a.lastActive.getTime()) ? a.lastActive.getTime() : 0;
-        return bTime - aTime;
-      })
+      .sort((a, b) => b.emailsSent - a.emailsSent)
       .map(u => {
         // Calculate totals for this user across all their jobs
         let userActiveDataGathering = 0;
         let userActiveNegotiations = 0;
         let userActiveFollowUps = 0;
         let userCompletedTotal = 0;
+        let userDroppedTotal = 0;
         const userEmailLower = u.email.toLowerCase();
         Object.keys(u.jobBreakdown).forEach(jobKey => {
           const jobDgStats = perJobDataGathering[jobKey];
@@ -14582,13 +14593,19 @@ function getUserAnalytics(filterEmail, filterJobId, startDate, endDate) {
             userActiveNegotiations += (jobNegStats.active || 0) + (jobNegStats.humanEscalated || 0);
           }
 
-          // Completed: Use centralized Completed_Analytics (per-user per-job)
           const userJobKey = userEmailLower + '|' + jobKey;
+
+          // Completed: Use centralized Completed_Analytics (per-user per-job)
           if (hasCentralizedCompleted && completedPerUserJob[userJobKey]) {
             userCompletedTotal += completedPerUserJob[userJobKey];
           } else {
             // Fallback to Activity_Log count if centralized data not yet available
             userCompletedTotal += u.jobBreakdown[jobKey].completed || 0;
+          }
+
+          // Dropped Off: Not Interested (from Completed_Analytics) + Unresponsive (from FollowUp_Analytics)
+          if (droppedPerUserJob[userJobKey]) {
+            userDroppedTotal += droppedPerUserJob[userJobKey];
           }
 
           // Follow-ups: Use centralized FollowUp_Analytics (per-user per-job)
@@ -14611,14 +14628,10 @@ function getUserAnalytics(filterEmail, filterJobId, startDate, endDate) {
           negotiations: userActiveNegotiations,
           followUps: userActiveFollowUps,
           completed: userCompletedTotal,
+          droppedOff: userDroppedTotal,
           totalActions: u.emailsSent + userActiveFollowUps,
-          lastActive: u.lastActive && !isNaN(u.lastActive.getTime()) ? u.lastActive.toISOString() : null,
           jobBreakdown: Object.values(u.jobBreakdown)
-            .sort((a, b) => {
-              const bTime = b.lastActive && !isNaN(b.lastActive.getTime()) ? b.lastActive.getTime() : 0;
-              const aTime = a.lastActive && !isNaN(a.lastActive.getTime()) ? a.lastActive.getTime() : 0;
-              return bTime - aTime;
-            })
+            .sort((a, b) => b.emailsSent - a.emailsSent)
             .map(j => {
               const jobDgStats = perJobDataGathering[j.jobId];
               const activeDataGathering = jobDgStats ? (jobDgStats.pending || 0) : 0;
@@ -14632,6 +14645,9 @@ function getUserAnalytics(filterEmail, filterJobId, startDate, endDate) {
               if (hasCentralizedCompleted && completedPerUserJob[jobUserKey]) {
                 jobCompletedCount = completedPerUserJob[jobUserKey];
               }
+
+              // Per-job dropped off
+              const jobDroppedCount = droppedPerUserJob[jobUserKey] || 0;
 
               // Per-job follow-ups: use centralized per-user-per-job count
               let activeFollowUps = 0;
@@ -14653,8 +14669,8 @@ function getUserAnalytics(filterEmail, filterJobId, startDate, endDate) {
                 negotiations: activeNegotiations,
                 followUps: activeFollowUps,
                 completed: jobCompletedCount,
-                totalActions: j.emailsSent + activeFollowUps,
-                lastActive: j.lastActive && !isNaN(j.lastActive.getTime()) ? j.lastActive.toISOString() : null
+                droppedOff: jobDroppedCount,
+                totalActions: j.emailsSent + activeFollowUps
               };
             })
         };
