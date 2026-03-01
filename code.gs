@@ -15371,11 +15371,14 @@ function getConversionFunnelData(filterJobId, startDate, endDate) {
 
     // Count completed outcomes first (to exclude from other stages)
     // Columns: [0]=Timestamp, [1]=Job ID, [2]=Email, [3]=Name, [4]=Final Status
+    // Use Sets for UNIQUE candidate counts (a candidate with multiple job outcomes is counted once)
+    // Row counters (accepted, notInterested, etc.) kept ONLY for the pie chart which shows per-row totals
     let accepted = 0;
     let rejected = 0;
     let escalated = 0;
     let notInterested = 0;
     const acceptedEmails = new Set();
+    const droppedOffEmails = new Set(); // Not Interested + Rejected + Escalated (unique)
     const completedEmails = new Set(); // All completed candidates (any final status)
     const respondedCompletedEmails = new Set(); // Completed candidates who actually responded
 
@@ -15392,21 +15395,26 @@ function getConversionFunnelData(filterJobId, startDate, endDate) {
       if (!email) continue;
 
       completedEmails.add(email);
+      respondedCompletedEmails.add(email);
 
       if (status.includes('accept') || status.includes('complete')) {
         accepted++;
         acceptedEmails.add(email);
-        respondedCompletedEmails.add(email);
       } else if (status.includes('not interested')) {
         notInterested++;
-        respondedCompletedEmails.add(email);
+        droppedOffEmails.add(email);
       } else if (status.includes('reject') || status.includes('declined')) {
         rejected++;
-        respondedCompletedEmails.add(email);
+        droppedOffEmails.add(email);
       } else if (status.includes('escalat') || status.includes('human')) {
         escalated++;
-        // Don't add escalated to respondedCompletedEmails since they may not have replied
+        droppedOffEmails.add(email);
       }
+    }
+
+    // A candidate accepted for one job but dropped for another should count as accepted (best outcome wins)
+    for (const email of acceptedEmails) {
+      droppedOffEmails.delete(email);
     }
 
     // Count negotiating (status is active/pending in state) - candidates actively in negotiation
@@ -15440,15 +15448,19 @@ function getConversionFunnelData(filterJobId, startDate, endDate) {
       }
     }
 
-    // Count unresponsive
-    let unresponsive = 0;
+    // Count unresponsive (unique emails only — avoid inflating from duplicate rows)
     const unresponsiveEmails = new Set();
     for (let i = 1; i < unresponsiveData.length; i++) {
       const jobId = String(unresponsiveData[i][1] || '');
       const email = normalizeEmail(unresponsiveData[i][2]);
       if (filterJobId && jobId !== filterJobId) continue;
-      unresponsive++;
       if (email) unresponsiveEmails.add(email);
+    }
+
+    // Remove overlap: candidates in Negotiation_Completed are in a final state,
+    // so they should NOT also count as unresponsive (mutual exclusivity)
+    for (const email of completedEmails) {
+      unresponsiveEmails.delete(email);
     }
 
     // Calculate CURRENT STATE counts for the funnel
@@ -15496,19 +15508,27 @@ function getConversionFunnelData(filterJobId, startDate, endDate) {
       notInterested: notInterested,
       rejected: rejected,
       escalated: escalated,
-      unresponsive: unresponsive,
+      unresponsive: unresponsiveEmails.size,
       pending: negotiatingCount
     };
 
-    // Pipeline cards: mutually exclusive stages that sum to totalOutreach
-    // Every candidate appears in exactly ONE stage
+    // Pipeline cards: mutually exclusive stages — MUST sum to totalOutreach
+    // Use Set sizes (unique emails) for ALL stages, then compute awaiting as residual
+    // This guarantees the math: awaiting = total - engaged - completed - droppedOff - unresponsive
+    const completedInPipeline = Array.from(acceptedEmails).filter(e => outreachEmails.has(e)).length;
+    const droppedInPipeline = Array.from(droppedOffEmails).filter(e => outreachEmails.has(e)).length;
+    const unresponsiveInPipeline = Array.from(unresponsiveEmails).filter(e => outreachEmails.has(e)).length;
+    const engagedInPipeline = Array.from(new Set([...respondedWaitingEmails, ...negotiatingEmails]))
+      .filter(e => outreachEmails.has(e)).length;
+    const awaitingInPipeline = Math.max(0, totalOutreach - engagedInPipeline - completedInPipeline - droppedInPipeline - unresponsiveInPipeline);
+
     const pipelineCards = {
       totalOutreach: totalOutreach,
-      awaitingResponse: outreachWaitingCount,
-      engaged: respondedWaitingCount + negotiatingCount,
-      completed: acceptedCount,
-      droppedOff: notInterested + rejected + escalated,
-      unresponsive: unresponsive
+      awaitingResponse: awaitingInPipeline,
+      engaged: engagedInPipeline,
+      completed: completedInPipeline,
+      droppedOff: droppedInPipeline,
+      unresponsive: unresponsiveInPipeline
     };
 
     return {
@@ -15528,7 +15548,7 @@ function getConversionFunnelData(filterJobId, startDate, endDate) {
       totalNotInterested: notInterested,
       totalRejected: rejected,
       totalEscalated: escalated,
-      totalUnresponsive: unresponsive,
+      totalUnresponsive: unresponsiveEmails.size,
       responseRate: parseFloat(responseRate),
       negotiationRate: parseFloat(negotiationRate),
       acceptanceRate: parseFloat(acceptanceRate),
