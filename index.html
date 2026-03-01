@@ -2813,7 +2813,7 @@
                                         <th class="px-6 py-3 text-center">Engaged</th>
                                         <th class="px-6 py-3 text-center">Follow-Ups</th>
                                         <th class="px-6 py-3 text-center">Completed</th>
-                                        <th class="px-6 py-3">Last Active</th>
+                                        <th class="px-6 py-3 text-center">Dropped Off</th>
                                     </tr>
                                 </thead>
                                 <tbody id="userStatsTableBody" class="divide-y divide-slate-100 dark:divide-slate-700">
@@ -10046,7 +10046,7 @@
                         const hasJobs = u.jobBreakdown && u.jobBreakdown.length > 0;
                         // Filter out jobs where all metrics are zero — they add noise
                         const nonZeroJobs = hasJobs ? u.jobBreakdown.filter(job =>
-                            (job.emailsSent || 0) + (job.dataFetches || 0) + (job.negotiations || 0) + (job.followUps || 0) + (job.completed || 0) > 0
+                            (job.emailsSent || 0) + (job.dataFetches || 0) + (job.negotiations || 0) + (job.followUps || 0) + (job.completed || 0) + (job.droppedOff || 0) > 0
                         ) : [];
                         const hasNonZeroJobs = nonZeroJobs.length > 0;
                         const userRowId = `user-row-${userIndex}`;
@@ -10074,7 +10074,7 @@
                             <td class="px-6 py-3 text-center text-cyan-600 font-semibold">${userEngaged}</td>
                             <td class="px-6 py-3 text-center text-amber-600">${u.followUps || 0}</td>
                             <td class="px-6 py-3 text-center text-green-600 font-bold">${u.completed || 0}</td>
-                            <td class="px-6 py-3 text-slate-500 text-xs">${u.lastActive ? new Date(u.lastActive).toLocaleDateString() : '-'}</td>
+                            <td class="px-6 py-3 text-center text-red-500 font-semibold">${u.droppedOff || 0}</td>
                         `;
                         tbody.appendChild(tr);
 
@@ -10098,7 +10098,7 @@
                                     <td class="px-6 py-2 text-center text-cyan-500">${jobEngaged}</td>
                                     <td class="px-6 py-2 text-center text-amber-500">${job.followUps || 0}</td>
                                     <td class="px-6 py-2 text-center text-green-500">${job.completed || 0}</td>
-                                    <td class="px-6 py-2 text-slate-400 text-xs">${job.lastActive ? new Date(job.lastActive).toLocaleDateString() : '-'}</td>
+                                    <td class="px-6 py-2 text-center text-red-400">${job.droppedOff || 0}</td>
                                 `;
                                 tbody.appendChild(jobTr);
                             });

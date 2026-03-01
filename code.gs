@@ -14445,7 +14445,9 @@ function getUserAnalytics(filterEmail, filterJobId, startDate, endDate) {
 
     // --- Completed counts from Completed_Analytics (shared) ---
     // Per-user per-job completed counts for accurate multi-user attribution
+    // Also track "Not Interested" per user per job for Dropped Off column
     const completedPerUserJob = {}; // key: "userEmail|jobId" → count
+    const droppedPerUserJob = {};   // key: "userEmail|jobId" → count (Not Interested)
     const completedPerJob = {};     // key: jobId → total count
     let totalCompletedFromSheet = 0;
     try {
@@ -14458,6 +14460,7 @@ function getUserAnalytics(filterEmail, filterJobId, startDate, endDate) {
           const cUserEmail = String(completedData[i][1] || '').toLowerCase();
           const cJobId = String(completedData[i][2] || '');
           const cCandidateEmail = completedData[i][3];
+          const cFinalStatus = String(completedData[i][5] || '').toLowerCase();
           const cTimestamp = completedData[i][0];
 
           if (!cCandidateEmail) continue;
@@ -14481,15 +14484,22 @@ function getUserAnalytics(filterEmail, filterJobId, startDate, endDate) {
           if (seenCompleted.has(dedupeKey)) continue;
           seenCompleted.add(dedupeKey);
 
-          // Per-user per-job count
           const userJobKey = cUserEmail + '|' + cJobId;
-          if (!completedPerUserJob[userJobKey]) completedPerUserJob[userJobKey] = 0;
-          completedPerUserJob[userJobKey]++;
 
-          // Per-job total count
-          if (!completedPerJob[cJobId]) completedPerJob[cJobId] = 0;
-          completedPerJob[cJobId]++;
-          totalCompletedFromSheet++;
+          // Separate "Not Interested" into droppedOff, rest into completed
+          if (cFinalStatus.includes('not interested')) {
+            if (!droppedPerUserJob[userJobKey]) droppedPerUserJob[userJobKey] = 0;
+            droppedPerUserJob[userJobKey]++;
+          } else {
+            // Per-user per-job completed count
+            if (!completedPerUserJob[userJobKey]) completedPerUserJob[userJobKey] = 0;
+            completedPerUserJob[userJobKey]++;
+
+            // Per-job total count
+            if (!completedPerJob[cJobId]) completedPerJob[cJobId] = 0;
+            completedPerJob[cJobId]++;
+            totalCompletedFromSheet++;
+          }
         }
       }
     } catch (e) {
@@ -14533,12 +14543,16 @@ function getUserAnalytics(filterEmail, filterJobId, startDate, endDate) {
           }
         }
 
-        // Count active follow-ups: candidates whose latest action is NOT 'responded' or 'unresponsive'
+        // Count active follow-ups and unresponsive per user per job
         const terminalActions = new Set(['responded', 'unresponsive']);
         Object.values(candidateState).forEach(state => {
-          if (!terminalActions.has(state.action)) {
+          const userJobKey = state.userEmail + '|' + state.jobId;
+          if (state.action === 'unresponsive') {
+            // Track unresponsive per user per job for Dropped Off column
+            if (!droppedPerUserJob[userJobKey]) droppedPerUserJob[userJobKey] = 0;
+            droppedPerUserJob[userJobKey]++;
+          } else if (!terminalActions.has(state.action)) {
             // This candidate is still in active follow-up
-            const userJobKey = state.userEmail + '|' + state.jobId;
             if (!followUpActivePerUserJob[userJobKey]) followUpActivePerUserJob[userJobKey] = 0;
             followUpActivePerUserJob[userJobKey]++;
 
@@ -14560,17 +14574,14 @@ function getUserAnalytics(filterEmail, filterJobId, startDate, endDate) {
 
     // Convert user map to sorted array with job breakdown
     analytics.userStats = Array.from(userMap.values())
-      .sort((a, b) => {
-        const bTime = b.lastActive && !isNaN(b.lastActive.getTime()) ? b.lastActive.getTime() : 0;
-        const aTime = a.lastActive && !isNaN(a.lastActive.getTime()) ? a.lastActive.getTime() : 0;
-        return bTime - aTime;
-      })
+      .sort((a, b) => b.emailsSent - a.emailsSent)
       .map(u => {
         // Calculate totals for this user across all their jobs
         let userActiveDataGathering = 0;
         let userActiveNegotiations = 0;
         let userActiveFollowUps = 0;
         let userCompletedTotal = 0;
+        let userDroppedTotal = 0;
         const userEmailLower = u.email.toLowerCase();
         Object.keys(u.jobBreakdown).forEach(jobKey => {
           const jobDgStats = perJobDataGathering[jobKey];
@@ -14582,13 +14593,19 @@ function getUserAnalytics(filterEmail, filterJobId, startDate, endDate) {
             userActiveNegotiations += (jobNegStats.active || 0) + (jobNegStats.humanEscalated || 0);
           }
 
-          // Completed: Use centralized Completed_Analytics (per-user per-job)
           const userJobKey = userEmailLower + '|' + jobKey;
+
+          // Completed: Use centralized Completed_Analytics (per-user per-job)
           if (hasCentralizedCompleted && completedPerUserJob[userJobKey]) {
             userCompletedTotal += completedPerUserJob[userJobKey];
           } else {
             // Fallback to Activity_Log count if centralized data not yet available
             userCompletedTotal += u.jobBreakdown[jobKey].completed || 0;
+          }
+
+          // Dropped Off: Not Interested (from Completed_Analytics) + Unresponsive (from FollowUp_Analytics)
+          if (droppedPerUserJob[userJobKey]) {
+            userDroppedTotal += droppedPerUserJob[userJobKey];
           }
 
           // Follow-ups: Use centralized FollowUp_Analytics (per-user per-job)
@@ -14611,14 +14628,10 @@ function getUserAnalytics(filterEmail, filterJobId, startDate, endDate) {
           negotiations: userActiveNegotiations,
           followUps: userActiveFollowUps,
           completed: userCompletedTotal,
+          droppedOff: userDroppedTotal,
           totalActions: u.emailsSent + userActiveFollowUps,
-          lastActive: u.lastActive && !isNaN(u.lastActive.getTime()) ? u.lastActive.toISOString() : null,
           jobBreakdown: Object.values(u.jobBreakdown)
-            .sort((a, b) => {
-              const bTime = b.lastActive && !isNaN(b.lastActive.getTime()) ? b.lastActive.getTime() : 0;
-              const aTime = a.lastActive && !isNaN(a.lastActive.getTime()) ? a.lastActive.getTime() : 0;
-              return bTime - aTime;
-            })
+            .sort((a, b) => b.emailsSent - a.emailsSent)
             .map(j => {
               const jobDgStats = perJobDataGathering[j.jobId];
               const activeDataGathering = jobDgStats ? (jobDgStats.pending || 0) : 0;
@@ -14632,6 +14645,9 @@ function getUserAnalytics(filterEmail, filterJobId, startDate, endDate) {
               if (hasCentralizedCompleted && completedPerUserJob[jobUserKey]) {
                 jobCompletedCount = completedPerUserJob[jobUserKey];
               }
+
+              // Per-job dropped off
+              const jobDroppedCount = droppedPerUserJob[jobUserKey] || 0;
 
               // Per-job follow-ups: use centralized per-user-per-job count
               let activeFollowUps = 0;
@@ -14653,8 +14669,8 @@ function getUserAnalytics(filterEmail, filterJobId, startDate, endDate) {
                 negotiations: activeNegotiations,
                 followUps: activeFollowUps,
                 completed: jobCompletedCount,
-                totalActions: j.emailsSent + activeFollowUps,
-                lastActive: j.lastActive && !isNaN(j.lastActive.getTime()) ? j.lastActive.toISOString() : null
+                droppedOff: jobDroppedCount,
+                totalActions: j.emailsSent + activeFollowUps
               };
             })
         };
@@ -15127,118 +15143,141 @@ function getJobPerformanceMetrics(startDate, endDate) {
       endDateFilter.setHours(23, 59, 59, 999);
     }
 
-    // Get Email_Logs for outreach data
+    // Get all sheet data
     const emailLogsSheet = ss.getSheetByName('Email_Logs');
     if (!emailLogsSheet || emailLogsSheet.getLastRow() <= 1) {
       return { jobs: [], totalJobs: 0, avgResponseRate: 0 };
     }
-
-    // Get Negotiation_State for response and outcome data
-    const stateSheet = ss.getSheetByName('Negotiation_State');
-
     const emailData = emailLogsSheet.getDataRange().getValues();
+    const stateSheet = ss.getSheetByName('Negotiation_State');
     const stateData = stateSheet ? stateSheet.getDataRange().getValues() : [];
+    const completedSheet = ss.getSheetByName('Negotiation_Completed');
+    const completedData = completedSheet ? completedSheet.getDataRange().getValues() : [];
+    const tasksSheet = ss.getSheetByName('Negotiation_Tasks');
+    const tasksData = tasksSheet ? tasksSheet.getDataRange().getValues() : [];
+    const followUpSheet = ss.getSheetByName('Follow_Up_Queue');
+    const followUpData = followUpSheet ? followUpSheet.getDataRange().getValues() : [];
+    const unresponsiveSheet = ss.getSheetByName('Unresponsive_Devs');
+    const unresponsiveData = unresponsiveSheet ? unresponsiveSheet.getDataRange().getValues() : [];
 
-    // Build job metrics map — full pipeline per job
+    // Build unresponsive set from Follow_Up_Queue + Unresponsive_Devs (same as task list)
+    const unresponsiveSet = new Set();
+    for (let f = 1; f < followUpData.length; f++) {
+      if (followUpData[f][8] === 'Unresponsive') {
+        const fuKey = normalizeEmail(followUpData[f][0]) + '|' + String(followUpData[f][1]);
+        unresponsiveSet.add(fuKey);
+      }
+    }
+    // Unresponsive_Devs columns: [0]=Email, [1]=Job ID
+    for (let u = 1; u < unresponsiveData.length; u++) {
+      if (unresponsiveData[u][0]) {
+        const udKey = normalizeEmail(unresponsiveData[u][0]) + '|' + String(unresponsiveData[u][1]);
+        unresponsiveSet.add(udKey);
+      }
+    }
+
+    // Build per-job metrics using status-based approach (mirrors task list)
+    // Each job has Sets for each pipeline stage
     const jobMetrics = new Map();
 
-    // Count outreach emails per job
-    // FIX: Use normalizeEmail to deduplicate Gmail dot-variants
+    function ensureJob(jobId) {
+      if (!jobMetrics.has(jobId)) {
+        jobMetrics.set(jobId, {
+          outreach: new Set(),
+          awaiting: new Set(),
+          engaged: new Set(),
+          accepted: new Set(),
+          droppedOff: new Set(),
+          unresponsive: new Set(),
+          responses: new Set(),
+          counted: new Set() // deduplication within this job
+        });
+      }
+      return jobMetrics.get(jobId);
+    }
+
+    // Count outreach emails per job (for total outreach count + response rate)
     for (let i = 1; i < emailData.length; i++) {
       const timestamp = emailData[i][0];
       const jobId = String(emailData[i][1] || '').trim();
       const email = normalizeEmail(emailData[i][2]);
       const type = String(emailData[i][5] || '');
-
-      // Skip follow-ups, only count initial outreach
       if (type && type.toLowerCase().includes('follow')) continue;
       if (!jobId) continue;
-
-      // Apply date filter
       if (timestamp && startDateFilter && new Date(timestamp) < startDateFilter) continue;
       if (timestamp && endDateFilter && new Date(timestamp) > endDateFilter) continue;
-
-      if (!jobMetrics.has(jobId)) {
-        jobMetrics.set(jobId, {
-          outreach: new Set(), responses: new Set(), accepted: new Set(),
-          droppedOff: new Set(), unresponsive: new Set()
-        });
-      }
-      jobMetrics.get(jobId).outreach.add(email);
+      ensureJob(jobId).outreach.add(email);
     }
 
-    // Count responses from Negotiation_State (candidates who actually replied)
+    // 1. Process Negotiation_State — categorize by status tag (same as task list)
     for (let i = 1; i < stateData.length; i++) {
+      if (!stateData[i][0]) continue;
       const email = normalizeEmail(stateData[i][0]);
       const jobId = String(stateData[i][1] || '').trim();
-      const status = String(stateData[i][4] || '').toLowerCase();
-
-      if (!jobId || !jobMetrics.has(jobId)) continue;
-
-      // Only count as response if candidate is NOT in initial outreach
-      // (lastReplyTime column is set at send time for all candidates, so it's unreliable)
-      const isInitial = status.includes('initial outreach') || status.includes('initial sent');
-      if (!isInitial) {
-        jobMetrics.get(jobId).responses.add(email);
-      }
-    }
-
-    // FIX: Count acceptances from Negotiation_Completed sheet (source of truth)
-    // When candidates are accepted/completed, they are MOVED from Negotiation_State
-    // to Negotiation_Completed, so Negotiation_State will never have "accepted" status
-    const completedSheet = ss.getSheetByName('Negotiation_Completed');
-    const completedData = completedSheet ? completedSheet.getDataRange().getValues() : [];
-
-    for (let i = 1; i < completedData.length; i++) {
-      const email = normalizeEmail(completedData[i][2]); // Column 2 = Email
-      const jobId = String(completedData[i][1] || '').trim(); // Column 1 = Job ID
-      const finalStatus = String(completedData[i][4] || '').toLowerCase(); // Column 4 = Final Status
-      const timestamp = completedData[i][0];
-
+      let status = stateData[i][4] || 'Active';
+      const attempts = Number(stateData[i][2]) || 0;
       if (!jobId) continue;
 
-      // Apply date filter
-      if (timestamp && startDateFilter && new Date(timestamp) < startDateFilter) continue;
-      if (timestamp && endDateFilter && new Date(timestamp) > endDateFilter) continue;
+      const jm = ensureJob(jobId);
 
-      // Initialize job metrics if not exists (in case completed job wasn't in Email_Logs)
-      if (!jobMetrics.has(jobId)) {
-        jobMetrics.set(jobId, {
-          outreach: new Set(), responses: new Set(), accepted: new Set(),
-          droppedOff: new Set(), unresponsive: new Set()
-        });
-      }
-      const jm = jobMetrics.get(jobId);
-
-      // Count by final status
-      if (finalStatus.includes('accept') || finalStatus.includes('complete')) {
-        jm.accepted.add(email);
-      } else if (finalStatus.includes('not interested') || finalStatus.includes('reject') || finalStatus.includes('declined')) {
-        jm.droppedOff.add(email);
-      } else if (finalStatus.includes('escalat') || finalStatus.includes('human')) {
-        jm.droppedOff.add(email);
+      // Override status to 'Unresponsive' if in unresponsive set (same as task list)
+      const candidateKey = email + '|' + jobId;
+      if (status === 'Initial Outreach' && unresponsiveSet.has(candidateKey)) {
+        status = 'Unresponsive';
       }
 
-      // Also count completed candidates as responses (they must have responded to reach completion)
-      if (email) {
+      if (jm.counted.has(email)) continue;
+      jm.counted.add(email);
+
+      if (status === 'Unresponsive') {
+        jm.unresponsive.add(email);
+      } else if (status === 'Human-Negotiation') {
+        jm.engaged.add(email);
+        jm.responses.add(email);
+      } else if (status === 'Initial Outreach' || attempts === 0) {
+        jm.awaiting.add(email);
+      } else {
+        jm.engaged.add(email);
         jm.responses.add(email);
       }
     }
 
-    // Read Unresponsive_Devs for per-job unresponsive counts
-    const unresponsiveSheet = ss.getSheetByName('Unresponsive_Devs');
-    const unresponsiveData = unresponsiveSheet ? unresponsiveSheet.getDataRange().getValues() : [];
-    for (let i = 1; i < unresponsiveData.length; i++) {
-      const jobId = String(unresponsiveData[i][1] || '').trim();
-      const email = normalizeEmail(unresponsiveData[i][2]);
+    // 2. Process Negotiation_Tasks (Accepted offers)
+    for (let i = 1; i < tasksData.length; i++) {
+      if (!tasksData[i][3]) continue;
+      if (tasksData[i][5] === 'Archived') continue;
+      const jobId = String(tasksData[i][1] || '').trim();
+      const email = normalizeEmail(tasksData[i][3]);
+      if (!jobId) continue;
+
+      const jm = ensureJob(jobId);
+      if (jm.counted.has(email)) continue;
+      jm.counted.add(email);
+      jm.accepted.add(email);
+      jm.responses.add(email);
+    }
+
+    // 3. Process Negotiation_Completed
+    for (let i = 1; i < completedData.length; i++) {
+      const email = normalizeEmail(completedData[i][2]);
+      const jobId = String(completedData[i][1] || '').trim();
+      const finalStatus = String(completedData[i][4] || '');
+      const timestamp = completedData[i][0];
       if (!jobId || !email) continue;
-      if (!jobMetrics.has(jobId)) {
-        jobMetrics.set(jobId, {
-          outreach: new Set(), responses: new Set(), accepted: new Set(),
-          droppedOff: new Set(), unresponsive: new Set()
-        });
+      if (timestamp && startDateFilter && new Date(timestamp) < startDateFilter) continue;
+      if (timestamp && endDateFilter && new Date(timestamp) > endDateFilter) continue;
+
+      const jm = ensureJob(jobId);
+      jm.responses.add(email);
+
+      if (jm.counted.has(email)) continue;
+      jm.counted.add(email);
+
+      if (finalStatus === 'Not Interested') {
+        jm.droppedOff.add(email);
+      } else {
+        jm.accepted.add(email);
       }
-      jobMetrics.get(jobId).unresponsive.add(email);
     }
 
     // Calculate metrics for each job — full pipeline view
@@ -15250,21 +15289,20 @@ function getJobPerformanceMetrics(startDate, endDate) {
       const outreachCount = metrics.outreach.size;
       const responseCount = metrics.responses.size;
       const acceptedCount = metrics.accepted.size;
-      const droppedOffCount = metrics.droppedOff ? metrics.droppedOff.size : 0;
-      const unresponsiveCount = metrics.unresponsive ? metrics.unresponsive.size : 0;
+      const droppedOffCount = metrics.droppedOff.size;
+      const unresponsiveCount = metrics.unresponsive.size;
+      const engagedCount = metrics.engaged.size;
+      const awaitingCount = metrics.awaiting.size;
+      const totalInJob = awaitingCount + engagedCount + acceptedCount + droppedOffCount + unresponsiveCount;
 
-      // Engaged = responded/active candidates minus those who completed or dropped off
-      const engagedCount = Math.max(0, responseCount - acceptedCount - droppedOffCount);
-      // Awaiting = outreach minus everyone in a later stage
-      const awaitingCount = Math.max(0, outreachCount - responseCount - unresponsiveCount);
-
-      if (outreachCount > 0) {
-        const responseRate = ((responseCount / outreachCount) * 100);
+      if (totalInJob > 0 || outreachCount > 0) {
+        const displayTotal = Math.max(outreachCount, totalInJob);
+        const responseRate = displayTotal > 0 ? ((responseCount / displayTotal) * 100) : 0;
         const acceptanceRate = responseCount > 0 ? ((acceptedCount / responseCount) * 100) : 0;
 
         jobsList.push({
           jobId: jobId,
-          outreach: outreachCount,
+          outreach: displayTotal,
           responses: responseCount,
           accepted: acceptedCount,
           droppedOff: droppedOffCount,
@@ -15329,206 +15367,203 @@ function getConversionFunnelData(filterJobId, startDate, endDate) {
       endDateFilter.setHours(23, 59, 59, 999);
     }
 
-    // Get Email_Logs for outreach count
+    // Get all sheet data
     const emailLogsSheet = ss.getSheetByName('Email_Logs');
     const emailData = emailLogsSheet ? emailLogsSheet.getDataRange().getValues() : [];
-
-    // Get Follow_Up_Queue for response tracking
     const followUpSheet = ss.getSheetByName('Follow_Up_Queue');
     const followUpData = followUpSheet ? followUpSheet.getDataRange().getValues() : [];
-
-    // Get Negotiation_State for active negotiations
     const stateSheet = ss.getSheetByName('Negotiation_State');
     const stateData = stateSheet ? stateSheet.getDataRange().getValues() : [];
-
-    // Get Negotiation_Completed for outcomes
     const completedSheet = ss.getSheetByName('Negotiation_Completed');
     const completedData = completedSheet ? completedSheet.getDataRange().getValues() : [];
-
-    // Get Unresponsive_Devs for unresponsive count
     const unresponsiveSheet = ss.getSheetByName('Unresponsive_Devs');
     const unresponsiveData = unresponsiveSheet ? unresponsiveSheet.getDataRange().getValues() : [];
+    const tasksSheet = ss.getSheetByName('Negotiation_Tasks');
+    const tasksData = tasksSheet ? tasksSheet.getDataRange().getValues() : [];
 
-    // Count unique outreach emails (total contacted)
-    // FIX: Use normalizeEmail for Set keys to deduplicate Gmail dot-variants
+    // Count unique outreach emails (total contacted) for rate calculations
     const outreachEmails = new Set();
     for (let i = 1; i < emailData.length; i++) {
       const timestamp = emailData[i][0];
       const jobId = String(emailData[i][1] || '');
       const email = normalizeEmail(emailData[i][2]);
       const type = String(emailData[i][5] || '');
-
-      // Only count initial outreach, not follow-ups
       if (type && type.toLowerCase().includes('follow')) continue;
-
-      // Apply filters
       if (filterJobId && jobId !== filterJobId) continue;
       if (timestamp && startDateFilter && new Date(timestamp) < startDateFilter) continue;
       if (timestamp && endDateFilter && new Date(timestamp) > endDateFilter) continue;
-
       if (email) outreachEmails.add(email);
     }
 
-    // Count completed outcomes first (to exclude from other stages)
+    // =====================================================================
+    // PIPELINE CARDS: Mirror the task list logic EXACTLY
+    // Use the same status-based approach so numbers match the task list
+    // =====================================================================
+
+    // Track unique candidates across sheets to prevent double-counting
+    const countedCandidates = new Set();
+
+    // Pipeline card counters (matching task list categories)
+    let statInitialOutreach = 0; // → Awaiting Response
+    let statActive = 0;          // → Engaged (AI negotiating)
+    let statHuman = 0;           // → Engaged (Needs Human)
+    let statUnresponsive = 0;    // → Unresponsive
+    let statAccepted = 0;        // → Completed
+    let statCompleted = 0;       // → Completed
+    let statNotInterested = 0;   // → Dropped Off
+
+    // Build unresponsive set from Follow_Up_Queue + Unresponsive_Devs
+    // (same logic as task list lines 3793-3813)
+    const unresponsiveSet = new Set();
+    for (let f = 1; f < followUpData.length; f++) {
+      if (followUpData[f][8] === 'Unresponsive') {
+        const fuKey = normalizeEmail(followUpData[f][0]) + '|' + String(followUpData[f][1]);
+        unresponsiveSet.add(fuKey);
+      }
+    }
+    // Unresponsive_Devs columns: [0]=Email, [1]=Job ID, [2]=Name
+    for (let u = 1; u < unresponsiveData.length; u++) {
+      if (unresponsiveData[u][0]) {
+        const udKey = normalizeEmail(unresponsiveData[u][0]) + '|' + String(unresponsiveData[u][1]);
+        unresponsiveSet.add(udKey);
+      }
+    }
+
+    // 1. Process Negotiation_State (same as task list)
+    // Columns: [0]=Email, [1]=Job ID, [2]=Attempts, [4]=Status
+    for (let i = 1; i < stateData.length; i++) {
+      if (!stateData[i][0]) continue;
+      const email = normalizeEmail(stateData[i][0]);
+      const jobId = String(stateData[i][1] || '');
+      let status = stateData[i][4] || 'Active';
+      const attempts = Number(stateData[i][2]) || 0;
+
+      if (filterJobId && jobId !== filterJobId) continue;
+
+      // Override status to 'Unresponsive' if in unresponsive set (same as task list)
+      const candidateKey = normalizeEmail(stateData[i][0]) + '|' + jobId;
+      if (status === 'Initial Outreach' && unresponsiveSet.has(candidateKey)) {
+        status = 'Unresponsive';
+      }
+
+      if (countedCandidates.has(candidateKey)) continue;
+      countedCandidates.add(candidateKey);
+
+      // Count by status tag (same as task list)
+      if (status === 'Unresponsive') {
+        statUnresponsive++;
+      } else if (status === 'Human-Negotiation') {
+        statHuman++;
+      } else if (status === 'Initial Outreach' || attempts === 0) {
+        statInitialOutreach++;
+      } else {
+        statActive++;
+      }
+    }
+
+    // 2. Process Negotiation_Tasks (Accepted offers — same as task list)
+    for (let i = 1; i < tasksData.length; i++) {
+      if (!tasksData[i][3]) continue;
+      if (tasksData[i][5] === 'Archived') continue;
+      const jobId = String(tasksData[i][1] || '');
+      const email = normalizeEmail(tasksData[i][3]);
+
+      if (filterJobId && jobId !== filterJobId) continue;
+
+      const taskKey = email + '|' + jobId;
+      if (countedCandidates.has(taskKey)) continue;
+      countedCandidates.add(taskKey);
+
+      statAccepted++;
+    }
+
+    // 3. Process Negotiation_Completed (same as task list)
     // Columns: [0]=Timestamp, [1]=Job ID, [2]=Email, [3]=Name, [4]=Final Status
-    // Use Sets for UNIQUE candidate counts (a candidate with multiple job outcomes is counted once)
-    // Row counters (accepted, notInterested, etc.) kept ONLY for the pie chart which shows per-row totals
-    let accepted = 0;
-    let rejected = 0;
-    let escalated = 0;
-    let notInterested = 0;
-    const acceptedEmails = new Set();
-    const droppedOffEmails = new Set(); // Not Interested + Rejected + Escalated (unique)
-    const completedEmails = new Set(); // All completed candidates (any final status)
-    const respondedCompletedEmails = new Set(); // Completed candidates who actually responded
+    // Row counters for pie chart breakdown
+    let accepted = 0, rejected = 0, escalated = 0, notInterested = 0;
+    const respondedCompletedEmails = new Set();
 
     for (let i = 1; i < completedData.length; i++) {
       const timestamp = completedData[i][0];
       const jobId = String(completedData[i][1] || '');
       const email = normalizeEmail(completedData[i][2]);
-      const status = String(completedData[i][4] || '').toLowerCase();
+      const finalStatus = String(completedData[i][4] || '');
+      const finalStatusLower = finalStatus.toLowerCase();
 
+      if (!email) continue;
       if (filterJobId && jobId !== filterJobId) continue;
       if (timestamp && startDateFilter && new Date(timestamp) < startDateFilter) continue;
       if (timestamp && endDateFilter && new Date(timestamp) > endDateFilter) continue;
 
-      if (!email) continue;
-
-      completedEmails.add(email);
       respondedCompletedEmails.add(email);
 
-      if (status.includes('accept') || status.includes('complete')) {
+      // Row counters for pie chart (may count same email multiple times for different jobs)
+      if (finalStatusLower.includes('accept') || finalStatusLower.includes('complete')) {
         accepted++;
-        acceptedEmails.add(email);
-      } else if (status.includes('not interested')) {
+      } else if (finalStatusLower.includes('not interested')) {
         notInterested++;
-        droppedOffEmails.add(email);
-      } else if (status.includes('reject') || status.includes('declined')) {
+      } else if (finalStatusLower.includes('reject') || finalStatusLower.includes('declined')) {
         rejected++;
-        droppedOffEmails.add(email);
-      } else if (status.includes('escalat') || status.includes('human')) {
+      } else if (finalStatusLower.includes('escalat') || finalStatusLower.includes('human')) {
         escalated++;
-        droppedOffEmails.add(email);
+      }
+
+      // Pipeline card counts (deduplicated — same as task list)
+      const completedKey = email + '|' + jobId;
+      if (countedCandidates.has(completedKey)) continue;
+      countedCandidates.add(completedKey);
+
+      const isNotInterested = finalStatus === 'Not Interested';
+      if (isNotInterested) {
+        statNotInterested++;
+      } else {
+        statCompleted++;
       }
     }
 
-    // A candidate accepted for one job but dropped for another should count as accepted (best outcome wins)
-    for (const email of acceptedEmails) {
-      droppedOffEmails.delete(email);
-    }
+    // =====================================================================
+    // Build pipeline cards from status-based counts (matches task list exactly)
+    // =====================================================================
+    const totalCandidates = statInitialOutreach + statActive + statHuman + statUnresponsive +
+                            statAccepted + statCompleted + statNotInterested;
 
-    // Count negotiating (status is active/pending in state) - candidates actively in negotiation
-    const negotiatingEmails = new Set();
-    for (let i = 1; i < stateData.length; i++) {
-      const email = normalizeEmail(stateData[i][0]);
-      const jobId = String(stateData[i][1] || '');
-      const status = String(stateData[i][4] || '').toLowerCase();
+    const pipelineCards = {
+      totalOutreach: totalCandidates,
+      awaitingResponse: statInitialOutreach,
+      engaged: statActive + statHuman,
+      completed: statCompleted + statAccepted,
+      droppedOff: statNotInterested,
+      unresponsive: statUnresponsive
+    };
 
-      if (filterJobId && jobId !== filterJobId) continue;
-      // Only count as negotiating if NOT already completed
-      if (email && !completedEmails.has(email) &&
-          (status.includes('active') || status.includes('pending') || status === '')) {
-        negotiatingEmails.add(email);
-      }
-    }
-
-    // Count responded - candidates who have responded but are NOT negotiating or completed
-    // These are candidates in a "waiting" state between response and active negotiation
-    const respondedWaitingEmails = new Set();
-    for (let i = 1; i < stateData.length; i++) {
-      const email = normalizeEmail(stateData[i][0]);
-      const jobId = String(stateData[i][1] || '');
-      const status = String(stateData[i][4] || '').toLowerCase();
-
-      if (filterJobId && jobId !== filterJobId) continue;
-      // Only count as "responded" if NOT in initial outreach (they haven't actually responded yet)
-      const isInitial = status.includes('initial outreach') || status.includes('initial sent');
-      if (email && !completedEmails.has(email) && !negotiatingEmails.has(email) && !isInitial) {
-        respondedWaitingEmails.add(email);
-      }
-    }
-
-    // Count unresponsive (unique emails only — avoid inflating from duplicate rows)
-    const unresponsiveEmails = new Set();
-    for (let i = 1; i < unresponsiveData.length; i++) {
-      const jobId = String(unresponsiveData[i][1] || '');
-      const email = normalizeEmail(unresponsiveData[i][2]);
-      if (filterJobId && jobId !== filterJobId) continue;
-      if (email) unresponsiveEmails.add(email);
-    }
-
-    // Remove overlap: candidates in Negotiation_Completed are in a final state,
-    // so they should NOT also count as unresponsive (mutual exclusivity)
-    for (const email of completedEmails) {
-      unresponsiveEmails.delete(email);
-    }
-
-    // Calculate CURRENT STATE counts for the funnel
-    // Each candidate should appear in only ONE stage (their current stage)
-
-    // Outreach Sent (waiting for response) = Total contacted - responded - negotiating - completed - unresponsive
-    const outreachWaitingCount = Array.from(outreachEmails).filter(email =>
-      !respondedWaitingEmails.has(email) &&
-      !negotiatingEmails.has(email) &&
-      !completedEmails.has(email) &&
-      !unresponsiveEmails.has(email)
-    ).length;
-
-    // Responded (waiting to start negotiation) = candidates who responded but not yet negotiating or completed
-    const respondedWaitingCount = respondedWaitingEmails.size;
-
-    // Negotiating = candidates in active negotiation
-    const negotiatingCount = negotiatingEmails.size;
-
-    // Accepted = candidates who accepted the offer
-    const acceptedCount = acceptedEmails.size;
-
-    // Keep total counts for rate calculations
+    // =====================================================================
+    // Funnel chart + rates (uses Email_Logs-based outreach for journey tracking)
+    // =====================================================================
     const totalOutreach = outreachEmails.size;
-    const totalResponded = respondedWaitingEmails.size + negotiatingEmails.size + respondedCompletedEmails.size;
-    const totalNegotiating = negotiatingCount;
-    const totalAccepted = acceptedCount;
+    const totalResponded = respondedCompletedEmails.size + statActive + statHuman;
+    const totalNegotiating = statActive + statHuman;
+    const totalAccepted = statCompleted + statAccepted;
 
     const responseRate = totalOutreach > 0 ? ((totalResponded / totalOutreach) * 100).toFixed(1) : 0;
     const negotiationRate = totalResponded > 0 ? ((totalNegotiating / totalResponded) * 100).toFixed(1) : 0;
     const acceptanceRate = totalResponded > 0 ? ((totalAccepted / totalResponded) * 100).toFixed(1) : 0;
     const overallConversion = totalOutreach > 0 ? ((totalAccepted / totalOutreach) * 100).toFixed(1) : 0;
 
-    // Funnel data for Chart.js - shows CURRENT STATE (each candidate in only one stage)
     const funnelData = [
-      { stage: 'Outreach Sent', count: outreachWaitingCount, rate: '100%' },
-      { stage: 'Responded', count: respondedWaitingCount, rate: responseRate + '%' },
-      { stage: 'Negotiating', count: negotiatingCount, rate: negotiationRate + '%' },
-      { stage: 'Accepted', count: acceptedCount, rate: acceptanceRate + '%' }
+      { stage: 'Outreach Sent', count: statInitialOutreach, rate: '100%' },
+      { stage: 'Responded', count: statActive + statHuman, rate: responseRate + '%' },
+      { stage: 'Negotiating', count: statActive + statHuman, rate: negotiationRate + '%' },
+      { stage: 'Accepted', count: statCompleted + statAccepted, rate: acceptanceRate + '%' }
     ];
 
-    // Outcome breakdown for pie chart
+    // Outcome breakdown for pie chart (uses row counters for per-outcome detail)
     const outcomeBreakdown = {
       accepted: accepted,
       notInterested: notInterested,
       rejected: rejected,
       escalated: escalated,
-      unresponsive: unresponsiveEmails.size,
-      pending: negotiatingCount
-    };
-
-    // Pipeline cards: mutually exclusive stages — MUST sum to totalOutreach
-    // Use Set sizes (unique emails) for ALL stages, then compute awaiting as residual
-    // This guarantees the math: awaiting = total - engaged - completed - droppedOff - unresponsive
-    const completedInPipeline = Array.from(acceptedEmails).filter(e => outreachEmails.has(e)).length;
-    const droppedInPipeline = Array.from(droppedOffEmails).filter(e => outreachEmails.has(e)).length;
-    const unresponsiveInPipeline = Array.from(unresponsiveEmails).filter(e => outreachEmails.has(e)).length;
-    const engagedInPipeline = Array.from(new Set([...respondedWaitingEmails, ...negotiatingEmails]))
-      .filter(e => outreachEmails.has(e)).length;
-    const awaitingInPipeline = Math.max(0, totalOutreach - engagedInPipeline - completedInPipeline - droppedInPipeline - unresponsiveInPipeline);
-
-    const pipelineCards = {
-      totalOutreach: totalOutreach,
-      awaitingResponse: awaitingInPipeline,
-      engaged: engagedInPipeline,
-      completed: completedInPipeline,
-      droppedOff: droppedInPipeline,
-      unresponsive: unresponsiveInPipeline
+      unresponsive: statUnresponsive,
+      pending: statActive + statHuman
     };
 
     return {
@@ -15536,19 +15571,19 @@ function getConversionFunnelData(filterJobId, startDate, endDate) {
       outcomes: outcomeBreakdown,
       pipelineCards: pipelineCards,
       // Current state counts (for funnel display)
-      currentOutreach: outreachWaitingCount,
-      currentResponded: respondedWaitingCount,
-      currentNegotiating: negotiatingCount,
-      currentAccepted: acceptedCount,
+      currentOutreach: statInitialOutreach,
+      currentResponded: statActive + statHuman,
+      currentNegotiating: statActive + statHuman,
+      currentAccepted: statCompleted + statAccepted,
       // Total/cumulative counts (for statistics)
-      totalOutreach: totalOutreach,
+      totalOutreach: totalCandidates,
       totalResponded: totalResponded,
       totalNegotiating: totalNegotiating,
       totalAccepted: totalAccepted,
-      totalNotInterested: notInterested,
+      totalNotInterested: statNotInterested,
       totalRejected: rejected,
       totalEscalated: escalated,
-      totalUnresponsive: unresponsiveEmails.size,
+      totalUnresponsive: statUnresponsive,
       responseRate: parseFloat(responseRate),
       negotiationRate: parseFloat(negotiationRate),
       acceptanceRate: parseFloat(acceptanceRate),
