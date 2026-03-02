@@ -13,7 +13,7 @@
 // DEBUG FLAG - Set to true to enable verbose logging
 // ============================================================
 const DEBUG = false;
-function debugLog(...args) { if (DEBUG) debugLog(...args); }
+function debugLog(...args) { if (DEBUG) console.log(...args); }
 
 // ============================================================
 // EMAIL CONFIGURATION - Default values (can be overridden in Settings)
@@ -29,6 +29,14 @@ const EMAIL_SIGNATURE = 'Turing | Talent Operations';  // Default signature
 // The AI will ONLY process email threads that have this label.
 // This prevents the AI from interfering with manually sent emails or personal correspondence.
 const AI_MANAGED_LABEL = 'AI-Managed';
+
+// ============================================================
+// AI EMAIL RATE LIMIT - Maximum AI-sent emails per trigger run
+// ============================================================
+// Prevents runaway AI email sending in case of misconfiguration.
+// This caps the total number of AI-generated replies (negotiations, follow-ups,
+// data gathering) per single trigger execution. Does NOT limit manual bulk sends.
+const MAX_AI_EMAILS_PER_TRIGGER_RUN = 50;
 
 // ============================================================
 // EMAIL NORMALIZATION - Gmail treats dots in local part as identical
@@ -5013,7 +5021,17 @@ function sendReplyWithSenderName(thread, replyBody, senderName) {
     return true;
   } catch(e) {
     console.error("Failed to send reply with sender name:", e);
-    // Fallback to regular reply
+    // Fallback to regular reply - but ONLY if thread has AI-Managed label
+    try {
+      const threadLabels = thread.getLabels().map(l => l.getName());
+      if (!threadLabels.includes(AI_MANAGED_LABEL)) {
+        console.error(`BLOCKED: Fallback reply blocked - thread missing "${AI_MANAGED_LABEL}" label`);
+        return false;
+      }
+    } catch (labelErr) {
+      console.error("BLOCKED: Could not verify AI-Managed label on fallback reply:", labelErr);
+      return false;
+    }
     thread.reply(replyBody);
     return false;
   }
@@ -5038,7 +5056,7 @@ function runAutoNegotiator() {
   const configs = configSheet.getDataRange().getValues();
   const faqContent = getFAQs();
   
-  let stats = { replied: 0, escalated: 0, accepted: 0, notInterested: 0, skipped: 0, processed: 0, synced: 0, cleaned: 0, detailsExtracted: 0, missingInfoFollowUps: 0 };
+  let stats = { replied: 0, escalated: 0, accepted: 0, notInterested: 0, skipped: 0, processed: 0, synced: 0, cleaned: 0, detailsExtracted: 0, missingInfoFollowUps: 0, aiEmailsSent: 0 };
   let log = [];
   
   // STEP 1: Sync completed items from Gmail first (saves processing cost!)
@@ -5088,6 +5106,12 @@ function runAutoNegotiator() {
 
   // STEP 4: Process negotiations and data gathering for each job
   for(let i=1; i<configs.length; i++) {
+    // SAFETY: Check global AI email rate limit across all jobs
+    if (stats.aiEmailsSent >= MAX_AI_EMAILS_PER_TRIGGER_RUN) {
+      log.push({type: 'warning', message: `AI email rate limit reached (${MAX_AI_EMAILS_PER_TRIGGER_RUN}). Remaining jobs will be processed in next trigger run.`});
+      break;
+    }
+
     const jobId = configs[i][0];
     if(!jobId) continue;
 
@@ -5139,6 +5163,8 @@ function runAutoNegotiator() {
     stats.processed += jobResult.processed;
     stats.detailsExtracted += jobResult.detailsExtracted || 0;
     stats.missingInfoFollowUps += jobResult.missingInfoFollowUps || 0;
+    // Track AI emails sent for rate limiting (replies + escalation handoffs + missing info follow-ups)
+    stats.aiEmailsSent += (jobResult.replied || 0) + (jobResult.escalated || 0) + (jobResult.missingInfoFollowUps || 0);
 
     jobResult.log.forEach(l => log.push(l));
     const followUpNote = jobResult.missingInfoFollowUps > 0 ? `, ${jobResult.missingInfoFollowUps} info requests sent` : '';
@@ -7957,6 +7983,14 @@ function sendEscalationEmail(jobId, candidateName, candidateEmail, thread, escal
     return;
   }
 
+  // SAFETY: Validate escalation email is a legitimate internal email address
+  // Prevent accidentally sending internal data (Job ID, candidate info) to external addresses
+  const cleanEscalationEmail = escalationEmail.trim().toLowerCase();
+  if (!cleanEscalationEmail.includes('@')) {
+    console.error(`BLOCKED: Invalid escalation email format: ${escalationEmail}`);
+    return;
+  }
+
   try {
     const threadUrl = thread ? `https://mail.google.com/mail/u/0/#inbox/${thread.getId()}` : 'N/A';
     const subject = `[Escalation Required] Job ${jobId} - ${candidateName}`;
@@ -7987,6 +8021,13 @@ This is an automated notification from the HR-Ops AI system.
 
 function escalateToHuman(thread, reason, candidateName, conversationContext) {
   try {
+    // CRITICAL SAFETY CHECK: Only send handoff messages to AI-Managed threads
+    const threadLabels = thread.getLabels().map(l => l.getName());
+    if (!threadLabels.includes(AI_MANAGED_LABEL)) {
+      console.error(`BLOCKED: Escalation handoff blocked - thread missing "${AI_MANAGED_LABEL}" label`);
+      return;
+    }
+
     const label = GmailApp.getUserLabelByName("Human-Negotiation") || GmailApp.createLabel("Human-Negotiation");
     thread.addLabel(label);
 
@@ -15796,8 +15837,8 @@ const PAGE_ACCESS_DEFAULTS = {
     analytics: true, learning: true, aitesting: false, onboardingissues: false
   },
   'other': {
-    outreach: true, negotiation: true, tasks: true, followups: true, myjobs: true,
-    analytics: true, learning: true, aitesting: false, onboardingissues: false
+    outreach: false, negotiation: false, tasks: false, followups: false, myjobs: true,
+    analytics: true, learning: false, aitesting: false, onboardingissues: false
   }
 };
 
@@ -18336,6 +18377,14 @@ function sendSupplementaryDataRequest(jobId, candidateEmails, additionalQuestion
 
         // Generate email body
         const emailBody = generateSupplementaryEmailBody(candidate.name, additionalQuestions, conversationContext);
+
+        // SECURITY: Validate AI-generated content before sending
+        if (!validateEmailForSending(emailBody, { jobId: jobId })) {
+          console.error(`BLOCKED: Supplementary request to ${candidate.email} contained sensitive data. Email not sent.`);
+          errors.push({ email: candidate.email, error: 'Email blocked due to sensitive content detection' });
+          failedCount++;
+          return;
+        }
 
         // Send the email as a reply in the thread
         sendReplyWithSenderName(thread, emailBody, getEffectiveSenderName());
