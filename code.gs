@@ -3824,7 +3824,7 @@ function getAllTasks(filters) {
   const jobSettingsMap = {}; // Cache job settings to avoid repeated lookups
 
   // Stats counters
-  let statActive = 0, statHuman = 0, statAccepted = 0, statInitialOutreach = 0, statUnresponsive = 0;
+  let statActive = 0, statHuman = 0, statAccepted = 0, statInitialOutreach = 0, statUnresponsive = 0, statWhatsApp = 0;
 
   // FIX: Track unique candidates across sheets to prevent double-counting
   const countedCandidates = new Set();
@@ -3903,6 +3903,8 @@ function getAllTasks(filters) {
     // Count stats - only for candidates that pass filters
     if(status === 'Data Complete') {
       statCompleted++;
+    if(status === 'WhatsApp Reachout') {
+      statWhatsApp++;
     } else if(status === 'Unresponsive') {
       statUnresponsive++;
     } else if(status === 'Human-Negotiation') {
@@ -3916,6 +3918,8 @@ function getAllTasks(filters) {
     let tag = '';
     if(status === 'Data Complete') {
       tag = 'Completed';
+    if(status === 'WhatsApp Reachout') {
+      tag = 'WhatsApp Reachout';
     } else if(status === 'Unresponsive') {
       tag = 'Unresponsive';
     } else if(status === 'Human-Negotiation') {
@@ -4070,7 +4074,8 @@ function getAllTasks(filters) {
       initialOutreach: statInitialOutreach,
       completed: statCompleted,
       notInterested: statNotInterested,
-      unresponsive: statUnresponsive
+      unresponsive: statUnresponsive,
+      whatsappReachout: statWhatsApp
     },
     jobSettings: jobSettingsMap,
     jobTrackingCounts: jobTrackingCounts
@@ -4218,6 +4223,45 @@ function updateTaskTrackingStatus(email, jobId, trackingStatus) {
   sheet.appendRow([email, jobId, trackingStatus, new Date()]);
   invalidateSheetCache('Task_Tracking');
   return { success: true };
+}
+
+/**
+ * Update the negotiation status tag for a candidate (e.g., WhatsApp Reachout, Unresponsive, Completed).
+ * Updates the Negotiation_State sheet status column so the task list tag reflects the new state.
+ */
+function updateCandidateStatusTag(email, jobId, newStatus) {
+  const url = getStoredSheetUrl();
+  if (!url) return { success: false, message: 'No config URL' };
+
+  try {
+    const ss = SpreadsheetApp.openByUrl(url);
+    const stateSheet = ss.getSheetByName('Negotiation_State');
+    if (!stateSheet) return { success: false, message: 'Negotiation_State sheet not found' };
+
+    const stateData = stateSheet.getDataRange().getValues();
+    const normalizedEmail = normalizeEmail(email);
+
+    for (let r = 1; r < stateData.length; r++) {
+      if (normalizeEmail(stateData[r][0]) === normalizedEmail && String(stateData[r][1]) === String(jobId)) {
+        stateSheet.getRange(r + 1, 5).setValue(newStatus); // Column 5 = Status
+        invalidateSheetCache('Negotiation_State');
+
+        // Also update the job details sheet
+        try {
+          updateJobCandidateStatus(ss, jobId, email, newStatus, null);
+        } catch (e) {
+          console.error('Failed to update job details sheet:', e);
+        }
+
+        return { success: true };
+      }
+    }
+
+    return { success: false, message: 'Candidate not found' };
+  } catch (e) {
+    console.error('Error updating candidate status tag:', e);
+    return { success: false, message: e.message };
+  }
 }
 
 /**
@@ -15623,6 +15667,7 @@ function getConversionFunnelData(filterJobId, startDate, endDate) {
     let statActive = 0;          // → Engaged (AI negotiating)
     let statHuman = 0;           // → Engaged (Needs Human)
     let statUnresponsive = 0;    // → Unresponsive
+    let statWhatsApp = 0;        // → WhatsApp Reachout
     let statAccepted = 0;        // → Completed
     let statCompleted = 0;       // → Completed
     let statNotInterested = 0;   // → Dropped Off
@@ -15665,7 +15710,9 @@ function getConversionFunnelData(filterJobId, startDate, endDate) {
       countedCandidates.add(candidateKey);
 
       // Count by status tag (same as task list)
-      if (status === 'Unresponsive') {
+      if (status === 'WhatsApp Reachout') {
+        statWhatsApp++;
+      } else if (status === 'Unresponsive') {
         statUnresponsive++;
       } else if (status === 'Human-Negotiation') {
         statHuman++;
@@ -15740,7 +15787,7 @@ function getConversionFunnelData(filterJobId, startDate, endDate) {
     // Build pipeline cards from status-based counts (matches task list exactly)
     // =====================================================================
     const totalCandidates = statInitialOutreach + statActive + statHuman + statUnresponsive +
-                            statAccepted + statCompleted + statNotInterested;
+                            statWhatsApp + statAccepted + statCompleted + statNotInterested;
 
     const pipelineCards = {
       totalOutreach: totalCandidates,
@@ -15748,7 +15795,8 @@ function getConversionFunnelData(filterJobId, startDate, endDate) {
       engaged: statActive + statHuman,
       completed: statCompleted + statAccepted,
       droppedOff: statNotInterested,
-      unresponsive: statUnresponsive
+      unresponsive: statUnresponsive,
+      whatsappReachout: statWhatsApp
     };
 
     // =====================================================================
@@ -15778,6 +15826,7 @@ function getConversionFunnelData(filterJobId, startDate, endDate) {
       rejected: rejected,
       escalated: escalated,
       unresponsive: statUnresponsive,
+      whatsappReachout: statWhatsApp,
       pending: statActive + statHuman
     };
 
@@ -15799,6 +15848,7 @@ function getConversionFunnelData(filterJobId, startDate, endDate) {
       totalRejected: rejected,
       totalEscalated: escalated,
       totalUnresponsive: statUnresponsive,
+      totalWhatsAppReachout: statWhatsApp,
       responseRate: parseFloat(responseRate),
       negotiationRate: parseFloat(negotiationRate),
       acceptanceRate: parseFloat(acceptanceRate),
