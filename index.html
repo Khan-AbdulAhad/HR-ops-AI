@@ -1849,73 +1849,71 @@
                 <!-- TAB 3: TASKS LIST -->
                 <div id="tab-tasks" class="tab-content hidden-tab">
                     
-                    <!-- Stats Cards (New Design) -->
-                    <div class="grid grid-cols-1 md:grid-cols-7 gap-6 mb-8">
-                        <div class="stat-card border-slate-500">
+                    <!-- Stats Cards (Modern Glassmorphism Design) -->
+                    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-7 gap-4 mb-8">
+                        <div class="stat-card stat-card-slate">
+                            <div class="stat-card-glow stat-glow-slate"></div>
                             <p class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Total Active</p>
-                            <h2 class="text-3xl font-extrabold text-slate-800" id="statTotal">-</h2>
+                            <h2 class="text-3xl font-extrabold text-slate-800 dark:text-white" id="statTotal">-</h2>
                         </div>
-                        <div class="stat-card border-blue-500">
+                        <div class="stat-card stat-card-blue">
+                            <div class="stat-card-glow stat-glow-blue"></div>
                             <div class="flex justify-between items-start">
                                 <div>
                                     <p class="text-xs font-bold text-blue-500 uppercase tracking-wider mb-1">AI Negotiating</p>
-                                    <h2 class="text-3xl font-extrabold text-slate-800" id="statActive">-</h2>
+                                    <h2 class="text-3xl font-extrabold text-slate-800 dark:text-white" id="statActive">-</h2>
                                 </div>
-                                <div class="p-2 bg-blue-50 rounded-lg text-blue-600"><i class="fa-solid fa-robot"></i></div>
+                                <div class="stat-icon stat-icon-blue"><i class="fa-solid fa-robot"></i></div>
                             </div>
                         </div>
-                        <div class="stat-card border-amber-500">
+                        <div class="stat-card stat-card-amber">
+                            <div class="stat-card-glow stat-glow-amber"></div>
                             <div class="flex justify-between items-start">
                                 <div>
                                     <p class="text-xs font-bold text-amber-500 uppercase tracking-wider mb-1">Needs Human</p>
-                                    <h2 class="text-3xl font-extrabold text-slate-800" id="statHuman">-</h2>
+                                    <h2 class="text-3xl font-extrabold text-slate-800 dark:text-white" id="statHuman">-</h2>
                                 </div>
-                                <div class="p-2 bg-amber-50 rounded-lg text-amber-600"><i class="fa-solid fa-user-clock"></i></div>
+                                <div class="stat-icon stat-icon-amber"><i class="fa-solid fa-user-clock"></i></div>
                             </div>
                         </div>
-                        <div class="stat-card border-green-500">
-                            <div class="flex justify-between items-start">
-                                <div>
-                                    <p class="text-xs font-bold text-green-500 uppercase tracking-wider mb-1">Accepted</p>
-                                    <h2 class="text-3xl font-extrabold text-slate-800" id="statAccepted">-</h2>
-                                </div>
-                                <div class="p-2 bg-green-50 rounded-lg text-green-600"><i class="fa-solid fa-check"></i></div>
-                            </div>
-                        </div>
-                        <div class="stat-card border-teal-500">
+                        <div class="stat-card stat-card-teal">
+                            <div class="stat-card-glow stat-glow-teal"></div>
                             <div class="flex justify-between items-start">
                                 <div>
                                     <p class="text-xs font-bold text-teal-500 uppercase tracking-wider mb-1">Completed</p>
-                                    <h2 class="text-3xl font-extrabold text-slate-800" id="statCompleted">-</h2>
+                                    <h2 class="text-3xl font-extrabold text-slate-800 dark:text-white" id="statCompleted">-</h2>
                                 </div>
-                                <div class="p-2 bg-teal-50 rounded-lg text-teal-600"><i class="fa-solid fa-flag-checkered"></i></div>
+                                <div class="stat-icon stat-icon-teal"><i class="fa-solid fa-flag-checkered"></i></div>
                             </div>
                         </div>
-                        <div class="stat-card border-slate-400">
+                        <div class="stat-card stat-card-slate-alt">
+                            <div class="stat-card-glow stat-glow-slate"></div>
                             <div class="flex justify-between items-start">
                                 <div>
                                     <p class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Not Interested</p>
-                                    <h2 class="text-3xl font-extrabold text-slate-800" id="statNotInterested">-</h2>
+                                    <h2 class="text-3xl font-extrabold text-slate-800 dark:text-white" id="statNotInterested">-</h2>
                                 </div>
-                                <div class="p-2 bg-slate-50 rounded-lg text-slate-500"><i class="fa-solid fa-ban"></i></div>
+                                <div class="stat-icon stat-icon-slate"><i class="fa-solid fa-ban"></i></div>
                             </div>
                         </div>
-                        <div class="stat-card border-red-400">
+                        <div class="stat-card stat-card-red">
+                            <div class="stat-card-glow stat-glow-red"></div>
                             <div class="flex justify-between items-start">
                                 <div>
                                     <p class="text-xs font-bold text-red-400 uppercase tracking-wider mb-1">Unresponsive</p>
-                                    <h2 class="text-3xl font-extrabold text-slate-800" id="statUnresponsive">-</h2>
+                                    <h2 class="text-3xl font-extrabold text-slate-800 dark:text-white" id="statUnresponsive">-</h2>
                                 </div>
-                                <div class="p-2 bg-red-50 rounded-lg text-red-500"><i class="fa-solid fa-user-xmark"></i></div>
+                                <div class="stat-icon stat-icon-red"><i class="fa-solid fa-user-xmark"></i></div>
                             </div>
                         </div>
-                        <div class="stat-card border-green-500">
+                        <div class="stat-card stat-card-green">
+                            <div class="stat-card-glow stat-glow-green"></div>
                             <div class="flex justify-between items-start">
                                 <div>
                                     <p class="text-xs font-bold text-green-500 uppercase tracking-wider mb-1">WhatsApp Reachout</p>
-                                    <h2 class="text-3xl font-extrabold text-slate-800" id="statWhatsApp">-</h2>
+                                    <h2 class="text-3xl font-extrabold text-slate-800 dark:text-white" id="statWhatsApp">-</h2>
                                 </div>
-                                <div class="p-2 bg-green-50 rounded-lg text-green-600"><i class="fa-brands fa-whatsapp"></i></div>
+                                <div class="stat-icon stat-icon-green"><i class="fa-brands fa-whatsapp"></i></div>
                             </div>
                         </div>
                     </div>
@@ -6446,7 +6444,6 @@
                     document.getElementById('statTotal').textContent = res.stats.total;
                     document.getElementById('statActive').textContent = res.stats.active;
                     document.getElementById('statHuman').textContent = res.stats.human;
-                    document.getElementById('statAccepted').textContent = res.stats.accepted;
                     document.getElementById('statCompleted').textContent = res.stats.completed || 0;
                     document.getElementById('statNotInterested').textContent = res.stats.notInterested || 0;
                     document.getElementById('statUnresponsive').textContent = res.stats.unresponsive || 0;
