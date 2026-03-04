@@ -3903,7 +3903,7 @@ function getAllTasks(filters) {
     // Count stats - only for candidates that pass filters
     if(status === 'Data Complete') {
       statCompleted++;
-    if(status === 'WhatsApp Reachout') {
+    } else if(status === 'WhatsApp Reachout') {
       statWhatsApp++;
     } else if(status === 'Unresponsive') {
       statUnresponsive++;
@@ -3918,7 +3918,7 @@ function getAllTasks(filters) {
     let tag = '';
     if(status === 'Data Complete') {
       tag = 'Completed';
-    if(status === 'WhatsApp Reachout') {
+    } else if(status === 'WhatsApp Reachout') {
       tag = 'WhatsApp Reachout';
     } else if(status === 'Unresponsive') {
       tag = 'Unresponsive';
