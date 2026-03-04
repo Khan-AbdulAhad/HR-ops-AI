@@ -3890,9 +3890,19 @@ function getAllTasks(filters) {
 
     // Apply filters server-side (BEFORE counting stats so cards reflect filters)
     if(jobFilter !== 'all' && jobId !== jobFilter) continue;
-    if(statusFilter !== 'all' && status !== statusFilter) continue;
+    // FIX: Treat 'Data Complete' as 'Completed' for filter purposes so data-only jobs
+    // appear when filtering by "Completed" status
+    if(statusFilter !== 'all') {
+      if(statusFilter === 'Completed' && status === 'Data Complete') {
+        // Allow through - Data Complete is a form of completion
+      } else if(status !== statusFilter) {
+        continue;
+      }
+    }
 
     // Count stats - only for candidates that pass filters
+    if(status === 'Data Complete') {
+      statCompleted++;
     if(status === 'WhatsApp Reachout') {
       statWhatsApp++;
     } else if(status === 'Unresponsive') {
@@ -3906,12 +3916,16 @@ function getAllTasks(filters) {
     }
 
     let tag = '';
+    if(status === 'Data Complete') {
+      tag = 'Completed';
     if(status === 'WhatsApp Reachout') {
       tag = 'WhatsApp Reachout';
     } else if(status === 'Unresponsive') {
       tag = 'Unresponsive';
     } else if(status === 'Human-Negotiation') {
       tag = 'Human-Negotiation';
+    } else if(status === 'Active - Data Gathering') {
+      tag = 'Data Gathering';
     } else if(status === 'Initial Outreach' || attempts === 0) {
       tag = 'Initial Outreach';
     } else {
@@ -4065,6 +4079,89 @@ function getAllTasks(filters) {
     },
     jobSettings: jobSettingsMap,
     jobTrackingCounts: jobTrackingCounts
+  };
+}
+
+/**
+ * One-time repair: Fix existing candidates whose data extraction is complete
+ * but Negotiation_State status was never updated (due to prior bug).
+ * Scans all Job_X_Details sheets for 'Data Complete' status and updates
+ * the corresponding Negotiation_State row if it still has a stale status.
+ */
+function repairDataCompleteStatuses() {
+  const ss = SpreadsheetApp.openByUrl(getStoredSheetUrl());
+  const stateSheet = ss.getSheetByName('Negotiation_State');
+  if (!stateSheet) return { repaired: 0, message: 'Negotiation_State sheet not found' };
+
+  const stateData = stateSheet.getDataRange().getValues();
+  if (stateData.length < 2) return { repaired: 0, message: 'No candidates in Negotiation_State' };
+
+  // Statuses that should NOT be overwritten - they represent later/more important stages
+  const preserveStatuses = ['Offer Accepted', 'Human Escalation', 'Human-Negotiation',
+    'Escalated', 'Completed', 'Pending Escalation', 'Rate Agreed', 'Data Complete',
+    'Not Interested', 'Unresponsive'];
+
+  const jobsSs = getCachedJobsSpreadsheet();
+  if (!jobsSs) return { repaired: 0, message: 'Jobs spreadsheet not found' };
+
+  // Build a map of email|jobId -> 'Data Complete' from all Job_X_Details sheets
+  const dataCompleteMap = new Set();
+  const allSheets = jobsSs.getSheets();
+
+  for (const sheet of allSheets) {
+    const name = sheet.getName();
+    if (!name.startsWith('Job_') || !name.endsWith('_Details')) continue;
+
+    const detailsData = sheet.getDataRange().getValues();
+    if (detailsData.length < 2) continue;
+
+    const headers = detailsData[0];
+    const emailIdx = headers.indexOf('Email');
+    const statusIdx = headers.indexOf('Status');
+    if (emailIdx === -1 || statusIdx === -1) continue;
+
+    for (let i = 1; i < detailsData.length; i++) {
+      if (detailsData[i][statusIdx] === 'Data Complete' && detailsData[i][emailIdx]) {
+        const jobId = name.replace('Job_', '').replace('_Details', '');
+        const key = normalizeEmail(detailsData[i][emailIdx]) + '|' + jobId;
+        dataCompleteMap.add(key);
+      }
+    }
+  }
+
+  // Now scan Negotiation_State and fix stale statuses
+  let repaired = 0;
+  const repairedList = [];
+
+  for (let i = 1; i < stateData.length; i++) {
+    const email = stateData[i][0];
+    const jobId = String(stateData[i][1]);
+    const currentStatus = stateData[i][4] || '';
+
+    if (!email) continue;
+
+    // Skip if status is already correct or should be preserved
+    if (preserveStatuses.some(s => String(currentStatus).includes(s))) continue;
+
+    // Check if this candidate has completed data extraction
+    const key = normalizeEmail(email) + '|' + jobId;
+    if (dataCompleteMap.has(key)) {
+      // Check if this is a data-only job (negotiation disabled)
+      const settings = getJobSettings(jobId);
+      if (settings.negotiation !== true) {
+        stateSheet.getRange(i + 1, 5).setValue('Data Complete');
+        repaired++;
+        repairedList.push(email + ' (Job ' + jobId + ')');
+      }
+    }
+  }
+
+  return {
+    repaired: repaired,
+    candidates: repairedList,
+    message: repaired > 0
+      ? `Fixed ${repaired} candidate(s): ${repairedList.join(', ')}`
+      : 'No candidates needed repair - all statuses are up to date'
   };
 }
 
@@ -5709,6 +5806,10 @@ function processJobNegotiations(jobId, rules, ss, faqContent, negotiationEnabled
         if (stateRowIndex > -1 && dataOnlySummary) {
           stateSheet.getRange(stateRowIndex, 9).setValue(dataOnlySummary);
           stateSheet.getRange(stateRowIndex, 6).setValue(new Date());
+          // FIX: Update the Status column in Negotiation_State when data gathering completes
+          // Previously, only the AI summary was updated but the Status tag remained unchanged,
+          // causing the task list to show stale tags (e.g. "AI-Attempt-1/2") instead of "Data Complete"
+          stateSheet.getRange(stateRowIndex, 5).setValue(dataExtractionStatus);
         }
       } catch (summaryError) {
         console.error("Failed to update AI summary for data-extraction-only job:", summaryError);
