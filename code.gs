@@ -2111,37 +2111,44 @@ RULES:
 - Only include questions that are EXPLICITLY asked in the email
 - Keep headers short and clear (max 4 words)
 - If the email asks about rate negotiation, include "Expected Rate" as a header
-- Always include basic fields: "Expected Rate", "Start Date" even if not explicitly asked
+- If the email asks Yes/No questions (e.g., "Do you agree?", "Are you available?", "Can you confirm?"), create appropriate headers for those and mark them as Yes/No type questions
 - Maximum 10 questions/headers
+- IMPORTANT: Only include "Expected Rate" if the email explicitly asks the candidate what rate they want/expect. Do NOT include it if the email merely mentions rates for agreement/confirmation.
 
 Return ONLY the JSON array, no other text.
 `;
+
+  // Check if negotiation is enabled for this job
+  const negotiationEnabled = jobId ? jobHasNegotiation(jobId) : true;
 
   try {
     const response = callAI(prompt);
     let cleanResponse = response.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
     const questions = JSON.parse(cleanResponse);
 
-    // Always ensure we have basic required fields
+    // Only force "Expected Rate" if negotiation is enabled
+    // When negotiation is off, the outreach email may not be asking about rates at all
     const headers = questions.map(q => q.header);
-    if (!headers.includes("Expected Rate")) {
+    if (negotiationEnabled && !headers.includes("Expected Rate")) {
       questions.unshift({header: "Expected Rate", question: "What is your expected hourly rate?"});
-    }
-    if (!headers.includes("Start Date")) {
-      questions.push({header: "Start Date", question: "When can you start?"});
     }
 
     return questions;
   } catch(e) {
     console.error("Failed to analyze outreach for questions:", e);
     // Return default questions if AI fails
-    return [
-      {header: "Expected Rate", question: "What is your expected hourly rate?"},
+    // Only include "Expected Rate" if negotiation is enabled
+    const fallbackQuestions = [];
+    if (negotiationEnabled) {
+      fallbackQuestions.push({header: "Expected Rate", question: "What is your expected hourly rate?"});
+    }
+    fallbackQuestions.push(
       {header: "Start Date", question: "When can you start?"},
       {header: "Notice Period", question: "What is your notice period?"},
       {header: "Weekly Hours", question: "How many hours per week can you work?"},
       {header: "Has Equipment", question: "Do you have your own laptop?"}
-    ];
+    );
+    return fallbackQuestions;
   }
 }
 
@@ -2167,7 +2174,13 @@ function getOrCreateJobDetailsSheet(ss, jobId, emailBody) {
   // Build headers: fixed columns + dynamic question columns + status columns
   const fixedHeaders = ['Timestamp', 'Email', 'Name', 'Dev ID', 'Thread ID', 'Region'];
   const questionHeaders = questions.map(q => q.header);
-  const statusHeaders = ['Candidate Offer', 'Counter Offer', 'Final Agreed Rate', 'Negotiation Notes', 'Status'];
+
+  // Only include negotiation-specific columns when negotiation is enabled for this job
+  // For data-extraction-only jobs, we only need the Status column
+  const negotiationEnabled = jobHasNegotiation(jobId);
+  const statusHeaders = negotiationEnabled
+    ? ['Candidate Offer', 'Counter Offer', 'Final Agreed Rate', 'Negotiation Notes', 'Status']
+    : ['Status'];
 
   const allHeaders = [...fixedHeaders, ...questionHeaders, ...statusHeaders];
 
@@ -2219,13 +2232,18 @@ function getJobQuestions(jobId) {
   }
 
   // Return default questions if not found
-  return [
-    {header: "Expected Rate", question: "What is your expected hourly rate?"},
+  // Only include "Expected Rate" if negotiation is enabled for this job
+  const defaultQuestions = [];
+  if (jobHasNegotiation(jobId)) {
+    defaultQuestions.push({header: "Expected Rate", question: "What is your expected hourly rate?"});
+  }
+  defaultQuestions.push(
     {header: "Start Date", question: "When can you start?"},
     {header: "Notice Period", question: "What is your notice period?"},
     {header: "Weekly Hours", question: "How many hours per week can you work?"},
     {header: "Has Equipment", question: "Do you have your own laptop?"}
-  ];
+  );
+  return defaultQuestions;
 }
 
 /**
@@ -3228,7 +3246,30 @@ EXAMPLE C4 - Profile links in casual response:
 "check out my profile https://www.linkedin.com/in/jane-smith-123 and my portfolio at janesmith.dev"
 → LinkedIn=https://www.linkedin.com/in/jane-smith-123, Portfolio=janesmith.dev
 
-**TYPE D - BLANKET/COLLECTIVE AFFIRMATIVE RESPONSES:**
+**TYPE D - NUMBERED Q&A / YES-NO RESPONSES:**
+
+When the outreach email asks specific Yes/No questions (e.g., "Are you available?", "Do you agree?", "Can you confirm?"),
+candidates often reply by repeating the questions with Yes/No answers. Extract these as-is.
+
+EXAMPLE D0a - Repeated questions with Yes/No:
+Questions: "Current Project" (Are you currently working on a project?), "Start Date" (Are you available from March 05?), "Rate Agreement" (Do you agree to the same rates?)
+Response: "1. Are you currently working on a project? No\n2. Are you available from March 05? Yes\n3. Do you agree to the same rates? Yes"
+→ Current Project=No, Start Date=Yes, Rate Agreement=Yes
+(Extract the actual Yes/No answer, NOT the date or other details from the question text itself)
+
+EXAMPLE D0b - Short numbered answers:
+Questions: "Working on Project" (Are you working on a Turing project?), "Available" (Available to start March 10?), "Rate Confirm" (Do you accept the rates?)
+Response: "1. No\n2. Yes\n3. Yes"
+→ Working on Project=No, Available=Yes, Rate Confirm=Yes
+
+EXAMPLE D0c - Mixed format with confirmations:
+Questions: "Current Role" (Are you currently employed?), "Start Date" (Can you start from Jan 15?), "Terms Agreement" (Do you agree to the terms?)
+Response: "I am not currently employed. Yes, I can start from Jan 15. I agree to the terms."
+→ Current Role=No, Start Date=Yes, Terms Agreement=Yes
+
+CRITICAL RULE FOR YES/NO QUESTIONS: When a question asks "Are you...?", "Do you...?", "Can you...?", "Will you...?", or similar yes/no questions, and the candidate answers with "Yes", "No", "yeah", "nope", "sure", "I agree", "confirmed", etc., extract the YES or NO answer. Do NOT extract dates, project names, or other values from the QUESTION text itself. The answer is what the candidate said, not what was in the question.
+
+**TYPE E - BLANKET/COLLECTIVE AFFIRMATIVE RESPONSES:**
 
 When a candidate explicitly answers SOME questions and then uses a blanket phrase to accept/agree to the REST,
 the blanket phrase answers ALL remaining unanswered questions as "Yes".
@@ -3245,23 +3286,23 @@ BLANKET AFFIRMATIVE PHRASES (these mean "Yes" to all remaining unanswered questi
 - "I accept all the conditions"
 - "other conditions work for me"
 
-EXAMPLE D1 - Rate + blanket acceptance:
+EXAMPLE E1 - Rate + blanket acceptance:
 Questions: Expected Rate, Can you work 8 hours per day, Can you overlap 5 hours with PST
 Response: "My expected rate is $18 per hour. I am comfortable with the other working conditions and available to start immediately."
 → Expected Rate=$18/hr, 8 hours per day=Yes, 5 hours PST overlap=Yes
 (The phrase "comfortable with the other working conditions" is a YES to all working condition questions not explicitly answered)
 
-EXAMPLE D2 - Partial answers + blanket acceptance:
+EXAMPLE E2 - Partial answers + blanket acceptance:
 Questions: Rate, Weekly Hours, Start Date, Has Laptop
 Response: "I can do $40/hr and start next Monday. Everything else works for me."
 → Rate=$40/hr, Start Date=next Monday, Weekly Hours=Yes, Has Laptop=Yes
 
-EXAMPLE D3 - Single explicit + rest implied:
+EXAMPLE E3 - Single explicit + rest implied:
 Questions: Experience, Location, Availability, Notice Period
 Response: "I have 5 years of experience. The rest of the conditions are fine with me."
 → Experience=5 years, Location=Yes, Availability=Yes, Notice Period=Yes
 
-EXAMPLE D4 - Affirmative + availability:
+EXAMPLE E4 - Affirmative + availability:
 Questions: Rate, Daily Hours, Timezone Overlap
 Response: "My rate is $25/hour and I'm okay with all the working conditions. Available to start immediately."
 → Rate=$25/hr, Daily Hours=Yes, Timezone Overlap=Yes
@@ -3360,6 +3401,8 @@ Special values:
 11. For LinkedIn/GitHub/Portfolio questions, extract the complete URL without any truncation or modification
 12. BLANKET AFFIRMATIVE: If the candidate uses phrases like "comfortable with the other working conditions", "fine with everything else", "agree to all conditions", "okay with all the terms mentioned", "the rest works for me", "no issues with the other requirements", etc., treat ALL remaining unanswered questions (those not explicitly answered with a specific value) as "Yes". Do NOT mark them as NOT_PROVIDED.
 13. IMPLICIT AGREEMENT: When a candidate answers some questions explicitly and then refers to "other conditions" or "everything else" positively, this is an implicit YES to all questions they did not answer individually. Always prioritize extracting a value over marking NOT_PROVIDED.
+14. YES/NO QUESTIONS: When a question is a Yes/No question (starts with "Are you", "Do you", "Can you", "Will you", "Have you", "Is it", "Would you", etc.), and the candidate responds with "Yes", "No", "yeah", "nope", "sure", "I agree", "confirmed", etc., extract the YES or NO answer verbatim. Do NOT extract specific values (dates, amounts, names) from the QUESTION TEXT itself - only extract what the CANDIDATE actually said as their answer. For example, if the question is "Are you available from March 05?" and the candidate says "Yes", the answer is "Yes", NOT "March 05".
+15. NUMBERED Q&A FORMAT: When the candidate repeats the questions with answers (e.g., "1. Are you working? No  2. Available from March? Yes"), match each answer to its corresponding question by the question text similarity. Extract only the candidate's answer portion (Yes/No/specific value), not the repeated question text.
 
 Return ONLY the JSON object, no other text.
 `;
@@ -3420,7 +3463,11 @@ function saveJobCandidateDetails(ss, jobId, candidateEmail, candidateName, devId
   const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
 
   // Fixed column headers that are NOT question columns
-  const fixedHeaders = ['Timestamp', 'Email', 'Name', 'Dev ID', 'Thread ID', 'Region', 'Candidate Offer', 'Counter Offer', 'Final Agreed Rate', 'Negotiation Notes', 'Status'];
+  // Include negotiation columns only if they actually exist in the sheet
+  // (they won't exist for data-extraction-only jobs where negotiation is disabled)
+  const baseFixedHeaders = ['Timestamp', 'Email', 'Name', 'Dev ID', 'Thread ID', 'Region', 'Status'];
+  const negotiationFixedHeaders = ['Candidate Offer', 'Counter Offer', 'Final Agreed Rate', 'Negotiation Notes'];
+  const fixedHeaders = [...baseFixedHeaders, ...negotiationFixedHeaders.filter(h => headers.includes(h))];
 
   // Log for debugging
   debugLog(`saveJobCandidateDetails: jobId=${jobId}, email=${cleanEmail}, questions=${questions.length}, answers=${JSON.stringify(answers)}`);
@@ -5392,12 +5439,13 @@ function processJobNegotiations(jobId, rules, ss, faqContent, negotiationEnabled
       const answers = extractAnswersFromResponse(candidateLatestMessage, questions, candidateName);
 
       // Determine the appropriate status based on current state
-      let dataStatus = 'Negotiating';
+      // Use 'Pending' for data-extraction-only jobs instead of 'Negotiating'
+      let dataStatus = negotiationEnabled ? 'Negotiating' : 'Pending';
       if (state && state.status === 'Human-Negotiation') {
         // Preserve human negotiation status - data still gets updated
         dataStatus = 'Human-Negotiation';
-      } else if (attempts >= 2) {
-        // Will be escalated, but still save the data first
+      } else if (attempts >= 2 && negotiationEnabled) {
+        // Will be escalated, but still save the data first (only relevant for negotiation)
         dataStatus = 'Pending Escalation';
       }
 
@@ -5600,6 +5648,28 @@ function processJobNegotiations(jobId, rules, ss, faqContent, negotiationEnabled
     // CHECK: Skip negotiation if negotiation is disabled for this job
     // Data extraction and gathering still happen above - this only skips the rate negotiation part
     if (!negotiationEnabled) {
+      // FIX: Generate and save AI summary for data-extraction-only jobs
+      // Previously, the AI summary was never updated when negotiation was disabled,
+      // because the summary generation only happened inside negotiation-specific code paths
+      try {
+        const dataExtractionStatus = isDataGatheringComplete ? 'Data Complete' : 'Active - Data Gathering';
+        // Pass null for dataGathering so it fetches fresh data from the job details sheet
+        // This ensures the summary accurately reflects what was just saved
+        const dataOnlySummary = generateComprehensiveAISummary(
+          conversationHistory,
+          cleanCandidateEmail,
+          jobId,
+          attempts || 0,
+          dataExtractionStatus
+        );
+        if (stateRowIndex > -1 && dataOnlySummary) {
+          stateSheet.getRange(stateRowIndex, 9).setValue(dataOnlySummary);
+          stateSheet.getRange(stateRowIndex, 6).setValue(new Date());
+        }
+      } catch (summaryError) {
+        console.error("Failed to update AI summary for data-extraction-only job:", summaryError);
+      }
+
       jobStats.skipped++;
       jobStats.log.push({type: 'info', message: `${cleanCandidateEmail} - Negotiation disabled for this job (data gathering only mode)`});
       return;
@@ -8109,7 +8179,10 @@ function getJobCandidateData(jobId, candidateEmail) {
     const cleanEmail = String(candidateEmail).toLowerCase().trim();
 
     // Fixed headers that are NOT data gathering questions
-    const fixedHeaders = ['Timestamp', 'Email', 'Name', 'Dev ID', 'Thread ID', 'Region', 'Candidate Offer', 'Counter Offer', 'Final Agreed Rate', 'Negotiation Notes', 'Status', 'Agreed Rate'];
+    // Dynamically include negotiation columns only if they exist in the sheet
+    const baseFixed = ['Timestamp', 'Email', 'Name', 'Dev ID', 'Thread ID', 'Region', 'Status'];
+    const negotiationFixed = ['Candidate Offer', 'Counter Offer', 'Final Agreed Rate', 'Negotiation Notes', 'Agreed Rate'];
+    const fixedHeaders = [...baseFixed, ...negotiationFixed.filter(h => headers.includes(h))];
 
     // Find candidate row
     const emailColIdx = headers.indexOf('Email');
@@ -17247,19 +17320,25 @@ function testDataExtraction(testData) {
     }
 
     // Build sheet preview - what a row would look like
+    // Only include negotiation columns if negotiation is enabled for this job
+    const isNegotiationEnabled = jobId ? jobHasNegotiation(jobId) : true;
+    const previewHeaders = ['Timestamp', 'Email', 'Name', ...questionsList.map(q => q.header)];
+    const previewValues = [
+      new Date().toLocaleString(),
+      'test@example.com',
+      devName || 'Test Candidate',
+      ...questionsList.map(q => extractedData[q.header] || '')
+    ];
+    if (isNegotiationEnabled) {
+      previewHeaders.push('Candidate Offer', 'Counter Offer', 'Final Agreed Rate', 'Negotiation Notes');
+      previewValues.push('', '', '', extractedData.negotiation_notes || '');
+    }
+    previewHeaders.push('Status');
+    previewValues.push(answeredCount === questionsList.length ? 'Data Complete' : 'Pending');
+
     const sheetPreview = {
-      headers: ['Timestamp', 'Email', 'Name', ...questionsList.map(q => q.header), 'Candidate Offer', 'Counter Offer', 'Final Agreed Rate', 'Negotiation Notes', 'Status'],
-      values: [
-        new Date().toLocaleString(),
-        'test@example.com',
-        devName || 'Test Candidate',
-        ...questionsList.map(q => extractedData[q.header] || ''),
-        '', // Candidate Offer
-        '', // Counter Offer
-        '', // Final Agreed Rate
-        extractedData.negotiation_notes || '',
-        answeredCount === questionsList.length ? 'Data Complete' : 'Pending'
-      ]
+      headers: previewHeaders,
+      values: previewValues
     };
 
     return {
