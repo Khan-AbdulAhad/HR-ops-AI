@@ -3890,10 +3890,20 @@ function getAllTasks(filters) {
 
     // Apply filters server-side (BEFORE counting stats so cards reflect filters)
     if(jobFilter !== 'all' && jobId !== jobFilter) continue;
-    if(statusFilter !== 'all' && status !== statusFilter) continue;
+    // FIX: Treat 'Data Complete' as 'Completed' for filter purposes so data-only jobs
+    // appear when filtering by "Completed" status
+    if(statusFilter !== 'all') {
+      if(statusFilter === 'Completed' && status === 'Data Complete') {
+        // Allow through - Data Complete is a form of completion
+      } else if(status !== statusFilter) {
+        continue;
+      }
+    }
 
     // Count stats - only for candidates that pass filters
-    if(status === 'Unresponsive') {
+    if(status === 'Data Complete') {
+      statCompleted++;
+    } else if(status === 'Unresponsive') {
       statUnresponsive++;
     } else if(status === 'Human-Negotiation') {
       statHuman++;
@@ -3904,10 +3914,14 @@ function getAllTasks(filters) {
     }
 
     let tag = '';
-    if(status === 'Unresponsive') {
+    if(status === 'Data Complete') {
+      tag = 'Completed';
+    } else if(status === 'Unresponsive') {
       tag = 'Unresponsive';
     } else if(status === 'Human-Negotiation') {
       tag = 'Human-Negotiation';
+    } else if(status === 'Active - Data Gathering') {
+      tag = 'Data Gathering';
     } else if(status === 'Initial Outreach' || attempts === 0) {
       tag = 'Initial Outreach';
     } else {
@@ -5665,6 +5679,10 @@ function processJobNegotiations(jobId, rules, ss, faqContent, negotiationEnabled
         if (stateRowIndex > -1 && dataOnlySummary) {
           stateSheet.getRange(stateRowIndex, 9).setValue(dataOnlySummary);
           stateSheet.getRange(stateRowIndex, 6).setValue(new Date());
+          // FIX: Update the Status column in Negotiation_State when data gathering completes
+          // Previously, only the AI summary was updated but the Status tag remained unchanged,
+          // causing the task list to show stale tags (e.g. "AI-Attempt-1/2") instead of "Data Complete"
+          stateSheet.getRange(stateRowIndex, 5).setValue(dataExtractionStatus);
         }
       } catch (summaryError) {
         console.error("Failed to update AI summary for data-extraction-only job:", summaryError);
