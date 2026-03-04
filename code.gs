@@ -5439,12 +5439,13 @@ function processJobNegotiations(jobId, rules, ss, faqContent, negotiationEnabled
       const answers = extractAnswersFromResponse(candidateLatestMessage, questions, candidateName);
 
       // Determine the appropriate status based on current state
-      let dataStatus = 'Negotiating';
+      // Use 'Pending' for data-extraction-only jobs instead of 'Negotiating'
+      let dataStatus = negotiationEnabled ? 'Negotiating' : 'Pending';
       if (state && state.status === 'Human-Negotiation') {
         // Preserve human negotiation status - data still gets updated
         dataStatus = 'Human-Negotiation';
-      } else if (attempts >= 2) {
-        // Will be escalated, but still save the data first
+      } else if (attempts >= 2 && negotiationEnabled) {
+        // Will be escalated, but still save the data first (only relevant for negotiation)
         dataStatus = 'Pending Escalation';
       }
 
@@ -5647,6 +5648,28 @@ function processJobNegotiations(jobId, rules, ss, faqContent, negotiationEnabled
     // CHECK: Skip negotiation if negotiation is disabled for this job
     // Data extraction and gathering still happen above - this only skips the rate negotiation part
     if (!negotiationEnabled) {
+      // FIX: Generate and save AI summary for data-extraction-only jobs
+      // Previously, the AI summary was never updated when negotiation was disabled,
+      // because the summary generation only happened inside negotiation-specific code paths
+      try {
+        const dataExtractionStatus = isDataGatheringComplete ? 'Data Complete' : 'Active - Data Gathering';
+        // Pass null for dataGathering so it fetches fresh data from the job details sheet
+        // This ensures the summary accurately reflects what was just saved
+        const dataOnlySummary = generateComprehensiveAISummary(
+          conversationHistory,
+          cleanCandidateEmail,
+          jobId,
+          attempts || 0,
+          dataExtractionStatus
+        );
+        if (stateRowIndex > -1 && dataOnlySummary) {
+          stateSheet.getRange(stateRowIndex, 9).setValue(dataOnlySummary);
+          stateSheet.getRange(stateRowIndex, 6).setValue(new Date());
+        }
+      } catch (summaryError) {
+        console.error("Failed to update AI summary for data-extraction-only job:", summaryError);
+      }
+
       jobStats.skipped++;
       jobStats.log.push({type: 'info', message: `${cleanCandidateEmail} - Negotiation disabled for this job (data gathering only mode)`});
       return;
@@ -8156,7 +8179,10 @@ function getJobCandidateData(jobId, candidateEmail) {
     const cleanEmail = String(candidateEmail).toLowerCase().trim();
 
     // Fixed headers that are NOT data gathering questions
-    const fixedHeaders = ['Timestamp', 'Email', 'Name', 'Dev ID', 'Thread ID', 'Region', 'Candidate Offer', 'Counter Offer', 'Final Agreed Rate', 'Negotiation Notes', 'Status', 'Agreed Rate'];
+    // Dynamically include negotiation columns only if they exist in the sheet
+    const baseFixed = ['Timestamp', 'Email', 'Name', 'Dev ID', 'Thread ID', 'Region', 'Status'];
+    const negotiationFixed = ['Candidate Offer', 'Counter Offer', 'Final Agreed Rate', 'Negotiation Notes', 'Agreed Rate'];
+    const fixedHeaders = [...baseFixed, ...negotiationFixed.filter(h => headers.includes(h))];
 
     // Find candidate row
     const emailColIdx = headers.indexOf('Email');
@@ -17294,19 +17320,25 @@ function testDataExtraction(testData) {
     }
 
     // Build sheet preview - what a row would look like
+    // Only include negotiation columns if negotiation is enabled for this job
+    const isNegotiationEnabled = jobId ? jobHasNegotiation(jobId) : true;
+    const previewHeaders = ['Timestamp', 'Email', 'Name', ...questionsList.map(q => q.header)];
+    const previewValues = [
+      new Date().toLocaleString(),
+      'test@example.com',
+      devName || 'Test Candidate',
+      ...questionsList.map(q => extractedData[q.header] || '')
+    ];
+    if (isNegotiationEnabled) {
+      previewHeaders.push('Candidate Offer', 'Counter Offer', 'Final Agreed Rate', 'Negotiation Notes');
+      previewValues.push('', '', '', extractedData.negotiation_notes || '');
+    }
+    previewHeaders.push('Status');
+    previewValues.push(answeredCount === questionsList.length ? 'Data Complete' : 'Pending');
+
     const sheetPreview = {
-      headers: ['Timestamp', 'Email', 'Name', ...questionsList.map(q => q.header), 'Candidate Offer', 'Counter Offer', 'Final Agreed Rate', 'Negotiation Notes', 'Status'],
-      values: [
-        new Date().toLocaleString(),
-        'test@example.com',
-        devName || 'Test Candidate',
-        ...questionsList.map(q => extractedData[q.header] || ''),
-        '', // Candidate Offer
-        '', // Counter Offer
-        '', // Final Agreed Rate
-        extractedData.negotiation_notes || '',
-        answeredCount === questionsList.length ? 'Data Complete' : 'Pending'
-      ]
+      headers: previewHeaders,
+      values: previewValues
     };
 
     return {
