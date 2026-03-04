@@ -71,17 +71,247 @@
             box-shadow: 0 4px 6px -1px rgba(37, 99, 235, 0.1), 0 2px 4px -1px rgba(37, 99, 235, 0.06);
         }
         
-        /* Modern Card Styles */
+        /* ===== Modern Glassmorphism Stat Cards ===== */
         .stat-card {
-            background: white;
-            border-radius: 0.75rem;
-            padding: 1.5rem;
-            box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06);
-            border-top-width: 4px;
+            position: relative;
+            overflow: hidden;
+            background: rgba(255, 255, 255, 0.85);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border-radius: 16px;
+            padding: 1.25rem;
+            border: 1px solid rgba(255, 255, 255, 0.6);
+            transition: transform 0.25s ease, box-shadow 0.25s ease;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+        }
+        .dark .stat-card {
+            background: rgba(30, 41, 59, 0.8);
+            border-color: rgba(71, 85, 105, 0.4);
+        }
+        .dark .stat-card h2 { color: #f1f5f9; }
+        .stat-card-glow {
+            position: absolute;
+            top: -30px;
+            right: -30px;
+            width: 80px;
+            height: 80px;
+            border-radius: 50%;
+            opacity: 0.15;
+            filter: blur(20px);
+            transition: opacity 0.3s;
+            pointer-events: none;
+        }
+        .stat-card:hover .stat-card-glow { opacity: 0.3; }
+        .stat-glow-slate { background: #64748b; }
+        .stat-glow-blue { background: #3b82f6; }
+        .stat-glow-amber { background: #f59e0b; }
+        .stat-glow-teal { background: #14b8a6; }
+        .stat-glow-red { background: #ef4444; }
+        .stat-glow-green { background: #22c55e; }
+        /* Stat card color accents (left border) */
+        .stat-card-slate { border-left: 3px solid #64748b; }
+        .stat-card-blue { border-left: 3px solid #3b82f6; }
+        .stat-card-amber { border-left: 3px solid #f59e0b; }
+        .stat-card-teal { border-left: 3px solid #14b8a6; }
+        .stat-card-slate-alt { border-left: 3px solid #94a3b8; }
+        .stat-card-red { border-left: 3px solid #ef4444; }
+        .stat-card-green { border-left: 3px solid #22c55e; }
+        /* Stat icon bubbles */
+        .stat-icon {
+            width: 36px;
+            height: 36px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 10px;
+            font-size: 0.875rem;
             transition: transform 0.2s;
         }
-        .dark .stat-card { background: #1e293b; border-color: #334155; }
-        .dark .stat-card h2 { color: #f1f5f9; }
+        .stat-card:hover .stat-icon { transform: scale(1.1); }
+        .stat-icon-blue { background: rgba(59, 130, 246, 0.12); color: #3b82f6; }
+        .stat-icon-amber { background: rgba(245, 158, 11, 0.12); color: #f59e0b; }
+        .stat-icon-teal { background: rgba(20, 184, 166, 0.12); color: #14b8a6; }
+        .stat-icon-slate { background: rgba(100, 116, 139, 0.12); color: #64748b; }
+        .stat-icon-red { background: rgba(239, 68, 68, 0.12); color: #ef4444; }
+        .stat-icon-green { background: rgba(34, 197, 94, 0.12); color: #22c55e; }
+        .dark .stat-icon-blue { background: rgba(59, 130, 246, 0.2); color: #60a5fa; }
+        .dark .stat-icon-amber { background: rgba(245, 158, 11, 0.2); color: #fbbf24; }
+        .dark .stat-icon-teal { background: rgba(20, 184, 166, 0.2); color: #2dd4bf; }
+        .dark .stat-icon-slate { background: rgba(100, 116, 139, 0.2); color: #94a3b8; }
+        .dark .stat-icon-red { background: rgba(239, 68, 68, 0.2); color: #f87171; }
+        .dark .stat-icon-green { background: rgba(34, 197, 94, 0.2); color: #4ade80; }
+
+        /* ===== Modern Custom Dropdown (Status Tag & Tracking Status) ===== */
+        .modern-dropdown {
+            position: relative;
+            display: inline-block;
+        }
+        .modern-dropdown-trigger {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 5px 12px;
+            border-radius: 20px;
+            font-size: 0.75rem;
+            font-weight: 700;
+            cursor: pointer;
+            border: 1.5px solid transparent;
+            transition: all 0.2s ease;
+            white-space: nowrap;
+            user-select: none;
+            backdrop-filter: blur(4px);
+            -webkit-backdrop-filter: blur(4px);
+        }
+        .modern-dropdown-trigger:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+        }
+        .modern-dropdown-trigger .dd-arrow {
+            font-size: 8px;
+            transition: transform 0.2s;
+            opacity: 0.6;
+        }
+        .modern-dropdown.open .dd-arrow { transform: rotate(180deg); }
+        .modern-dropdown-menu {
+            position: absolute;
+            top: calc(100% + 6px);
+            left: 50%;
+            transform: translateX(-50%) scale(0.95);
+            opacity: 0;
+            visibility: hidden;
+            z-index: 60;
+            min-width: 170px;
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid rgba(226, 232, 240, 0.8);
+            border-radius: 14px;
+            box-shadow: 0 12px 32px rgba(0, 0, 0, 0.12), 0 2px 6px rgba(0, 0, 0, 0.06);
+            padding: 6px;
+            transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        .dark .modern-dropdown-menu {
+            background: rgba(30, 41, 59, 0.95);
+            border-color: rgba(71, 85, 105, 0.6);
+            box-shadow: 0 12px 32px rgba(0, 0, 0, 0.4);
+        }
+        .modern-dropdown.open .modern-dropdown-menu {
+            opacity: 1;
+            visibility: visible;
+            transform: translateX(-50%) scale(1);
+        }
+        .modern-dropdown-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 12px;
+            border-radius: 10px;
+            font-size: 0.8125rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.15s ease;
+            color: #334155;
+        }
+        .dark .modern-dropdown-item { color: #e2e8f0; }
+        .modern-dropdown-item .dd-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            flex-shrink: 0;
+        }
+        .modern-dropdown-item:hover { transform: translateX(2px); }
+        .modern-dropdown-item.active {
+            font-weight: 700;
+        }
+        .modern-dropdown-item.active::after {
+            content: '\f00c';
+            font-family: 'Font Awesome 6 Free';
+            font-weight: 900;
+            font-size: 10px;
+            margin-left: auto;
+            opacity: 0.7;
+        }
+        /* Dropdown color variants - hover highlights in own color */
+        .dd-item-green:hover { background: rgba(34, 197, 94, 0.1); color: #15803d; }
+        .dark .dd-item-green:hover { background: rgba(34, 197, 94, 0.15); color: #4ade80; }
+        .dd-item-red:hover { background: rgba(239, 68, 68, 0.1); color: #b91c1c; }
+        .dark .dd-item-red:hover { background: rgba(239, 68, 68, 0.15); color: #fca5a5; }
+        .dd-item-teal:hover { background: rgba(20, 184, 166, 0.1); color: #0f766e; }
+        .dark .dd-item-teal:hover { background: rgba(20, 184, 166, 0.15); color: #5eead4; }
+        .dd-item-yellow:hover { background: rgba(234, 179, 8, 0.1); color: #a16207; }
+        .dark .dd-item-yellow:hover { background: rgba(234, 179, 8, 0.15); color: #fde047; }
+        .dd-item-blue:hover { background: rgba(59, 130, 246, 0.1); color: #1d4ed8; }
+        .dark .dd-item-blue:hover { background: rgba(59, 130, 246, 0.15); color: #93c5fd; }
+        /* Trigger color variants (chip style) */
+        .dd-trigger-green {
+            background: rgba(34, 197, 94, 0.12);
+            color: #15803d;
+            border-color: rgba(34, 197, 94, 0.3);
+        }
+        .dd-trigger-green:hover { background: rgba(34, 197, 94, 0.2); box-shadow: 0 4px 12px rgba(34, 197, 94, 0.2); }
+        .dark .dd-trigger-green { background: rgba(34, 197, 94, 0.15); color: #4ade80; border-color: rgba(34, 197, 94, 0.3); }
+        .dd-trigger-red {
+            background: rgba(239, 68, 68, 0.1);
+            color: #b91c1c;
+            border-color: rgba(239, 68, 68, 0.25);
+        }
+        .dd-trigger-red:hover { background: rgba(239, 68, 68, 0.18); box-shadow: 0 4px 12px rgba(239, 68, 68, 0.2); }
+        .dark .dd-trigger-red { background: rgba(239, 68, 68, 0.15); color: #fca5a5; border-color: rgba(239, 68, 68, 0.3); }
+        .dd-trigger-teal {
+            background: rgba(20, 184, 166, 0.1);
+            color: #0f766e;
+            border-color: rgba(20, 184, 166, 0.25);
+        }
+        .dd-trigger-teal:hover { background: rgba(20, 184, 166, 0.18); box-shadow: 0 4px 12px rgba(20, 184, 166, 0.2); }
+        .dark .dd-trigger-teal { background: rgba(20, 184, 166, 0.15); color: #5eead4; border-color: rgba(20, 184, 166, 0.3); }
+        .dd-trigger-blue {
+            background: rgba(59, 130, 246, 0.1);
+            color: #1d4ed8;
+            border-color: rgba(59, 130, 246, 0.25);
+        }
+        .dd-trigger-blue:hover { background: rgba(59, 130, 246, 0.18); box-shadow: 0 4px 12px rgba(59, 130, 246, 0.2); }
+        .dark .dd-trigger-blue { background: rgba(59, 130, 246, 0.15); color: #93c5fd; border-color: rgba(59, 130, 246, 0.3); }
+        .dd-trigger-yellow {
+            background: rgba(234, 179, 8, 0.1);
+            color: #a16207;
+            border-color: rgba(234, 179, 8, 0.25);
+        }
+        .dd-trigger-yellow:hover { background: rgba(234, 179, 8, 0.18); box-shadow: 0 4px 12px rgba(234, 179, 8, 0.2); }
+        .dark .dd-trigger-yellow { background: rgba(234, 179, 8, 0.15); color: #fde047; border-color: rgba(234, 179, 8, 0.3); }
+        .dd-trigger-amber {
+            background: rgba(245, 158, 11, 0.1);
+            color: #92400e;
+            border-color: rgba(245, 158, 11, 0.25);
+        }
+        .dd-trigger-amber:hover { background: rgba(245, 158, 11, 0.18); box-shadow: 0 4px 12px rgba(245, 158, 11, 0.2); }
+        .dark .dd-trigger-amber { background: rgba(245, 158, 11, 0.15); color: #fcd34d; border-color: rgba(245, 158, 11, 0.3); }
+        .dd-trigger-slate {
+            background: rgba(100, 116, 139, 0.1);
+            color: #475569;
+            border-color: rgba(100, 116, 139, 0.25);
+        }
+        .dd-trigger-slate:hover { background: rgba(100, 116, 139, 0.18); box-shadow: 0 4px 12px rgba(100, 116, 139, 0.15); }
+        .dark .dd-trigger-slate { background: rgba(100, 116, 139, 0.15); color: #cbd5e1; border-color: rgba(100, 116, 139, 0.3); }
+
+        /* ===== Modern Action Buttons with Glow ===== */
+        .btn-glow-purple {
+            box-shadow: 0 2px 8px rgba(147, 51, 234, 0.25);
+        }
+        .btn-glow-purple:hover {
+            box-shadow: 0 4px 16px rgba(147, 51, 234, 0.4);
+        }
+        .btn-glow-amber {
+            box-shadow: 0 2px 8px rgba(245, 158, 11, 0.25);
+        }
+        .btn-glow-amber:hover {
+            box-shadow: 0 4px 16px rgba(245, 158, 11, 0.4);
+        }
+        .btn-glow-red {
+            box-shadow: 0 2px 8px rgba(239, 68, 68, 0.25);
+        }
+        .btn-glow-red:hover {
+            box-shadow: 0 4px 16px rgba(239, 68, 68, 0.4);
+        }
 
         /* ===== Global Dark Mode Overrides ===== */
         /* :where(.dark) gives lower specificity (0,1,0) so explicit dark: Tailwind classes (0,2,0) always win */
@@ -186,7 +416,7 @@
         :where(.dark) .hover\:bg-red-50:hover { background-color: rgba(239, 68, 68, 0.2); }
         :where(.dark) .hover\:bg-green-50:hover { background-color: rgba(16, 185, 129, 0.2); }
         :where(.dark) .hover\:bg-amber-50:hover { background-color: rgba(245, 158, 11, 0.2); }
-        .stat-card:hover { transform: translateY(-2px); box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06); }
+        .stat-card:hover { transform: translateY(-3px); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1), 0 2px 8px rgba(0, 0, 0, 0.04); }
 
         /* Input Fields */
         .input-field { 
@@ -1849,73 +2079,71 @@
                 <!-- TAB 3: TASKS LIST -->
                 <div id="tab-tasks" class="tab-content hidden-tab">
                     
-                    <!-- Stats Cards (New Design) -->
-                    <div class="grid grid-cols-1 md:grid-cols-7 gap-6 mb-8">
-                        <div class="stat-card border-slate-500">
+                    <!-- Stats Cards (Modern Glassmorphism Design) -->
+                    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-7 gap-4 mb-8">
+                        <div class="stat-card stat-card-slate">
+                            <div class="stat-card-glow stat-glow-slate"></div>
                             <p class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Total Active</p>
-                            <h2 class="text-3xl font-extrabold text-slate-800" id="statTotal">-</h2>
+                            <h2 class="text-3xl font-extrabold text-slate-800 dark:text-white" id="statTotal">-</h2>
                         </div>
-                        <div class="stat-card border-blue-500">
+                        <div class="stat-card stat-card-blue">
+                            <div class="stat-card-glow stat-glow-blue"></div>
                             <div class="flex justify-between items-start">
                                 <div>
                                     <p class="text-xs font-bold text-blue-500 uppercase tracking-wider mb-1">AI Negotiating</p>
-                                    <h2 class="text-3xl font-extrabold text-slate-800" id="statActive">-</h2>
+                                    <h2 class="text-3xl font-extrabold text-slate-800 dark:text-white" id="statActive">-</h2>
                                 </div>
-                                <div class="p-2 bg-blue-50 rounded-lg text-blue-600"><i class="fa-solid fa-robot"></i></div>
+                                <div class="stat-icon stat-icon-blue"><i class="fa-solid fa-robot"></i></div>
                             </div>
                         </div>
-                        <div class="stat-card border-amber-500">
+                        <div class="stat-card stat-card-amber">
+                            <div class="stat-card-glow stat-glow-amber"></div>
                             <div class="flex justify-between items-start">
                                 <div>
                                     <p class="text-xs font-bold text-amber-500 uppercase tracking-wider mb-1">Needs Human</p>
-                                    <h2 class="text-3xl font-extrabold text-slate-800" id="statHuman">-</h2>
+                                    <h2 class="text-3xl font-extrabold text-slate-800 dark:text-white" id="statHuman">-</h2>
                                 </div>
-                                <div class="p-2 bg-amber-50 rounded-lg text-amber-600"><i class="fa-solid fa-user-clock"></i></div>
+                                <div class="stat-icon stat-icon-amber"><i class="fa-solid fa-user-clock"></i></div>
                             </div>
                         </div>
-                        <div class="stat-card border-green-500">
-                            <div class="flex justify-between items-start">
-                                <div>
-                                    <p class="text-xs font-bold text-green-500 uppercase tracking-wider mb-1">Accepted</p>
-                                    <h2 class="text-3xl font-extrabold text-slate-800" id="statAccepted">-</h2>
-                                </div>
-                                <div class="p-2 bg-green-50 rounded-lg text-green-600"><i class="fa-solid fa-check"></i></div>
-                            </div>
-                        </div>
-                        <div class="stat-card border-teal-500">
+                        <div class="stat-card stat-card-teal">
+                            <div class="stat-card-glow stat-glow-teal"></div>
                             <div class="flex justify-between items-start">
                                 <div>
                                     <p class="text-xs font-bold text-teal-500 uppercase tracking-wider mb-1">Completed</p>
-                                    <h2 class="text-3xl font-extrabold text-slate-800" id="statCompleted">-</h2>
+                                    <h2 class="text-3xl font-extrabold text-slate-800 dark:text-white" id="statCompleted">-</h2>
                                 </div>
-                                <div class="p-2 bg-teal-50 rounded-lg text-teal-600"><i class="fa-solid fa-flag-checkered"></i></div>
+                                <div class="stat-icon stat-icon-teal"><i class="fa-solid fa-flag-checkered"></i></div>
                             </div>
                         </div>
-                        <div class="stat-card border-slate-400">
+                        <div class="stat-card stat-card-slate-alt">
+                            <div class="stat-card-glow stat-glow-slate"></div>
                             <div class="flex justify-between items-start">
                                 <div>
                                     <p class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Not Interested</p>
-                                    <h2 class="text-3xl font-extrabold text-slate-800" id="statNotInterested">-</h2>
+                                    <h2 class="text-3xl font-extrabold text-slate-800 dark:text-white" id="statNotInterested">-</h2>
                                 </div>
-                                <div class="p-2 bg-slate-50 rounded-lg text-slate-500"><i class="fa-solid fa-ban"></i></div>
+                                <div class="stat-icon stat-icon-slate"><i class="fa-solid fa-ban"></i></div>
                             </div>
                         </div>
-                        <div class="stat-card border-red-400">
+                        <div class="stat-card stat-card-red">
+                            <div class="stat-card-glow stat-glow-red"></div>
                             <div class="flex justify-between items-start">
                                 <div>
                                     <p class="text-xs font-bold text-red-400 uppercase tracking-wider mb-1">Unresponsive</p>
-                                    <h2 class="text-3xl font-extrabold text-slate-800" id="statUnresponsive">-</h2>
+                                    <h2 class="text-3xl font-extrabold text-slate-800 dark:text-white" id="statUnresponsive">-</h2>
                                 </div>
-                                <div class="p-2 bg-red-50 rounded-lg text-red-500"><i class="fa-solid fa-user-xmark"></i></div>
+                                <div class="stat-icon stat-icon-red"><i class="fa-solid fa-user-xmark"></i></div>
                             </div>
                         </div>
-                        <div class="stat-card border-green-500">
+                        <div class="stat-card stat-card-green">
+                            <div class="stat-card-glow stat-glow-green"></div>
                             <div class="flex justify-between items-start">
                                 <div>
                                     <p class="text-xs font-bold text-green-500 uppercase tracking-wider mb-1">WhatsApp Reachout</p>
-                                    <h2 class="text-3xl font-extrabold text-slate-800" id="statWhatsApp">-</h2>
+                                    <h2 class="text-3xl font-extrabold text-slate-800 dark:text-white" id="statWhatsApp">-</h2>
                                 </div>
-                                <div class="p-2 bg-green-50 rounded-lg text-green-600"><i class="fa-brands fa-whatsapp"></i></div>
+                                <div class="stat-icon stat-icon-green"><i class="fa-brands fa-whatsapp"></i></div>
                             </div>
                         </div>
                     </div>
@@ -1971,13 +2199,13 @@
                             <button onclick="clearAllTaskFilters()" class="bg-slate-100 dark:bg-slate-600 text-slate-600 dark:text-slate-200 px-3 py-2 rounded-lg text-sm font-medium hover:bg-slate-200 dark:hover:bg-slate-500 transition" title="Clear all filters and search">
                                 <i class="fa-solid fa-times mr-1"></i> Clear All
                             </button>
-                            <button id="runAiBtn" onclick="manualTriggerAI()" class="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg font-medium text-sm flex items-center gap-2 shadow-sm" title="Run AI negotiation: Process candidates, generate responses, and escalate complex cases to humans">
+                            <button id="runAiBtn" onclick="manualTriggerAI()" class="btn-glow-purple bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-xl font-medium text-sm flex items-center gap-2 transition-all duration-200" title="Run AI negotiation: Process candidates, generate responses, and escalate complex cases to humans">
                                 <i class="fa-solid fa-wand-magic-sparkles"></i> Run AI
                             </button>
-                            <button id="processHumanBtn" onclick="processCompletedHumanEscalations()" class="bg-amber-500 hover:bg-amber-600 text-white px-4 py-2 rounded-lg font-medium text-sm flex items-center gap-2 shadow-sm" title="Import human-completed negotiations: Scans Gmail for threads with 'Completed' + 'Human-Negotiation' labels">
+                            <button id="processHumanBtn" onclick="processCompletedHumanEscalations()" class="btn-glow-amber bg-amber-500 hover:bg-amber-600 text-white px-4 py-2 rounded-xl font-medium text-sm flex items-center gap-2 transition-all duration-200" title="Import human-completed negotiations: Scans Gmail for threads with 'Completed' + 'Human-Negotiation' labels">
                                 <i class="fa-solid fa-user-check"></i> Sync Human
                             </button>
-                            <button id="fixWithdrawalsBtn" onclick="runRetroactiveWithdrawalScan()" class="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-lg font-medium text-sm flex items-center gap-2 shadow-sm" title="Scan Gmail threads for candidates who withdrew but status was never updated. Fixes missed Not Interested statuses.">
+                            <button id="fixWithdrawalsBtn" onclick="runRetroactiveWithdrawalScan()" class="btn-glow-red bg-rose-500 hover:bg-rose-600 text-white px-4 py-2 rounded-xl font-medium text-sm flex items-center gap-2 transition-all duration-200" title="Scan Gmail threads for candidates who withdrew but status was never updated. Fixes missed Not Interested statuses.">
                                 <i class="fa-solid fa-magnifying-glass-minus"></i> Fix Withdrawals
                             </button>
                             <button id="taskRefreshBtn" onclick="refreshTasksWithAnimation()" class="refresh-btn bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-600 text-slate-600 dark:text-slate-200 px-3 py-2 rounded-lg transition" title="Refresh task list">
@@ -2071,7 +2299,7 @@
                     </div>
 
                     <!-- Task Table -->
-                    <div class="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden">
+                    <div class="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden">
                         <div class="overflow-x-auto">
                             <table class="w-full text-left text-sm dark:text-slate-300">
                                 <thead class="bg-slate-50 dark:bg-slate-700 border-b border-slate-100 dark:border-slate-600 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
@@ -6446,7 +6674,6 @@
                     document.getElementById('statTotal').textContent = res.stats.total;
                     document.getElementById('statActive').textContent = res.stats.active;
                     document.getElementById('statHuman').textContent = res.stats.human;
-                    document.getElementById('statAccepted').textContent = res.stats.accepted;
                     document.getElementById('statCompleted').textContent = res.stats.completed || 0;
                     document.getElementById('statNotInterested').textContent = res.stats.notInterested || 0;
                     document.getElementById('statUnresponsive').textContent = res.stats.unresponsive || 0;
@@ -6532,14 +6759,23 @@
                                 </div>
                             </td>
                             <td class="px-6 py-4">
-                                <select class="status-tag-select text-xs font-bold px-2 py-1 rounded-lg border cursor-pointer transition ${badgeClass}"
-                                    data-email="${escapeHtml(t.email)}" data-job-id="${escapeHtml(t.jobId)}"
-                                    onchange="updateStatusTag(this)">
-                                    <option value="${escapeHtml(t.tags)}" selected>${escapeHtml(t.tags)}</option>
-                                    ${t.tags !== 'WhatsApp Reachout' ? '<option value="WhatsApp Reachout" style="background-color:#dcfce7;color:#15803d;">WhatsApp Reachout</option>' : ''}
-                                    ${t.tags !== 'Unresponsive' ? '<option value="Unresponsive" style="background-color:#fee2e2;color:#b91c1c;">Unresponsive</option>' : ''}
-                                    ${t.tags !== 'Completed' ? '<option value="Completed" style="background-color:#ccfbf1;color:#0f766e;">Completed</option>' : ''}
-                                </select>
+                                <div class="modern-dropdown status-tag-dropdown" data-email="${escapeHtml(t.email)}" data-job-id="${escapeHtml(t.jobId)}" data-value="${escapeHtml(t.tags)}">
+                                    <div class="modern-dropdown-trigger ${getStatusTagTriggerClass(t.tags)}" onclick="toggleModernDropdown(this.parentElement)">
+                                        <span class="dd-label">${escapeHtml(t.tags)}</span>
+                                        <i class="fa-solid fa-chevron-down dd-arrow"></i>
+                                    </div>
+                                    <div class="modern-dropdown-menu">
+                                        <div class="modern-dropdown-item dd-item-green ${t.tags === 'WhatsApp Reachout' ? 'active' : ''}" data-value="WhatsApp Reachout" onclick="selectStatusTag(this)">
+                                            <span class="dd-dot" style="background:#22c55e"></span> WhatsApp Reachout
+                                        </div>
+                                        <div class="modern-dropdown-item dd-item-red ${t.tags === 'Unresponsive' ? 'active' : ''}" data-value="Unresponsive" onclick="selectStatusTag(this)">
+                                            <span class="dd-dot" style="background:#ef4444"></span> Unresponsive
+                                        </div>
+                                        <div class="modern-dropdown-item dd-item-teal ${t.tags === 'Completed' ? 'active' : ''}" data-value="Completed" onclick="selectStatusTag(this)">
+                                            <span class="dd-dot" style="background:#14b8a6"></span> Completed
+                                        </div>
+                                    </div>
+                                </div>
                             </td>
                             <td class="px-6 py-4 text-xs text-slate-500 max-w-sm cursor-pointer hover:text-blue-600" onclick="showNotes(\`${encodeURIComponent(humanizeAIError(t.aiNotes || ''))}\`)">
                                 ${t.aiNotes && t.aiNotes.length > 0 ?
@@ -6548,24 +6784,29 @@
                                     : '<span class="text-slate-300">-</span>'}
                             </td>
                             <td class="px-6 py-4">
-                                <select class="tracking-status-select text-xs font-bold px-2 py-1 rounded-lg border cursor-pointer transition
-                                    ${t.trackingStatus === 'RFS' ? 'bg-green-100 text-green-700 border-green-300 dark:bg-green-900/30 dark:text-green-400 dark:border-green-700' :
-                                      t.trackingStatus === 'Backout' ? 'bg-red-100 text-red-700 border-red-300 dark:bg-red-900/30 dark:text-red-400 dark:border-red-700' :
-                                      t.trackingStatus === 'On-Hold' ? 'bg-blue-100 text-blue-700 border-blue-300 dark:bg-blue-900/30 dark:text-blue-400 dark:border-blue-700' :
-                                      'bg-yellow-100 text-yellow-700 border-yellow-300 dark:bg-yellow-900/30 dark:text-yellow-400 dark:border-yellow-700'}"
-                                    data-email="${escapeHtml(t.email)}" data-job-id="${escapeHtml(t.jobId)}"
-                                    onchange="updateTrackingStatus(this)">
-                                    <option value="Pending" ${t.trackingStatus === 'Pending' ? 'selected' : ''} style="background-color:#fef9c3;color:#a16207;">Pending</option>
-                                    <option value="RFS" ${t.trackingStatus === 'RFS' ? 'selected' : ''} style="background-color:#dcfce7;color:#15803d;">RFS</option>
-                                    <option value="Backout" ${t.trackingStatus === 'Backout' ? 'selected' : ''} style="background-color:#fee2e2;color:#b91c1c;">Backout</option>
-                                    <option value="On-Hold" ${t.trackingStatus === 'On-Hold' ? 'selected' : ''} style="background-color:#dbeafe;color:#1d4ed8;">On-Hold</option>
-                                </select>
+                                <div class="modern-dropdown tracking-status-dropdown" data-email="${escapeHtml(t.email)}" data-job-id="${escapeHtml(t.jobId)}" data-value="${t.trackingStatus || 'Pending'}" data-prev-status="${t.trackingStatus || 'Pending'}">
+                                    <div class="modern-dropdown-trigger ${getTrackingTriggerClass(t.trackingStatus)}" onclick="toggleModernDropdown(this.parentElement)">
+                                        <span class="dd-label">${t.trackingStatus || 'Pending'}</span>
+                                        <i class="fa-solid fa-chevron-down dd-arrow"></i>
+                                    </div>
+                                    <div class="modern-dropdown-menu">
+                                        <div class="modern-dropdown-item dd-item-yellow ${(t.trackingStatus || 'Pending') === 'Pending' ? 'active' : ''}" data-value="Pending" onclick="selectTrackingStatus(this)">
+                                            <span class="dd-dot" style="background:#eab308"></span> Pending
+                                        </div>
+                                        <div class="modern-dropdown-item dd-item-green ${t.trackingStatus === 'RFS' ? 'active' : ''}" data-value="RFS" onclick="selectTrackingStatus(this)">
+                                            <span class="dd-dot" style="background:#22c55e"></span> RFS
+                                        </div>
+                                        <div class="modern-dropdown-item dd-item-red ${t.trackingStatus === 'Backout' ? 'active' : ''}" data-value="Backout" onclick="selectTrackingStatus(this)">
+                                            <span class="dd-dot" style="background:#ef4444"></span> Backout
+                                        </div>
+                                        <div class="modern-dropdown-item dd-item-blue ${t.trackingStatus === 'On-Hold' ? 'active' : ''}" data-value="On-Hold" onclick="selectTrackingStatus(this)">
+                                            <span class="dd-dot" style="background:#3b82f6"></span> On-Hold
+                                        </div>
+                                    </div>
+                                </div>
                             </td>
                         `;
                         tbody.appendChild(tr);
-                        // Store previous status on each select for local count updates
-                        const sel = tr.querySelector('.tracking-status-select');
-                        if (sel) sel._prevStatus = t.trackingStatus || 'Pending';
                     });
                 }
                 // Render per-job tracking status counts and update filters.
@@ -6637,26 +6878,68 @@
             });
         }
 
-        // --- Status Tag (WhatsApp Reachout / Unresponsive / Completed) ---
-        function updateStatusTag(selectEl) {
-            const email = selectEl.dataset.email;
-            const jobId = selectEl.dataset.jobId;
-            const newStatus = selectEl.value;
+        // ===== Modern Dropdown Helper Functions =====
+        function getStatusTagTriggerClass(tag) {
+            if (tag === 'WhatsApp Reachout') return 'dd-trigger-green';
+            if (tag === 'Unresponsive') return 'dd-trigger-red';
+            if (tag === 'Completed') return 'dd-trigger-teal';
+            if (tag && tag.includes('Human')) return 'dd-trigger-amber';
+            if (tag === 'Not Interested') return 'dd-trigger-slate';
+            return 'dd-trigger-blue';
+        }
+        function getTrackingTriggerClass(status) {
+            if (status === 'RFS') return 'dd-trigger-green';
+            if (status === 'Backout') return 'dd-trigger-red';
+            if (status === 'On-Hold') return 'dd-trigger-blue';
+            return 'dd-trigger-yellow';
+        }
+        function toggleModernDropdown(ddEl) {
+            // Close any other open dropdowns first
+            document.querySelectorAll('.modern-dropdown.open').forEach(function(d) {
+                if (d !== ddEl) d.classList.remove('open');
+            });
+            ddEl.classList.toggle('open');
+        }
+        // Close dropdowns when clicking outside
+        document.addEventListener('click', function(e) {
+            if (!e.target.closest('.modern-dropdown')) {
+                document.querySelectorAll('.modern-dropdown.open').forEach(function(d) {
+                    d.classList.remove('open');
+                });
+            }
+        });
 
-            // Update styling immediately
-            selectEl.className = 'status-tag-select text-xs font-bold px-2 py-1 rounded-lg border cursor-pointer transition ' +
-                (newStatus === 'WhatsApp Reachout' ? 'bg-green-100 text-green-700 border-green-300 dark:bg-green-900/30 dark:text-green-400 dark:border-green-700' :
-                 newStatus === 'Unresponsive' ? 'bg-red-100 text-red-700 border-red-300 dark:bg-red-900/30 dark:text-red-400 dark:border-red-700' :
-                 newStatus === 'Completed' ? 'bg-teal-100 text-teal-700 border-teal-300 dark:bg-teal-900/30 dark:text-teal-400 dark:border-teal-700' :
-                 'bg-blue-100 text-blue-700 border-blue-300 dark:bg-blue-900/30 dark:text-blue-400 dark:border-blue-700');
+        // --- Status Tag Selection (Modern Dropdown) ---
+        function selectStatusTag(itemEl) {
+            const dropdown = itemEl.closest('.modern-dropdown');
+            const newStatus = itemEl.dataset.value;
+            const email = dropdown.dataset.email;
+            const jobId = dropdown.dataset.jobId;
+            const oldStatus = dropdown.dataset.value;
 
-            // Pulse animation
-            selectEl.style.transform = 'scale(1.1)';
-            selectEl.style.boxShadow = '0 0 0 3px rgba(34,197,94,0.3)';
-            setTimeout(function() {
-                selectEl.style.transform = 'scale(1)';
-                selectEl.style.boxShadow = '';
-            }, 250);
+            if (newStatus === oldStatus) {
+                dropdown.classList.remove('open');
+                return;
+            }
+
+            // Update dropdown UI
+            dropdown.dataset.value = newStatus;
+            dropdown.querySelector('.dd-label').textContent = newStatus;
+            const trigger = dropdown.querySelector('.modern-dropdown-trigger');
+            trigger.className = 'modern-dropdown-trigger ' + getStatusTagTriggerClass(newStatus);
+            // Update active states
+            dropdown.querySelectorAll('.modern-dropdown-item').forEach(function(i) {
+                i.classList.toggle('active', i.dataset.value === newStatus);
+            });
+            dropdown.classList.remove('open');
+
+            // Pulse animation on trigger
+            trigger.style.transform = 'scale(1.08)';
+            setTimeout(function() { trigger.style.transform = ''; }, 250);
+
+            // Also update the row's data-status-tag for filtering
+            const row = dropdown.closest('tr');
+            if (row) row.dataset.statusTag = newStatus;
 
             // Handle Completed status — move to completed sheet
             if (newStatus === 'Completed') {
@@ -6688,30 +6971,38 @@
                 .updateCandidateStatusTag(email, jobId, newStatus);
         }
 
-        // --- Tracking Status ---
-        function updateTrackingStatus(selectEl) {
-            const email = selectEl.dataset.email;
-            const jobId = selectEl.dataset.jobId;
-            const newStatus = selectEl.value;
+        // --- Tracking Status Selection (Modern Dropdown) ---
+        function selectTrackingStatus(itemEl) {
+            const dropdown = itemEl.closest('.modern-dropdown');
+            const newStatus = itemEl.dataset.value;
+            const email = dropdown.dataset.email;
+            const jobId = dropdown.dataset.jobId;
+            const oldStatus = dropdown.dataset.value;
 
-            // Update styling immediately
-            selectEl.className = 'tracking-status-select text-xs font-bold px-2 py-1 rounded-lg border cursor-pointer transition-all duration-200 ' +
-                (newStatus === 'RFS' ? 'bg-green-100 text-green-700 border-green-300 dark:bg-green-900/30 dark:text-green-400 dark:border-green-700' :
-                 newStatus === 'Backout' ? 'bg-red-100 text-red-700 border-red-300 dark:bg-red-900/30 dark:text-red-400 dark:border-red-700' :
-                 newStatus === 'On-Hold' ? 'bg-blue-100 text-blue-700 border-blue-300 dark:bg-blue-900/30 dark:text-blue-400 dark:border-blue-700' :
-                 'bg-yellow-100 text-yellow-700 border-yellow-300 dark:bg-yellow-900/30 dark:text-yellow-400 dark:border-yellow-700');
+            if (newStatus === oldStatus) {
+                dropdown.classList.remove('open');
+                return;
+            }
 
-            // Pulse animation on the dropdown to confirm change
-            selectEl.style.transform = 'scale(1.1)';
-            selectEl.style.boxShadow = '0 0 0 3px ' + (newStatus === 'RFS' ? 'rgba(34,197,94,0.3)' : newStatus === 'Backout' ? 'rgba(239,68,68,0.3)' : newStatus === 'On-Hold' ? 'rgba(59,130,246,0.3)' : 'rgba(234,179,8,0.3)');
-            setTimeout(function() {
-                selectEl.style.transform = 'scale(1)';
-                selectEl.style.boxShadow = '';
-            }, 250);
+            // Update dropdown UI
+            dropdown.dataset.value = newStatus;
+            dropdown.querySelector('.dd-label').textContent = newStatus;
+            const trigger = dropdown.querySelector('.modern-dropdown-trigger');
+            trigger.className = 'modern-dropdown-trigger ' + getTrackingTriggerClass(newStatus);
+            // Update active states
+            dropdown.querySelectorAll('.modern-dropdown-item').forEach(function(i) {
+                i.classList.toggle('active', i.dataset.value === newStatus);
+            });
+            dropdown.classList.remove('open');
+
+            // Pulse animation
+            trigger.style.transform = 'scale(1.08)';
+            setTimeout(function() { trigger.style.transform = ''; }, 250);
 
             // Update counts panel client-side
-            updateTrackingCountsLocally(jobId, selectEl._prevStatus || 'Pending', newStatus);
-            selectEl._prevStatus = newStatus;
+            var prevStatus = dropdown.dataset.prevStatus || 'Pending';
+            updateTrackingCountsLocally(jobId, prevStatus, newStatus);
+            dropdown.dataset.prevStatus = newStatus;
 
             // Save to backend
             google.script.run
@@ -6847,8 +7138,8 @@
                 // Check multi-select filters first
                 const jobId = (row.querySelector('td:nth-child(2)') || {}).textContent || '';
                 const statusTag = row.dataset.statusTag || '';
-                const trackingSelect = row.querySelector('.tracking-status-select');
-                const trackingStatus = trackingSelect ? trackingSelect.value : 'Pending';
+                const trackingDropdown = row.querySelector('.tracking-status-dropdown');
+                const trackingStatus = trackingDropdown ? (trackingDropdown.dataset.value || 'Pending') : 'Pending';
 
                 const jobMatch = jobSel === 'all' || jobSel.includes(jobId.trim());
                 const statusMatch = statusSel === 'all' || statusSel.includes(statusTag);
@@ -9301,19 +9592,20 @@
             selectedTasks.forEach(function(email) {
                 const row = document.querySelector('.task-row[data-email="' + email + '"]');
                 if (row) {
-                    const sel = row.querySelector('.tracking-status-select');
-                    if (sel) {
-                        items.push({ email: email, jobId: sel.dataset.jobId });
+                    const dd = row.querySelector('.tracking-status-dropdown');
+                    if (dd) {
+                        items.push({ email: email, jobId: dd.dataset.jobId });
                         // Update UI immediately
-                        const oldStatus = sel.value;
-                        sel.value = status;
-                        sel.className = 'tracking-status-select text-xs font-bold px-2 py-1 rounded-lg border cursor-pointer transition ' +
-                            (status === 'RFS' ? 'bg-green-100 text-green-700 border-green-300 dark:bg-green-900/30 dark:text-green-400 dark:border-green-700' :
-                             status === 'Backout' ? 'bg-red-100 text-red-700 border-red-300 dark:bg-red-900/30 dark:text-red-400 dark:border-red-700' :
-                             status === 'On-Hold' ? 'bg-blue-100 text-blue-700 border-blue-300 dark:bg-blue-900/30 dark:text-blue-400 dark:border-blue-700' :
-                             'bg-yellow-100 text-yellow-700 border-yellow-300 dark:bg-yellow-900/30 dark:text-yellow-400 dark:border-yellow-700');
-                        updateTrackingCountsLocally(sel.dataset.jobId, oldStatus, status);
-                        sel._prevStatus = status;
+                        const oldStatus = dd.dataset.value || 'Pending';
+                        dd.dataset.value = status;
+                        dd.dataset.prevStatus = status;
+                        dd.querySelector('.dd-label').textContent = status;
+                        var trigger = dd.querySelector('.modern-dropdown-trigger');
+                        trigger.className = 'modern-dropdown-trigger ' + getTrackingTriggerClass(status);
+                        dd.querySelectorAll('.modern-dropdown-item').forEach(function(i) {
+                            i.classList.toggle('active', i.dataset.value === status);
+                        });
+                        updateTrackingCountsLocally(dd.dataset.jobId, oldStatus, status);
                     }
                 }
             });
