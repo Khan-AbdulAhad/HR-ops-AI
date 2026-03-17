@@ -171,7 +171,7 @@ Before setting up, ensure you have:
 1. Click **Deploy** → **New deployment**
 2. Click the gear icon → **Web app**
 3. Configure:
-   - **Description**: `HR-Ops-AI V12`
+   - **Description**: `HR-Ops-AI V2`
    - **Execute as**: `Me (your email)`
    - **Who has access**: `Only myself` (or your organization)
 4. Click **Deploy**
@@ -600,7 +600,7 @@ For issues or feature requests, please open an issue on the GitHub repository.
 
 ## Version History
 
-- **V12**: Added Passed Internal Interviews stage, Manual Entry (renamed from Test Mode), enhanced analytics, learning system
+- **V2**: Added Passed Internal Interviews stage, Manual Entry (renamed from Test Mode), enhanced analytics, learning system
 - **V11**: Added follow-up automation, templates, user tracking, agency support, dark mode
 - **V10**: Added region-based rate tiers, improved negotiation flow
 - **V9**: Initial release with core features

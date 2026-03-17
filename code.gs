@@ -770,7 +770,7 @@ function validateEmailForSending(content, context = {}) {
 
 function doGet() {
   return HtmlService.createHtmlOutputFromFile('index')
-      .setTitle('Turing AI Recruiter V12')
+      .setTitle('Turing AI Recruiter V2')
       .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
 }
 
@@ -16671,7 +16671,7 @@ function getUsersByRole() {
 
 
 // ============================================================
-// NOTIFICATION AND GLOBAL SEARCH SYSTEM
+// NOTIFICATION SYSTEM
 // ============================================================
 
 /**
@@ -16808,134 +16808,6 @@ function getNotifications() {
   }
 }
 
-/**
- * Global search across all data
- * Searches developers, negotiations, and follow-ups
- * @param {string} query - Search query
- * @returns {Array} Search results
- */
-function globalSearch(query) {
-  try {
-    if (!query || query.length < 2) return [];
-    
-    const url = getStoredSheetUrl();
-    if (!url) return [];
-    
-    const ss = SpreadsheetApp.openByUrl(url);
-    const results = [];
-    const queryLower = query.toLowerCase();
-    const maxResults = 20;
-    
-    // Search Negotiation_State
-    const stateSheet = ss.getSheetByName('Negotiation_State');
-    if (stateSheet && stateSheet.getLastRow() > 1) {
-      const stateData = stateSheet.getDataRange().getValues();
-      for (let i = 1; i < stateData.length && results.length < maxResults; i++) {
-        const email = String(stateData[i][0] || '').toLowerCase();
-        const name = String(stateData[i][7] || '').toLowerCase();
-        const jobId = String(stateData[i][1] || '');
-        const devId = String(stateData[i][6] || '').toLowerCase();
-        const status = String(stateData[i][4] || '');
-        
-        if (email.includes(queryLower) || name.includes(queryLower) || 
-            jobId.includes(queryLower) || devId.includes(queryLower)) {
-          results.push({
-            type: 'negotiation',
-            id: email,
-            name: stateData[i][7] || email,
-            email: stateData[i][0],
-            jobId: jobId,
-            status: status
-          });
-        }
-      }
-    }
-    
-    // Search Negotiation_Completed
-    const compSheet = ss.getSheetByName('Negotiation_Completed');
-    if (compSheet && compSheet.getLastRow() > 1) {
-      const compData = compSheet.getDataRange().getValues();
-      for (let i = 1; i < compData.length && results.length < maxResults; i++) {
-        const email = String(compData[i][2] || '').toLowerCase();
-        const name = String(compData[i][3] || '').toLowerCase();
-        const jobId = String(compData[i][1] || '');
-        const status = String(compData[i][4] || '');
-        
-        if (email.includes(queryLower) || name.includes(queryLower) || jobId.includes(queryLower)) {
-          results.push({
-            type: 'developer',
-            id: email,
-            name: compData[i][3] || email,
-            email: compData[i][2],
-            jobId: jobId,
-            status: status
-          });
-        }
-      }
-    }
-    
-    // Search Follow_Up_Queue
-    const fuSheet = ss.getSheetByName('Follow_Up_Queue');
-    if (fuSheet && fuSheet.getLastRow() > 1) {
-      const fuData = fuSheet.getDataRange().getValues();
-      for (let i = 1; i < fuData.length && results.length < maxResults; i++) {
-        const email = String(fuData[i][0] || '').toLowerCase();
-        const name = String(fuData[i][3] || '').toLowerCase();
-        const jobId = String(fuData[i][1] || '');
-        const devId = String(fuData[i][4] || '').toLowerCase();
-        const status = String(fuData[i][8] || 'Pending');
-        
-        if (email.includes(queryLower) || name.includes(queryLower) || 
-            jobId.includes(queryLower) || devId.includes(queryLower)) {
-          results.push({
-            type: 'followup',
-            id: email,
-            name: fuData[i][3] || email,
-            email: fuData[i][0],
-            jobId: jobId,
-            status: status
-          });
-        }
-      }
-    }
-    
-    // Search Negotiation_Tasks
-    const tasksSheet = ss.getSheetByName('Negotiation_Tasks');
-    if (tasksSheet && tasksSheet.getLastRow() > 1) {
-      const tasksData = tasksSheet.getDataRange().getValues();
-      for (let i = 1; i < tasksData.length && results.length < maxResults; i++) {
-        const email = String(tasksData[i][3] || '').toLowerCase();
-        const name = String(tasksData[i][2] || '').toLowerCase();
-        const jobId = String(tasksData[i][1] || '');
-        
-        if (email.includes(queryLower) || name.includes(queryLower) || jobId.includes(queryLower)) {
-          results.push({
-            type: 'developer',
-            id: email,
-            name: tasksData[i][2] || email,
-            email: tasksData[i][3],
-            jobId: jobId,
-            status: 'Accepted'
-          });
-        }
-      }
-    }
-    
-    // Remove duplicates by email+jobId
-    const seen = new Set();
-    const uniqueResults = results.filter(r => {
-      const key = r.email + '|' + r.jobId;
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    });
-    
-    return uniqueResults.slice(0, maxResults);
-  } catch (e) {
-    console.error('Error in global search:', e);
-    return [];
-  }
-}
 
 // ===== AI TESTING FEATURE - DELETE FOR PRODUCTION (START) =====
 /**
