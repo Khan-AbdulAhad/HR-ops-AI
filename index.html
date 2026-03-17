@@ -4,13 +4,19 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Turing Outreach V12</title>
+    <!-- Dark mode init (before paint to prevent FOUC) -->
+    <script>
+        (function() {
+            var saved = localStorage.getItem('hr_ops_dark_mode');
+            if (saved === 'true' || (saved === null && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+                document.documentElement.classList.add('dark');
+            }
+        })();
+    </script>
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- jQuery -->
     <script src="https://code.jquery.com/jquery-3.7.0.js"></script>
-    <!-- DataTables -->
-    <link href="https://cdn.datatables.net/1.13.6/css/dataTables.tailwindcss.min.css" rel="stylesheet">
-    <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
     <!-- FontAwesome -->
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
     <!-- Google Fonts -->
@@ -219,7 +225,11 @@
             border-radius: 50%;
             flex-shrink: 0;
         }
-        .modern-dropdown-item:hover { transform: translateX(2px); }
+        @media (hover: hover) {
+            .modern-dropdown-item:hover { transform: translateX(2px); }
+        }
+        .modern-dropdown-item:focus { outline: 2px solid #3b82f6; outline-offset: -2px; border-radius: 10px; }
+        .modern-dropdown-item { outline: none; }
         .modern-dropdown-item.active {
             font-weight: 700;
         }
@@ -507,7 +517,16 @@
         }
 
         /* Utilities */
-        .hidden-tab { display: none; }
+        .hidden-tab { display: none; opacity: 0; }
+        .tab-content { animation: none; }
+        .tab-content.tab-entering { animation: tabFadeIn 0.25s ease forwards; }
+        @keyframes tabFadeIn {
+            from { opacity: 0; transform: translateY(6px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        /* Header title transition */
+        #headerTitle { transition: opacity 0.2s ease; }
+        #headerTitle.title-fading { opacity: 0; }
         .hidden { display: none; }
         
         /* Toast Notifications */
@@ -640,6 +659,27 @@
             cursor: not-allowed;
             pointer-events: none;
         }
+
+        /* Modal open/close animations */
+        .modal-animate-enter {
+            animation: modalIn 0.25s ease forwards;
+        }
+        .modal-animate-enter > div:first-child,
+        .modal-animate-enter > .bg-white,
+        .modal-animate-enter > [class*="bg-white"],
+        .modal-animate-enter > [class*="rounded"] {
+            animation: modalContentIn 0.25s ease forwards;
+        }
+        @keyframes modalIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+        @keyframes modalContentIn {
+            from { opacity: 0; transform: scale(0.95) translateY(10px); }
+            to { opacity: 1; transform: scale(1) translateY(0); }
+        }
+        /* Body scroll lock when modal is open */
+        body.modal-open { overflow: hidden; }
 
         /* Collapsible & Slide Panel */
         .collapsible-content { transition: max-height 0.3s ease, opacity 0.3s ease; overflow: hidden; }
@@ -1587,6 +1627,78 @@
             border-radius: 9999px;
             font-weight: 700;
         }
+
+        /* Notification badge pulse animation */
+        @keyframes notifPulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.2); }
+        }
+        .notif-badge-pulse {
+            animation: notifPulse 2s ease-in-out infinite;
+        }
+
+        /* Universal button press feedback */
+        .btn-press:active { transform: scale(0.95); }
+
+        /* Rich text editor dark mode */
+        .dark .rich-text-editor { color: #e2e8f0; }
+        .dark .rich-text-editor:focus { box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2); }
+        .dark .rich-text-editor blockquote { color: #94a3b8; border-left-color: #60a5fa; }
+        .dark .rich-text-editor:empty:before { color: #64748b; }
+
+        /* Focus ring standardization (blue for all standard inputs) */
+        .input-field:focus,
+        input:focus:not([type="checkbox"]):not([type="radio"]),
+        select:focus,
+        textarea:focus {
+            outline: none;
+            border-color: #3b82f6;
+            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+        }
+        .dark input:focus:not([type="checkbox"]):not([type="radio"]),
+        .dark select:focus,
+        .dark textarea:focus {
+            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2);
+        }
+
+        /* Analytics chevron smooth transition */
+        .expand-chevron {
+            transition: transform 0.2s ease;
+        }
+
+        /* Table row hover consistency (light + dark) */
+        .data-table tbody tr:hover td {
+            background-color: #f8fafc;
+        }
+        .dark .data-table tbody tr:hover td {
+            background-color: rgba(71, 85, 105, 0.3);
+        }
+
+        /* Skeleton loading animation */
+        @keyframes skeletonShimmer {
+            0% { background-position: -200% 0; }
+            100% { background-position: 200% 0; }
+        }
+        .skeleton {
+            background: linear-gradient(90deg, #e2e8f0 25%, #f1f5f9 50%, #e2e8f0 75%);
+            background-size: 200% 100%;
+            animation: skeletonShimmer 1.5s ease-in-out infinite;
+            border-radius: 0.375rem;
+        }
+        .dark .skeleton {
+            background: linear-gradient(90deg, #334155 25%, #475569 50%, #334155 75%);
+            background-size: 200% 100%;
+        }
+
+        /* Stat card stagger entrance */
+        @keyframes statCardIn {
+            from { opacity: 0; transform: translateY(12px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .stat-card-animate {
+            animation: statCardIn 0.4s ease forwards;
+            opacity: 0;
+        }
     </style>
 </head>
 <body class="bg-slate-100 dark:bg-slate-900 text-slate-900 dark:text-slate-100 flex h-screen overflow-hidden">
@@ -1609,41 +1721,41 @@
         </div>
 
         <!-- Navigation Links -->
-        <nav class="flex-1 px-4 py-6 space-y-1 overflow-y-auto">
+        <nav class="flex-1 px-4 py-6 space-y-1 overflow-y-auto" role="tablist" aria-label="Main navigation">
             <div class="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2 px-2">Main Menu</div>
 
             <!-- Operational tabs - hidden for TM/TA/Manager roles -->
-            <button type="button" id="navTabOutreach" class="nav-tab active operational-tab" onclick="switchTab('outreach', this)">
+            <button type="button" id="navTabOutreach" class="nav-tab active operational-tab" onclick="switchTab('outreach', this)" aria-current="page" role="tab" aria-selected="true">
                 <i class="fa-solid fa-users-viewfinder w-5 text-center" aria-hidden="true"></i>
                 <span>Outreach Manager</span>
             </button>
 
-            <button type="button" id="navTabNegotiation" class="nav-tab operational-tab" onclick="switchTab('negotiation', this)">
+            <button type="button" id="navTabNegotiation" class="nav-tab operational-tab" onclick="switchTab('negotiation', this)" role="tab" aria-selected="false">
                 <i class="fa-solid fa-briefcase w-5 text-center" aria-hidden="true"></i>
                 <span>Job Configuration</span>
             </button>
 
-            <button type="button" id="navTabTasks" class="nav-tab operational-tab" onclick="switchTab('tasks', this)">
+            <button type="button" id="navTabTasks" class="nav-tab operational-tab" onclick="switchTab('tasks', this)" role="tab" aria-selected="false">
                 <i class="fa-solid fa-clipboard-check w-5 text-center" aria-hidden="true"></i>
                 <span>Task List</span>
             </button>
 
-            <button type="button" id="navTabFollowups" class="nav-tab operational-tab" onclick="switchTab('followups', this)">
+            <button type="button" id="navTabFollowups" class="nav-tab operational-tab" onclick="switchTab('followups', this)" role="tab" aria-selected="false">
                 <i class="fa-solid fa-clock-rotate-left w-5 text-center" aria-hidden="true"></i>
                 <span>Follow-Ups</span>
             </button>
 
-            <button type="button" id="navTabMyjobs" class="nav-tab operational-tab" onclick="switchTab('myjobs', this)">
+            <button type="button" id="navTabMyjobs" class="nav-tab operational-tab" onclick="switchTab('myjobs', this)" role="tab" aria-selected="false">
                 <i class="fa-solid fa-clipboard-list w-5 text-center" aria-hidden="true"></i>
                 <span>My Jobs</span>
             </button>
 
-            <button type="button" id="navTabAnalytics" class="nav-tab" onclick="switchTab('analytics', this)">
+            <button type="button" id="navTabAnalytics" class="nav-tab" onclick="switchTab('analytics', this)" role="tab" aria-selected="false">
                 <i class="fa-solid fa-chart-line w-5 text-center" aria-hidden="true"></i>
                 <span>Analytics</span>
             </button>
 
-            <button type="button" id="navTabLearning" class="nav-tab" onclick="switchTab('learning', this)">
+            <button type="button" id="navTabLearning" class="nav-tab" onclick="switchTab('learning', this)" role="tab" aria-selected="false">
                 <i class="fa-solid fa-brain w-5 text-center" aria-hidden="true"></i>
                 <span>AI Learning</span>
             </button>
@@ -1702,7 +1814,7 @@
                     <button id="clearSearchBtn" class="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 hidden" onclick="clearGlobalSearch()" aria-label="Clear search">
                         <i class="fa-solid fa-times text-xs"></i>
                     </button>
-                    <div id="globalSearchResults" class="absolute top-full left-0 right-0 mt-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-lg max-h-80 overflow-y-auto z-50 hidden" role="listbox"></div>
+                    <div id="globalSearchResults" class="absolute top-full left-0 right-0 mt-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-lg max-h-80 overflow-y-auto hidden" role="listbox" style="z-index: 60;"></div>
                 </div>
 
                 <!-- New Users Notification (Admin Only) -->
@@ -1744,7 +1856,7 @@
         </header>
 
         <!-- Scrollable Content -->
-        <div class="flex-1 overflow-y-auto p-8 scroll-smooth">
+        <div id="mainScrollArea" class="flex-1 overflow-y-auto p-8 scroll-smooth">
             <div class="max-w-[1800px] mx-auto">
 
                 <!-- TAB 1: OUTREACH MANAGER -->
@@ -4173,7 +4285,7 @@
                 </div>
             </div>
             <div class="p-6 pt-4 flex-shrink-0 border-t border-slate-200 dark:border-slate-700 flex justify-end gap-2">
-                <button onclick="releaseFocus(document.getElementById('configModal')); document.getElementById('configModal').classList.add('hidden')" class="px-4 py-2 bg-slate-100 dark:bg-slate-700 rounded-lg text-slate-600 dark:text-slate-300 transition-all duration-200 active:scale-95 hover:bg-slate-200 dark:hover:bg-slate-600">Close</button>
+                <button onclick="releaseFocus(document.getElementById('configModal')); document.getElementById('configModal').classList.add('hidden'); document.getElementById('configModal').classList.remove('modal-animate-enter')" class="px-4 py-2 bg-slate-100 dark:bg-slate-700 rounded-lg text-slate-600 dark:text-slate-300 transition-all duration-200 active:scale-95 hover:bg-slate-200 dark:hover:bg-slate-600">Close</button>
                 <button id="saveConfigBtn" onclick="saveConfig()" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-all duration-200 active:scale-95 min-w-[80px] flex items-center justify-center gap-2">
                     <i id="saveConfigSpinner" class="fa-solid fa-spinner fa-spin hidden"></i>
                     <span id="saveConfigText">Save</span>
@@ -4921,6 +5033,18 @@
             }
         }
 
+        // Invalidate related caches when mutations occur (email sent, status changed, etc.)
+        function invalidateCachesOnMutation(mutationType) {
+            if (mutationType === 'email' || mutationType === 'status') {
+                setCacheValid('outreach', false);
+                setCacheValid('tasks', false);
+                setCacheValid('followups', false);
+                setCacheValid('analytics', false);
+            } else if (mutationType === 'job') {
+                setCacheValid('myjobs', false);
+            }
+        }
+
         // Multi-select filter state
         let activeFilters = {
             status: new Set(['all']),
@@ -4958,6 +5082,79 @@
             // Initialize multi-select filter dropdowns
             initTaskMultiSelectFilters();
             initFollowUpMultiSelectFilters();
+
+            // ===== CENTRALIZED MODAL MANAGEMENT =====
+            // Modal IDs and their close functions
+            const modalCloseMap = {
+                'configModal': function() { releaseFocus(document.getElementById('configModal')); document.getElementById('configModal').classList.add('hidden'); },
+                'addJobModal': function() { closeAddJobModal(); },
+                'jobStatusModal': function() { closeJobStatusModal(); },
+                'jobTransferModal': function() { closeTransferModal(); },
+                'editDateModal': function() { closeEditDateModal(); },
+                'notesTasksModal': function() { closeNotesTasksModal(); },
+                'editNotesModal': function() { closeEditNotesModal(); },
+                'manualScanModal': function() { closeManualScanModal(); },
+                'issueDetailModal': function() { closeIssueDetailModal(); },
+                'completeHumanModal': function() { closeCompleteHumanModal(); },
+                'viewersModal': function() { closeViewersModal(); },
+                'teamHierarchyModal': function() { closeTeamHierarchyModal(); },
+                'pageAccessModal': function() { closePageAccessModal(); },
+                'supplementaryDataModal': function() { closeSupplementaryDataModal(); },
+                'manualInputModal': function() { document.getElementById('manualInputModal').classList.add('hidden'); },
+                'emailModalOverlay': function() { closeEmailPanel(); }
+            };
+
+            // Escape key closes the topmost visible modal
+            document.addEventListener('keydown', function(e) {
+                if (e.key !== 'Escape') return;
+                // Check email modal first (it uses different visibility mechanism)
+                const emailOverlay = document.getElementById('emailModalOverlay');
+                if (emailOverlay && emailOverlay.classList.contains('open')) {
+                    closeEmailPanel();
+                    return;
+                }
+                // Find topmost visible modal (highest z-index or last in DOM)
+                const modalIds = Object.keys(modalCloseMap);
+                for (let i = modalIds.length - 1; i >= 0; i--) {
+                    const modal = document.getElementById(modalIds[i]);
+                    if (modal && !modal.classList.contains('hidden') && modalIds[i] !== 'emailModalOverlay') {
+                        modalCloseMap[modalIds[i]]();
+                        return;
+                    }
+                }
+            });
+
+            // Backdrop click closes modals (for modals that use hidden class toggle)
+            document.addEventListener('click', function(e) {
+                const modalIds = Object.keys(modalCloseMap);
+                for (let i = 0; i < modalIds.length; i++) {
+                    const id = modalIds[i];
+                    if (id === 'emailModalOverlay') continue; // Already has its own handler
+                    const modal = document.getElementById(id);
+                    if (!modal || modal.classList.contains('hidden')) continue;
+                    // Only close if click is directly on the overlay backdrop (not on modal content)
+                    if (e.target === modal) {
+                        modalCloseMap[id]();
+                        return;
+                    }
+                }
+            });
+
+            // Scroll lock: observe modal visibility changes
+            const modalObserver = new MutationObserver(function() {
+                const anyModalOpen = Object.keys(modalCloseMap).some(function(id) {
+                    const el = document.getElementById(id);
+                    if (!el) return false;
+                    if (id === 'emailModalOverlay') return el.classList.contains('open');
+                    return !el.classList.contains('hidden');
+                });
+                document.body.classList.toggle('modal-open', anyModalOpen);
+            });
+            // Observe all modal elements for class changes
+            Object.keys(modalCloseMap).forEach(function(id) {
+                const el = document.getElementById(id);
+                if (el) modalObserver.observe(el, { attributes: true, attributeFilter: ['class'] });
+            });
         });
 
         // Load permissions from localStorage for instant UI (< 50ms)
@@ -5063,15 +5260,34 @@
         // --- Layout Switching Logic ---
         function switchTab(tabName, btn) {
             // Hide all tabs
-            document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden-tab'));
-            // Show selected
+            document.querySelectorAll('.tab-content').forEach(el => {
+                el.classList.add('hidden-tab');
+                el.classList.remove('tab-entering');
+            });
+            // Show selected with fade-in animation
             const tabEl = document.getElementById('tab-' + tabName);
             if (!tabEl) { console.error('Tab not found: tab-' + tabName); return; }
             tabEl.classList.remove('hidden-tab');
+            // Trigger reflow then animate
+            void tabEl.offsetWidth;
+            tabEl.classList.add('tab-entering');
 
-            // Update Sidebar Active State
-            document.querySelectorAll('.nav-tab').forEach(el => el.classList.remove('active'));
-            if(btn) btn.classList.add('active');
+            // Scroll content area to top
+            const scrollArea = document.getElementById('mainScrollArea');
+            if (scrollArea) scrollArea.scrollTop = 0;
+
+            // Update Sidebar Active State + ARIA
+            document.querySelectorAll('.nav-tab').forEach(el => {
+                el.classList.remove('active');
+                el.removeAttribute('aria-current');
+                el.setAttribute('aria-selected', 'false');
+            });
+            const activeBtn = btn || document.querySelector('.nav-tab[onclick*="' + tabName + '"]');
+            if (activeBtn) {
+                activeBtn.classList.add('active');
+                activeBtn.setAttribute('aria-current', 'page');
+                activeBtn.setAttribute('aria-selected', 'true');
+            }
 
             // Hide bulk action bar on non-outreach tabs, show it on outreach if there's a selection
             const bulkBar = document.getElementById('bulkActionBar');
@@ -5081,7 +5297,8 @@
                 bulkBar.classList.remove('hidden');
             }
 
-            // Update Header Title
+            // Animate Header Title change
+            const headerEl = document.getElementById('headerTitle');
             const titles = {
                 'outreach': 'Outreach Manager',
                 'negotiation': 'Job Configuration',
@@ -5093,7 +5310,17 @@
                 'aitesting': 'AI Testing', // AI TESTING FEATURE - DELETE FOR PRODUCTION
                 'onboardingissues': 'Onboarding Issues'
             };
-            document.getElementById('headerTitle').textContent = titles[tabName] || 'Dashboard';
+            const newTitle = titles[tabName] || 'Dashboard';
+            if (headerEl.textContent !== newTitle) {
+                headerEl.classList.add('title-fading');
+                setTimeout(() => {
+                    headerEl.textContent = newTitle;
+                    headerEl.classList.remove('title-fading');
+                }, 200);
+            }
+
+            // Announce tab change to screen readers
+            announceToScreenReader('Navigated to ' + newTitle);
 
             // Load onboarding issues data when switching to that tab
             if (tabName === 'onboardingissues') {
@@ -5219,7 +5446,7 @@
 
         // --- Debug Logging (gated for production) ---
         const DEBUG_MODE = false;
-        function debugLog(...args) { if (DEBUG_MODE) debugLog(...args); }
+        function debugLog(...args) { if (DEBUG_MODE) console.log('[DEBUG]', ...args); }
 
         // --- Multi-Select Filter Component (Google Sheets-style) ---
         class MultiSelectFilter {
@@ -5287,6 +5514,7 @@
                 selectAllCb.type = 'checkbox';
                 selectAllCb.className = 'rounded';
                 selectAllCb.checked = allChecked;
+                selectAllCb.indeterminate = !allChecked && this.selectedValues.size > 0;
                 selectAllCb.addEventListener('change', () => {
                     if (selectAllCb.checked) {
                         this.selectedValues = new Set(this.allValues);
@@ -5318,9 +5546,13 @@
                             this.selectedValues.delete(val);
                             this._wasAllSelected = false;
                         }
-                        // Update select-all checkbox
+                        // Update select-all checkbox (checked, indeterminate)
                         const saCheckbox = this.dropdown.querySelector('.msf-select-all input');
-                        if (saCheckbox) saCheckbox.checked = this.selectedValues.size === this.allValues.length;
+                        if (saCheckbox) {
+                            const allSel = this.selectedValues.size === this.allValues.length;
+                            saCheckbox.checked = allSel;
+                            saCheckbox.indeterminate = !allSel && this.selectedValues.size > 0;
+                        }
                         if (this.selectedValues.size === this.allValues.length) this._wasAllSelected = true;
                         this._updateLabel();
                         this.onChange(this.getSelected());
@@ -5398,12 +5630,15 @@
             filterFollowUpTable();
         }
 
-        // --- HTML Escape Helper ---
+        // --- HTML Escape Helper (covers content + attribute contexts) ---
         function escapeHtml(text) {
             if (text === null || text === undefined) return '';
-            const div = document.createElement('div');
-            div.textContent = String(text);
-            return div.innerHTML;
+            return String(text)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
         }
 
         // --- Humanize AI Error Messages ---
@@ -5478,7 +5713,8 @@
             const container = document.getElementById('toastContainer');
             const toast = document.createElement('div');
             toast.className = `toast toast-${type}`;
-            
+            toast.style.cursor = 'pointer';
+
             const icons = {
                 success: 'check-circle',
                 error: 'circle-xmark',
@@ -5489,15 +5725,22 @@
             toast.innerHTML = `
                 <i class="fa-solid fa-${icons[type] || 'circle-info'} mr-2"></i>
                 <span class="toast-content">${escapeHtml(message)}</span>
-            `; 
+            `;
             container.appendChild(toast);
             announceToScreenReader(message);
-            
+
             const timeoutId = setTimeout(() => {
                 toast.classList.add('hiding');
                 setTimeout(() => toast.remove(), 300);
             }, duration);
             toast.dataset.timeoutId = timeoutId;
+
+            // Click to dismiss
+            toast.addEventListener('click', function() {
+                clearTimeout(timeoutId);
+                toast.classList.add('hiding');
+                setTimeout(() => toast.remove(), 300);
+            });
         }
 
         // --- Toggles ---
@@ -5508,10 +5751,11 @@
         function clearAllChips() {
             document.querySelectorAll('.smart-chip[data-value]').forEach(chip => chip.classList.remove('active'));
         }
-        function openManualInput() { document.getElementById('manualInputModal').classList.remove('hidden'); }
+        function openManualInput() { var m = document.getElementById('manualInputModal'); m.classList.remove('hidden'); m.classList.add('modal-animate-enter'); trapFocus(m); }
         function openConfigModal() {
             const modal = document.getElementById('configModal');
             modal.classList.remove('hidden');
+            modal.classList.add('modal-animate-enter');
             trapFocus(modal);
             refreshTriggerStatus(); // Load trigger status when modal opens
             loadFollowUpTimingConfig(); // Load follow-up timing settings
@@ -5617,7 +5861,10 @@
                 })
                 .getFollowUpTimingConfig();
         }
-        function toggleDarkMode() { document.documentElement.classList.toggle('dark'); }
+        function toggleDarkMode() {
+            document.documentElement.classList.toggle('dark');
+            localStorage.setItem('hr_ops_dark_mode', document.documentElement.classList.contains('dark') ? 'true' : 'false');
+        }
 
         // ===== NOTIFICATION SYSTEM =====
         let notifications = [];
@@ -5679,8 +5926,10 @@
             if (unreadCount > 0) {
                 badge.textContent = unreadCount > 9 ? '9+' : unreadCount;
                 badge.classList.remove('hidden');
+                badge.classList.add('notif-badge-pulse');
             } else {
                 badge.classList.add('hidden');
+                badge.classList.remove('notif-badge-pulse');
             }
         }
 
@@ -6097,10 +6346,10 @@
             const dropdown = document.getElementById('countryFilterDropdown');
             const filterBtn = event.target.closest('.country-filter-btn');
 
-            if (!dropdown.contains(event.target) && !filterBtn) {
-                dropdown.classList.add('hidden');
-                document.removeEventListener('click', closeCountryFilterOnClickOutside);
-            }
+            // Don't close if clicking inside the dropdown (including search input) or on the filter button
+            if (dropdown.contains(event.target) || filterBtn) return;
+            dropdown.classList.add('hidden');
+            document.removeEventListener('click', closeCountryFilterOnClickOutside);
         }
 
         function populateCountryList() {
@@ -6899,6 +7148,37 @@
                 if (d !== ddEl) d.classList.remove('open');
             });
             ddEl.classList.toggle('open');
+            // Viewport boundary detection for open dropdown
+            if (ddEl.classList.contains('open')) {
+                requestAnimationFrame(function() {
+                    const menu = ddEl.querySelector('.modern-dropdown-menu');
+                    if (!menu) return;
+                    // Reset positioning
+                    menu.style.left = '50%';
+                    menu.style.right = 'auto';
+                    menu.style.transform = 'translateX(-50%) scale(1)';
+                    menu.style.top = 'calc(100% + 6px)';
+                    menu.style.bottom = 'auto';
+                    const rect = menu.getBoundingClientRect();
+                    // Flip above if clipped at bottom
+                    if (rect.bottom > window.innerHeight - 8) {
+                        menu.style.top = 'auto';
+                        menu.style.bottom = 'calc(100% + 6px)';
+                    }
+                    // Shift left if clipped at right
+                    if (rect.right > window.innerWidth - 8) {
+                        menu.style.left = 'auto';
+                        menu.style.right = '0';
+                        menu.style.transform = 'scale(1)';
+                    }
+                    // Shift right if clipped at left
+                    if (rect.left < 8) {
+                        menu.style.left = '0';
+                        menu.style.right = 'auto';
+                        menu.style.transform = 'scale(1)';
+                    }
+                });
+            }
         }
         // Close dropdowns when clicking outside
         document.addEventListener('click', function(e) {
@@ -6906,6 +7186,37 @@
                 document.querySelectorAll('.modern-dropdown.open').forEach(function(d) {
                     d.classList.remove('open');
                 });
+            }
+        });
+        // Close dropdowns on Escape key
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape') {
+                document.querySelectorAll('.modern-dropdown.open').forEach(function(d) {
+                    d.classList.remove('open');
+                    d.querySelector('.modern-dropdown-trigger').focus();
+                });
+            }
+        });
+        // Arrow key navigation inside open dropdown menus
+        document.addEventListener('keydown', function(e) {
+            if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp' && e.key !== 'Enter') return;
+            const openDD = document.querySelector('.modern-dropdown.open');
+            if (!openDD) return;
+            const items = Array.from(openDD.querySelectorAll('.modern-dropdown-item'));
+            if (items.length === 0) return;
+            const focused = openDD.querySelector('.modern-dropdown-item:focus');
+            let idx = items.indexOf(focused);
+            if (e.key === 'ArrowDown') {
+                e.preventDefault();
+                idx = idx < items.length - 1 ? idx + 1 : 0;
+                items[idx].focus();
+            } else if (e.key === 'ArrowUp') {
+                e.preventDefault();
+                idx = idx > 0 ? idx - 1 : items.length - 1;
+                items[idx].focus();
+            } else if (e.key === 'Enter' && focused) {
+                e.preventDefault();
+                focused.click();
             }
         });
 
@@ -7636,6 +7947,9 @@
 
         function closeEmailPanel() {
             document.getElementById('emailModalOverlay').classList.remove('open');
+            // Clean up format painter state to prevent memory leaks
+            formatPainterActive = false;
+            capturedFormat = null;
         }
 
         function handleModalOverlayClick(event) {
@@ -8380,12 +8694,7 @@
             return labels[category] || category;
         }
 
-        function escapeHtml(str) {
-            if (!str) return '';
-            const div = document.createElement('div');
-            div.textContent = str;
-            return div.innerHTML;
-        }
+        // NOTE: escapeHtml is already defined earlier — removed duplicate
 
         function formatDate(dateStr) {
             try {
@@ -8552,6 +8861,7 @@
                         btn.classList.remove('bg-green-600');
                         btn.classList.add('bg-blue-600', 'hover:bg-blue-700');
                         document.getElementById('configModal').classList.add('hidden');
+                        document.getElementById('configModal').classList.remove('modal-animate-enter');
                     }, 800);
                 }
             };
@@ -8767,6 +9077,7 @@
                         showToast(`Sent ${totalSent} emails!`, "success");
                         closeEmailPanel();
                         deselectAll(); // Clear selection after successful email send
+                        invalidateCachesOnMutation('email');
                         fetchData();
                         // Clear form
                         document.getElementById('emailSubject').value = '';
@@ -9523,7 +9834,10 @@
             if(status && (status.includes('Human') || status.includes('Escalated'))) {
                 pendingCompletion = { email, jobId, btn };
                 document.getElementById('completeHumanEmail').textContent = email;
-                document.getElementById('completeHumanModal').classList.remove('hidden');
+                var chModal = document.getElementById('completeHumanModal');
+                chModal.classList.remove('hidden');
+                chModal.classList.add('modal-animate-enter');
+                trapFocus(chModal);
             } else {
                 // Direct completion
                 if(!confirm("Mark this negotiation as completed?")) return;
@@ -9537,7 +9851,10 @@
         }
 
         function closeCompleteHumanModal() {
-            document.getElementById('completeHumanModal').classList.add('hidden');
+            const modal = document.getElementById('completeHumanModal');
+            releaseFocus(modal);
+            modal.classList.add('hidden');
+            modal.classList.remove('modal-animate-enter');
             pendingCompletion = null;
         }
 
@@ -10609,6 +10926,13 @@
         let responseTimeChartInstance = null;
         let outcomeChartInstance = null;
 
+        // Resize charts on window resize
+        window.addEventListener('resize', function() {
+            if (funnelChartInstance) funnelChartInstance.resize();
+            if (responseTimeChartInstance) responseTimeChartInstance.resize();
+            if (outcomeChartInstance) outcomeChartInstance.resize();
+        });
+
         function loadAnalyticsCharts(filterJobId, startDate, endDate) {
             google.script.run.withSuccessHandler(chartData => {
                 // Only block on critical errors (access denied, can't access spreadsheet)
@@ -10685,6 +11009,14 @@
             showToast('Charts refreshed', 'success');
         }
 
+        // Dark mode aware chart colors
+        function chartGridColor() {
+            return document.documentElement.classList.contains('dark') ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)';
+        }
+        function chartLabelColor() {
+            return document.documentElement.classList.contains('dark') ? '#94a3b8' : '#64748b';
+        }
+
         function renderFunnelChart(data) {
             const ctx = document.getElementById('funnelChart');
             if (!ctx) return;
@@ -10743,7 +11075,7 @@
                     scales: {
                         y: {
                             beginAtZero: true,
-                            grid: { color: 'rgba(0,0,0,0.05)' }
+                            grid: { color: chartGridColor() }, ticks: { color: chartLabelColor() }
                         },
                         x: {
                             grid: { display: false }
@@ -10804,7 +11136,7 @@
                     scales: {
                         y: {
                             beginAtZero: true,
-                            grid: { color: 'rgba(0,0,0,0.05)' },
+                            grid: { color: chartGridColor() }, ticks: { color: chartLabelColor() },
                             title: { display: true, text: 'Responses', font: { size: 11 } }
                         },
                         x: {
@@ -11132,11 +11464,17 @@
             }).removeAnalyticsViewer(email);
         }
         function openViewersModal() {
-            document.getElementById('viewersModal').classList.remove('hidden');
+            const modal = document.getElementById('viewersModal');
+            modal.classList.remove('hidden');
+            modal.classList.add('modal-animate-enter');
+            trapFocus(modal);
             loadViewers();
         }
         function closeViewersModal() {
-            document.getElementById('viewersModal').classList.add('hidden');
+            const modal = document.getElementById('viewersModal');
+            releaseFocus(modal);
+            modal.classList.add('hidden');
+            modal.classList.remove('modal-animate-enter');
         }
 
         // ============================================================
@@ -11154,12 +11492,18 @@
         };
 
         function openTeamHierarchyModal() {
-            document.getElementById('teamHierarchyModal').classList.remove('hidden');
+            const modal = document.getElementById('teamHierarchyModal');
+            modal.classList.remove('hidden');
+            modal.classList.add('modal-animate-enter');
+            trapFocus(modal);
             loadHierarchyData();
         }
 
         function closeTeamHierarchyModal() {
-            document.getElementById('teamHierarchyModal').classList.add('hidden');
+            const modal = document.getElementById('teamHierarchyModal');
+            releaseFocus(modal);
+            modal.classList.remove('modal-animate-enter');
+            modal.classList.add('hidden');
             Object.keys(HIER_FIELDS).forEach(key => {
                 const dd = document.getElementById(HIER_FIELDS[key].dropdown);
                 if (dd) dd.classList.add('hidden');
@@ -11527,15 +11871,19 @@
         let parsedSupplementaryQuestions = [];
 
         function openSupplementaryDataModal() {
-            document.getElementById('supplementaryDataModal').classList.remove('hidden');
-            // Populate job dropdown
+            const modal = document.getElementById('supplementaryDataModal');
+            modal.classList.remove('hidden');
+            modal.classList.add('modal-animate-enter');
+            trapFocus(modal);
             populateSuppDataJobDropdown();
-            // Reset form
             resetSupplementaryDataForm();
         }
 
         function closeSupplementaryDataModal() {
-            document.getElementById('supplementaryDataModal').classList.add('hidden');
+            const modal = document.getElementById('supplementaryDataModal');
+            releaseFocus(modal);
+            modal.classList.add('hidden');
+            modal.classList.remove('modal-animate-enter');
             resetSupplementaryDataForm();
         }
 
@@ -11909,12 +12257,18 @@
                 showToast('Only admins can manage page access', 'error');
                 return;
             }
-            document.getElementById('pageAccessModal').classList.remove('hidden');
+            const paModal = document.getElementById('pageAccessModal');
+            paModal.classList.remove('hidden');
+            paModal.classList.add('modal-animate-enter');
+            trapFocus(paModal);
             loadPageAccessSettings();
         }
 
         function closePageAccessModal() {
-            document.getElementById('pageAccessModal').classList.add('hidden');
+            const modal = document.getElementById('pageAccessModal');
+            releaseFocus(modal);
+            modal.classList.add('hidden');
+            modal.classList.remove('modal-animate-enter');
         }
 
         function loadPageAccessSettings() {
@@ -13300,11 +13654,17 @@
             var weekAgo = new Date();
             weekAgo.setDate(weekAgo.getDate() - 7);
             document.getElementById('manualScanStartDate').value = weekAgo.toISOString().split('T')[0];
-            document.getElementById('manualScanModal').classList.remove('hidden');
+            var msModal = document.getElementById('manualScanModal');
+            msModal.classList.remove('hidden');
+            msModal.classList.add('modal-animate-enter');
+            trapFocus(msModal);
         }
 
         function closeManualScanModal() {
-            document.getElementById('manualScanModal').classList.add('hidden');
+            var modal = document.getElementById('manualScanModal');
+            releaseFocus(modal);
+            modal.classList.add('hidden');
+            modal.classList.remove('modal-animate-enter');
         }
 
         function executeManualScan() {
@@ -13484,7 +13844,10 @@
                     buildOIDetailActionButtons(issue, filteredIdx) +
                 '</div>';
 
-            document.getElementById('issueDetailModal').classList.remove('hidden');
+            var idModal = document.getElementById('issueDetailModal');
+            idModal.classList.remove('hidden');
+            idModal.classList.add('modal-animate-enter');
+            trapFocus(idModal);
         }
 
         function buildOIDetailActionButtons(issue, filteredIdx) {
@@ -13503,7 +13866,10 @@
         }
 
         function closeIssueDetailModal() {
-            document.getElementById('issueDetailModal').classList.add('hidden');
+            var modal = document.getElementById('issueDetailModal');
+            releaseFocus(modal);
+            modal.classList.add('hidden');
+            modal.classList.remove('modal-animate-enter');
         }
 
         // ===== BULK SELECTION & ACTIONS =====
@@ -13866,16 +14232,7 @@
             document.getElementById('myJobsTransferredCount').textContent = transferred;
         }
 
-        // Escape HTML special characters for safe attribute insertion
-        function escapeHtml(str) {
-            if (!str) return '';
-            return String(str)
-                .replace(/&/g, '&amp;')
-                .replace(/"/g, '&quot;')
-                .replace(/'/g, '&#39;')
-                .replace(/</g, '&lt;')
-                .replace(/>/g, '&gt;');
-        }
+        // NOTE: escapeHtml is already defined earlier — removed duplicate to avoid silent overwrite
 
         // Render jobs table
         function renderMyJobs() {
@@ -14066,12 +14423,18 @@
             document.getElementById('addJobNameInput').value = '';
             document.getElementById('addJobTmInput').value = '';
             document.getElementById('addJobNotesInput').value = '';
-            document.getElementById('addJobModal').classList.remove('hidden');
+            const modal = document.getElementById('addJobModal');
+            modal.classList.remove('hidden');
+            modal.classList.add('modal-animate-enter');
+            trapFocus(modal);
         }
 
         // Close Add Job Modal
         function closeAddJobModal() {
-            document.getElementById('addJobModal').classList.add('hidden');
+            const modal = document.getElementById('addJobModal');
+            releaseFocus(modal);
+            modal.classList.add('hidden');
+            modal.classList.remove('modal-animate-enter');
         }
 
         // Submit Add Job
@@ -14200,12 +14563,18 @@
                 confirmBtn.innerHTML = '<i class="fa-solid fa-redo mr-1"></i> Reactivate';
             }
 
-            document.getElementById('jobStatusModal').classList.remove('hidden');
+            const jsModal = document.getElementById('jobStatusModal');
+            jsModal.classList.remove('hidden');
+            jsModal.classList.add('modal-animate-enter');
+            trapFocus(jsModal);
         }
 
         // Close Job Status Modal
         function closeJobStatusModal() {
-            document.getElementById('jobStatusModal').classList.add('hidden');
+            const modal = document.getElementById('jobStatusModal');
+            releaseFocus(modal);
+            modal.classList.add('hidden');
+            modal.classList.remove('modal-animate-enter');
             pendingStatusChange = null;
         }
 
@@ -14280,12 +14649,18 @@
             // Load transfer targets
             loadTransferTargets();
 
-            document.getElementById('jobTransferModal').classList.remove('hidden');
+            var trModal = document.getElementById('jobTransferModal');
+            trModal.classList.remove('hidden');
+            trModal.classList.add('modal-animate-enter');
+            trapFocus(trModal);
         }
 
         // Close Transfer Modal
         function closeTransferModal() {
-            document.getElementById('jobTransferModal').classList.add('hidden');
+            var modal = document.getElementById('jobTransferModal');
+            releaseFocus(modal);
+            modal.classList.add('hidden');
+            modal.classList.remove('modal-animate-enter');
             pendingTransfer = null;
         }
 
@@ -14426,12 +14801,18 @@
                 document.getElementById('editDateInput').value = '';
             }
 
-            document.getElementById('editDateModal').classList.remove('hidden');
+            var edModal = document.getElementById('editDateModal');
+            edModal.classList.remove('hidden');
+            edModal.classList.add('modal-animate-enter');
+            trapFocus(edModal);
         }
 
         // Close Edit Date Modal
         function closeEditDateModal() {
-            document.getElementById('editDateModal').classList.add('hidden');
+            var modal = document.getElementById('editDateModal');
+            releaseFocus(modal);
+            modal.classList.add('hidden');
+            modal.classList.remove('modal-animate-enter');
             pendingDateEdit = null;
         }
 
@@ -14633,7 +15014,10 @@
             updateNtCounts();
             switchNtTab('notes');
 
-            document.getElementById('notesTasksModal').classList.remove('hidden');
+            var ntModal = document.getElementById('notesTasksModal');
+            ntModal.classList.remove('hidden');
+            ntModal.classList.add('modal-animate-enter');
+            trapFocus(ntModal);
 
             if (!ntIsReadOnly) {
                 setTimeout(function() { document.getElementById('ntAddInput').focus(); }, 100);
@@ -14655,7 +15039,10 @@
 
         // Close modal
         function closeNotesTasksModal() {
-            document.getElementById('notesTasksModal').classList.add('hidden');
+            var modal = document.getElementById('notesTasksModal');
+            releaseFocus(modal);
+            modal.classList.add('hidden');
+            modal.classList.remove('modal-animate-enter');
             ntCurrentJobId = null;
             ntCurrentJobIndex = null;
             ntEntries = [];
@@ -15061,12 +15448,18 @@
             pendingNotesEdit = jobId;
             document.getElementById('editNotesJobId').textContent = jobId;
             document.getElementById('editNotesInput').value = currentNotes || '';
-            document.getElementById('editNotesModal').classList.remove('hidden');
+            var enModal = document.getElementById('editNotesModal');
+            enModal.classList.remove('hidden');
+            enModal.classList.add('modal-animate-enter');
+            trapFocus(enModal);
         }
 
         // Close Edit Notes Modal
         function closeEditNotesModal() {
-            document.getElementById('editNotesModal').classList.add('hidden');
+            var modal = document.getElementById('editNotesModal');
+            releaseFocus(modal);
+            modal.classList.add('hidden');
+            modal.classList.remove('modal-animate-enter');
             pendingNotesEdit = null;
         }
 
