@@ -5786,6 +5786,30 @@ function processJobNegotiations(jobId, rules, ss, faqContent, negotiationEnabled
       return;
     }
 
+    // Handle WhatsApp Reachout - human is negotiating via WhatsApp, AI should stop sending emails
+    // Data extraction above still runs so candidate info is preserved/updated
+    if (state && state.status === 'WhatsApp Reachout') {
+      try {
+        const whatsappSummary = generateComprehensiveAISummary(
+          conversationHistory,
+          cleanCandidateEmail,
+          jobId,
+          attempts,
+          'WhatsApp Reachout'
+        );
+        if(stateRowIndex > -1) {
+          stateSheet.getRange(stateRowIndex, 9).setValue(whatsappSummary);
+          stateSheet.getRange(stateRowIndex, 6).setValue(new Date()); // Update last reply time
+        }
+      } catch(e) {
+        console.error("Failed to update AI summary for WhatsApp Reachout:", e);
+      }
+
+      jobStats.skipped++;
+      jobStats.log.push({type: 'info', message: `Skipped AI negotiation for ${cleanCandidateEmail}: WhatsApp Reachout - human negotiating via WhatsApp (data extracted, AI notes updated)`});
+      return;
+    }
+
     // CHECK: Skip negotiation if negotiation is disabled for this job
     // Data extraction and gathering still happen above - this only skips the rate negotiation part
     if (!negotiationEnabled) {
