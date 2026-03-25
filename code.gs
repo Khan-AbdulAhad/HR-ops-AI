@@ -5447,7 +5447,20 @@ function processJobNegotiations(jobId, rules, ss, faqContent, negotiationEnabled
   myEmail = (myEmail || '').toLowerCase();
   
   jobStats.log.push({type: 'info', message: `Processing as: ${myEmail || 'unknown'}`});
-  
+
+  // Check if this job is Fulfilled or Stopped - used to send closure messages instead of negotiating
+  let jobAssignmentStatus = null;
+  let isJobClosed = false;
+  try {
+    jobAssignmentStatus = getClosedJobStatus(jobId);
+    isJobClosed = jobAssignmentStatus === 'Fulfilled' || jobAssignmentStatus === 'Stopped';
+    if (isJobClosed) {
+      jobStats.log.push({type: 'info', message: `Job ${jobId} is ${jobAssignmentStatus} - will send closure messages to any candidates who reply`});
+    }
+  } catch(e) {
+    console.error('Failed to check job assignment status:', e);
+  }
+
   threads.forEach(thread => {
     jobStats.processed++;
 
@@ -5547,6 +5560,55 @@ function processJobNegotiations(jobId, rules, ss, faqContent, negotiationEnabled
       }
     }
 
+    // LATE REPLY FIX: If still no state found, check if this candidate was previously marked Unresponsive
+    // (candidates who never replied initially are in Unresponsive_Devs but never got a Negotiation_State entry)
+    // Re-activate them as a fresh candidate so the AI can respond to their late reply
+    if (!state) {
+      try {
+        const unresponsiveSheet = ss.getSheetByName('Unresponsive_Devs');
+        if (unresponsiveSheet) {
+          const unresponsiveData = unresponsiveSheet.getDataRange().getValues();
+          for (let u = 1; u < unresponsiveData.length; u++) {
+            if (normalizeEmail(String(unresponsiveData[u][0])) === cleanCandidateEmail &&
+                String(unresponsiveData[u][1]) === String(jobId)) {
+              const recoveredName = unresponsiveData[u][2] || 'Unknown';
+              const recoveredDevId = unresponsiveData[u][3] || 'N/A';
+              // Create a new Negotiation_State row for this candidate
+              stateSheet.appendRow([
+                cleanCandidateEmail,  // Email
+                jobId,                // Job ID
+                0,                    // Attempt Count
+                '',                   // Last Offer
+                'Active',             // Status
+                new Date(),           // Last Reply Time
+                recoveredDevId,       // Dev ID
+                recoveredName,        // Candidate Name
+                '',                   // AI Notes
+                thread.getId(),       // Thread ID
+                ''                    // Region
+              ]);
+              const newRowIndex = stateSheet.getLastRow();
+              state = {
+                rowIndex: newRowIndex,
+                attempts: 0,
+                lastOffer: '',
+                status: 'Active',
+                name: recoveredName,
+                devId: recoveredDevId,
+                aiNotes: '',
+                region: '',
+                originalEmail: cleanCandidateEmail
+              };
+              jobStats.log.push({type: 'info', message: `${cleanCandidateEmail} was previously Unresponsive and replied late - re-activated as new negotiation entry (row ${newRowIndex})`});
+              break;
+            }
+          }
+        }
+      } catch(e) {
+        console.error('Failed to check/restore unresponsive candidate state:', e);
+      }
+    }
+
     let stateRowIndex = state ? state.rowIndex : -1;
     let attempts = state ? state.attempts : 0;
     let candidateName = state ? state.name : 'Unknown';
@@ -5561,6 +5623,72 @@ function processJobNegotiations(jobId, rules, ss, faqContent, negotiationEnabled
       const isMe = from.toLowerCase().indexOf(myEmail) > -1;
       return `[${isMe ? 'ME' : 'CANDIDATE'}]: ${m.getPlainBody().substring(0, 400)}`;
     }).join("\n---\n");
+
+    // JOB CLOSED HANDLER: If job is Fulfilled or Stopped, reply to candidate with a closure message
+    // instead of running normal negotiation. Data extraction is skipped as the job is no longer active.
+    if (isJobClosed) {
+      try {
+        // Gather other active jobs from Negotiation_Config for potential matching mention
+        let otherJobsText = '';
+        try {
+          const configSheet = ss.getSheetByName('Negotiation_Config');
+          if (configSheet) {
+            const allConfigs = configSheet.getDataRange().getValues();
+            const otherJobs = [];
+            for (let c = 1; c < allConfigs.length; c++) {
+              const otherJobId = String(allConfigs[c][0]);
+              const otherJobDesc = String(allConfigs[c][5] || '').trim();
+              if (otherJobId && otherJobId !== String(jobId) && otherJobDesc) {
+                otherJobs.push(`- ${otherJobDesc.substring(0, 150)}`);
+              }
+            }
+            if (otherJobs.length > 0) {
+              otherJobsText = '\n\nOther open positions we are currently hiring for:\n' + otherJobs.join('\n');
+            }
+          }
+        } catch(configErr) {
+          console.error('Failed to load other job configs:', configErr);
+        }
+
+        const closurePrompt = `You are a professional recruiter writing a brief, warm email reply to a candidate.
+
+Context:
+- The position they were contacted for has been ${jobAssignmentStatus === 'Fulfilled' ? 'filled' : 'closed'}.
+- Job description: ${rules.jobDescription ? rules.jobDescription.substring(0, 300) : 'Not specified'}
+- Candidate name: ${candidateName}
+- Their recent message: ${conversationHistory.substring(0, 600)}
+${otherJobsText}
+
+Write a reply that:
+1. Thanks them sincerely for their time and response
+2. Politely explains this particular position has been ${jobAssignmentStatus === 'Fulfilled' ? 'filled' : 'closed'}
+3. ${otherJobsText ? 'If their background could be relevant to other open positions (listed above), briefly mention we will keep them in mind and reach out if there is a good match' : 'Mentions we will reach out if a suitable opportunity matching their profile opens up'}
+4. Closes on a positive, professional note
+5. Is concise - 3 to 5 sentences maximum
+
+Reply with only the email body text. No subject line. No placeholders.`;
+
+        const closureMessage = callAI(closurePrompt);
+        if (closureMessage && !closureMessage.startsWith('ACTION: ESCALATE')) {
+          sendReplyWithSenderName(thread, closureMessage, getEffectiveSenderName());
+          markCompleted(thread);
+
+          if (stateRowIndex > -1) {
+            stateSheet.getRange(stateRowIndex, 5).setValue('Completed - Job ' + jobAssignmentStatus);
+            stateSheet.getRange(stateRowIndex, 6).setValue(new Date());
+          }
+
+          jobStats.replied++;
+          jobStats.log.push({type: 'info', message: `${cleanCandidateEmail}: Job ${jobId} is ${jobAssignmentStatus} - sent closure message and marked Completed`});
+        } else {
+          jobStats.log.push({type: 'error', message: `${cleanCandidateEmail}: Job is ${jobAssignmentStatus} but AI failed to generate closure message`});
+        }
+      } catch(closureErr) {
+        console.error('Failed to handle job closure reply:', closureErr);
+        jobStats.log.push({type: 'error', message: `${cleanCandidateEmail}: Error sending job closure message - ${closureErr.message}`});
+      }
+      return; // Skip normal negotiation flow - job is closed
+    }
 
     // ALWAYS extract and save candidate details BEFORE any early returns
     // This ensures we capture candidate data even during ongoing negotiation or escalation
@@ -8995,7 +9123,7 @@ function markCompleted(thread) {
   try {
     const label = GmailApp.getUserLabelByName("Completed") || GmailApp.createLabel("Completed");
     thread.addLabel(label);
-    
+
     // Remove Human-Negotiation label if present
     const humanLabel = GmailApp.getUserLabelByName("Human-Negotiation");
     if(humanLabel) {
@@ -9003,6 +9131,29 @@ function markCompleted(thread) {
     }
   } catch(e) {
     console.error("Failed to add Completed label:", e);
+  }
+}
+
+/**
+ * Check the Job_Assignments status for a given job ID.
+ * Returns 'Active', 'Fulfilled', 'Stopped', 'Transferred', or null if not found.
+ * Used to detect closed/fulfilled jobs before sending negotiation replies.
+ */
+function getClosedJobStatus(jobId) {
+  try {
+    const sheet = getJobAssignmentsSheet();
+    if (!sheet) return null;
+    const data = sheet.getDataRange().getValues();
+    const jobIdStr = String(jobId);
+    for (let i = 1; i < data.length; i++) {
+      if (String(data[i][1]) === jobIdStr) {
+        return String(data[i][2]) || null; // Column 3 (index 2) = Status
+      }
+    }
+    return null; // Not found in Job_Assignments - treat as active
+  } catch(e) {
+    console.error('Error checking job assignment status for job ' + jobId + ':', e);
+    return null; // Safe fallback: treat as active if lookup fails
   }
 }
 
