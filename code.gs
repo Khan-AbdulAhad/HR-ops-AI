@@ -4654,8 +4654,8 @@ function getDevelopersByIds(developerIds, jobId) {
   if (cleanIds.length === 0) {
     throw new Error("No valid numeric Developer IDs found. Please check your input.");
   }
-  if (cleanIds.length > 200) {
-    throw new Error("Maximum 200 Developer IDs allowed per search. You entered " + cleanIds.length + ".");
+  if (cleanIds.length > 1000) {
+    throw new Error("Maximum 1000 Developer IDs allowed per search. You entered " + cleanIds.length + ".");
   }
 
   // If job ID provided, fetch logs for sent-status enrichment
