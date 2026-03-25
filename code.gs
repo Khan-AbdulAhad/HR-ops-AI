@@ -15341,7 +15341,30 @@ function getTimeToResponseMetrics(filterJobId, startDate, endDate) {
 
   try {
     const ss = getCachedSpreadsheet();
-    if (!ss) return { error: "Cannot access spreadsheet" };
+    // If user's personal spreadsheet is unavailable (e.g. team lead/manager without own ops sheet),
+    // return empty metrics instead of error - centralized data doesn't have granular timestamps
+    if (!ss) {
+      return {
+        totalOutreach: 0,
+        totalResponses: 0,
+        responseRate: 0,
+        avgResponseHours: 0,
+        medianResponseHours: 0,
+        p25ResponseHours: 0,
+        p75ResponseHours: 0,
+        p90ResponseHours: 0,
+        within24h: 0,
+        within48h: 0,
+        within72h: 0,
+        responseTimeBuckets: {
+          'Under 1hr': 0, '1-6hrs': 0, '6-12hrs': 0,
+          '12-24hrs': 0, '24-48hrs': 0, '48-72hrs': 0, '72hrs+': 0
+        },
+        responsesByDay: {},
+        responsesByHour: {},
+        _source: 'centralized'
+      };
+    }
 
     // Get Email_Logs for outreach timestamps
     const emailLogsSheet = ss.getSheetByName('Email_Logs');
@@ -15549,6 +15572,168 @@ function getTimeToResponseMetrics(filterJobId, startDate, endDate) {
 }
 
 /**
+ * Fallback: Build job performance metrics from centralized analytics sheets
+ * Used when the user's personal spreadsheet is unavailable (e.g. team leads, managers)
+ */
+function getJobPerformanceFromCentralized(access, startDate, endDate) {
+  try {
+    const ss = getAnalyticsSpreadsheet();
+    if (!ss) return { jobs: [], totalJobs: 0, avgResponseRate: 0 };
+
+    let startDateFilter = null;
+    let endDateFilter = null;
+    if (startDate) { startDateFilter = new Date(startDate); startDateFilter.setHours(0, 0, 0, 0); }
+    if (endDate) { endDateFilter = new Date(endDate); endDateFilter.setHours(23, 59, 59, 999); }
+
+    // RBAC
+    const isAdmin = access.accessLevel === 'admin' || access.canManageUsers;
+    const teamMembers = access.teamMembers || [access.userEmail.toLowerCase()];
+    let allowedEmails = null;
+    if (isAdmin) { allowedEmails = null; }
+    else if (!access.canViewAllAnalytics) { allowedEmails = [access.userEmail.toLowerCase()]; }
+    else { allowedEmails = teamMembers; }
+
+    const jobMetrics = new Map();
+    function ensureJob(jobId) {
+      if (!jobMetrics.has(jobId)) {
+        jobMetrics.set(jobId, { outreach: 0, responses: new Set(), accepted: new Set(), droppedOff: new Set(), unresponsive: new Set(), engaged: new Set(), awaiting: 0, counted: new Set() });
+      }
+      return jobMetrics.get(jobId);
+    }
+
+    // Count outreach from Activity_Log
+    const actSheet = ss.getSheetByName('Activity_Log');
+    if (actSheet && actSheet.getLastRow() > 1) {
+      const actData = actSheet.getDataRange().getValues();
+      for (let i = 1; i < actData.length; i++) {
+        const timestamp = actData[i][0];
+        const userEmail = String(actData[i][1] || '').toLowerCase();
+        const action = String(actData[i][2] || '');
+        const jobId = String(actData[i][3] || '');
+        const count = parseInt(actData[i][4]) || 1;
+
+        if (action !== 'email_sent' || !jobId) continue;
+        if (allowedEmails !== null && !allowedEmails.includes(userEmail)) continue;
+        if (timestamp && startDateFilter && new Date(timestamp) < startDateFilter) continue;
+        if (timestamp && endDateFilter && new Date(timestamp) > endDateFilter) continue;
+
+        ensureJob(jobId).outreach += count;
+      }
+    }
+
+    // Process Completed_Analytics
+    const completedSheet = ss.getSheetByName('Completed_Analytics');
+    if (completedSheet && completedSheet.getLastRow() > 1) {
+      const completedData = completedSheet.getDataRange().getValues();
+      for (let i = 1; i < completedData.length; i++) {
+        const timestamp = completedData[i][0];
+        const cUserEmail = String(completedData[i][1] || '').toLowerCase();
+        const jobId = String(completedData[i][2] || '');
+        const candidateEmail = String(completedData[i][3] || '').toLowerCase();
+        const finalStatus = String(completedData[i][5] || '').toLowerCase();
+
+        if (!candidateEmail || !jobId) continue;
+        if (allowedEmails !== null && !allowedEmails.includes(cUserEmail)) continue;
+        if (timestamp && startDateFilter && new Date(timestamp) < startDateFilter) continue;
+        if (timestamp && endDateFilter && new Date(timestamp) > endDateFilter) continue;
+
+        const jm = ensureJob(jobId);
+        const dedupeKey = candidateEmail.replace(/\./g, '');
+        if (jm.counted.has(dedupeKey)) continue;
+        jm.counted.add(dedupeKey);
+        jm.responses.add(dedupeKey);
+
+        if (finalStatus.includes('not interested')) {
+          jm.droppedOff.add(dedupeKey);
+        } else {
+          jm.accepted.add(dedupeKey);
+        }
+      }
+    }
+
+    // Process FollowUp_Analytics for unresponsive
+    const fuSheet = ss.getSheetByName('FollowUp_Analytics');
+    if (fuSheet && fuSheet.getLastRow() > 1) {
+      const fuData = fuSheet.getDataRange().getValues();
+      const candidateState = {};
+      for (let i = 1; i < fuData.length; i++) {
+        const fuTimestamp = fuData[i][0];
+        const fuUserEmail = String(fuData[i][1] || '').toLowerCase();
+        const fuJobId = String(fuData[i][2] || '');
+        const fuCandidateEmail = String(fuData[i][3] || '').toLowerCase();
+        const fuAction = String(fuData[i][5] || '');
+
+        if (!fuCandidateEmail || !fuJobId) continue;
+        if (allowedEmails !== null && !allowedEmails.includes(fuUserEmail)) continue;
+
+        const stateKey = fuCandidateEmail.replace(/\./g, '') + '|' + fuJobId;
+        const existing = candidateState[stateKey];
+        if (!existing || new Date(fuTimestamp) > new Date(existing.timestamp)) {
+          candidateState[stateKey] = { action: fuAction, timestamp: fuTimestamp, jobId: fuJobId, email: fuCandidateEmail.replace(/\./g, '') };
+        }
+      }
+
+      Object.values(candidateState).forEach(state => {
+        const jm = ensureJob(state.jobId);
+        if (jm.counted.has(state.email)) return;
+
+        if (state.action === 'unresponsive') {
+          jm.counted.add(state.email);
+          jm.unresponsive.add(state.email);
+        } else if (state.action === 'responded') {
+          jm.responses.add(state.email);
+          jm.counted.add(state.email);
+          jm.engaged.add(state.email);
+        }
+      });
+    }
+
+    // Build job list
+    const jobsList = [];
+    let totalResponseRate = 0;
+    let jobsWithOutreach = 0;
+
+    jobMetrics.forEach((metrics, jobId) => {
+      const outreachCount = metrics.outreach;
+      const responseCount = metrics.responses.size;
+      const acceptedCount = metrics.accepted.size;
+      const droppedOffCount = metrics.droppedOff.size;
+      const unresponsiveCount = metrics.unresponsive.size;
+      const engagedCount = metrics.engaged.size;
+      const totalInJob = metrics.counted.size;
+
+      if (totalInJob > 0 || outreachCount > 0) {
+        const displayTotal = Math.max(outreachCount, totalInJob);
+        const responseRate = displayTotal > 0 ? ((responseCount / displayTotal) * 100) : 0;
+        const acceptanceRate = responseCount > 0 ? ((acceptedCount / responseCount) * 100) : 0;
+
+        jobsList.push({
+          jobId, outreach: displayTotal, responses: responseCount, accepted: acceptedCount,
+          droppedOff: droppedOffCount, unresponsive: unresponsiveCount, engaged: engagedCount,
+          awaiting: 0, responseRate: parseFloat(responseRate.toFixed(1)),
+          acceptanceRate: parseFloat(acceptanceRate.toFixed(1))
+        });
+
+        totalResponseRate += responseRate;
+        jobsWithOutreach++;
+      }
+    });
+
+    jobsList.sort((a, b) => b.outreach !== a.outreach ? b.outreach - a.outreach : b.responseRate - a.responseRate);
+
+    return {
+      jobs: jobsList,
+      totalJobs: jobsList.length,
+      avgResponseRate: parseFloat((jobsWithOutreach > 0 ? totalResponseRate / jobsWithOutreach : 0).toFixed(1)),
+      _source: 'centralized'
+    };
+  } catch (e) {
+    console.error("Error getting centralized job performance metrics:", e);
+    return { jobs: [], totalJobs: 0, avgResponseRate: 0 };
+  }
+}
+
+/**
  * Get job performance metrics for analytics dashboard
  * Shows which jobs have the best response and acceptance rates
  * @param {string} startDate - Optional start date (ISO string)
@@ -15563,7 +15748,11 @@ function getJobPerformanceMetrics(startDate, endDate) {
 
   try {
     const ss = getCachedSpreadsheet();
-    if (!ss) return { error: "Cannot access spreadsheet" };
+    // If user's personal spreadsheet is unavailable (e.g. team lead/manager without own ops sheet),
+    // fall back to centralized analytics data for job-level metrics
+    if (!ss) {
+      return getJobPerformanceFromCentralized(access, startDate, endDate);
+    }
 
     // Parse date filters
     let startDateFilter = null;
@@ -15772,6 +15961,228 @@ function getJobPerformanceMetrics(startDate, endDate) {
 }
 
 /**
+ * Fallback: Build conversion funnel data from centralized analytics sheets
+ * Used when the user's personal spreadsheet is unavailable (e.g. team leads, managers)
+ * Sources data from Completed_Analytics, FollowUp_Analytics, and Activity_Log
+ */
+function getConversionFunnelFromCentralized(access, filterJobId, startDate, endDate) {
+  try {
+    const ss = getAnalyticsSpreadsheet();
+    if (!ss) return { error: "Cannot access analytics sheet" };
+
+    // Parse date filters
+    let startDateFilter = null;
+    let endDateFilter = null;
+    if (startDate) {
+      startDateFilter = new Date(startDate);
+      startDateFilter.setHours(0, 0, 0, 0);
+    }
+    if (endDate) {
+      endDateFilter = new Date(endDate);
+      endDateFilter.setHours(23, 59, 59, 999);
+    }
+
+    // RBAC: Determine allowed emails
+    const isAdmin = access.accessLevel === 'admin' || access.canManageUsers;
+    const teamMembers = access.teamMembers || [access.userEmail.toLowerCase()];
+    let allowedEmails = null; // null = all
+    if (isAdmin) {
+      allowedEmails = null;
+    } else if (!access.canViewAllAnalytics) {
+      allowedEmails = [access.userEmail.toLowerCase()];
+    } else {
+      allowedEmails = teamMembers;
+    }
+
+    // --- Count outreach from Activity_Log (email_sent actions) ---
+    const outreachEmails = new Set();
+    const activitySheet = ss.getSheetByName('Activity_Log');
+    if (activitySheet && activitySheet.getLastRow() > 1) {
+      const actData = activitySheet.getDataRange().getValues();
+      for (let i = 1; i < actData.length; i++) {
+        const timestamp = actData[i][0];
+        const userEmail = String(actData[i][1] || '').toLowerCase();
+        const action = String(actData[i][2] || '');
+        const jobId = String(actData[i][3] || '');
+        const details = String(actData[i][5] || '');
+
+        if (action !== 'email_sent') continue;
+        if (allowedEmails !== null && !allowedEmails.includes(userEmail)) continue;
+        if (filterJobId && jobId !== filterJobId) continue;
+        if (timestamp && startDateFilter && new Date(timestamp) < startDateFilter) continue;
+        if (timestamp && endDateFilter && new Date(timestamp) > endDateFilter) continue;
+
+        // Use details field as candidate identifier if available, else count by job+user
+        const candidateKey = details ? (details + '|' + jobId) : (userEmail + '|' + jobId + '|' + i);
+        outreachEmails.add(candidateKey);
+      }
+    }
+
+    // --- Process Completed_Analytics ---
+    let statCompleted = 0;
+    let statNotInterested = 0;
+    let accepted = 0, rejected = 0, escalated = 0, notInterested = 0;
+    const respondedCompletedEmails = new Set();
+    const countedCandidates = new Set();
+
+    const completedSheet = ss.getSheetByName('Completed_Analytics');
+    if (completedSheet && completedSheet.getLastRow() > 1) {
+      const completedData = completedSheet.getDataRange().getValues();
+      for (let i = 1; i < completedData.length; i++) {
+        const timestamp = completedData[i][0];
+        const cUserEmail = String(completedData[i][1] || '').toLowerCase();
+        const jobId = String(completedData[i][2] || '');
+        const candidateEmail = String(completedData[i][3] || '');
+        const finalStatus = String(completedData[i][5] || '');
+        const finalStatusLower = finalStatus.toLowerCase();
+
+        if (!candidateEmail) continue;
+        if (allowedEmails !== null && !allowedEmails.includes(cUserEmail)) continue;
+        if (filterJobId && jobId !== filterJobId) continue;
+        if (timestamp && startDateFilter && new Date(timestamp) < startDateFilter) continue;
+        if (timestamp && endDateFilter && new Date(timestamp) > endDateFilter) continue;
+
+        const dedupeKey = candidateEmail.toLowerCase().replace(/\./g, '') + '|' + jobId;
+        if (countedCandidates.has(dedupeKey)) continue;
+        countedCandidates.add(dedupeKey);
+
+        respondedCompletedEmails.add(candidateEmail.toLowerCase());
+
+        if (finalStatusLower.includes('accept') || finalStatusLower.includes('complete')) {
+          accepted++;
+          statCompleted++;
+        } else if (finalStatusLower.includes('not interested')) {
+          notInterested++;
+          statNotInterested++;
+        } else if (finalStatusLower.includes('reject') || finalStatusLower.includes('declined')) {
+          rejected++;
+          statCompleted++;
+        } else if (finalStatusLower.includes('escalat') || finalStatusLower.includes('human')) {
+          escalated++;
+        }
+      }
+    }
+
+    // --- Process FollowUp_Analytics for unresponsive and active follow-ups ---
+    let statUnresponsive = 0;
+    let statActive = 0;
+    let statInitialOutreach = 0;
+
+    const fuSheet = ss.getSheetByName('FollowUp_Analytics');
+    if (fuSheet && fuSheet.getLastRow() > 1) {
+      const fuData = fuSheet.getDataRange().getValues();
+      const candidateState = {};
+
+      for (let i = 1; i < fuData.length; i++) {
+        const fuTimestamp = fuData[i][0];
+        const fuUserEmail = String(fuData[i][1] || '').toLowerCase();
+        const fuJobId = String(fuData[i][2] || '');
+        const fuCandidateEmail = String(fuData[i][3] || '');
+        const fuAction = String(fuData[i][5] || '');
+
+        if (!fuCandidateEmail || !fuJobId) continue;
+        if (allowedEmails !== null && !allowedEmails.includes(fuUserEmail)) continue;
+        if (filterJobId && fuJobId !== filterJobId) continue;
+
+        const stateKey = fuCandidateEmail.toLowerCase().replace(/\./g, '') + '|' + fuJobId;
+
+        // Already counted in completed? Skip
+        if (countedCandidates.has(stateKey)) continue;
+
+        const existing = candidateState[stateKey];
+        if (!existing || new Date(fuTimestamp) > new Date(existing.timestamp)) {
+          candidateState[stateKey] = { action: fuAction, timestamp: fuTimestamp, jobId: fuJobId };
+        }
+      }
+
+      Object.entries(candidateState).forEach(([key, state]) => {
+        if (countedCandidates.has(key)) return;
+        countedCandidates.add(key);
+
+        if (state.action === 'unresponsive') {
+          statUnresponsive++;
+        } else if (state.action === 'responded') {
+          statActive++; // Responded but not yet completed
+        } else if (state.action === 'added') {
+          statInitialOutreach++;
+        } else {
+          // followup_1_sent, followup_2_sent - still in pipeline
+          statInitialOutreach++;
+        }
+      });
+    }
+
+    // Build pipeline cards
+    const totalCandidates = statInitialOutreach + statActive + statCompleted +
+                            statNotInterested + statUnresponsive;
+
+    const pipelineCards = {
+      totalOutreach: totalCandidates,
+      awaitingResponse: statInitialOutreach,
+      engaged: statActive,
+      completed: statCompleted,
+      droppedOff: statNotInterested,
+      unresponsive: statUnresponsive,
+      whatsappReachout: 0
+    };
+
+    // Build funnel
+    const totalOutreach = Math.max(outreachEmails.size, totalCandidates);
+    const totalResponded = respondedCompletedEmails.size + statActive;
+    const totalAccepted = accepted;
+
+    const responseRate = totalOutreach > 0 ? ((totalResponded / totalOutreach) * 100).toFixed(1) : 0;
+    const negotiationRate = totalResponded > 0 ? ((statActive / totalResponded) * 100).toFixed(1) : 0;
+    const acceptanceRate = totalResponded > 0 ? ((totalAccepted / totalResponded) * 100).toFixed(1) : 0;
+    const overallConversion = totalOutreach > 0 ? ((totalAccepted / totalOutreach) * 100).toFixed(1) : 0;
+
+    const funnelData = [
+      { stage: 'Outreach Sent', count: statInitialOutreach, rate: '100%' },
+      { stage: 'Responded', count: statActive, rate: responseRate + '%' },
+      { stage: 'Negotiating', count: statActive, rate: negotiationRate + '%' },
+      { stage: 'Accepted', count: totalAccepted, rate: acceptanceRate + '%' }
+    ];
+
+    const outcomeBreakdown = {
+      accepted: accepted,
+      notInterested: notInterested,
+      rejected: rejected,
+      escalated: escalated,
+      unresponsive: statUnresponsive,
+      whatsappReachout: 0,
+      pending: statActive
+    };
+
+    return {
+      funnel: funnelData,
+      outcomes: outcomeBreakdown,
+      pipelineCards: pipelineCards,
+      currentOutreach: statInitialOutreach,
+      currentResponded: statActive,
+      currentNegotiating: statActive,
+      currentAccepted: totalAccepted,
+      totalOutreach: totalCandidates,
+      totalResponded: totalResponded,
+      totalNegotiating: statActive,
+      totalAccepted: totalAccepted,
+      totalNotInterested: statNotInterested,
+      totalRejected: rejected,
+      totalEscalated: escalated,
+      totalUnresponsive: statUnresponsive,
+      totalWhatsAppReachout: 0,
+      responseRate: parseFloat(responseRate),
+      negotiationRate: parseFloat(negotiationRate),
+      acceptanceRate: parseFloat(acceptanceRate),
+      overallConversion: parseFloat(overallConversion),
+      _source: 'centralized' // Indicates data came from centralized analytics
+    };
+  } catch (e) {
+    console.error("Error getting centralized conversion funnel data:", e);
+    return { error: e.message };
+  }
+}
+
+/**
  * Get conversion funnel data for analytics dashboard
  * Tracks candidates through the recruitment funnel stages
  * @param {string} filterJobId - Optional job ID filter
@@ -15787,7 +16198,11 @@ function getConversionFunnelData(filterJobId, startDate, endDate) {
 
   try {
     const ss = getCachedSpreadsheet();
-    if (!ss) return { error: "Cannot access spreadsheet" };
+    // If user's personal spreadsheet is unavailable (e.g. team lead without own ops sheet),
+    // fall back to centralized analytics data instead of returning an error
+    if (!ss) {
+      return getConversionFunnelFromCentralized(access, filterJobId, startDate, endDate);
+    }
 
     // Parse date filters
     let startDateFilter = null;
@@ -16053,16 +16468,16 @@ function getAnalyticsChartData(filterJobId, startDate, endDate) {
   const jobPerformance = getJobPerformanceMetrics(startDate, endDate);
 
   // Return data even if one source has errors - allow partial rendering
-  // Only return error field if BOTH have critical errors (not just empty data)
-  const hasCriticalError = (timeToResponse.error === "Cannot access spreadsheet") ||
-                           (conversionFunnel.error === "Cannot access spreadsheet") ||
-                           (conversionFunnel.error === "Access denied");
+  // Only block on access denied or analytics sheet itself being inaccessible
+  // "Cannot access spreadsheet" from personal sheet is NOT critical - centralized fallback handles it
+  const hasCriticalError = (conversionFunnel.error === "Access denied") ||
+                           (conversionFunnel.error === "Cannot access analytics sheet");
 
   return {
     timeToResponse: timeToResponse.error ? null : timeToResponse,
     conversionFunnel: conversionFunnel.error ? null : conversionFunnel,
     jobPerformance: jobPerformance.error ? null : jobPerformance,
-    error: hasCriticalError ? (timeToResponse.error || conversionFunnel.error) : null
+    error: hasCriticalError ? (conversionFunnel.error) : null
   };
 }
 
