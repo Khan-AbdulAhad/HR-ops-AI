@@ -16041,28 +16041,28 @@ const PAGE_ACCESS_DEFAULTS = {
     analytics: true, learning: true, aitesting: true, onboardingissues: true
   },
   'tl': {
-    outreach: true, negotiation: true, tasks: true, followups: true, myjobs: true,
-    analytics: true, learning: true, aitesting: false, onboardingissues: false
+    outreach: true, negotiation: false, tasks: false, followups: false, myjobs: true,
+    analytics: true, learning: false, aitesting: false, onboardingissues: false
   },
   'tm': {
-    outreach: false, negotiation: false, tasks: false, followups: false, myjobs: false,
-    analytics: true, learning: true, aitesting: false, onboardingissues: false
+    outreach: true, negotiation: false, tasks: false, followups: false, myjobs: false,
+    analytics: true, learning: false, aitesting: false, onboardingissues: false
   },
   'ta': {
-    outreach: false, negotiation: false, tasks: false, followups: false, myjobs: false,
-    analytics: true, learning: true, aitesting: false, onboardingissues: false
+    outreach: true, negotiation: false, tasks: false, followups: false, myjobs: false,
+    analytics: false, learning: false, aitesting: false, onboardingissues: false
   },
   'manager': {
     outreach: false, negotiation: false, tasks: false, followups: false, myjobs: false,
-    analytics: true, learning: true, aitesting: false, onboardingissues: false
+    analytics: true, learning: false, aitesting: false, onboardingissues: false
   },
   'tos': {
-    outreach: true, negotiation: true, tasks: true, followups: true, myjobs: true,
-    analytics: true, learning: true, aitesting: false, onboardingissues: false
+    outreach: true, negotiation: true, tasks: true, followups: false, myjobs: true,
+    analytics: true, learning: true, aitesting: false, onboardingissues: true
   },
   'other': {
-    outreach: false, negotiation: false, tasks: false, followups: false, myjobs: true,
-    analytics: true, learning: false, aitesting: false, onboardingissues: false
+    outreach: true, negotiation: true, tasks: false, followups: false, myjobs: true,
+    analytics: false, learning: false, aitesting: false, onboardingissues: false
   }
 };
 

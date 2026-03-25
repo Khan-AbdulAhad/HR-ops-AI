@@ -9960,9 +9960,9 @@
             hasOperationalAccess: true,  // Can use operational tabs
             accessLevel: 'other',        // Role: admin, tl, tm, ta, manager, other
             userEmail: '',
-            pageAccess: {                // Dynamic page access per role
-                outreach: true, negotiation: true, tasks: true, followups: true,
-                analytics: true, learning: true, aitesting: false, onboardingissues: false
+            pageAccess: {                // Dynamic page access per role - default restrictive until server responds
+                outreach: false, negotiation: false, tasks: false, followups: false,
+                myjobs: false, analytics: false, learning: false, aitesting: false, onboardingissues: false
             }
         };
 
@@ -10159,6 +10159,7 @@
                 'navTabNegotiation': 'negotiation',
                 'navTabTasks': 'tasks',
                 'navTabFollowups': 'followups',
+                'navTabMyjobs': 'myjobs',
                 'navTabAnalytics': 'analytics',
                 'navTabLearning': 'learning',
                 'aiTestingNavTab': 'aitesting',
