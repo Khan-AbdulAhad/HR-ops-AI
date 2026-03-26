@@ -10936,11 +10936,10 @@
 
         function loadAnalyticsCharts(filterJobId, startDate, endDate) {
             google.script.run.withSuccessHandler(chartData => {
-                // Only block on critical errors (access denied, can't access spreadsheet)
+                // Only block on truly critical errors (access denied, analytics sheet itself inaccessible)
                 if (chartData.error) {
                     console.error('Chart data error:', chartData.error);
-                    // Show error toast but don't return - try to render what we can
-                    if (chartData.error === "Access denied" || chartData.error === "Cannot access spreadsheet") {
+                    if (chartData.error === "Access denied" || chartData.error === "Cannot access analytics sheet") {
                         showToast('Analytics error: ' + chartData.error, 'error');
                         return;
                     }
