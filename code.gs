@@ -3824,7 +3824,7 @@ function getAllTasks(filters) {
   const jobSettingsMap = {}; // Cache job settings to avoid repeated lookups
 
   // Stats counters
-  let statActive = 0, statHuman = 0, statAccepted = 0, statInitialOutreach = 0, statUnresponsive = 0, statWhatsApp = 0;
+  let statActive = 0, statHuman = 0, statAccepted = 0, statInitialOutreach = 0, statUnresponsive = 0, statWhatsApp = 0, statCompleted = 0;
 
   // FIX: Track unique candidates across sheets to prevent double-counting
   const countedCandidates = new Set();
@@ -3893,15 +3893,17 @@ function getAllTasks(filters) {
     // FIX: Treat 'Data Complete' as 'Completed' for filter purposes so data-only jobs
     // appear when filtering by "Completed" status
     if(statusFilter !== 'all') {
-      if(statusFilter === 'Completed' && status === 'Data Complete') {
-        // Allow through - Data Complete is a form of completion
+      if(statusFilter === 'Completed' && (status === 'Data Complete' || status.toLowerCase().indexOf('completed') > -1)) {
+        // Allow through - Data Complete and "Completed - Job Fulfilled/Stopped" are forms of completion
       } else if(status !== statusFilter) {
         continue;
       }
     }
 
     // Count stats - only for candidates that pass filters
-    if(status === 'Data Complete') {
+    // FIX: Check for "Completed" status (e.g. "Completed - Job Fulfilled") BEFORE the
+    // attempts === 0 fallback, so fulfilled/stopped jobs don't get miscounted as Initial Outreach
+    if(status === 'Data Complete' || status.toLowerCase().indexOf('completed') > -1) {
       statCompleted++;
     } else if(status === 'WhatsApp Reachout') {
       statWhatsApp++;
@@ -3916,7 +3918,10 @@ function getAllTasks(filters) {
     }
 
     let tag = '';
-    if(status === 'Data Complete') {
+    // FIX: Check for "Completed" status (e.g. "Completed - Job Fulfilled", "Completed - Job Stopped")
+    // BEFORE the attempts === 0 fallback. Previously, candidates with completed status but attempts === 0
+    // would incorrectly show "Initial Outreach" tag because the attempts === 0 condition caught them first.
+    if(status === 'Data Complete' || status.toLowerCase().indexOf('completed') > -1) {
       tag = 'Completed';
     } else if(status === 'WhatsApp Reachout') {
       tag = 'WhatsApp Reachout';
@@ -3987,7 +3992,7 @@ function getAllTasks(filters) {
   }
 
   // 3. Get Completed Negotiations - show completed candidates in Task List
-  let statCompleted = 0;
+  // statCompleted already declared above (used by both state and completed sections)
   let statNotInterested = 0;
   const completedData = getCachedSheetData('Negotiation_Completed', 30); // 30 second cache
   if(completedData && completedData.length > 1) {
@@ -5902,6 +5907,11 @@ Reply with only the email body text. No subject line. No placeholders.`;
                   if (stateRowIndex > -1 && dataGatheringSummary) {
                     stateSheet.getRange(stateRowIndex, 9).setValue(dataGatheringSummary);
                     stateSheet.getRange(stateRowIndex, 6).setValue(new Date());
+                    // FIX: Update Status tag to 'Active - Data Gathering' so the task list
+                    // reflects that the candidate has responded (data gathering still in progress).
+                    // Previously this was missing, causing the tag to stay as 'Initial Outreach'
+                    // even after the candidate replied and a data follow-up was sent.
+                    stateSheet.getRange(stateRowIndex, 5).setValue('Active - Data Gathering');
                   }
                 } catch (summaryError) {
                   console.error("Failed to update AI summary for data gathering:", summaryError);
@@ -15885,7 +15895,10 @@ function getJobPerformanceMetrics(startDate, endDate) {
       if (jm.counted.has(email)) continue;
       jm.counted.add(email);
 
-      if (status === 'Unresponsive') {
+      if (status === 'Data Complete' || status.toLowerCase().indexOf('completed') > -1) {
+        jm.engaged.add(email);
+        jm.responses.add(email);
+      } else if (status === 'Unresponsive') {
         jm.unresponsive.add(email);
       } else if (status === 'Human-Negotiation') {
         jm.engaged.add(email);
@@ -16333,7 +16346,10 @@ function getConversionFunnelData(filterJobId, startDate, endDate) {
       countedCandidates.add(candidateKey);
 
       // Count by status tag (same as task list)
-      if (status === 'WhatsApp Reachout') {
+      // FIX: Check for "Completed" status before attempts === 0 fallback
+      if (status === 'Data Complete' || status.toLowerCase().indexOf('completed') > -1) {
+        statCompleted++;
+      } else if (status === 'WhatsApp Reachout') {
         statWhatsApp++;
       } else if (status === 'Unresponsive') {
         statUnresponsive++;
