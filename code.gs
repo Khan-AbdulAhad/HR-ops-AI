@@ -3942,6 +3942,7 @@ function getAllTasks(filters) {
       tags: tag,
       type: 'Negotiating',
       lastReply: stateData[i][5] ? new Date(stateData[i][5]).toLocaleString() : 'N/A',
+      sortTimestamp: stateData[i][5] ? new Date(stateData[i][5]).getTime() : 0,
       aiNotes: stateData[i][8] || '',
       threadId: stateData[i][9] || ''
     });
@@ -3979,6 +3980,7 @@ function getAllTasks(filters) {
         type: 'Accepted',
         agreedRate: taskData[i][4] || 'N/A',
         lastReply: taskData[i][0] ? new Date(taskData[i][0]).toLocaleString() : 'N/A',
+        sortTimestamp: taskData[i][0] ? new Date(taskData[i][0]).getTime() : 0,
         threadId: taskData[i][7] || ''
       });
     }
@@ -4031,6 +4033,7 @@ function getAllTasks(filters) {
         type: isNotInterested ? 'Not Interested' : 'Completed',
         aiNotes: notes,
         lastReply: timestamp ? new Date(timestamp).toLocaleString() : 'N/A',
+        sortTimestamp: timestamp ? new Date(timestamp).getTime() : 0,
         threadId: ''
       });
     }
