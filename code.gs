@@ -4879,15 +4879,21 @@ function sendBulkEmails(recipients, senderName, subject, htmlBody, jobId, opts) 
       }
 
       // DYNAMIC EMAIL COLUMNS: Detect email type and add relevant columns
-      // This allows tracking responses specific to the type of email sent
-      try {
-        const dynamicResult = processEmailForDynamicColumns(jobId, subject, htmlBody);
-        if (dynamicResult.success && dynamicResult.columnsAdded.length > 0) {
-          debugLog(`Added dynamic columns for email type '${dynamicResult.emailType}': ${dynamicResult.columnsAdded.join(', ')}`);
+      // Only for SUBSEQUENT emails (not the initial outreach), since the outreach
+      // questions are already extracted by analyzeOutreachForQuestions() during sheet creation.
+      // Running email type detection on the outreach email causes extra questions
+      // (e.g. "Preferred Date", "Preferred Time", "Time Zone") to be added even though
+      // the outreach email never asked for them.
+      if (!sheetResult.isNew) {
+        try {
+          const dynamicResult = processEmailForDynamicColumns(jobId, subject, htmlBody);
+          if (dynamicResult.success && dynamicResult.columnsAdded.length > 0) {
+            debugLog(`Added dynamic columns for email type '${dynamicResult.emailType}': ${dynamicResult.columnsAdded.join(', ')}`);
+          }
+        } catch (dynamicError) {
+          console.error("Failed to process email for dynamic columns:", dynamicError);
+          // Don't fail the whole operation
         }
-      } catch (dynamicError) {
-        console.error("Failed to process email for dynamic columns:", dynamicError);
-        // Don't fail the whole operation
       }
     } else {
       console.warn("Jobs Sheet URL not configured. Job details sheet not created.");
