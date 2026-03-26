@@ -3927,6 +3927,8 @@ function getAllTasks(filters) {
       tag = 'WhatsApp Reachout';
     } else if(status === 'Unresponsive') {
       tag = 'Unresponsive';
+    } else if(status === 'Not Interested') {
+      tag = 'Not Interested';
     } else if(status === 'Human-Negotiation') {
       tag = 'Human-Negotiation';
     } else if(status === 'Active - Data Gathering') {
@@ -5651,6 +5653,13 @@ function processJobNegotiations(jobId, rules, ss, faqContent, negotiationEnabled
     if (currentStatus === 'Unresponsive') {
       jobStats.skipped++;
       jobStats.log.push({type: 'info', message: `${cleanCandidateEmail}: Status Tag is "Unresponsive" - skipped AI processing`});
+      return;
+    }
+
+    // STATUS TAG CHECK: If candidate is marked as "Not Interested" in the task list, stop AI processing
+    if (currentStatus === 'Not Interested') {
+      jobStats.skipped++;
+      jobStats.log.push({type: 'info', message: `${cleanCandidateEmail}: Status Tag is "Not Interested" - stopped AI processing`});
       return;
     }
 
