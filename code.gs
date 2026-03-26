@@ -5619,6 +5619,30 @@ function processJobNegotiations(jobId, rules, ss, faqContent, negotiationEnabled
     let candidateRegion = state ? state.region : '';
     let currentStatus = state ? (state.status || '') : '';
 
+    // STATUS TAG CHECK: If candidate is marked as "Completed" in the task list (Negotiation_State),
+    // stop all AI processing and ensure the Gmail "Completed" label is applied
+    if (currentStatus.toLowerCase().indexOf('completed') > -1) {
+      try {
+        const completedLabel = GmailApp.getUserLabelByName("Completed") || GmailApp.createLabel("Completed");
+        thread.addLabel(completedLabel);
+        // Remove Human-Negotiation label if present
+        const humanLabel = GmailApp.getUserLabelByName("Human-Negotiation");
+        if (humanLabel) thread.removeLabel(humanLabel);
+      } catch(labelErr) {
+        console.error('Failed to add Completed label from status tag:', labelErr);
+      }
+      jobStats.skipped++;
+      jobStats.log.push({type: 'info', message: `${cleanCandidateEmail}: Status Tag is "${currentStatus}" - stopped AI processing and applied Completed Gmail label`});
+      return;
+    }
+
+    // STATUS TAG CHECK: If candidate is marked as "Unresponsive" in the task list, stop AI processing
+    if (currentStatus === 'Unresponsive') {
+      jobStats.skipped++;
+      jobStats.log.push({type: 'info', message: `${cleanCandidateEmail}: Status Tag is "Unresponsive" - skipped AI processing`});
+      return;
+    }
+
     // Build conversation history FIRST (needed for escalation and data extraction)
     const recentMsgs = msgs.slice(-5);
     const conversationHistory = recentMsgs.map(m => {
@@ -11447,8 +11471,8 @@ function processFollowUpQueue() {
       const status = data[i][8];
       const manualOverride = data[i][10] === true || data[i][10] === 'TRUE'; // Column 11 (index 10)
 
-      // Skip already processed items
-      if(status === 'Responded' || status === 'Unresponsive') {
+      // Skip already processed items (including Completed status tag)
+      if(status === 'Responded' || status === 'Unresponsive' || (status && String(status).toLowerCase().indexOf('completed') > -1)) {
         continue;
       }
 
