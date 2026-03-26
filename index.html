@@ -6948,6 +6948,28 @@
                 }
                 // Render Table
                 const tasks = res.tasks || [];
+
+                // Sort tasks by status priority then by most recent activity
+                const statusPriority = {
+                    'Initial Outreach': 1,
+                    'AI-Attempt-1/2': 2,
+                    'AI-Attempt-2/2': 2,
+                    'Data Gathering': 2,
+                    'WhatsApp Reachout': 2,
+                    'Human-Negotiation': 2,
+                    'Accepted': 2,
+                    'Completed': 3,
+                    'Not Interested': 4,
+                    'Unresponsive': 5
+                };
+                tasks.sort((a, b) => {
+                    const priorityA = statusPriority[a.tags] || 5;
+                    const priorityB = statusPriority[b.tags] || 5;
+                    if (priorityA !== priorityB) return priorityA - priorityB;
+                    // Within same priority, most recent activity first
+                    return (b.sortTimestamp || 0) - (a.sortTimestamp || 0);
+                });
+
                 tbody.innerHTML = '';
                 if(tasks.length === 0) {
                     document.getElementById('emptyTaskState').classList.remove('hidden');
