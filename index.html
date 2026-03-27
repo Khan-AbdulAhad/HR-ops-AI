@@ -2727,6 +2727,14 @@
                                 <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">TM (Talent Manager)</label>
                                 <input type="text" id="addJobTmInput" class="w-full px-4 py-2 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 bg-white dark:bg-slate-700 text-slate-800 dark:text-white" placeholder="e.g., John Smith">
                             </div>
+                            <!-- Assign To dropdown (only visible for TL/Manager/Admin in team view) -->
+                            <div id="addJobAssignToContainer" class="hidden">
+                                <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">Assign To</label>
+                                <select id="addJobAssignToSelect" class="w-full px-4 py-2 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 bg-white dark:bg-slate-700 text-slate-800 dark:text-white">
+                                    <option value="">Myself</option>
+                                </select>
+                                <p class="text-xs text-slate-400 dark:text-slate-500 mt-1">Leave as "Myself" to add to your own list, or select a team member.</p>
+                            </div>
                             <div>
                                 <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">Notes (optional)</label>
                                 <textarea id="addJobNotesInput" rows="3" class="w-full px-4 py-2 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 bg-white dark:bg-slate-700 text-slate-800 dark:text-white" placeholder="Optional notes about this job..."></textarea>
@@ -2790,7 +2798,7 @@
                             </div>
                         </div>
                         <div class="p-6 space-y-4">
-                            <p class="text-slate-600 dark:text-slate-300">
+                            <p class="text-slate-600 dark:text-slate-300" id="transferModalSubtitle">
                                 Transfer Job <span class="font-mono font-bold text-amber-600 dark:text-amber-400" id="transferModalJobId">-</span> to another team member.
                             </p>
 
@@ -2801,10 +2809,10 @@
                                 </label>
                                 <select id="transferToSelect" onchange="handleTransferSelectChange()" class="w-full px-4 py-2 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500 bg-white dark:bg-slate-700 text-slate-800 dark:text-white">
                                     <option value="">Select a team member...</option>
-                                    <option value="__other__">+ Add Other (custom name)</option>
+                                    <option value="__other__">+ Add Other (enter email)</option>
                                 </select>
-                                <!-- Custom name input (hidden by default) -->
-                                <input type="text" id="transferToCustom" class="hidden w-full mt-2 px-4 py-2 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500 bg-white dark:bg-slate-700 text-slate-800 dark:text-white" placeholder="Enter person's name...">
+                                <!-- Custom email input (hidden by default) -->
+                                <input type="email" id="transferToCustom" class="hidden w-full mt-2 px-4 py-2 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500 bg-white dark:bg-slate-700 text-slate-800 dark:text-white" placeholder="Enter person's email address...">
                             </div>
 
                             <!-- Transfer Notes (Required) -->
@@ -2818,7 +2826,7 @@
                             <!-- Warning -->
                             <div class="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg p-3 text-sm text-amber-700 dark:text-amber-400">
                                 <i class="fa-solid fa-info-circle mr-2"></i>
-                                The job will be marked as Transferred and the closed date will be set. Transfer details will be saved in the job notes.
+                                The job will be transferred to the selected person. They will see it as an active job with all your notes. Your copy will be marked as Transferred.
                             </div>
                         </div>
                         <div class="p-6 border-t border-slate-200 dark:border-slate-700 flex justify-end gap-3">
@@ -14343,6 +14351,19 @@
                                 <i class="fa-solid ${statusIcons[job.status] || statusIcons['Active']}"></i>
                                 ${job.status}
                             </span>
+                            ${(function() {
+                                // Show "Received from" tag if this job was transferred to the current user
+                                if (job.transferInfo && job.transferInfo.from && job.status === 'Active') {
+                                    var fromName = job.transferInfo.from.split('@')[0].replace(/\\./g, ' ').replace(/\\b\\w/g, function(l) { return l.toUpperCase(); });
+                                    return '<div class="mt-1"><span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-amber-50 text-amber-600 dark:bg-amber-900/20 dark:text-amber-400 border border-amber-200 dark:border-amber-800"><i class="fa-solid fa-right-to-bracket text-[8px]"></i>From ' + escapeHtml(fromName) + '</span></div>';
+                                }
+                                // Show "Transferred to" tag for the sender's closed row
+                                if (job.transferInfo && job.transferInfo.transferredTo && job.status === 'Transferred') {
+                                    var toName = job.transferInfo.transferredTo.split('@')[0].replace(/\\./g, ' ').replace(/\\b\\w/g, function(l) { return l.toUpperCase(); });
+                                    return '<div class="mt-1"><span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-slate-100 text-slate-500 dark:bg-slate-700 dark:text-slate-400"><i class="fa-solid fa-arrow-right text-[8px]"></i>To ' + escapeHtml(toName) + '</span></div>';
+                                }
+                                return '';
+                            })()}
                         </td>
                         <td class="px-6 py-4 text-slate-600 dark:text-slate-300">
                             ${isOwnJob || !myJobsIsTeamView ? `
@@ -14373,10 +14394,10 @@
                         <td class="px-6 py-4">
                             <div class="flex items-center justify-center gap-1">
                                 ${isViewOnly ? `
-                                    ${job.status !== 'Active' ? `
-                                        <button onclick="deleteJobByIndex(${index})" class="relative group/tip w-8 h-8 flex items-center justify-center text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-all duration-200 active:scale-90" title="Delete from list">
-                                            <i class="fa-solid fa-trash text-sm"></i>
-                                            <span class="absolute bottom-full mb-1.5 left-1/2 -translate-x-1/2 px-2 py-1 text-[10px] font-medium text-white bg-slate-800 dark:bg-slate-600 rounded-md whitespace-nowrap opacity-0 group-hover/tip:opacity-100 transition-opacity pointer-events-none z-10">Delete</span>
+                                    ${job.status === 'Active' ? `
+                                        <button onclick="openTransferModalByIndex(${index})" class="relative group/tip w-8 h-8 flex items-center justify-center text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-900/30 rounded-lg transition-all duration-200 active:scale-90" title="Transfer to another TOS">
+                                            <i class="fa-solid fa-share text-sm"></i>
+                                            <span class="absolute bottom-full mb-1.5 left-1/2 -translate-x-1/2 px-2 py-1 text-[10px] font-medium text-white bg-slate-800 dark:bg-slate-600 rounded-md whitespace-nowrap opacity-0 group-hover/tip:opacity-100 transition-opacity pointer-events-none z-10">Transfer</span>
                                         </button>
                                     ` : `
                                         <span class="relative group/tip w-8 h-8 flex items-center justify-center text-slate-400 bg-slate-50 dark:bg-slate-700 rounded-lg">
@@ -14384,6 +14405,12 @@
                                             <span class="absolute bottom-full mb-1.5 left-1/2 -translate-x-1/2 px-2 py-1 text-[10px] font-medium text-white bg-slate-800 dark:bg-slate-600 rounded-md whitespace-nowrap opacity-0 group-hover/tip:opacity-100 transition-opacity pointer-events-none z-10">View Only</span>
                                         </span>
                                     `}
+                                    ${job.status !== 'Active' ? `
+                                        <button onclick="deleteJobByIndex(${index})" class="relative group/tip w-8 h-8 flex items-center justify-center text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-all duration-200 active:scale-90" title="Delete from list">
+                                            <i class="fa-solid fa-trash text-sm"></i>
+                                            <span class="absolute bottom-full mb-1.5 left-1/2 -translate-x-1/2 px-2 py-1 text-[10px] font-medium text-white bg-slate-800 dark:bg-slate-600 rounded-md whitespace-nowrap opacity-0 group-hover/tip:opacity-100 transition-opacity pointer-events-none z-10">Delete</span>
+                                        </button>
+                                    ` : ''}
                                 ` : `
                                     ${job.status === 'Active' ? `
                                         <button onclick="openJobStatusModalByIndex(${index}, 'Fulfilled')" class="relative group/tip w-8 h-8 flex items-center justify-center text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/30 rounded-lg transition-all duration-200 active:scale-90" title="Mark as Fulfilled">
@@ -14450,6 +14477,43 @@
             document.getElementById('addJobNameInput').value = '';
             document.getElementById('addJobTmInput').value = '';
             document.getElementById('addJobNotesInput').value = '';
+
+            // Show/hide "Assign To" dropdown for TL/Manager/Admin in team view
+            var assignContainer = document.getElementById('addJobAssignToContainer');
+            var assignSelect = document.getElementById('addJobAssignToSelect');
+            if (myJobsIsTeamView && assignContainer && assignSelect) {
+                assignContainer.classList.remove('hidden');
+                // Populate with team members from transfer targets cache or load them
+                assignSelect.innerHTML = '<option value="">Myself</option>';
+                if (transferTargetsCache && transferTargetsCache.length > 0) {
+                    transferTargetsCache.forEach(function(m) {
+                        var displayName = m.name.split(' ').map(function(w) { return w.charAt(0).toUpperCase() + w.slice(1); }).join(' ');
+                        assignSelect.innerHTML += '<option value="' + escapeHtml(m.email) + '">' + escapeHtml(displayName) + ' (' + escapeHtml(m.email) + ')</option>';
+                    });
+                } else {
+                    // Load transfer targets if not cached
+                    assignSelect.innerHTML = '<option value="">Loading team members...</option>';
+                    google.script.run
+                        .withSuccessHandler(function(result) {
+                            if (result && result.success) {
+                                transferTargetsCache = result.members || [];
+                            }
+                            assignSelect.innerHTML = '<option value="">Myself</option>';
+                            (transferTargetsCache || []).forEach(function(m) {
+                                var displayName = m.name.split(' ').map(function(w) { return w.charAt(0).toUpperCase() + w.slice(1); }).join(' ');
+                                assignSelect.innerHTML += '<option value="' + escapeHtml(m.email) + '">' + escapeHtml(displayName) + ' (' + escapeHtml(m.email) + ')</option>';
+                            });
+                        })
+                        .withFailureHandler(function() {
+                            assignSelect.innerHTML = '<option value="">Myself</option>';
+                        })
+                        .getTransferTargets();
+                }
+            } else if (assignContainer) {
+                assignContainer.classList.add('hidden');
+                if (assignSelect) assignSelect.value = '';
+            }
+
             const modal = document.getElementById('addJobModal');
             modal.classList.remove('hidden');
             modal.classList.add('modal-animate-enter');
@@ -14470,6 +14534,8 @@
             const jobName = document.getElementById('addJobNameInput').value.trim();
             const tm = document.getElementById('addJobTmInput').value.trim();
             const notes = document.getElementById('addJobNotesInput').value.trim();
+            const assignToSelect = document.getElementById('addJobAssignToSelect');
+            const assignToEmail = (assignToSelect && !assignToSelect.closest('.hidden')) ? assignToSelect.value : '';
 
             if (!jobId) {
                 showToast('Please enter a Job ID', 'error');
@@ -14503,7 +14569,7 @@
                     }
                     showToast('Failed to add job: ' + err.message, 'error');
                 })
-                .addJobAssignment(jobId, notes, jobName, tm);
+                .addJobAssignment(jobId, notes, jobName, tm, assignToEmail);
         }
 
         // Helper function to get filtered jobs (same logic as renderMyJobs)
@@ -14654,13 +14720,24 @@
                 return;
             }
             const job = filteredJobs[index];
-            openTransferModal(job.jobId);
+            // Pass ownerEmail for TL/Manager/Admin transferring a team member's job
+            openTransferModal(job.jobId, job.isOwnJob ? null : job.agentEmail);
         }
 
         // Open Transfer Modal
-        function openTransferModal(jobId) {
-            pendingTransfer = { jobId: jobId };
+        // ownerEmail: if set, means a TL/Manager/Admin is transferring someone else's job
+        function openTransferModal(jobId, ownerEmail) {
+            pendingTransfer = { jobId: jobId, ownerEmail: ownerEmail || null };
             document.getElementById('transferModalJobId').textContent = jobId;
+            // Show whose job is being transferred if it's a team transfer
+            var subtitleEl = document.getElementById('transferModalSubtitle');
+            if (subtitleEl) {
+                if (ownerEmail) {
+                    subtitleEl.innerHTML = 'Transfer Job <span class="font-mono font-bold text-amber-600 dark:text-amber-400">' + escapeHtml(jobId) + '</span> (owned by <span class="font-semibold">' + escapeHtml(ownerEmail) + '</span>) to another team member.';
+                } else {
+                    subtitleEl.innerHTML = 'Transfer Job <span class="font-mono font-bold text-amber-600 dark:text-amber-400">' + escapeHtml(jobId) + '</span> to another team member.';
+                }
+            }
             document.getElementById('transferToSelect').value = '';
             document.getElementById('transferToCustom').value = '';
             document.getElementById('transferToCustom').classList.add('hidden');
@@ -14731,7 +14808,7 @@
                 var displayName = m.name.split(' ').map(function(w) { return w.charAt(0).toUpperCase() + w.slice(1); }).join(' ');
                 html += '<option value="' + escapeHtml(m.email) + '">' + escapeHtml(displayName) + ' (' + escapeHtml(m.email) + ')</option>';
             });
-            html += '<option value="__other__">+ Add Other (custom name)</option>';
+            html += '<option value="__other__">+ Add Other (enter email)</option>';
             select.innerHTML = html;
         }
 
@@ -14754,22 +14831,29 @@
             if (!pendingTransfer) return;
 
             var jobId = pendingTransfer.jobId;
+            var ownerEmail = pendingTransfer.ownerEmail || null; // For TL transferring team member's job
             var select = document.getElementById('transferToSelect');
             var customInput = document.getElementById('transferToCustom');
             var notesInput = document.getElementById('transferNotesInput');
 
-            // Determine transfer target
-            var transferTo = '';
+            // Determine transfer target (must be an email now for real transfer)
+            var transferToEmail = '';
             if (select.value === '__other__') {
-                transferTo = customInput.value.trim();
-                if (!transferTo) {
-                    showToast('Please enter the name of the person to transfer to', 'error');
+                transferToEmail = customInput.value.trim();
+                if (!transferToEmail) {
+                    showToast('Please enter the email of the person to transfer to', 'error');
+                    customInput.focus();
+                    return;
+                }
+                // Basic email validation
+                if (transferToEmail.indexOf('@') === -1) {
+                    showToast('Please enter a valid email address', 'error');
                     customInput.focus();
                     return;
                 }
             } else if (select.value) {
-                // Use the display text from the selected option
-                transferTo = select.options[select.selectedIndex].text;
+                // Use the email value from the selected option
+                transferToEmail = select.value;
             } else {
                 showToast('Please select a person to transfer to', 'error');
                 return;
@@ -14812,7 +14896,7 @@
                     }
                     showToast('Failed to transfer job: ' + err.message, 'error');
                 })
-                .transferJobAssignment(jobId, transferTo, notes);
+                .transferJobAssignment(jobId, transferToEmail, notes, ownerEmail);
         }
 
         // Open Edit Date Modal
@@ -15151,9 +15235,12 @@
                 }
 
                 var originalIndex = ntEntries.indexOf(note);
-                var isTransfer = note.content.indexOf('[TRANSFERRED') === 0;
-                var iconClass = isTransfer ? 'fa-share text-amber-500' : 'fa-sticky-note text-amber-400';
-                var bgClass = isTransfer ? 'bg-amber-50 dark:bg-amber-900/10 border-amber-200 dark:border-amber-800' : 'bg-white dark:bg-slate-700/50 border-slate-200 dark:border-slate-700';
+                var isTransferOut = note.content.indexOf('[TRANSFERRED') === 0;
+                var isReceived = note.content.indexOf('[RECEIVED') === 0;
+                var isAssigned = note.content.indexOf('[ASSIGNED') === 0;
+                var isTransferRelated = isTransferOut || isReceived || isAssigned;
+                var iconClass = isReceived ? 'fa-inbox text-green-500' : (isAssigned ? 'fa-user-plus text-indigo-500' : (isTransferOut ? 'fa-share text-amber-500' : 'fa-sticky-note text-amber-400'));
+                var bgClass = isReceived ? 'bg-green-50 dark:bg-green-900/10 border-green-200 dark:border-green-800' : (isAssigned ? 'bg-indigo-50 dark:bg-indigo-900/10 border-indigo-200 dark:border-indigo-800' : (isTransferOut ? 'bg-amber-50 dark:bg-amber-900/10 border-amber-200 dark:border-amber-800' : 'bg-white dark:bg-slate-700/50 border-slate-200 dark:border-slate-700'));
 
                 html += '<div class="flex gap-3 p-3 rounded-lg border ' + bgClass + ' group transition-all hover:shadow-sm" id="nt-note-' + originalIndex + '">' +
                     '<div class="mt-0.5 flex-shrink-0"><i class="fa-solid ' + iconClass + ' text-sm"></i></div>' +
