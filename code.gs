@@ -9197,12 +9197,17 @@ function getClosedJobStatus(jobId) {
     if (!sheet) return null;
     const data = sheet.getDataRange().getValues();
     const jobIdStr = String(jobId);
+    // With transfers, multiple rows may exist for the same job ID.
+    // If ANY row is Active, the job is active (transferred to a new owner).
+    let foundStatus = null;
     for (let i = 1; i < data.length; i++) {
       if (String(data[i][1]) === jobIdStr) {
-        return String(data[i][2]) || null; // Column 3 (index 2) = Status
+        const rowStatus = String(data[i][2]) || 'Active';
+        if (rowStatus === 'Active') return 'Active'; // Active takes priority
+        if (!foundStatus) foundStatus = rowStatus;
       }
     }
-    return null; // Not found in Job_Assignments - treat as active
+    return foundStatus; // null if not found - treat as active
   } catch(e) {
     console.error('Error checking job assignment status for job ' + jobId + ':', e);
     return null; // Safe fallback: treat as active if lookup fails
@@ -13781,7 +13786,8 @@ function getJobAssignmentsSheet() {
       'Closed Date',     // When marked fulfilled/stopped
       'Notes',           // Optional comments (structured format: N|DATE|NOTE|)
       'Job Name',        // Human-readable job name
-      'TM'               // Talent Manager contact
+      'TM',              // Talent Manager contact
+      'Transfer_Info'    // JSON: {from, originalOwner, transferDate, transferredBy} - empty if not a transfer
     ]);
     sheet.setFrozenRows(1);
   }
@@ -19488,6 +19494,13 @@ function getMyJobs(filterStatus) {
         teamMemberSet[agentEmail] = true;
       }
 
+      // Parse Transfer_Info (column 9) if present
+      var transferInfoRaw = String(row[8] || '');
+      var transferInfo = null;
+      if (transferInfoRaw) {
+        try { transferInfo = JSON.parse(transferInfoRaw); } catch (e) { transferInfo = null; }
+      }
+
       jobs.push({
         rowIndex: i + 1, // 1-indexed for sheet operations
         agentEmail: String(row[0] || ''),
@@ -19498,7 +19511,8 @@ function getMyJobs(filterStatus) {
         notes: row[5] || '',
         jobName: row[6] || '',  // Job Name (column 7)
         tm: row[7] || '',       // TM / Talent Manager (column 8)
-        isOwnJob: agentEmail === userEmail.toLowerCase()
+        isOwnJob: agentEmail === userEmail.toLowerCase(),
+        transferInfo: transferInfo  // {from, originalOwner, transferDate, transferredBy} or {transferredTo, ...} or null
       });
     }
 
@@ -19527,57 +19541,95 @@ function getMyJobs(filterStatus) {
 }
 
 /**
- * Manually add a job assignment for the current user
+ * Manually add a job assignment for the current user or a team member (TL/Manager/Admin only).
  * @param {string} jobId - The Job ID to add
  * @param {string} notes - Optional notes
  * @param {string} jobName - Optional job name for identification
  * @param {string} tm - Optional Talent Manager name
+ * @param {string} assignToEmail - (Optional) For TL/Manager/Admin: assign to this team member instead of self
  * @returns {Object} { success, message }
  */
-function addJobAssignment(jobId, notes, jobName, tm) {
+function addJobAssignment(jobId, notes, jobName, tm, assignToEmail) {
   try {
     if (!jobId) return { success: false, error: 'Job ID is required' };
 
-    // Job_Assignments is now in the central analytics spreadsheet
     const sheet = getJobAssignmentsSheet();
     if (!sheet) return { success: false, error: 'Cannot access central Job_Assignments sheet' };
     const userEmail = Session.getActiveUser().getEmail();
     const jobIdStr = String(jobId);
 
-    // Check if this job is already assigned to this user
+    // Determine the target agent (self or team member)
+    var targetEmail = userEmail;
+    var assignedByNote = '';
+    if (assignToEmail && assignToEmail.trim()) {
+      var targetLower = assignToEmail.toLowerCase().trim();
+      if (targetLower !== userEmail.toLowerCase()) {
+        // Verify the caller has TL/Manager/Admin role
+        var access = checkAnalyticsAccess();
+        var role = (access.accessLevel || '').toLowerCase();
+        if (role !== 'tl' && role !== 'manager' && role !== 'admin') {
+          return { success: false, error: 'Only TL, Manager, or Admin can assign jobs to team members' };
+        }
+        // Verify the target is in the caller's visible team
+        if (role === 'tl' || role === 'manager') {
+          var visibleEmails = getTeamMembersForUser(userEmail, role);
+          if (!visibleEmails.includes(targetLower)) {
+            return { success: false, error: 'You can only assign jobs to your team members' };
+          }
+        }
+        targetEmail = targetLower;
+        var assignDate = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+        assignedByNote = '[ASSIGNED by ' + userEmail + ' on ' + assignDate + ']';
+      }
+    }
+
+    // Check if this job is already active for the target user
     if (sheet.getLastRow() > 1) {
       const data = sheet.getDataRange().getValues();
       for (let i = 1; i < data.length; i++) {
-        if (String(data[i][0]).toLowerCase() === userEmail.toLowerCase() &&
-            String(data[i][1]) === jobIdStr) {
-          return { success: false, error: `Job ${jobId} is already in your list` };
+        if (String(data[i][0]).toLowerCase() === targetEmail.toLowerCase() &&
+            String(data[i][1]) === jobIdStr &&
+            String(data[i][2] || 'Active') === 'Active') {
+          var whose = (targetEmail === userEmail) ? 'your' : targetEmail + "'s";
+          return { success: false, error: 'Job ' + jobId + ' is already active in ' + whose + ' list' };
         }
       }
     }
 
     // Format notes in structured format if provided
     var formattedNotes = '';
+    var today = new Date().toISOString().split('T')[0];
+    if (assignedByNote) {
+      formattedNotes = 'N|' + today + '|' + assignedByNote + '|';
+    }
     if (notes && notes.trim()) {
-      var today = new Date().toISOString().split('T')[0];
-      formattedNotes = 'N|' + today + '|' + notes.trim() + '|';
+      var noteEntry = 'N|' + today + '|' + notes.trim() + '|';
+      formattedNotes = formattedNotes ? formattedNotes + '\n' + noteEntry : noteEntry;
     }
 
-    // Add new job assignment (columns: Email, JobID, Status, AssignedDate, ClosedDate, Notes, JobName, TM)
+    // Add new job assignment (columns: Email, JobID, Status, AssignedDate, ClosedDate, Notes, JobName, TM, Transfer_Info)
     sheet.appendRow([
-      userEmail,
+      targetEmail,
       jobIdStr,
       'Active',
-      new Date(), // Assigned Date
-      '',         // Closed Date (empty)
+      new Date(),
+      '',
       formattedNotes,
-      jobName || '',  // Job Name (column 7)
-      tm || ''        // TM / Talent Manager (column 8)
+      jobName || '',
+      tm || '',
+      ''  // Transfer_Info (empty - not a transfer)
     ]);
 
     // Log to analytics
-    logAnalytics('job_assigned', jobIdStr, 1, 'Manual assignment');
+    var logDetail = (targetEmail !== userEmail)
+      ? 'Assigned by ' + userEmail + ' to ' + targetEmail
+      : 'Manual assignment';
+    logAnalytics('job_assigned', jobIdStr, 1, logDetail);
 
-    return { success: true, message: `Job ${jobId} added to your list` };
+    var msg = (targetEmail !== userEmail)
+      ? 'Job ' + jobId + ' assigned to ' + targetEmail
+      : 'Job ' + jobId + ' added to your list';
+    return { success: true, message: msg };
   } catch (e) {
     console.error('Error in addJobAssignment:', e);
     return { success: false, error: e.message };
@@ -19638,28 +19690,66 @@ function updateJobStatus(jobId, newStatus) {
 }
 
 /**
- * Transfer a job assignment to another team member
+ * Transfer a job assignment to another team member.
+ * Creates a new Active row for the recipient and marks the sender's row as Transferred.
+ * TL/Manager/Admin can transfer any team member's job (ownerEmail param).
  * @param {string} jobId - The Job ID
- * @param {string} transferTo - Name/email of person receiving the transfer
+ * @param {string} transferToEmail - Email of person receiving the transfer
  * @param {string} transferNotes - Required reason/notes for the transfer
+ * @param {string} ownerEmail - (Optional) For TL/Manager/Admin: the current owner's email. If omitted, uses current user.
  * @returns {Object} { success, message }
  */
-function transferJobAssignment(jobId, transferTo, transferNotes) {
+function transferJobAssignment(jobId, transferToEmail, transferNotes, ownerEmail) {
   try {
     if (!jobId) return { success: false, error: 'Job ID is required' };
-    if (!transferTo) return { success: false, error: 'Transfer recipient is required' };
+    if (!transferToEmail) return { success: false, error: 'Transfer recipient is required' };
     if (!transferNotes || !transferNotes.trim()) return { success: false, error: 'Transfer notes are required' };
 
-    // Job_Assignments is now in the central analytics spreadsheet
     var sheet = getJobAssignmentsSheet();
     if (!sheet) return { success: false, error: 'Cannot access central Job_Assignments sheet' };
 
     var userEmail = Session.getActiveUser().getEmail();
     var jobIdStr = String(jobId);
+    var recipientEmail = String(transferToEmail).toLowerCase().trim();
+
+    // Determine the actual job owner (current user or specified by TL/Manager/Admin)
+    var actualOwner = userEmail.toLowerCase();
+    if (ownerEmail && ownerEmail.trim()) {
+      // Verify the caller has TL/Manager/Admin role to transfer someone else's job
+      var access = checkAnalyticsAccess();
+      var role = (access.accessLevel || '').toLowerCase();
+      if (role !== 'tl' && role !== 'manager' && role !== 'admin') {
+        return { success: false, error: 'Only TL, Manager, or Admin can transfer another member\'s job' };
+      }
+      // Verify the target owner is in the caller's visible team
+      if (role === 'tl' || role === 'manager') {
+        var visibleEmails = getTeamMembersForUser(userEmail, role);
+        if (!visibleEmails.includes(ownerEmail.toLowerCase().trim())) {
+          return { success: false, error: 'You can only transfer jobs of your team members' };
+        }
+      }
+      actualOwner = ownerEmail.toLowerCase().trim();
+    }
+
+    // Prevent transferring to yourself
+    if (recipientEmail === actualOwner) {
+      return { success: false, error: 'Cannot transfer a job to the same person who owns it' };
+    }
+
     var data = sheet.getDataRange().getValues();
 
+    // Check recipient doesn't already have this job as Active
+    for (var c = 1; c < data.length; c++) {
+      if (String(data[c][0]).toLowerCase() === recipientEmail &&
+          String(data[c][1]) === jobIdStr &&
+          String(data[c][2] || 'Active') === 'Active') {
+        return { success: false, error: 'This job is already active for the recipient' };
+      }
+    }
+
+    // Find the owner's active row for this job
     for (var i = 1; i < data.length; i++) {
-      if (String(data[i][0]).toLowerCase() === userEmail.toLowerCase() &&
+      if (String(data[i][0]).toLowerCase() === actualOwner &&
           String(data[i][1]) === jobIdStr) {
 
         var currentStatus = String(data[i][2] || 'Active');
@@ -19667,31 +19757,71 @@ function transferJobAssignment(jobId, transferTo, transferNotes) {
           return { success: false, error: 'Only active jobs can be transferred' };
         }
 
-        // Update status to Transferred (column 3)
+        var now = new Date();
+        var today = now.toISOString().split('T')[0];
+        var transferDate = now.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+
+        // Determine who performed the transfer (for TL transfers)
+        var transferredBy = userEmail;
+        var byLabel = (actualOwner !== userEmail.toLowerCase()) ? ' by ' + userEmail : '';
+
+        // === 1. Update sender's row: mark as Transferred ===
         sheet.getRange(i + 1, 3).setValue('Transferred');
+        sheet.getRange(i + 1, 5).setValue(now); // Closed Date
 
-        // Set Closed Date (column 5)
-        sheet.getRange(i + 1, 5).setValue(new Date());
-
-        // Build transfer note in structured format and prepend to existing notes (column 6)
+        // Build transfer note for sender
         var existingNotes = String(data[i][5] || '');
-        var today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
-        var transferDate = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
-        var transferContent = '[TRANSFERRED to ' + transferTo + ' on ' + transferDate + '] Reason: ' + transferNotes.trim();
-        var transferEntry = 'N|' + today + '|' + transferContent + '|';
-        var updatedNotes = existingNotes
-          ? transferEntry + '\n' + existingNotes
-          : transferEntry;
-        sheet.getRange(i + 1, 6).setValue(updatedNotes);
+        var senderNoteContent = '[TRANSFERRED to ' + recipientEmail + byLabel + ' on ' + transferDate + '] Reason: ' + transferNotes.trim();
+        var senderNoteEntry = 'N|' + today + '|' + senderNoteContent + '|';
+        var updatedSenderNotes = existingNotes ? senderNoteEntry + '\n' + existingNotes : senderNoteEntry;
+        sheet.getRange(i + 1, 6).setValue(updatedSenderNotes);
+
+        // Update sender's Transfer_Info (column 9)
+        var senderTransferInfo = JSON.stringify({
+          transferredTo: recipientEmail,
+          transferDate: today,
+          transferredBy: transferredBy,
+          reason: transferNotes.trim()
+        });
+        sheet.getRange(i + 1, 9).setValue(senderTransferInfo);
+
+        // === 2. Create new row for recipient with Active status ===
+        var jobName = String(data[i][6] || '');
+        var tm = String(data[i][7] || '');
+
+        // Build transfer note for recipient (includes all original notes)
+        var recipientNoteContent = '[RECEIVED from ' + actualOwner + byLabel + ' on ' + transferDate + '] Reason: ' + transferNotes.trim();
+        var recipientNoteEntry = 'N|' + today + '|' + recipientNoteContent + '|';
+        var recipientNotes = existingNotes ? recipientNoteEntry + '\n' + existingNotes : recipientNoteEntry;
+
+        // Build recipient's Transfer_Info
+        var recipientTransferInfo = JSON.stringify({
+          from: actualOwner,
+          originalOwner: actualOwner,
+          transferDate: today,
+          transferredBy: transferredBy
+        });
+
+        sheet.appendRow([
+          recipientEmail,       // Agent Email
+          jobIdStr,             // Job ID
+          'Active',             // Status
+          now,                  // Assigned Date
+          '',                   // Closed Date (empty - active)
+          recipientNotes,       // Notes (includes transfer history)
+          jobName,              // Job Name
+          tm,                   // TM
+          recipientTransferInfo // Transfer_Info
+        ]);
 
         // Log to analytics
-        logAnalytics('job_transferred', jobIdStr, 1, 'Transferred to ' + transferTo + ': ' + transferNotes.trim());
+        logAnalytics('job_transferred', jobIdStr, 1, 'Transferred from ' + actualOwner + ' to ' + recipientEmail + byLabel + ': ' + transferNotes.trim());
 
-        return { success: true, message: 'Job ' + jobId + ' transferred to ' + transferTo };
+        return { success: true, message: 'Job ' + jobId + ' transferred to ' + recipientEmail };
       }
     }
 
-    return { success: false, error: 'Job ' + jobId + ' not found in your list' };
+    return { success: false, error: 'Job ' + jobId + ' not found as active for ' + actualOwner };
   } catch (e) {
     console.error('Error in transferJobAssignment:', e);
     return { success: false, error: e.message };
@@ -19872,12 +20002,13 @@ function autoCreateJobAssignment(jobId, ss) {
 
     const jobIdStr = String(jobId);
 
-    // Check if this job is already assigned to this user
+    // Check if this job is already active for this user (skip Transferred/Fulfilled/Stopped rows)
     if (sheet.getLastRow() > 1) {
       const data = sheet.getDataRange().getValues();
       for (let i = 1; i < data.length; i++) {
         if (String(data[i][0]).toLowerCase() === userEmail.toLowerCase() &&
-            String(data[i][1]) === jobIdStr) {
+            String(data[i][1]) === jobIdStr &&
+            String(data[i][2] || 'Active') === 'Active') {
           return { success: true, created: false, message: 'Job already exists' };
         }
       }
@@ -19890,7 +20021,10 @@ function autoCreateJobAssignment(jobId, ss) {
       'Active',
       new Date(), // Assigned Date
       '',         // Closed Date (empty)
-      'Auto-captured from outreach'
+      'Auto-captured from outreach',
+      '',         // Job Name
+      '',         // TM
+      ''          // Transfer_Info
     ]);
 
     // Log to analytics
