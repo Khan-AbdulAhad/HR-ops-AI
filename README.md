@@ -1,4 +1,4 @@
-# Turing AI Recruiter V2
+# Turing AI Recruiter V12
 
 A Google Apps Script-based recruitment automation platform for managing developer outreach, AI-powered rate negotiation, automated follow-up emails, analytics, and learning systems.
 
@@ -112,6 +112,7 @@ The system supports the following pipeline stages for candidate filtering:
 | On Hold - Onboarding | `on-hold-onboarding` | Onboarding paused |
 | Pending Onboarding | `pending-vetting` | Awaiting onboarding |
 | Ready for Selection | `ready-for-selection` | Ready for client selection |
+| Selected for Internal Interviews | `selected-for-internal-interviews` | Selected for internal interview process |
 | Selected for Trial | `selected-for-trial` | Selected for trial period |
 
 ---
@@ -183,24 +184,21 @@ Before setting up, ensure you have:
 1. In Apps Script, go to **Project Settings** (gear icon)
 2. Scroll down to **Script Properties**
 3. Click **Add script property**
-4. Add the following property:
+4. Add the following properties:
 
-| Property | Value |
-|----------|-------|
-| `OPENAI_API_KEY` | Your OpenAI API key (sk-...) |
+| Property | Value | Required |
+|----------|-------|----------|
+| `OPENAI_API_KEY` | Your OpenAI API key (sk-...) | Yes |
+| `PROJECT_ID` | Your Google Cloud Project ID | Yes |
+| `DATASET_ID` | Your BigQuery dataset ID | Yes |
+| `EXTERNAL_CONN` | Your BigQuery external connection (e.g. `project.region.connection`) | Yes |
+| `ANALYTICS_SHEET_ID` | Central analytics spreadsheet ID (optional override) | No |
+| `EMAIL_SENDER_NAME_CUSTOM` | Custom sender display name override | No |
+| `EMAIL_SIGNATURE_CUSTOM` | Custom email signature override | No |
 
 5. Click **Save script properties**
 
-#### Update BigQuery Configuration
-
-In `code.gs`, update the `CONFIG` object at the top of the file:
-
-```javascript
-const CONFIG = {
-  PROJECT_ID: "your-gcp-project-id",           // Your Google Cloud Project ID
-  EXTERNAL_CONN: "your-project.dataset.connection"  // Your BigQuery external connection
-};
-```
+> **Note:** `PROJECT_ID`, `DATASET_ID`, and `EXTERNAL_CONN` were previously hardcoded in the `CONFIG` object. They are now configured via Script Properties, which is more secure and easier to update without redeploying.
 
 ### Step 4: Set Up Triggers (Automatic)
 
@@ -262,6 +260,7 @@ The first tab for fetching developers and sending outreach emails.
    - Interested
    - Passed VetSmith
    - Passed Internal Interviews
+   - Selected for Internal Interviews
    - Pending Review
    - Completed Testing
    - Developer Backout
@@ -448,6 +447,19 @@ Extract learnings from human escalations to improve AI.
 - Run manually or set up weekly automatic consolidation
 - Consolidated learnings improve future AI responses
 
+### Email Settings
+
+Customize how outgoing emails appear to recipients.
+
+1. Open the **Config** modal (gear icon)
+2. Navigate to the **Email Settings** section
+3. Configure:
+   - **Sender Name**: Display name shown to email recipients (overrides the default `Turing Recruitment Team`)
+   - **Email Signature**: Signature appended to outgoing emails (overrides the default `Turing | Talent Operations`)
+4. Click **Save**
+
+> Settings are stored in Script Properties and persist across deployments.
+
 ### AI Testing
 
 Test AI responses before deployment (Admin only).
@@ -600,10 +612,11 @@ For issues or feature requests, please open an issue on the GitHub repository.
 
 ## Version History
 
-- **V12**: Added Passed Internal Interviews stage, Manual Entry (renamed from Test Mode), enhanced analytics, learning system
-- **V11**: Added follow-up automation, templates, user tracking, agency support, dark mode
-- **V10**: Added region-based rate tiers, improved negotiation flow
-- **V9**: Initial release with core features
+- **V12**: Added Selected for Internal Interviews stage, email sender name/signature customization via Settings UI, BigQuery config moved to Script Properties for easier updates, centralized analytics tracking
+- **V11**: Added Passed Internal Interviews stage, Manual Entry (renamed from Test Mode), enhanced analytics, learning system
+- **V10**: Added follow-up automation, templates, user tracking, agency support, dark mode
+- **V9**: Added region-based rate tiers, improved negotiation flow
+- **V8**: Initial release with core features
 
 ---
 
