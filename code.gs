@@ -3532,7 +3532,7 @@ function saveJobCandidateDetails(ss, jobId, candidateEmail, candidateName, devId
     if (colIdx !== -1) {
       totalQuestions++;
       const answer = answers[q.header];
-      if (answer && answer !== 'NOT_PROVIDED' && answer !== 'PARSE_ERROR') {
+      if (answer && answer !== 'NOT_PROVIDED' && answer !== 'PARSE_ERROR' && String(answer).trim() !== '') {
         answeredQuestions++;
         rowData[colIdx] = answer;
       } else {
@@ -4950,7 +4950,7 @@ function sendBulkEmails(recipients, senderName, subject, htmlBody, jobId, opts) 
       followUpSheet = ss.getSheetByName('Follow_Up_Queue');
       if (!followUpSheet) {
         followUpSheet = ss.insertSheet('Follow_Up_Queue');
-        followUpSheet.appendRow(['Email', 'Job ID', 'Thread ID', 'Name', 'Dev ID', 'Initial Send Time', 'Follow Up 1 Sent', 'Follow Up 2 Sent', 'Status', 'Last Updated', 'Manual Override']);
+        followUpSheet.appendRow(['Email', 'Job ID', 'Thread ID', 'Name', 'Dev ID', 'Initial Send Time', 'Follow Up 1 Sent', 'Follow Up 2 Sent', 'Status', 'Last Updated', 'Manual Override', 'Data Follow Up 1 Sent', 'Data Follow Up 2 Sent', 'Data Follow Up 3 Sent', 'Last Response Time']);
       }
       const fqData = followUpSheet.getDataRange().getValues();
       for (let i = 1; i < fqData.length; i++) {
@@ -5825,6 +5825,9 @@ Reply with only the email body text. No subject line. No placeholders.`;
           // CRITICAL FIX: Check if candidate mentioned a rate in their message OR if rate was already provided
           // If they did, we should NOT send a simple data gathering email - instead let the negotiation
           // logic handle it, which will send a combined "acknowledge rate + request missing info" email
+          // NOTE: Only skip data gathering for rate mentions when negotiation is actually enabled.
+          // When negotiation is disabled, the negotiation logic won't run, so we must send
+          // the data gathering email regardless of rate mentions.
           const rateDetectionPatterns = [
             /(?:my\s+)?(?:expected\s+)?rate\s+(?:is|would\s+be)\s+\$?\s*(\d+(?:\.\d+)?)/i,
             /\$\s*(\d+(?:\.\d+)?)\s*(?:\/\s*hr|\/\s*hour|per\s*hour|an\s*hour)/i,
@@ -5835,31 +5838,36 @@ Reply with only the email body text. No subject line. No placeholders.`;
 
           let candidateMentionedRate = false;
 
-          // Check 1: Rate in current message
-          for (const pattern of rateDetectionPatterns) {
-            if (pattern.test(candidateLatestMessage)) {
-              candidateMentionedRate = true;
-              jobStats.log.push({type: 'info', message: `${candidateEmail} - Rate detected in current message, skipping simple data gathering to let negotiation logic handle combined response`});
-              break;
-            }
-          }
-
-          // Check 2: Rate already provided in previous messages (extracted to answers)
-          // This prevents returning early when rate was in a previous message but not the current one
-          if (!candidateMentionedRate && answers && answers['Expected Rate'] &&
-              answers['Expected Rate'] !== 'NOT_PROVIDED' && answers['Expected Rate'] !== 'PARSE_ERROR') {
-            candidateMentionedRate = true;
-            jobStats.log.push({type: 'info', message: `${candidateEmail} - Rate already extracted from previous messages ($${answers['Expected Rate']}), skipping simple data gathering to let negotiation logic handle`});
-          }
-
-          // Check 3: Also check conversation history for rate mentions
-          // This catches cases where rate was mentioned but not extracted to Expected Rate field
-          if (!candidateMentionedRate && conversationHistory) {
+          // Only check for rate mentions if negotiation is enabled - when negotiation is off,
+          // there's no negotiation logic to handle the combined response, so we must always
+          // send the data gathering email for missing questions
+          if (negotiationEnabled) {
+            // Check 1: Rate in current message
             for (const pattern of rateDetectionPatterns) {
-              if (pattern.test(conversationHistory)) {
+              if (pattern.test(candidateLatestMessage)) {
                 candidateMentionedRate = true;
-                jobStats.log.push({type: 'info', message: `${candidateEmail} - Rate found in conversation history, skipping simple data gathering to let negotiation logic handle`});
+                jobStats.log.push({type: 'info', message: `${candidateEmail} - Rate detected in current message, skipping simple data gathering to let negotiation logic handle combined response`});
                 break;
+              }
+            }
+
+            // Check 2: Rate already provided in previous messages (extracted to answers)
+            // This prevents returning early when rate was in a previous message but not the current one
+            if (!candidateMentionedRate && answers && answers['Expected Rate'] &&
+                answers['Expected Rate'] !== 'NOT_PROVIDED' && answers['Expected Rate'] !== 'PARSE_ERROR') {
+              candidateMentionedRate = true;
+              jobStats.log.push({type: 'info', message: `${candidateEmail} - Rate already extracted from previous messages ($${answers['Expected Rate']}), skipping simple data gathering to let negotiation logic handle`});
+            }
+
+            // Check 3: Also check conversation history for rate mentions
+            // This catches cases where rate was mentioned but not extracted to Expected Rate field
+            if (!candidateMentionedRate && conversationHistory) {
+              for (const pattern of rateDetectionPatterns) {
+                if (pattern.test(conversationHistory)) {
+                  candidateMentionedRate = true;
+                  jobStats.log.push({type: 'info', message: `${candidateEmail} - Rate found in conversation history, skipping simple data gathering to let negotiation logic handle`});
+                  break;
+                }
               }
             }
           }
@@ -11363,7 +11371,7 @@ function addToFollowUpQueue(email, jobId, threadId, name, devId) {
 
     if(!sheet) {
       sheet = ss.insertSheet('Follow_Up_Queue');
-      sheet.appendRow(['Email', 'Job ID', 'Thread ID', 'Name', 'Dev ID', 'Initial Send Time', 'Follow Up 1 Sent', 'Follow Up 2 Sent', 'Status', 'Last Updated', 'Manual Override']);
+      sheet.appendRow(['Email', 'Job ID', 'Thread ID', 'Name', 'Dev ID', 'Initial Send Time', 'Follow Up 1 Sent', 'Follow Up 2 Sent', 'Status', 'Last Updated', 'Manual Override', 'Data Follow Up 1 Sent', 'Data Follow Up 2 Sent', 'Data Follow Up 3 Sent', 'Last Response Time']);
     }
 
     // Check if already in queue
@@ -11377,7 +11385,9 @@ function addToFollowUpQueue(email, jobId, threadId, name, devId) {
       }
     }
 
-    // Add new entry
+    // Add new entry (all 15 columns to match header: Email, Job ID, Thread ID, Name, Dev ID,
+    // Initial Send Time, Follow Up 1 Sent, Follow Up 2 Sent, Status, Last Updated,
+    // Manual Override, Data Follow Up 1 Sent, Data Follow Up 2 Sent, Data Follow Up 3 Sent, Last Response Time)
     sheet.appendRow([
       email,
       jobId,
@@ -11388,7 +11398,12 @@ function addToFollowUpQueue(email, jobId, threadId, name, devId) {
       false,             // Follow Up 1 Sent
       false,             // Follow Up 2 Sent
       'Pending',         // Status
-      new Date()         // Last Updated
+      new Date(),        // Last Updated
+      false,             // Manual Override
+      false,             // Data Follow Up 1 Sent
+      false,             // Data Follow Up 2 Sent
+      false,             // Data Follow Up 3 Sent
+      ''                 // Last Response Time
     ]);
 
     // Add "Awaiting-Response" Gmail label to the thread
