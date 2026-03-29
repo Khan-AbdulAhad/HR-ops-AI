@@ -6196,9 +6196,32 @@ Write ONLY the email, nothing else.
 
           sendReplyWithSenderName(thread, dataOnlyEmail, getEffectiveSenderName());
 
-          // Update state timestamp
+          // Update state timestamp, status, and AI summary
           if (stateRowIndex > -1) {
+            stateSheet.getRange(stateRowIndex, 5).setValue('Active - Data Pending');
             stateSheet.getRange(stateRowIndex, 6).setValue(new Date());
+
+            // Update AI summary so task list reflects pending data items
+            try {
+              const dataPendingSummary = generateComprehensiveAISummary(
+                conversationHistory + "\n---\n[ME]: " + dataOnlyEmail.substring(0, 400),
+                candidateEmail,
+                jobId,
+                attempts || 0,
+                'Active - Data Pending',
+                {
+                  totalQuestions: saveResult ? saveResult.totalQuestions : 0,
+                  answeredCount: saveResult ? saveResult.answeredCount : 0,
+                  pendingQuestions: pendingDataQuestions.map(q => q.question),
+                  extractedData: saveResult ? (saveResult.extractedData || {}) : {}
+                }
+              );
+              if (dataPendingSummary) {
+                stateSheet.getRange(stateRowIndex, 9).setValue(dataPendingSummary);
+              }
+            } catch (summaryErr) {
+              console.error("Failed to update AI summary for data-pending follow-up:", summaryErr);
+            }
           }
 
           updateFollowUpLabels(thread.getId(), 'responded');
