@@ -11398,11 +11398,12 @@ function addToFollowUpQueue(email, jobId, threadId, name, devId) {
     }
 
     // Check if already in queue
+    // FIX: Use normalizeEmail for Gmail dot-variant deduplication (consistent with sendBulkEmails)
     const data = sheet.getDataRange().getValues();
-    const cleanEmail = String(email).toLowerCase().trim();
+    const cleanEmail = normalizeEmail(email);
 
     for(let i = 1; i < data.length; i++) {
-      if(String(data[i][0]).toLowerCase().trim() === cleanEmail && String(data[i][1]) === String(jobId)) {
+      if(normalizeEmail(data[i][0]) === cleanEmail && String(data[i][1]) === String(jobId)) {
         debugLog(`Email ${email} already in follow-up queue for Job ${jobId}`);
         return { success: true, message: "Already in queue" };
       }
