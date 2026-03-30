@@ -5026,7 +5026,7 @@
                 <!-- Info tooltip -->
                 <div class="flex items-start gap-2 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg text-xs text-blue-700 dark:text-blue-300">
                     <i class="fa-solid fa-circle-info mt-0.5"></i>
-                    <span>Sends an AI-generated email <b>in the existing thread</b> to transition candidates to a new stage. Useful when a candidate confirmed availability and now needs to discuss rate, or when you need additional information.</span>
+                    <span>Sends an AI-generated email <b>in the existing thread</b> to transition candidates to a new stage. Useful when a candidate confirmed availability and now needs to discuss rate. For collecting additional data, use the <b>Additional Data</b> feature instead.</span>
                 </div>
 
                 <!-- Stage Selection -->
@@ -5038,10 +5038,10 @@
                             <span class="text-xs font-semibold">Negotiation</span>
                             <span class="text-[10px] text-slate-400 dark:text-slate-500 leading-tight">Discuss rate</span>
                         </button>
-                        <button type="button" class="re-engage-stage-btn flex flex-col items-center gap-1.5 p-3 rounded-lg border-2 border-slate-200 dark:border-slate-600 hover:border-teal-300 dark:hover:border-teal-600 text-slate-600 dark:text-slate-300 transition" data-stage="data_gathering" onclick="selectReEngageStage(this)">
-                            <i class="fa-solid fa-clipboard-list text-lg"></i>
+                        <button type="button" class="flex flex-col items-center gap-1.5 p-3 rounded-lg border-2 border-dashed border-teal-300 dark:border-teal-600 hover:bg-teal-50 dark:hover:bg-teal-900/20 text-teal-600 dark:text-teal-400 transition" onclick="redirectToAdditionalData()">
+                            <i class="fa-solid fa-arrow-up-right-from-square text-lg"></i>
                             <span class="text-xs font-semibold">Data Gathering</span>
-                            <span class="text-[10px] text-slate-400 dark:text-slate-500 leading-tight">Collect info</span>
+                            <span class="text-[10px] text-teal-500 dark:text-teal-500 leading-tight">Use Additional Data</span>
                         </button>
                         <button type="button" class="re-engage-stage-btn flex flex-col items-center gap-1.5 p-3 rounded-lg border-2 border-slate-200 dark:border-slate-600 hover:border-amber-300 dark:hover:border-amber-600 text-slate-600 dark:text-slate-300 transition" data-stage="custom" onclick="selectReEngageStage(this)">
                             <i class="fa-solid fa-pen text-lg"></i>
@@ -7043,6 +7043,7 @@
                     'AI-Attempt-2/2': 2,
                     'Data Gathering': 2,
                     'WhatsApp Reachout': 2,
+                    'Awaiting Additional Data': 2,
                     'Human-Negotiation': 2,
                     'Accepted': 2,
                     'Completed': 3,
@@ -7089,6 +7090,7 @@
                         let badgeClass = 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400';
                         if(t.tags === 'WhatsApp Reachout') badgeClass = 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400';
                         else if(t.tags === 'Unresponsive') badgeClass = 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400';
+                        else if(t.tags === 'Awaiting Additional Data') badgeClass = 'bg-teal-100 dark:bg-teal-900/30 text-teal-700 dark:text-teal-400';
                         else if(t.tags.includes('Human')) badgeClass = 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400';
                         else if(t.tags === 'Not Interested') badgeClass = 'bg-slate-200 dark:bg-slate-600 text-slate-600 dark:text-slate-300';
                         else if(t.status === 'Offer Accepted') badgeClass = 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400';
@@ -7100,6 +7102,21 @@
 
                         const isChecked = selectedTasks.has(t.email) ? 'checked' : '';
                         if(selectedTasks.has(t.email)) tr.classList.add('selected');
+
+                        // Build last-action badge if applicable
+                        let lastActionBadge = '';
+                        if (t.status && t.lastReply && t.lastReply !== 'N/A') {
+                            const actionMap = {
+                                'Re-engaged - Negotiation': { label: 'Re-engaged: Negotiation', icon: 'fa-handshake', color: 'purple' },
+                                'Re-engaged - Custom': { label: 'Re-engaged: Custom', icon: 'fa-pen', color: 'amber' },
+                                'Re-engaged - Data Gathering': { label: 'Re-engaged: Data', icon: 'fa-clipboard-list', color: 'teal' },
+                                'Awaiting Additional Data': { label: 'Awaiting Data', icon: 'fa-clock', color: 'teal' }
+                            };
+                            const actionInfo = actionMap[t.status];
+                            if (actionInfo) {
+                                lastActionBadge = `<span class="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-medium bg-${actionInfo.color}-50 dark:bg-${actionInfo.color}-900/20 text-${actionInfo.color}-600 dark:text-${actionInfo.color}-400 rounded-full border border-${actionInfo.color}-200 dark:border-${actionInfo.color}-700" title="Last action: ${actionInfo.label} - ${t.lastReply}"><i class="fa-solid ${actionInfo.icon}"></i> ${actionInfo.label} &middot; ${t.lastReply}</span>`;
+                            }
+                        }
 
                         tr.innerHTML = `
                             <td class="px-6 py-4 text-center"><input type="checkbox" class="task-check rounded" onchange="toggleTaskSelection('${t.email}')" ${isChecked}></td>
@@ -7116,6 +7133,7 @@
                                         <i class="fa-regular fa-copy text-xs"></i>
                                     </button>
                                 </div>
+                                ${lastActionBadge ? '<div class="mt-1">' + lastActionBadge + '</div>' : ''}
                             </td>
                             <td class="px-6 py-4">
                                 <div class="modern-dropdown status-tag-dropdown" data-email="${escapeHtml(t.email)}" data-job-id="${escapeHtml(t.jobId)}" data-value="${escapeHtml(t.tags)}">
@@ -10089,11 +10107,10 @@
             reEngageSelectedStage = btn.dataset.stage;
             var stageColors = {
                 negotiation: { active: 'border-purple-300 bg-purple-50 dark:bg-purple-900/20 dark:border-purple-600 text-purple-700 dark:text-purple-300' },
-                data_gathering: { active: 'border-teal-300 bg-teal-50 dark:bg-teal-900/20 dark:border-teal-600 text-teal-700 dark:text-teal-300' },
                 custom: { active: 'border-amber-300 bg-amber-50 dark:bg-amber-900/20 dark:border-amber-600 text-amber-700 dark:text-amber-300' }
             };
             var inactiveClasses = 'border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-300';
-            var allActiveClasses = 'border-purple-300 bg-purple-50 dark:bg-purple-900/20 dark:border-purple-600 text-purple-700 dark:text-purple-300 border-teal-300 bg-teal-50 dark:bg-teal-900/20 dark:border-teal-600 text-teal-700 dark:text-teal-300 border-amber-300 bg-amber-50 dark:bg-amber-900/20 dark:border-amber-600 text-amber-700 dark:text-amber-300';
+            var allActiveClasses = 'border-purple-300 bg-purple-50 dark:bg-purple-900/20 dark:border-purple-600 text-purple-700 dark:text-purple-300 border-amber-300 bg-amber-50 dark:bg-amber-900/20 dark:border-amber-600 text-amber-700 dark:text-amber-300';
 
             document.querySelectorAll('.re-engage-stage-btn').forEach(function(b) {
                 // Remove all active color classes
@@ -10117,12 +10134,9 @@
             if (reEngageSelectedStage === 'custom') {
                 label.innerHTML = 'Your instructions <span class="text-red-500">*</span>';
                 textarea.placeholder = 'e.g. Inform the candidate that the project timeline has changed to Q3 and ask if they are still available.';
-            } else if (reEngageSelectedStage === 'negotiation') {
-                label.innerHTML = 'Additional context <span class="font-normal normal-case">(optional)</span>';
-                textarea.placeholder = 'e.g. Team confirmed this candidate is a good fit. Ask about rate expectations for a 6-month contract.';
             } else {
                 label.innerHTML = 'Additional context <span class="font-normal normal-case">(optional)</span>';
-                textarea.placeholder = 'e.g. We also need their visa status and preferred start date.';
+                textarea.placeholder = 'e.g. Team confirmed this candidate is a good fit. Ask about rate expectations for a 6-month contract.';
             }
         }
 
@@ -10152,8 +10166,7 @@
                 return;
             }
 
-            var stageLabel = reEngageSelectedStage === 'negotiation' ? 'Negotiation' :
-                             reEngageSelectedStage === 'data_gathering' ? 'Data Gathering' : 'Custom';
+            var stageLabel = reEngageSelectedStage === 'negotiation' ? 'Negotiation' : 'Custom';
 
             if (!confirm('Send re-engagement email (' + stageLabel + ') to ' + candidates.length + ' candidate(s)?\n\nThis will send an AI-generated email in each candidate\'s existing thread.')) {
                 return;
@@ -10186,6 +10199,28 @@
                     showToast('Re-engage failed: ' + err.message, 'error');
                 })
                 .reEngageCandidates(candidates, reEngageSelectedStage, message || '');
+        }
+
+        // --- Redirect from Re-engage to Additional Data ---
+        function redirectToAdditionalData() {
+            // Collect selected candidate info from task list
+            var preSelectedCandidates = [];
+            var preSelectedJobId = '';
+            selectedTasks.forEach(function(email) {
+                var row = document.querySelector('.task-row[data-email="' + email + '"]');
+                if (row) {
+                    var dd = row.querySelector('.status-tag-dropdown');
+                    var jobId = dd ? dd.dataset.jobId : '';
+                    if (!preSelectedJobId && jobId) preSelectedJobId = jobId;
+                    preSelectedCandidates.push(email);
+                }
+            });
+
+            // Close re-engage modal
+            closeReEngageModal();
+
+            // Open Additional Data modal with pre-selected data
+            openSupplementaryDataModal(preSelectedJobId, preSelectedCandidates);
         }
 
         // --- Analytics ---
@@ -12120,13 +12155,19 @@
         let supplementaryCandidates = [];
         let parsedSupplementaryQuestions = [];
 
-        function openSupplementaryDataModal() {
+        // Store pre-selected candidates passed from Re-engage redirect
+        let suppDataPreSelectedEmails = [];
+        let suppDataPreSelectedJobId = '';
+
+        function openSupplementaryDataModal(preSelectedJobId, preSelectedEmails) {
+            suppDataPreSelectedEmails = preSelectedEmails || [];
+            suppDataPreSelectedJobId = preSelectedJobId || '';
             const modal = document.getElementById('supplementaryDataModal');
             modal.classList.remove('hidden');
             modal.classList.add('modal-animate-enter');
             trapFocus(modal);
-            populateSuppDataJobDropdown();
             resetSupplementaryDataForm();
+            populateSuppDataJobDropdown();
         }
 
         function closeSupplementaryDataModal() {
@@ -12162,9 +12203,10 @@
                     jobs.forEach(j => {
                         dropdown.innerHTML += `<option value="${j}">Job ${j}</option>`;
                     });
-                    // Pre-select if a job is already selected in the tasks tab
-                    if (currentTaskJobId) {
-                        dropdown.value = currentTaskJobId;
+                    // Pre-select job: prefer pre-selected from redirect, then current task filter
+                    const jobToSelect = suppDataPreSelectedJobId || currentTaskJobId;
+                    if (jobToSelect) {
+                        dropdown.value = jobToSelect;
                         loadSupplementaryCandidates();
                     }
                 })
@@ -12246,10 +12288,16 @@
                 return;
             }
 
-            container.innerHTML = supplementaryCandidates.map((c, idx) => `
+            // Check if we have pre-selected emails from a Re-engage redirect
+            const preSelectSet = new Set(suppDataPreSelectedEmails.map(e => String(e).toLowerCase().trim()));
+            const hasPreSelection = preSelectSet.size > 0;
+
+            container.innerHTML = supplementaryCandidates.map((c, idx) => {
+                const isPreSelected = hasPreSelection && preSelectSet.has(String(c.email).toLowerCase().trim());
+                return `
                 <label class="flex items-center gap-2 p-2 hover:bg-slate-50 dark:hover:bg-slate-600 rounded cursor-pointer border-b border-slate-100 dark:border-slate-600 last:border-0">
                     <input type="checkbox" class="supp-candidate-check rounded border-slate-300 text-teal-600 focus:ring-teal-500"
-                           data-email="${c.email}" onchange="updateSelectedCandidateCount()">
+                           data-email="${c.email}" onchange="updateSelectedCandidateCount()" ${isPreSelected ? 'checked' : ''}>
                     <div class="flex-1 min-w-0">
                         <div class="flex items-center gap-2">
                             <span class="text-sm font-medium text-slate-700 dark:text-slate-300">${c.name}</span>
@@ -12258,11 +12306,17 @@
                         <div class="text-xs text-slate-400 truncate">${c.email}</div>
                     </div>
                     <span class="text-xs px-2 py-1 bg-slate-100 dark:bg-slate-600 text-slate-500 dark:text-slate-400 rounded whitespace-nowrap">${c.status}</span>
-                </label>
-            `).join('');
+                </label>`;
+            }).join('');
 
-            // Update count display
-            document.getElementById('selectedCandidateCount').textContent = '0';
+            // If we had pre-selected candidates, switch to "Select specific" mode and show the section
+            if (hasPreSelection) {
+                document.querySelector('input[name="suppDataTarget"][value="selected"]').checked = true;
+                document.getElementById('candidateSelectionSection').classList.remove('hidden');
+                suppDataPreSelectedEmails = []; // Clear after applying
+            }
+
+            updateSelectedCandidateCount();
         }
 
         function selectAllSupplementaryCandidates(selectAll) {
