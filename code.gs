@@ -4551,6 +4551,26 @@ Write ONLY the email body. No subject line. No placeholders.`;
         console.error('Failed to update labels:', labelErr);
       }
 
+      // Reset Follow_Up_Queue status if candidate was marked Unresponsive
+      // Without this, the task list cross-reference logic would still show "Unresponsive" tag
+      try {
+        const followUpSheet = ss.getSheetByName('Follow_Up_Queue');
+        if (followUpSheet) {
+          const fqData = followUpSheet.getDataRange().getValues();
+          for (let f = 1; f < fqData.length; f++) {
+            if (normalizeEmail(fqData[f][0]) === cleanEmail && String(fqData[f][1]) === String(jobId)) {
+              if (fqData[f][8] === 'Unresponsive' || fqData[f][8] === 'Incomplete Data') {
+                followUpSheet.getRange(f + 1, 9).setValue('Re-engaged');   // Column I: Status
+                followUpSheet.getRange(f + 1, 10).setValue(new Date());    // Column J: Last Updated
+              }
+              break;
+            }
+          }
+        }
+      } catch (fqErr) {
+        console.error('Failed to reset Follow_Up_Queue status:', fqErr);
+      }
+
       results.success++;
       debugLog(`Re-engaged ${email} for Job ${jobId} → ${stage}`);
 
@@ -4561,8 +4581,9 @@ Write ONLY the email body. No subject line. No placeholders.`;
     }
   }
 
-  // Invalidate cache so task list refreshes
+  // Invalidate caches so task list refreshes
   invalidateSheetCache('Negotiation_State');
+  invalidateSheetCache('Follow_Up_Queue');
   return results;
 }
 
