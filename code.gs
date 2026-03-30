@@ -18193,10 +18193,16 @@ function ensureOnboardingIssuesSheet(ss) {
     sheet.appendRow([
       'Issue ID', 'Dev ID', 'Email', 'Name', 'Job ID', 'Category', 'Summary',
       'Email Snippet', 'Status', 'Reported At', 'Status Updated At', 'Resolved At',
-      'Thread ID', 'Detected At'
+      'Thread ID', 'Detected At', 'Message ID'
     ]);
     sheet.setFrozenRows(1);
-    sheet.getRange(1, 1, 1, 14).setFontWeight('bold');
+    sheet.getRange(1, 1, 1, 15).setFontWeight('bold');
+  } else {
+    // Migrate existing sheets: add Message ID column if missing
+    const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+    if (headers.length < 15 || String(headers[14]) !== 'Message ID') {
+      sheet.getRange(1, 15).setValue('Message ID').setFontWeight('bold');
+    }
   }
   return sheet;
 }
@@ -18235,7 +18241,8 @@ function getOnboardingIssues() {
     const issues = [];
     const lastRow = issueSheet.getLastRow();
     if (lastRow > 1) {
-      const data = issueSheet.getRange(2, 1, lastRow - 1, 14).getValues();
+      const colCount = Math.min(issueSheet.getLastColumn(), 15);
+      const data = issueSheet.getRange(2, 1, lastRow - 1, colCount).getValues();
       for (let i = 0; i < data.length; i++) {
         issues.push({
           issueId: String(data[i][0] || ''),
@@ -18251,7 +18258,8 @@ function getOnboardingIssues() {
           statusUpdatedAt: data[i][10] ? new Date(data[i][10]).toISOString() : null,
           resolvedAt: data[i][11] ? new Date(data[i][11]).toISOString() : null,
           threadId: String(data[i][12] || ''),
-          detectedAt: data[i][13] ? new Date(data[i][13]).toISOString() : null
+          detectedAt: data[i][13] ? new Date(data[i][13]).toISOString() : null,
+          messageId: colCount >= 15 ? String(data[i][14] || '') : ''
         });
       }
     }
@@ -18465,14 +18473,21 @@ function scanOnboardingIssues(startDate, endDate) {
     }
 
     // Get existing issues to avoid duplicates
+    // Dedup key: threadId + '|' + email + '|' + messageId + '|' + category
+    // This allows detecting multiple issues per message AND multiple messages per thread
     const issueSheet = ensureOnboardingIssuesSheet(ss);
     const existingIssueKeys = new Set();
     const issLastRow = issueSheet.getLastRow();
     if (issLastRow > 1) {
-      const issData = issueSheet.getRange(2, 1, issLastRow - 1, 14).getValues();
+      const colCount = Math.min(issueSheet.getLastColumn(), 15);
+      const issData = issueSheet.getRange(2, 1, issLastRow - 1, colCount).getValues();
       for (let i = 0; i < issData.length; i++) {
-        // Use threadId + email as unique key
-        existingIssueKeys.add(String(issData[i][12]) + '|' + String(issData[i][2]));
+        const threadId = String(issData[i][12] || '');
+        const email = String(issData[i][2] || '');
+        const messageId = colCount >= 15 ? String(issData[i][14] || '') : '';
+        const category = String(issData[i][5] || '');
+        // Build key: thread+email+message+category for granular dedup
+        existingIssueKeys.add(threadId + '|' + email + '|' + messageId + '|' + category);
       }
     }
 
@@ -18490,7 +18505,7 @@ function scanOnboardingIssues(startDate, endDate) {
 
         for (const thread of threads) {
           const messages = thread.getMessages();
-          // Find messages from the candidate that are after the completion date
+          // Process ALL candidate messages in the thread (not just the first)
           for (const msg of messages) {
             const msgDate = msg.getDate();
             const msgFrom = msg.getFrom() || '';
@@ -18504,50 +18519,52 @@ function scanOnboardingIssues(startDate, endDate) {
                 msgFrom.toLowerCase().includes(candidate.email.toLowerCase())) {
 
               const threadId = thread.getId();
-              const issueKey = threadId + '|' + candidate.email;
-
-              // Skip if we already have this issue
-              if (existingIssueKeys.has(issueKey)) continue;
-              existingIssueKeys.add(issueKey);
-
+              const messageId = msg.getId();
               const emailBody = msg.getPlainBody() || '';
               const snippet = emailBody.substring(0, 500);
 
-              // Use AI to categorize and summarize (READ-ONLY - no email sending)
-              let category = 'Other';
-              let summary = snippet.substring(0, 200);
+              // Use AI to categorize and summarize - now returns multiple issues
+              let detectedIssues = [{ category: 'Other', summary: snippet.substring(0, 200) }];
 
               try {
                 const aiResult = categorizeOnboardingIssue(emailBody, candidate.name);
-                if (aiResult) {
-                  category = aiResult.category || 'Other';
-                  summary = aiResult.summary || summary;
+                if (aiResult && aiResult.issues && aiResult.issues.length > 0) {
+                  detectedIssues = aiResult.issues;
                 }
               } catch (aiErr) {
                 console.error('AI categorization failed for ' + candidate.email + ':', aiErr);
               }
 
-              const issueId = 'OI-' + Date.now() + '-' + Math.random().toString(36).substring(2, 7);
+              // Create one row per distinct issue detected in this message
+              for (const issue of detectedIssues) {
+                const issueKey = threadId + '|' + candidate.email + '|' + messageId + '|' + issue.category;
 
-              newIssues.push([
-                issueId,
-                candidate.devId,
-                candidate.email,
-                candidate.name,
-                candidate.jobId,
-                category,
-                summary,
-                snippet,
-                'New',
-                msgDate,         // Reported At (when candidate sent the email)
-                '',              // Status Updated At
-                '',              // Resolved At
-                threadId,
-                new Date()       // Detected At
-              ]);
+                // Skip if we already have this exact issue from this message
+                if (existingIssueKeys.has(issueKey)) continue;
+                existingIssueKeys.add(issueKey);
 
-              newIssuesCount++;
-              break; // One issue per thread per candidate
+                const issueId = 'OI-' + Date.now() + '-' + Math.random().toString(36).substring(2, 7);
+
+                newIssues.push([
+                  issueId,
+                  candidate.devId,
+                  candidate.email,
+                  candidate.name,
+                  candidate.jobId,
+                  issue.category,
+                  issue.summary,
+                  snippet,
+                  'New',
+                  msgDate,         // Reported At (when candidate sent the email)
+                  '',              // Status Updated At
+                  '',              // Resolved At
+                  threadId,
+                  new Date(),      // Detected At
+                  messageId        // Message ID (new column)
+                ]);
+
+                newIssuesCount++;
+              }
             }
           }
         }
@@ -18558,7 +18575,7 @@ function scanOnboardingIssues(startDate, endDate) {
 
     // Write new issues to sheet
     if (newIssues.length > 0) {
-      issueSheet.getRange(issueSheet.getLastRow() + 1, 1, newIssues.length, 14).setValues(newIssues);
+      issueSheet.getRange(issueSheet.getLastRow() + 1, 1, newIssues.length, 15).setValues(newIssues);
     }
 
     // Log scan to analytics
@@ -18590,14 +18607,16 @@ This candidate has already been marked as completed in the recruitment process a
 
 IMPORTANT: You are ONLY categorizing and summarizing. Do NOT generate any reply or response.
 
-Categorize the email into ONE of these categories:
+The email may contain ONE or MULTIPLE distinct issues. Identify ALL separate issues mentioned.
+
+Available categories:
 - "Slack" - Issues with Slack login, credentials, workspace access, channel access
 - "Gmail" - Issues with Gmail/email setup, credentials, access problems
 - "Jibble" - Issues with Jibble time tracking tool setup, login, or usage
 - "ID Verification" - Issues with identity verification, document submission, KYC
 - "Other" - Any other onboarding issue not fitting the above categories
 
-Also provide a brief summary (1-2 sentences max) of what the candidate is asking about.
+For each distinct issue, provide a category and a brief summary (1-2 sentences max).
 
 Email content:
 """
@@ -18605,7 +18624,9 @@ ${emailBody.substring(0, 1500)}
 """
 
 Respond in this exact JSON format only:
-{"category": "one of the categories above", "summary": "brief summary of the issue"}`;
+{"issues": [{"category": "category", "summary": "brief summary of this specific issue"}]}
+
+If there is only one issue, still use the array format with a single item.`;
 
   try {
     const aiResponse = callAI(prompt);
@@ -18615,11 +18636,23 @@ Respond in this exact JSON format only:
     const jsonMatch = aiResponse.match(/\{[\s\S]*\}/);
     if (jsonMatch) {
       const parsed = JSON.parse(jsonMatch[0]);
-      // Validate category
+
+      // Support new multi-issue format
+      if (parsed.issues && Array.isArray(parsed.issues)) {
+        const validatedIssues = parsed.issues.map(function(issue) {
+          return {
+            category: OI_PREDEFINED_CATEGORIES.includes(issue.category) ? issue.category : 'Other',
+            summary: issue.summary || ''
+          };
+        });
+        return { issues: validatedIssues };
+      }
+
+      // Backward compatibility: single category/summary response
       if (!OI_PREDEFINED_CATEGORIES.includes(parsed.category)) {
         parsed.category = 'Other';
       }
-      return parsed;
+      return { issues: [{ category: parsed.category, summary: parsed.summary || '' }] };
     }
   } catch (e) {
     console.error('Error parsing AI categorization:', e);
@@ -18814,13 +18847,19 @@ function runOnboardingIssueScan() {
     scanAfter.setHours(scanAfter.getHours() - 24);
 
     // Get existing issues to avoid duplicates
+    // Dedup key: threadId + '|' + email + '|' + messageId + '|' + category
     const issueSheet = ensureOnboardingIssuesSheet(ss);
     const existingIssueKeys = new Set();
     const issLastRow = issueSheet.getLastRow();
     if (issLastRow > 1) {
-      const issData = issueSheet.getRange(2, 1, issLastRow - 1, 14).getValues();
+      const colCount = Math.min(issueSheet.getLastColumn(), 15);
+      const issData = issueSheet.getRange(2, 1, issLastRow - 1, colCount).getValues();
       for (let i = 0; i < issData.length; i++) {
-        existingIssueKeys.add(String(issData[i][12]) + '|' + String(issData[i][2]));
+        const threadId = String(issData[i][12] || '');
+        const email = String(issData[i][2] || '');
+        const messageId = colCount >= 15 ? String(issData[i][14] || '') : '';
+        const category = String(issData[i][5] || '');
+        existingIssueKeys.add(threadId + '|' + email + '|' + messageId + '|' + category);
       }
     }
 
@@ -18836,6 +18875,7 @@ function runOnboardingIssueScan() {
 
         for (const thread of threads) {
           const messages = thread.getMessages();
+          // Process ALL candidate messages in the thread (not just the first)
           for (const msg of messages) {
             const msgDate = msg.getDate();
             const msgFrom = msg.getFrom() || '';
@@ -18845,33 +18885,35 @@ function runOnboardingIssueScan() {
                 msgFrom.toLowerCase().includes(candidate.email.toLowerCase())) {
 
               const threadId = thread.getId();
-              const issueKey = threadId + '|' + candidate.email;
-              if (existingIssueKeys.has(issueKey)) continue;
-              existingIssueKeys.add(issueKey);
-
+              const messageId = msg.getId();
               const emailBody = msg.getPlainBody() || '';
               const snippet = emailBody.substring(0, 500);
 
-              let category = 'Other';
-              let summary = snippet.substring(0, 200);
+              // Use AI to categorize - now returns multiple issues
+              let detectedIssues = [{ category: 'Other', summary: snippet.substring(0, 200) }];
               try {
                 const aiResult = categorizeOnboardingIssue(emailBody, candidate.name);
-                if (aiResult) {
-                  category = aiResult.category || 'Other';
-                  summary = aiResult.summary || summary;
+                if (aiResult && aiResult.issues && aiResult.issues.length > 0) {
+                  detectedIssues = aiResult.issues;
                 }
               } catch (aiErr) {
                 console.error('[Onboarding Scan] AI categorization failed:', aiErr);
               }
 
-              const issueId = 'OI-' + Date.now() + '-' + Math.random().toString(36).substring(2, 7);
-              newIssues.push([
-                issueId, candidate.devId, candidate.email, candidate.name,
-                candidate.jobId, category, summary, snippet, 'New',
-                msgDate, '', '', threadId, new Date()
-              ]);
-              newIssuesCount++;
-              break;
+              // Create one row per distinct issue detected in this message
+              for (const issue of detectedIssues) {
+                const issueKey = threadId + '|' + candidate.email + '|' + messageId + '|' + issue.category;
+                if (existingIssueKeys.has(issueKey)) continue;
+                existingIssueKeys.add(issueKey);
+
+                const issueId = 'OI-' + Date.now() + '-' + Math.random().toString(36).substring(2, 7);
+                newIssues.push([
+                  issueId, candidate.devId, candidate.email, candidate.name,
+                  candidate.jobId, issue.category, issue.summary, snippet, 'New',
+                  msgDate, '', '', threadId, new Date(), messageId
+                ]);
+                newIssuesCount++;
+              }
             }
           }
         }
@@ -18881,7 +18923,7 @@ function runOnboardingIssueScan() {
     }
 
     if (newIssues.length > 0) {
-      issueSheet.getRange(issueSheet.getLastRow() + 1, 1, newIssues.length, 14).setValues(newIssues);
+      issueSheet.getRange(issueSheet.getLastRow() + 1, 1, newIssues.length, 15).setValues(newIssues);
     }
 
     debugLog('[Onboarding Scan] Complete. Found ' + newIssuesCount + ' new issues from ' + completedCandidates.length + ' candidates');
