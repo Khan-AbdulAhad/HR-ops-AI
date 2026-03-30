@@ -3933,6 +3933,8 @@ function getAllTasks(filters) {
       tag = 'Human-Negotiation';
     } else if(status === 'Active - Data Gathering') {
       tag = 'Data Gathering';
+    } else if(status.startsWith('Re-engaged')) {
+      tag = status.replace('Re-engaged - ', 'Re-engaged: ');
     } else if(status === 'Initial Outreach' || attempts === 0) {
       tag = 'Initial Outreach';
     } else {
@@ -4288,6 +4290,279 @@ function bulkUpdateTrackingStatus(items, trackingStatus) {
       results.failed++;
     }
   });
+  return results;
+}
+
+/**
+ * Re-engage candidates by sending a stage-transition email in their existing thread.
+ * Supports bulk operation for moving candidates to a new workflow stage (e.g. availability → negotiation).
+ *
+ * @param {Array} candidates - Array of { email, jobId, threadId } objects
+ * @param {string} stage - Target stage: 'negotiation', 'data_gathering', or 'custom'
+ * @param {string} [customMessage] - Optional custom context/instructions for the AI-generated email
+ * @returns {Object} { success: number, failed: number, errors: string[] }
+ */
+function reEngageCandidates(candidates, stage, customMessage) {
+  const results = { success: 0, failed: 0, errors: [] };
+  if (!candidates || candidates.length === 0) return results;
+
+  const url = getStoredSheetUrl();
+  if (!url) return { success: 0, failed: 0, errors: ['No sheet URL configured'] };
+
+  const ss = SpreadsheetApp.openByUrl(url);
+  const stateSheet = ss.getSheetByName('Negotiation_State');
+  if (!stateSheet) return { success: 0, failed: 0, errors: ['Negotiation_State sheet not found'] };
+
+  const stateData = stateSheet.getDataRange().getValues();
+  const senderName = getEffectiveSenderName();
+  const signature = getEffectiveSignature();
+
+  for (const candidate of candidates) {
+    try {
+      const { email, jobId, threadId } = candidate;
+      if (!email || !jobId) {
+        results.failed++;
+        results.errors.push(`${email || 'unknown'}: Missing email or jobId`);
+        continue;
+      }
+
+      // Find the candidate's row in Negotiation_State
+      const cleanEmail = normalizeEmail(email);
+      let stateRowIndex = -1;
+      for (let i = 1; i < stateData.length; i++) {
+        if (normalizeEmail(stateData[i][0]) === cleanEmail && String(stateData[i][1]) === String(jobId)) {
+          stateRowIndex = i + 1; // 1-indexed for sheet operations
+          break;
+        }
+      }
+
+      if (stateRowIndex === -1) {
+        results.failed++;
+        results.errors.push(`${email}: Not found in Negotiation_State for Job ${jobId}`);
+        continue;
+      }
+
+      // Get the thread
+      const candidateThreadId = threadId || stateData[stateRowIndex - 1][9] || '';
+      if (!candidateThreadId) {
+        results.failed++;
+        results.errors.push(`${email}: No thread ID found - cannot send reply`);
+        continue;
+      }
+
+      let thread;
+      try {
+        thread = GmailApp.getThreadById(candidateThreadId);
+      } catch (e) {
+        results.failed++;
+        results.errors.push(`${email}: Thread not accessible - ${e.message}`);
+        continue;
+      }
+
+      if (!thread) {
+        results.failed++;
+        results.errors.push(`${email}: Thread not found`);
+        continue;
+      }
+
+      // Get job config for context
+      const jobConfig = getNegotiationConfig(jobId);
+      const jobDescription = jobConfig ? (jobConfig.jobDescription || '').substring(0, 500) : '';
+      const candidateName = stateData[stateRowIndex - 1][7] || 'there';
+      const firstName = candidateName.split(' ')[0];
+
+      // Build conversation history from thread
+      let conversationHistory = '';
+      try {
+        const messages = thread.getMessages();
+        const recentMessages = messages.slice(-4); // Last 4 messages for context
+        recentMessages.forEach(msg => {
+          const from = msg.getFrom();
+          const body = msg.getPlainBody().substring(0, 500);
+          conversationHistory += `\n---\n[${from}]: ${body}`;
+        });
+      } catch (e) {
+        console.error('Failed to build conversation history:', e);
+      }
+
+      // Generate the transition email based on stage
+      let emailBody;
+      if (stage === 'negotiation') {
+        const targetRate = jobConfig ? jobConfig.targetRate : null;
+        const prompt = `You are a professional recruiter at Turing. Write an email to re-engage a candidate who previously responded (e.g. confirmed availability) and now needs to discuss rate/compensation for the role.
+
+CANDIDATE NAME: ${firstName}
+JOB DESCRIPTION:
+${jobDescription || 'Freelance opportunity at Turing'}
+${targetRate ? `TARGET RATE: $${targetRate}/hr (do NOT mention this - it is internal only)` : ''}
+
+PREVIOUS CONVERSATION:
+${conversationHistory || 'No prior conversation available.'}
+
+${customMessage ? `ADDITIONAL CONTEXT FROM RECRUITER:\n${customMessage}\n` : ''}
+TASK:
+Write a warm, professional email that:
+1. References the previous conversation naturally (e.g., "Thank you for confirming your availability" or "Following up on our earlier conversation")
+2. Transitions to rate discussion: ask what their expected hourly rate would be for this role
+3. Briefly mentions key aspects of the role (remote/onsite, hours, duration if known from JD)
+4. Keeps it concise - 4-6 sentences max
+5. Does NOT mention any internal target rates or budget
+
+EMAIL FORMAT:
+Hi ${firstName},
+
+[Body]
+
+Best regards,
+${signature}
+
+Write ONLY the email body. No subject line. No placeholders.`;
+        emailBody = callAI(prompt);
+
+      } else if (stage === 'data_gathering') {
+        // Get the questions configured for this job
+        const questions = getAllJobColumns(jobId);
+        const questionsList = questions.length > 0
+          ? questions.map((q, i) => `${i + 1}. ${q.question}`).join('\n')
+          : 'General information about availability, experience, and preferences';
+
+        const prompt = `You are a professional recruiter at Turing. Write an email to re-engage a candidate who previously responded and now needs to provide additional information for the role.
+
+CANDIDATE NAME: ${firstName}
+JOB DESCRIPTION:
+${jobDescription || 'Freelance opportunity at Turing'}
+
+PREVIOUS CONVERSATION:
+${conversationHistory || 'No prior conversation available.'}
+
+INFORMATION NEEDED:
+${questionsList}
+
+${customMessage ? `ADDITIONAL CONTEXT FROM RECRUITER:\n${customMessage}\n` : ''}
+TASK:
+Write a warm, professional email that:
+1. References the previous conversation naturally
+2. Explains that the team needs some additional details to move forward
+3. Lists the information needed in a clear, easy-to-respond format
+4. Keeps it professional but friendly
+5. Is concise - don't over-explain
+
+EMAIL FORMAT:
+Hi ${firstName},
+
+[Body]
+
+Best regards,
+${signature}
+
+Write ONLY the email body. No subject line. No placeholders.`;
+        emailBody = callAI(prompt);
+
+      } else if (stage === 'custom') {
+        if (!customMessage) {
+          results.failed++;
+          results.errors.push(`${email}: Custom stage requires a message`);
+          continue;
+        }
+        const prompt = `You are a professional recruiter at Turing. Write an email to re-engage a candidate based on the recruiter's instructions below.
+
+CANDIDATE NAME: ${firstName}
+JOB DESCRIPTION:
+${jobDescription || 'Freelance opportunity at Turing'}
+
+PREVIOUS CONVERSATION:
+${conversationHistory || 'No prior conversation available.'}
+
+RECRUITER'S INSTRUCTIONS:
+${customMessage}
+
+TASK:
+Write a professional email following the recruiter's instructions above.
+- Reference the previous conversation naturally
+- Keep it concise and professional
+- Do NOT reveal any internal rates, budgets, or confidential information
+
+EMAIL FORMAT:
+Hi ${firstName},
+
+[Body]
+
+Best regards,
+${signature}
+
+Write ONLY the email body. No subject line. No placeholders.`;
+        emailBody = callAI(prompt);
+
+      } else {
+        results.failed++;
+        results.errors.push(`${email}: Unknown stage "${stage}"`);
+        continue;
+      }
+
+      if (!emailBody || emailBody.startsWith('ACTION: ESCALATE')) {
+        results.failed++;
+        results.errors.push(`${email}: AI failed to generate email`);
+        continue;
+      }
+
+      // Validate email content before sending
+      if (!validateEmailForSending(emailBody, { jobId: jobId })) {
+        results.failed++;
+        results.errors.push(`${email}: Email blocked - contained sensitive data`);
+        continue;
+      }
+
+      // Send the email in the same thread
+      sendReplyWithSenderName(thread, emailBody, senderName);
+
+      // Update Negotiation_State:
+      // - Reset attempts to 0 for the new stage
+      // - Update status to reflect new stage
+      // - Update timestamp
+      const newStatus = stage === 'negotiation' ? 'Re-engaged - Negotiation'
+        : stage === 'data_gathering' ? 'Re-engaged - Data Gathering'
+        : 'Re-engaged - Custom';
+
+      stateSheet.getRange(stateRowIndex, 3).setValue(0);           // Column C: Reset attempts
+      stateSheet.getRange(stateRowIndex, 5).setValue(newStatus);   // Column E: Status
+      stateSheet.getRange(stateRowIndex, 6).setValue(new Date());  // Column F: Last Reply Time
+
+      // Generate updated AI summary
+      try {
+        const updatedHistory = conversationHistory + '\n---\n[ME]: ' + emailBody.substring(0, 400);
+        const summary = generateComprehensiveAISummary(
+          updatedHistory,
+          email,
+          jobId,
+          0,
+          newStatus
+        );
+        if (summary) {
+          stateSheet.getRange(stateRowIndex, 9).setValue(summary); // Column I: AI Notes
+        }
+      } catch (summaryErr) {
+        console.error('Failed to generate re-engagement summary:', summaryErr);
+      }
+
+      // Update follow-up labels
+      try {
+        updateFollowUpLabels(candidateThreadId, 'responded');
+      } catch (labelErr) {
+        console.error('Failed to update labels:', labelErr);
+      }
+
+      results.success++;
+      debugLog(`Re-engaged ${email} for Job ${jobId} → ${stage}`);
+
+    } catch (e) {
+      results.failed++;
+      results.errors.push(`${candidate.email || 'unknown'}: ${e.message}`);
+      console.error('Re-engage error:', e);
+    }
+  }
+
+  // Invalidate cache so task list refreshes
+  invalidateSheetCache('Negotiation_State');
   return results;
 }
 
