@@ -1,4 +1,4 @@
-# Turing AI Recruiter V2
+# Turing AI Recruiter V12
 
 A Google Apps Script-based recruitment automation platform for managing developer outreach, AI-powered rate negotiation, automated follow-up emails, analytics, and learning systems.
 
@@ -22,10 +22,25 @@ A Google Apps Script-based recruitment automation platform for managing develope
    - [Follow-Ups](#follow-ups)
    - [Analytics Dashboard](#analytics-dashboard)
    - [Learning System](#learning-system)
+   - [Email Settings](#email-settings)
    - [AI Testing](#ai-testing)
 6. [Sheet Structure](#sheet-structure)
-7. [Important Notes & Best Practices](#important-notes--best-practices)
-8. [Troubleshooting](#troubleshooting)
+7. [Critical System Behaviors](#critical-system-behaviors)
+   - [Candidate Responds After Being Marked Unresponsive](#candidate-responds-after-being-marked-unresponsive)
+   - [Candidate Responds After Rate is Already Accepted](#candidate-responds-after-rate-is-already-accepted)
+   - [What Triggers AI Escalation to Human](#what-triggers-ai-escalation-to-human)
+   - [What Happens When Both Negotiation Attempts Are Rejected](#what-happens-when-both-negotiation-attempts-are-rejected)
+   - [Ambiguous / Non-Committal Replies](#ambiguous--non-committal-replies)
+   - [Email Reply from a Different Address (Mismatch)](#email-reply-from-a-different-address-mismatch)
+   - [Duplicate Send Prevention](#duplicate-send-prevention)
+   - [AI Email Rate Limit](#ai-email-rate-limit-50-per-trigger-run)
+   - [Data Gathering — Full Flow](#data-gathering--full-flow)
+   - [Follow-Up & Unresponsive Timing](#follow-up--unresponsive-timing-exact-values)
+   - [Gmail Label Full Lifecycle](#gmail-label-full-lifecycle)
+   - [WhatsApp Outreach](#whatsapp-outreach)
+   - [BigQuery Returns No Results](#bigquery-returns-no-results)
+8. [Important Notes & Best Practices](#important-notes--best-practices)
+9. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -112,6 +127,7 @@ The system supports the following pipeline stages for candidate filtering:
 | On Hold - Onboarding | `on-hold-onboarding` | Onboarding paused |
 | Pending Onboarding | `pending-vetting` | Awaiting onboarding |
 | Ready for Selection | `ready-for-selection` | Ready for client selection |
+| Selected for Internal Interviews | `selected-for-internal-interviews` | Selected for internal interview process |
 | Selected for Trial | `selected-for-trial` | Selected for trial period |
 
 ---
@@ -183,24 +199,21 @@ Before setting up, ensure you have:
 1. In Apps Script, go to **Project Settings** (gear icon)
 2. Scroll down to **Script Properties**
 3. Click **Add script property**
-4. Add the following property:
+4. Add the following properties:
 
-| Property | Value |
-|----------|-------|
-| `OPENAI_API_KEY` | Your OpenAI API key (sk-...) |
+| Property | Value | Required |
+|----------|-------|----------|
+| `OPENAI_API_KEY` | Your OpenAI API key (sk-...) | Yes |
+| `PROJECT_ID` | Your Google Cloud Project ID | Yes |
+| `DATASET_ID` | Your BigQuery dataset ID | Yes |
+| `EXTERNAL_CONN` | Your BigQuery external connection (e.g. `project.region.connection`) | Yes |
+| `ANALYTICS_SHEET_ID` | Central analytics spreadsheet ID (optional override) | No |
+| `EMAIL_SENDER_NAME_CUSTOM` | Custom sender display name override | No |
+| `EMAIL_SIGNATURE_CUSTOM` | Custom email signature override | No |
 
 5. Click **Save script properties**
 
-#### Update BigQuery Configuration
-
-In `code.gs`, update the `CONFIG` object at the top of the file:
-
-```javascript
-const CONFIG = {
-  PROJECT_ID: "your-gcp-project-id",           // Your Google Cloud Project ID
-  EXTERNAL_CONN: "your-project.dataset.connection"  // Your BigQuery external connection
-};
-```
+> **Note:** `PROJECT_ID`, `DATASET_ID`, and `EXTERNAL_CONN` were previously hardcoded in the `CONFIG` object. They are now configured via Script Properties, which is more secure and easier to update without redeploying.
 
 ### Step 4: Set Up Triggers (Automatic)
 
@@ -262,6 +275,7 @@ The first tab for fetching developers and sending outreach emails.
    - Interested
    - Passed VetSmith
    - Passed Internal Interviews
+   - Selected for Internal Interviews
    - Pending Review
    - Completed Testing
    - Developer Backout
@@ -448,6 +462,19 @@ Extract learnings from human escalations to improve AI.
 - Run manually or set up weekly automatic consolidation
 - Consolidated learnings improve future AI responses
 
+### Email Settings
+
+Customize how outgoing emails appear to recipients.
+
+1. Open the **Config** modal (gear icon)
+2. Navigate to the **Email Settings** section
+3. Configure:
+   - **Sender Name**: Display name shown to email recipients (overrides the default `Turing Recruitment Team`)
+   - **Email Signature**: Signature appended to outgoing emails (overrides the default `Turing | Talent Operations`)
+4. Click **Save**
+
+> Settings are stored in Script Properties and persist across deployments.
+
 ### AI Testing
 
 Test AI responses before deployment (Admin only).
@@ -496,6 +523,194 @@ To help AI answer common questions:
 3. Add rows with:
    - Column A: Question (e.g., "What are the working hours?")
    - Column B: Answer (e.g., "Flexible hours with 4-hour overlap with US timezone")
+
+---
+
+## Critical System Behaviors
+
+This section covers important behaviors that happen automatically in the background. Understanding these will help you interpret the data in your sheets and avoid confusion when things don't behave as expected.
+
+---
+
+### Candidate Responds After Being Marked Unresponsive
+
+If a candidate was marked as **Unresponsive** (76 hours with no reply) but later replies in the same Gmail thread, the system **automatically detects this on the next trigger run**:
+
+- Status is changed back to **Responded** in `Follow_Up_Queue`
+- Gmail labels are updated (`Unresponsive` removed)
+- If negotiation is active for that job, the AI resumes processing their reply
+- The candidate is **not re-sent** follow-up emails — their reply is treated as a live response
+
+> This means unresponsive is not permanent. Check `Follow_Up_Queue` and `Negotiation_State` if you see unexpected re-activation.
+
+---
+
+### Candidate Responds After Rate is Already Accepted
+
+If a candidate sends another message after their acceptance was recorded:
+
+- The system checks whether **data gathering is still incomplete** for that candidate
+- **If data is still missing:** The candidate is NOT moved to `Negotiation_Completed` yet. The AI continues gathering the outstanding information (start date, notice period, equipment, etc.)
+- **If all data is already collected:** The extra response is ignored for processing purposes — no new email is sent, and the candidate stays in `Negotiation_Completed`
+
+> Log note you may see: *"Rate agreed at $X/hr but data gathering incomplete. Will NOT mark as Completed."*
+
+---
+
+### What Triggers AI Escalation to Human
+
+The AI escalates to a human (applies `Human-Negotiation` Gmail label) when any of the following occur:
+
+1. Candidate **rejects the final max-rate offer** (2nd attempt)
+2. Candidate asks about **internal processes**, rate structures, other candidates, or system identifiers
+3. Candidate asks a question **not covered in the FAQ database**
+4. Candidate explicitly asks to **speak with a human**
+
+**What happens on escalation:**
+- The `Human-Negotiation` Gmail label is added to the thread — no email is sent to the candidate at this point
+- The AI writes a **summary of the conversation and the candidate's concerns** into the AI Notes column in `Negotiation_State`
+- The thread appears in the Task List under **"Needs Human"**
+- A human can reply directly in Gmail — the system detects this and marks the escalation as handled
+
+> After a human completes the negotiation, click **Process Human** in the Task List to import the result back into the system.
+
+---
+
+### What Happens When Both Negotiation Attempts Are Rejected
+
+- **Attempt 1** (80% of target rate) rejected → AI sends Attempt 2
+- **Attempt 2** (100% of max rate) rejected → AI triggers **escalation to human** (not auto-archive)
+- The negotiation is **never automatically closed or archived** after two rejections — a human must review and take action
+- Only after a human marks the outcome (e.g., "Rejected by Candidate") is the record moved to `Negotiation_Completed`
+
+---
+
+### Ambiguous / Non-Committal Replies
+
+If a candidate responds with something unclear (e.g., *"I'll think about it"*, *"Let me check with my family"*, *"Maybe"*):
+
+- The AI takes a **SOFT_HOLD** action — no acceptance or rejection is recorded
+- An acknowledging reply is sent to the candidate
+- The candidate's status in `Negotiation_State` **remains unchanged** (still active)
+- They are **not marked unresponsive** — the 76-hour timer resets from their last reply
+- They will remain in active state until they give a clear answer or the system eventually times out
+
+---
+
+### Email Reply from a Different Address (Mismatch)
+
+When a candidate replies from a different email address than the one the system sent to (e.g., sent to `john.doe@gmail.com`, replied from `johndoe@gmail.com`):
+
+- The system uses **Gmail thread matching** to identify the candidate regardless of the reply address
+- For Gmail/Googlemail addresses, dots are ignored in matching (`john.doe@gmail.com` = `johndoe@gmail.com`)
+- For non-Gmail addresses, dots **are significant** — `john.doe@company.com` ≠ `johndoe@company.com`
+- The mismatch is logged in `Email_Mismatch_Reports` with:
+  - Expected email, actual reply email, Dev ID, Thread ID, timestamp
+  - `Requires Review: Yes` flag for manual investigation
+- Processing continues normally — the candidate is not blocked
+
+> Regularly check `Email_Mismatch_Reports` if you notice candidates in unexpected states.
+
+---
+
+### Duplicate Send Prevention
+
+Before sending any email, the system checks whether the candidate is already in the system for the same job:
+
+- Checks `Negotiation_State`, `Follow_Up_Queue`, and `Job_*_Details` for a matching email + Job ID combination
+- Gmail dot-variants are treated as the same email for all Gmail addresses
+- If a duplicate is found, **the email is silently skipped** and counted as already queued — no error is shown, no duplicate is sent
+- This applies to both bulk sends from the UI and AI trigger-based sends
+
+---
+
+### AI Email Rate Limit (50 per trigger run)
+
+The system caps AI-generated emails at **50 per trigger execution** (covers negotiations + follow-ups + data gathering combined). This prevents runaway sending if something is misconfigured.
+
+- **Manual bulk sends from the UI are not affected** by this limit
+- If the limit is reached mid-run, remaining candidates are skipped and processed on the next hourly trigger
+- No error is shown to the user — it silently defers to the next run
+- If your queue is large, candidates will be processed in batches across hourly runs
+
+---
+
+### Data Gathering — Full Flow
+
+Data gathering is triggered when the AI detects that a candidate's response is missing key information (start date, notice period, weekly hours, equipment preferences, etc.).
+
+**Timing (separate from follow-up timers):**
+
+| Step | Trigger |
+|------|---------|
+| Data follow-up 1 | 12 hours after data gap detected |
+| Data follow-up 2 | 28 hours after data gap detected |
+| Data follow-up 3 (final) | 48 hours after data gap detected |
+| Marked "Incomplete Data - Unresponsive" | 72 hours with no response to final follow-up |
+
+**After candidate provides all data:**
+- Status updated to "Data Complete" in `Negotiation_State`
+- If rate negotiation is also resolved, candidate is moved to `Negotiation_Completed`
+- A confirmation email is sent to the candidate
+- If data gathering is complete but negotiation is pending, only the negotiation remains open
+
+---
+
+### Follow-Up & Unresponsive Timing (Exact Values)
+
+| Event | Hours After Initial Send |
+|-------|--------------------------|
+| Follow-up 1 sent | 12 hours |
+| Follow-up 2 sent | 28 hours |
+| Marked as Unresponsive | 76 hours (both follow-ups must be sent first) |
+| Negotiation silent follow-up 1 | 24 hours after last AI reply (no candidate response) |
+| Negotiation silent follow-up 2 | 48 hours |
+| Negotiation marked Unresponsive | 96 hours |
+
+> These values can be overridden by setting `FOLLOW_UP_TIMING_CONFIG` in Script Properties (JSON format).
+
+**When marked Unresponsive:**
+1. Candidate row is copied from `Follow_Up_Queue` → `Unresponsive_Devs`
+2. Original row is deleted from `Follow_Up_Queue`
+3. Gmail labels: adds `Unresponsive`, removes `Awaiting-Response`, `Follow-Up-1-Sent`, `Follow-Up-2-Sent`
+4. No further emails are sent unless the candidate responds (see above)
+
+---
+
+### Gmail Label Full Lifecycle
+
+| Event | Labels Added | Labels Removed |
+|-------|-------------|----------------|
+| Email sent via app | `AI-Managed`, `Job-XXXXX` | — |
+| Added to follow-up queue | `Awaiting-Response` | — |
+| Follow-up 1 sent | `Follow-Up-1-Sent` | — |
+| Follow-up 2 sent | `Follow-Up-2-Sent` | `Follow-Up-1-Sent` |
+| Marked unresponsive | `Unresponsive` | `Awaiting-Response`, `Follow-Up-1-Sent`, `Follow-Up-2-Sent` |
+| Escalated to human | `Human-Negotiation` | — |
+| Human completes escalation | `Human-Negotiation-Completed` | `Human-Negotiation` |
+| Negotiation accepted/completed | `Completed` | `Human-Negotiation` (if present) |
+| Data gathering follow-up sent | `Data-Follow-Up-1-Sent` | — |
+| Negotiation silent follow-up | `Neg-Follow-Up-1-Sent` | — |
+
+> **Critical:** The AI will **only process email threads that have the `AI-Managed` label**. If you manually send an email outside the system, the AI will not touch that thread.
+
+---
+
+### WhatsApp Outreach
+
+**WhatsApp is not implemented.** All outreach and response detection is email-only via the Gmail API. There is no WhatsApp integration in the current version.
+
+---
+
+### BigQuery Returns No Results
+
+If a Fetch returns 0 candidates:
+
+- A user-facing message is shown: *"No candidates found matching the selected criteria"*
+- No emails are sent
+- If the query times out (>300 seconds): *"BigQuery query timed out — please click Refresh to retry"*
+- The system does not automatically retry — you must click Fetch again
+- Check your Job ID, pipeline stage selection, and BigQuery connection if this happens unexpectedly
 
 ---
 
@@ -600,10 +815,11 @@ For issues or feature requests, please open an issue on the GitHub repository.
 
 ## Version History
 
-- **V12**: Added Passed Internal Interviews stage, Manual Entry (renamed from Test Mode), enhanced analytics, learning system
-- **V11**: Added follow-up automation, templates, user tracking, agency support, dark mode
-- **V10**: Added region-based rate tiers, improved negotiation flow
-- **V9**: Initial release with core features
+- **V12**: Added Selected for Internal Interviews stage, email sender name/signature customization via Settings UI, BigQuery config moved to Script Properties for easier updates, centralized analytics tracking
+- **V11**: Added Passed Internal Interviews stage, Manual Entry (renamed from Test Mode), enhanced analytics, learning system
+- **V10**: Added follow-up automation, templates, user tracking, agency support, dark mode
+- **V9**: Added region-based rate tiers, improved negotiation flow
+- **V8**: Initial release with core features
 
 ---
 
