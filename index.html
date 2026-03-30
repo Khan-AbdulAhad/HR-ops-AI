@@ -304,6 +304,13 @@
         }
         .dd-trigger-slate:hover { background: rgba(100, 116, 139, 0.18); box-shadow: 0 4px 12px rgba(100, 116, 139, 0.15); }
         .dark .dd-trigger-slate { background: rgba(100, 116, 139, 0.15); color: #cbd5e1; border-color: rgba(100, 116, 139, 0.3); }
+        .dd-trigger-purple {
+            background: rgba(147, 51, 234, 0.1);
+            color: #7c3aed;
+            border-color: rgba(147, 51, 234, 0.25);
+        }
+        .dd-trigger-purple:hover { background: rgba(147, 51, 234, 0.18); box-shadow: 0 4px 12px rgba(147, 51, 234, 0.2); }
+        .dark .dd-trigger-purple { background: rgba(147, 51, 234, 0.15); color: #c4b5fd; border-color: rgba(147, 51, 234, 0.3); }
 
         /* ===== Modern Action Buttons with Glow ===== */
         .btn-glow-purple {
@@ -994,6 +1001,14 @@
         }
         .toggle-switch.active::after {
             left: 22px;
+        }
+        /* Compact toggle variant for settings bar */
+        .toggle-switch[style*="width:36px"]::after {
+            width: 16px;
+            height: 16px;
+        }
+        .toggle-switch[style*="width:36px"].active::after {
+            left: 18px;
         }
         .dark .toggle-switch {
             background: #475569;
@@ -2328,59 +2343,50 @@
                         </div>
                     </div>
 
-                    <!-- Job AI Settings Panel (Quick access to turn features on/off) -->
-                    <div class="mb-6 bg-amber-50 dark:bg-amber-900/20 rounded-xl border border-amber-200 dark:border-amber-700 overflow-hidden">
-                        <div class="p-4 flex items-center justify-between cursor-pointer" onclick="toggleJobSettingsPanel()">
-                            <div class="flex items-center gap-3">
-                                <i class="fa-solid fa-sliders text-amber-600"></i>
-                                <span class="font-bold text-amber-800 dark:text-amber-300">Job AI Settings</span>
-                                <span class="text-xs text-amber-600 dark:text-amber-400">(Turn features ON/OFF for any job)</span>
+                    <!-- Job AI Settings - Compact Collapsible Bar -->
+                    <div class="mb-4 rounded-lg border border-amber-200 dark:border-amber-700 overflow-hidden">
+                        <button class="w-full px-4 py-2.5 flex items-center justify-between bg-amber-50/80 dark:bg-amber-900/20 hover:bg-amber-50 dark:hover:bg-amber-900/30 transition" onclick="toggleJobSettingsPanel()">
+                            <div class="flex items-center gap-2">
+                                <i class="fa-solid fa-sliders text-amber-500 text-sm"></i>
+                                <span class="font-semibold text-sm text-amber-800 dark:text-amber-300">Job AI Settings</span>
+                                <span class="text-xs text-amber-500 dark:text-amber-400 hidden sm:inline">(Turn features ON/OFF for any job)</span>
                             </div>
-                            <i class="fa-solid fa-chevron-down text-amber-600 transition-transform" id="jobSettingsPanelIcon"></i>
-                        </div>
-                        <div id="jobSettingsPanelContent" class="hidden border-t border-amber-200 dark:border-amber-700 p-4 bg-white dark:bg-slate-800">
-                            <div class="flex flex-wrap items-end gap-4">
+                            <i class="fa-solid fa-chevron-down text-amber-400 text-xs transition-transform" id="jobSettingsPanelIcon"></i>
+                        </button>
+                        <div id="jobSettingsPanelContent" class="hidden border-t border-amber-200 dark:border-amber-700 px-4 py-3 bg-white dark:bg-slate-800">
+                            <div class="flex flex-wrap items-center gap-3">
                                 <!-- Job Selection -->
-                                <div class="flex-1 min-w-[200px]">
-                                    <label class="block text-xs font-bold text-slate-600 dark:text-slate-400 uppercase mb-1">Select Job</label>
-                                    <select id="taskJobSettingsDropdown" onchange="loadTaskJobSettings(this.value)" class="input-field w-full">
-                                        <option value="">-- Select a Job --</option>
+                                <div class="min-w-[180px] flex-1 max-w-xs">
+                                    <select id="taskJobSettingsDropdown" onchange="loadTaskJobSettings(this.value)" class="input-field w-full text-sm py-1.5">
+                                        <option value="">-- Select Job --</option>
                                     </select>
                                 </div>
 
-                                <!-- Negotiation Toggle -->
-                                <div class="flex items-center gap-3 px-4 py-2 bg-slate-50 dark:bg-slate-700 rounded-lg" title="Enable AI to handle candidate rate negotiations for this job">
-                                    <div>
-                                        <span class="text-sm font-medium text-slate-700 dark:text-slate-300">Negotiation</span>
+                                <!-- Toggles in a compact row -->
+                                <div class="flex items-center gap-3 flex-wrap">
+                                    <div class="flex items-center gap-2 px-3 py-1.5 bg-slate-50 dark:bg-slate-700 rounded-lg" title="Enable AI to handle candidate rate negotiations for this job">
+                                        <span class="text-xs font-medium text-slate-600 dark:text-slate-300">Negotiation</span>
+                                        <div class="toggle-switch" id="taskToggleNegotiation" onclick="toggleTaskJobSetting('negotiation')" style="width:36px;height:20px"></div>
                                     </div>
-                                    <div class="toggle-switch" id="taskToggleNegotiation" onclick="toggleTaskJobSetting('negotiation')"></div>
-                                </div>
-
-                                <!-- Follow-up Toggle -->
-                                <div class="flex items-center gap-3 px-4 py-2 bg-slate-50 dark:bg-slate-700 rounded-lg" title="Enable automatic follow-up emails for candidates who don't respond">
-                                    <div>
-                                        <span class="text-sm font-medium text-slate-700 dark:text-slate-300">Follow-up</span>
+                                    <div class="flex items-center gap-2 px-3 py-1.5 bg-slate-50 dark:bg-slate-700 rounded-lg" title="Enable automatic follow-up emails for candidates who don't respond">
+                                        <span class="text-xs font-medium text-slate-600 dark:text-slate-300">Follow-up</span>
+                                        <div class="toggle-switch" id="taskToggleFollowUp" onclick="toggleTaskJobSetting('followUp')" style="width:36px;height:20px"></div>
                                     </div>
-                                    <div class="toggle-switch" id="taskToggleFollowUp" onclick="toggleTaskJobSetting('followUp')"></div>
-                                </div>
-
-                                <!-- Data Gathering Toggle -->
-                                <div class="flex items-center gap-3 px-4 py-2 bg-slate-50 dark:bg-slate-700 rounded-lg" title="Enable automatic data gathering follow-ups to collect missing candidate information">
-                                    <div>
-                                        <span class="text-sm font-medium text-slate-700 dark:text-slate-300">Data Gathering</span>
+                                    <div class="flex items-center gap-2 px-3 py-1.5 bg-slate-50 dark:bg-slate-700 rounded-lg" title="Enable automatic data gathering follow-ups to collect missing candidate information">
+                                        <span class="text-xs font-medium text-slate-600 dark:text-slate-300">Data Gathering</span>
+                                        <div class="toggle-switch" id="taskToggleDataGathering" onclick="toggleTaskJobSetting('dataGathering')" style="width:36px;height:20px"></div>
                                     </div>
-                                    <div class="toggle-switch" id="taskToggleDataGathering" onclick="toggleTaskJobSetting('dataGathering')"></div>
                                 </div>
 
                                 <!-- Request Additional Data Button -->
-                                <button onclick="openSupplementaryDataModal()" class="flex items-center gap-2 px-4 py-2 bg-teal-100 hover:bg-teal-200 dark:bg-teal-900/30 dark:hover:bg-teal-800/50 text-teal-700 dark:text-teal-400 rounded-lg transition" title="Request additional information from candidates for data gathering">
+                                <button onclick="openSupplementaryDataModal()" class="flex items-center gap-1.5 px-3 py-1.5 bg-teal-50 hover:bg-teal-100 dark:bg-teal-900/20 dark:hover:bg-teal-800/40 text-teal-600 dark:text-teal-400 rounded-lg transition text-xs font-medium border border-teal-200 dark:border-teal-700" title="Request additional information from candidates for data gathering">
                                     <i class="fa-solid fa-plus-circle"></i>
-                                    <span class="text-sm font-medium">Request Additional Data</span>
+                                    <span>Additional Data</span>
                                 </button>
                             </div>
 
                             <!-- Status Hint -->
-                            <p id="taskJobSettingsHint" class="text-xs text-amber-600 dark:text-amber-400 mt-3">
+                            <p id="taskJobSettingsHint" class="text-xs text-amber-500 dark:text-amber-400 mt-2">
                                 <i class="fa-solid fa-info-circle mr-1"></i>
                                 <span id="taskJobSettingsHintText">Select a job to view/modify its AI settings</span>
                             </p>
@@ -2390,12 +2396,15 @@
                     <!-- Bulk Actions -->
                     <div id="bulkActionsBar" class="hidden mb-4 bg-blue-50 dark:bg-blue-900/20 p-3 rounded-lg border border-blue-200 dark:border-blue-800 flex justify-between items-center">
                         <span class="text-sm font-bold text-blue-800 dark:text-blue-300"><span id="taskSelectedCount">0</span> selected</span>
-                        <div class="flex gap-2 flex-wrap">
+                        <div class="flex gap-2 flex-wrap items-center">
                             <button onclick="bulkSetTrackingStatus('Pending')" class="bg-yellow-100 text-yellow-700 border border-yellow-300 px-3 py-1 rounded text-sm font-medium">Mark Pending</button>
                             <button onclick="bulkSetTrackingStatus('RFS')" class="bg-green-100 text-green-700 border border-green-300 px-3 py-1 rounded text-sm font-medium">Mark RFS</button>
                             <button onclick="bulkSetTrackingStatus('Backout')" class="bg-red-100 text-red-700 border border-red-300 px-3 py-1 rounded text-sm font-medium">Mark Backout</button>
                             <button onclick="bulkSetTrackingStatus('On-Hold')" class="bg-blue-100 text-blue-700 border border-blue-300 px-3 py-1 rounded text-sm font-medium">Mark On-Hold</button>
                             <span class="border-l border-slate-300 dark:border-slate-600 mx-1"></span>
+                            <button onclick="openReEngageModal()" class="bg-purple-100 text-purple-700 border border-purple-300 px-3 py-1 rounded text-sm font-medium flex items-center gap-1" title="Send a new stage email (e.g. start negotiation) to selected candidates in their existing thread">
+                                <i class="fa-solid fa-paper-plane text-xs"></i> Re-engage
+                            </button>
                             <button onclick="bulkCompleteSelected()" class="bg-green-600 text-white px-3 py-1 rounded text-sm">Complete Selected</button>
                             <button onclick="clearTaskSelection()" class="bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-200 px-3 py-1 rounded text-sm">Clear</button>
                         </div>
@@ -4993,6 +5002,73 @@
         </div>
     </div>
 
+    <!-- Re-engage Modal -->
+    <div id="reEngageModal" class="fixed inset-0 z-50 hidden bg-black/50 backdrop-blur-sm flex items-center justify-center">
+        <div class="bg-white dark:bg-slate-800 rounded-xl shadow-xl w-full max-w-lg overflow-hidden">
+            <!-- Header -->
+            <div class="px-5 py-4 border-b border-slate-100 dark:border-slate-700 flex items-center justify-between">
+                <div class="flex items-center gap-2">
+                    <div class="w-8 h-8 rounded-lg bg-purple-100 dark:bg-purple-900/30 flex items-center justify-center">
+                        <i class="fa-solid fa-paper-plane text-purple-600 dark:text-purple-400 text-sm"></i>
+                    </div>
+                    <div>
+                        <h3 class="font-bold text-slate-800 dark:text-white text-sm">Re-engage Candidates</h3>
+                        <p class="text-xs text-slate-400" id="reEngageCount">0 candidates selected</p>
+                    </div>
+                </div>
+                <button onclick="closeReEngageModal()" class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition">
+                    <i class="fa-solid fa-times"></i>
+                </button>
+            </div>
+
+            <!-- Body -->
+            <div class="px-5 py-4 space-y-4">
+                <!-- Info tooltip -->
+                <div class="flex items-start gap-2 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg text-xs text-blue-700 dark:text-blue-300">
+                    <i class="fa-solid fa-circle-info mt-0.5"></i>
+                    <span>Sends an AI-generated email <b>in the existing thread</b> to transition candidates to a new stage. Useful when a candidate confirmed availability and now needs to discuss rate, or when you need additional information.</span>
+                </div>
+
+                <!-- Stage Selection -->
+                <div>
+                    <label class="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-2">What stage are you moving them to?</label>
+                    <div class="grid grid-cols-3 gap-2" id="reEngageStageOptions">
+                        <button type="button" class="re-engage-stage-btn active flex flex-col items-center gap-1.5 p-3 rounded-lg border-2 border-purple-300 bg-purple-50 dark:bg-purple-900/20 dark:border-purple-600 text-purple-700 dark:text-purple-300 transition" data-stage="negotiation" onclick="selectReEngageStage(this)">
+                            <i class="fa-solid fa-handshake text-lg"></i>
+                            <span class="text-xs font-semibold">Negotiation</span>
+                            <span class="text-[10px] text-slate-400 dark:text-slate-500 leading-tight">Discuss rate</span>
+                        </button>
+                        <button type="button" class="re-engage-stage-btn flex flex-col items-center gap-1.5 p-3 rounded-lg border-2 border-slate-200 dark:border-slate-600 hover:border-teal-300 dark:hover:border-teal-600 text-slate-600 dark:text-slate-300 transition" data-stage="data_gathering" onclick="selectReEngageStage(this)">
+                            <i class="fa-solid fa-clipboard-list text-lg"></i>
+                            <span class="text-xs font-semibold">Data Gathering</span>
+                            <span class="text-[10px] text-slate-400 dark:text-slate-500 leading-tight">Collect info</span>
+                        </button>
+                        <button type="button" class="re-engage-stage-btn flex flex-col items-center gap-1.5 p-3 rounded-lg border-2 border-slate-200 dark:border-slate-600 hover:border-amber-300 dark:hover:border-amber-600 text-slate-600 dark:text-slate-300 transition" data-stage="custom" onclick="selectReEngageStage(this)">
+                            <i class="fa-solid fa-pen text-lg"></i>
+                            <span class="text-xs font-semibold">Custom</span>
+                            <span class="text-[10px] text-slate-400 dark:text-slate-500 leading-tight">Your instructions</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Optional Message -->
+                <div>
+                    <label class="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-1" id="reEngageMessageLabel">Additional context <span class="font-normal normal-case">(optional)</span></label>
+                    <textarea id="reEngageMessage" class="input-field w-full text-sm h-20" placeholder="e.g. Team confirmed this candidate is a good fit. Ask about rate expectations for a 6-month contract."></textarea>
+                    <p class="text-[10px] text-slate-400 mt-1"><i class="fa-solid fa-wand-magic-sparkles mr-0.5"></i> AI will craft a professional email using this context</p>
+                </div>
+            </div>
+
+            <!-- Footer -->
+            <div class="px-5 py-3 bg-slate-50 dark:bg-slate-700/50 border-t border-slate-100 dark:border-slate-700 flex items-center justify-between">
+                <button onclick="closeReEngageModal()" class="px-4 py-2 text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-600 rounded-lg transition">Cancel</button>
+                <button id="reEngageSendBtn" onclick="executeReEngage()" class="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white text-sm font-medium rounded-lg transition flex items-center gap-2">
+                    <i class="fa-solid fa-paper-plane text-xs"></i> Send Re-engagement
+                </button>
+            </div>
+        </div>
+    </div>
+
     <!-- Hidden Bulk Action Bar -->
     <div id="bulkActionBar" class="fixed bottom-8 left-1/2 -translate-x-1/2 bg-slate-900 text-white px-6 py-3 rounded-full shadow-2xl flex items-center gap-6 hidden z-40 transition-all duration-300 ease-out" style="transform: translateX(-50%) translateY(0); opacity: 1;">
         <span class="font-bold"><span id="bulkSelectedCount">0</span> selected</span>
@@ -5110,6 +5186,7 @@
                 'teamHierarchyModal': function() { closeTeamHierarchyModal(); },
                 'pageAccessModal': function() { closePageAccessModal(); },
                 'supplementaryDataModal': function() { closeSupplementaryDataModal(); },
+                'reEngageModal': function() { closeReEngageModal(); },
                 'manualInputModal': function() { document.getElementById('manualInputModal').classList.add('hidden'); },
                 'emailModalOverlay': function() { closeEmailPanel(); }
             };
@@ -6996,6 +7073,7 @@
                         tr.className = "hover:bg-slate-50 dark:hover:bg-slate-700 border-b border-slate-50 dark:border-slate-700 transition task-row";
                         tr.dataset.email = t.email;
                         tr.dataset.statusTag = t.tags;
+                        if (t.threadId) tr.dataset.threadId = t.threadId;
 
                         // Hide row immediately if it doesn't match active search
                         if (activeSearchTerms.length > 0) {
@@ -7169,6 +7247,7 @@
             if (tag === 'Completed') return 'dd-trigger-teal';
             if (tag && tag.includes('Human')) return 'dd-trigger-amber';
             if (tag === 'Not Interested') return 'dd-trigger-slate';
+            if (tag && tag.startsWith('Re-engaged')) return 'dd-trigger-purple';
             return 'dd-trigger-blue';
         }
         function getTrackingTriggerClass(status) {
@@ -9971,6 +10050,142 @@
                     showToast('Bulk update failed', 'error');
                 })
                 .bulkUpdateTrackingStatus(items, status);
+        }
+
+        // --- Re-engage Candidates ---
+        let reEngageSelectedStage = 'negotiation';
+
+        function openReEngageModal() {
+            if (selectedTasks.size === 0) {
+                showToast('Select candidates first', 'warning');
+                return;
+            }
+            document.getElementById('reEngageCount').textContent = selectedTasks.size + ' candidate' + (selectedTasks.size > 1 ? 's' : '') + ' selected';
+            document.getElementById('reEngageMessage').value = '';
+            reEngageSelectedStage = 'negotiation';
+            // Reset stage button states
+            document.querySelectorAll('.re-engage-stage-btn').forEach(function(btn) {
+                if (btn.dataset.stage === 'negotiation') {
+                    btn.classList.add('active');
+                    btn.classList.remove('border-slate-200', 'dark:border-slate-600', 'text-slate-600', 'dark:text-slate-300');
+                    btn.classList.add('border-purple-300', 'bg-purple-50', 'dark:bg-purple-900/20', 'dark:border-purple-600', 'text-purple-700', 'dark:text-purple-300');
+                } else {
+                    btn.classList.remove('active');
+                }
+            });
+            updateReEngageMessageLabel();
+            var modal = document.getElementById('reEngageModal');
+            modal.classList.remove('hidden');
+            trapFocus(modal);
+        }
+
+        function closeReEngageModal() {
+            var modal = document.getElementById('reEngageModal');
+            releaseFocus(modal);
+            modal.classList.add('hidden');
+        }
+
+        function selectReEngageStage(btn) {
+            reEngageSelectedStage = btn.dataset.stage;
+            var stageColors = {
+                negotiation: { active: 'border-purple-300 bg-purple-50 dark:bg-purple-900/20 dark:border-purple-600 text-purple-700 dark:text-purple-300' },
+                data_gathering: { active: 'border-teal-300 bg-teal-50 dark:bg-teal-900/20 dark:border-teal-600 text-teal-700 dark:text-teal-300' },
+                custom: { active: 'border-amber-300 bg-amber-50 dark:bg-amber-900/20 dark:border-amber-600 text-amber-700 dark:text-amber-300' }
+            };
+            var inactiveClasses = 'border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-300';
+            var allActiveClasses = 'border-purple-300 bg-purple-50 dark:bg-purple-900/20 dark:border-purple-600 text-purple-700 dark:text-purple-300 border-teal-300 bg-teal-50 dark:bg-teal-900/20 dark:border-teal-600 text-teal-700 dark:text-teal-300 border-amber-300 bg-amber-50 dark:bg-amber-900/20 dark:border-amber-600 text-amber-700 dark:text-amber-300';
+
+            document.querySelectorAll('.re-engage-stage-btn').forEach(function(b) {
+                // Remove all active color classes
+                allActiveClasses.split(' ').forEach(function(c) { b.classList.remove(c); });
+                if (b.dataset.stage === reEngageSelectedStage) {
+                    b.classList.add('active');
+                    b.classList.remove('border-slate-200', 'dark:border-slate-600', 'text-slate-600', 'dark:text-slate-300');
+                    var colors = stageColors[reEngageSelectedStage].active.split(' ');
+                    colors.forEach(function(c) { b.classList.add(c); });
+                } else {
+                    b.classList.remove('active');
+                    inactiveClasses.split(' ').forEach(function(c) { b.classList.add(c); });
+                }
+            });
+            updateReEngageMessageLabel();
+        }
+
+        function updateReEngageMessageLabel() {
+            var label = document.getElementById('reEngageMessageLabel');
+            var textarea = document.getElementById('reEngageMessage');
+            if (reEngageSelectedStage === 'custom') {
+                label.innerHTML = 'Your instructions <span class="text-red-500">*</span>';
+                textarea.placeholder = 'e.g. Inform the candidate that the project timeline has changed to Q3 and ask if they are still available.';
+            } else if (reEngageSelectedStage === 'negotiation') {
+                label.innerHTML = 'Additional context <span class="font-normal normal-case">(optional)</span>';
+                textarea.placeholder = 'e.g. Team confirmed this candidate is a good fit. Ask about rate expectations for a 6-month contract.';
+            } else {
+                label.innerHTML = 'Additional context <span class="font-normal normal-case">(optional)</span>';
+                textarea.placeholder = 'e.g. We also need their visa status and preferred start date.';
+            }
+        }
+
+        function executeReEngage() {
+            var message = document.getElementById('reEngageMessage').value.trim();
+            if (reEngageSelectedStage === 'custom' && !message) {
+                showToast('Custom stage requires instructions', 'warning');
+                return;
+            }
+
+            // Build candidates array with email, jobId, threadId from selected rows
+            var candidates = [];
+            selectedTasks.forEach(function(email) {
+                var row = document.querySelector('.task-row[data-email="' + email + '"]');
+                if (row) {
+                    var dd = row.querySelector('.status-tag-dropdown');
+                    candidates.push({
+                        email: email,
+                        jobId: dd ? dd.dataset.jobId : '',
+                        threadId: row.dataset.threadId || ''
+                    });
+                }
+            });
+
+            if (candidates.length === 0) {
+                showToast('No valid candidates selected', 'warning');
+                return;
+            }
+
+            var stageLabel = reEngageSelectedStage === 'negotiation' ? 'Negotiation' :
+                             reEngageSelectedStage === 'data_gathering' ? 'Data Gathering' : 'Custom';
+
+            if (!confirm('Send re-engagement email (' + stageLabel + ') to ' + candidates.length + ' candidate(s)?\n\nThis will send an AI-generated email in each candidate\'s existing thread.')) {
+                return;
+            }
+
+            // Disable button and show loading
+            var btn = document.getElementById('reEngageSendBtn');
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin text-xs"></i> Sending...';
+
+            google.script.run
+                .withSuccessHandler(function(res) {
+                    btn.disabled = false;
+                    btn.innerHTML = '<i class="fa-solid fa-paper-plane text-xs"></i> Send Re-engagement';
+                    closeReEngageModal();
+
+                    if (res.success > 0) {
+                        showToast('Re-engaged ' + res.success + ' candidate(s) for ' + stageLabel, 'success');
+                    }
+                    if (res.failed > 0) {
+                        showToast(res.failed + ' failed: ' + (res.errors ? res.errors.slice(0, 2).join(', ') : 'Unknown error'), 'error');
+                    }
+
+                    clearTaskSelection();
+                    loadTasks(false);
+                })
+                .withFailureHandler(function(err) {
+                    btn.disabled = false;
+                    btn.innerHTML = '<i class="fa-solid fa-paper-plane text-xs"></i> Send Re-engagement';
+                    showToast('Re-engage failed: ' + err.message, 'error');
+                })
+                .reEngageCandidates(candidates, reEngageSelectedStage, message || '');
         }
 
         // --- Analytics ---

@@ -3532,7 +3532,7 @@ function saveJobCandidateDetails(ss, jobId, candidateEmail, candidateName, devId
     if (colIdx !== -1) {
       totalQuestions++;
       const answer = answers[q.header];
-      if (answer && answer !== 'NOT_PROVIDED' && answer !== 'PARSE_ERROR') {
+      if (answer && answer !== 'NOT_PROVIDED' && answer !== 'PARSE_ERROR' && String(answer).trim() !== '') {
         answeredQuestions++;
         rowData[colIdx] = answer;
       } else {
@@ -3933,6 +3933,8 @@ function getAllTasks(filters) {
       tag = 'Human-Negotiation';
     } else if(status === 'Active - Data Gathering') {
       tag = 'Data Gathering';
+    } else if(status.startsWith('Re-engaged')) {
+      tag = status.replace('Re-engaged - ', 'Re-engaged: ');
     } else if(status === 'Initial Outreach' || attempts === 0) {
       tag = 'Initial Outreach';
     } else {
@@ -4288,6 +4290,300 @@ function bulkUpdateTrackingStatus(items, trackingStatus) {
       results.failed++;
     }
   });
+  return results;
+}
+
+/**
+ * Re-engage candidates by sending a stage-transition email in their existing thread.
+ * Supports bulk operation for moving candidates to a new workflow stage (e.g. availability → negotiation).
+ *
+ * @param {Array} candidates - Array of { email, jobId, threadId } objects
+ * @param {string} stage - Target stage: 'negotiation', 'data_gathering', or 'custom'
+ * @param {string} [customMessage] - Optional custom context/instructions for the AI-generated email
+ * @returns {Object} { success: number, failed: number, errors: string[] }
+ */
+function reEngageCandidates(candidates, stage, customMessage) {
+  const results = { success: 0, failed: 0, errors: [] };
+  if (!candidates || candidates.length === 0) return results;
+
+  const url = getStoredSheetUrl();
+  if (!url) return { success: 0, failed: 0, errors: ['No sheet URL configured'] };
+
+  const ss = SpreadsheetApp.openByUrl(url);
+  const stateSheet = ss.getSheetByName('Negotiation_State');
+  if (!stateSheet) return { success: 0, failed: 0, errors: ['Negotiation_State sheet not found'] };
+
+  const stateData = stateSheet.getDataRange().getValues();
+  const senderName = getEffectiveSenderName();
+  const signature = getEffectiveSignature();
+
+  for (const candidate of candidates) {
+    try {
+      const { email, jobId, threadId } = candidate;
+      if (!email || !jobId) {
+        results.failed++;
+        results.errors.push(`${email || 'unknown'}: Missing email or jobId`);
+        continue;
+      }
+
+      // Find the candidate's row in Negotiation_State
+      const cleanEmail = normalizeEmail(email);
+      let stateRowIndex = -1;
+      for (let i = 1; i < stateData.length; i++) {
+        if (normalizeEmail(stateData[i][0]) === cleanEmail && String(stateData[i][1]) === String(jobId)) {
+          stateRowIndex = i + 1; // 1-indexed for sheet operations
+          break;
+        }
+      }
+
+      if (stateRowIndex === -1) {
+        results.failed++;
+        results.errors.push(`${email}: Not found in Negotiation_State for Job ${jobId}`);
+        continue;
+      }
+
+      // Get the thread
+      const candidateThreadId = threadId || stateData[stateRowIndex - 1][9] || '';
+      if (!candidateThreadId) {
+        results.failed++;
+        results.errors.push(`${email}: No thread ID found - cannot send reply`);
+        continue;
+      }
+
+      let thread;
+      try {
+        thread = GmailApp.getThreadById(candidateThreadId);
+      } catch (e) {
+        results.failed++;
+        results.errors.push(`${email}: Thread not accessible - ${e.message}`);
+        continue;
+      }
+
+      if (!thread) {
+        results.failed++;
+        results.errors.push(`${email}: Thread not found`);
+        continue;
+      }
+
+      // Get job config for context
+      const jobConfig = getNegotiationConfig(jobId);
+      const jobDescription = jobConfig ? (jobConfig.jobDescription || '').substring(0, 500) : '';
+      const candidateName = stateData[stateRowIndex - 1][7] || 'there';
+      const firstName = candidateName.split(' ')[0];
+
+      // Build conversation history from thread
+      let conversationHistory = '';
+      try {
+        const messages = thread.getMessages();
+        const recentMessages = messages.slice(-4); // Last 4 messages for context
+        recentMessages.forEach(msg => {
+          const from = msg.getFrom();
+          const body = msg.getPlainBody().substring(0, 500);
+          conversationHistory += `\n---\n[${from}]: ${body}`;
+        });
+      } catch (e) {
+        console.error('Failed to build conversation history:', e);
+      }
+
+      // Generate the transition email based on stage
+      let emailBody;
+      if (stage === 'negotiation') {
+        const targetRate = jobConfig ? jobConfig.targetRate : null;
+        const prompt = `You are a professional recruiter at Turing. Write an email to re-engage a candidate who previously responded (e.g. confirmed availability) and now needs to discuss rate/compensation for the role.
+
+CANDIDATE NAME: ${firstName}
+JOB DESCRIPTION:
+${jobDescription || 'Freelance opportunity at Turing'}
+${targetRate ? `TARGET RATE: $${targetRate}/hr (do NOT mention this - it is internal only)` : ''}
+
+PREVIOUS CONVERSATION:
+${conversationHistory || 'No prior conversation available.'}
+
+${customMessage ? `ADDITIONAL CONTEXT FROM RECRUITER:\n${customMessage}\n` : ''}
+TASK:
+Write a warm, professional email that:
+1. References the previous conversation naturally (e.g., "Thank you for confirming your availability" or "Following up on our earlier conversation")
+2. Transitions to rate discussion: ask what their expected hourly rate would be for this role
+3. Briefly mentions key aspects of the role (remote/onsite, hours, duration if known from JD)
+4. Keeps it concise - 4-6 sentences max
+5. Does NOT mention any internal target rates or budget
+
+EMAIL FORMAT:
+Hi ${firstName},
+
+[Body]
+
+Best regards,
+${signature}
+
+Write ONLY the email body. No subject line. No placeholders.`;
+        emailBody = callAI(prompt);
+
+      } else if (stage === 'data_gathering') {
+        // Get the questions configured for this job
+        const questions = getAllJobColumns(jobId);
+        const questionsList = questions.length > 0
+          ? questions.map((q, i) => `${i + 1}. ${q.question}`).join('\n')
+          : 'General information about availability, experience, and preferences';
+
+        const prompt = `You are a professional recruiter at Turing. Write an email to re-engage a candidate who previously responded and now needs to provide additional information for the role.
+
+CANDIDATE NAME: ${firstName}
+JOB DESCRIPTION:
+${jobDescription || 'Freelance opportunity at Turing'}
+
+PREVIOUS CONVERSATION:
+${conversationHistory || 'No prior conversation available.'}
+
+INFORMATION NEEDED:
+${questionsList}
+
+${customMessage ? `ADDITIONAL CONTEXT FROM RECRUITER:\n${customMessage}\n` : ''}
+TASK:
+Write a warm, professional email that:
+1. References the previous conversation naturally
+2. Explains that the team needs some additional details to move forward
+3. Lists the information needed in a clear, easy-to-respond format
+4. Keeps it professional but friendly
+5. Is concise - don't over-explain
+
+EMAIL FORMAT:
+Hi ${firstName},
+
+[Body]
+
+Best regards,
+${signature}
+
+Write ONLY the email body. No subject line. No placeholders.`;
+        emailBody = callAI(prompt);
+
+      } else if (stage === 'custom') {
+        if (!customMessage) {
+          results.failed++;
+          results.errors.push(`${email}: Custom stage requires a message`);
+          continue;
+        }
+        const prompt = `You are a professional recruiter at Turing. Write an email to re-engage a candidate based on the recruiter's instructions below.
+
+CANDIDATE NAME: ${firstName}
+JOB DESCRIPTION:
+${jobDescription || 'Freelance opportunity at Turing'}
+
+PREVIOUS CONVERSATION:
+${conversationHistory || 'No prior conversation available.'}
+
+RECRUITER'S INSTRUCTIONS:
+${customMessage}
+
+TASK:
+Write a professional email following the recruiter's instructions above.
+- Reference the previous conversation naturally
+- Keep it concise and professional
+- Do NOT reveal any internal rates, budgets, or confidential information
+
+EMAIL FORMAT:
+Hi ${firstName},
+
+[Body]
+
+Best regards,
+${signature}
+
+Write ONLY the email body. No subject line. No placeholders.`;
+        emailBody = callAI(prompt);
+
+      } else {
+        results.failed++;
+        results.errors.push(`${email}: Unknown stage "${stage}"`);
+        continue;
+      }
+
+      if (!emailBody || emailBody.startsWith('ACTION: ESCALATE')) {
+        results.failed++;
+        results.errors.push(`${email}: AI failed to generate email`);
+        continue;
+      }
+
+      // Validate email content before sending
+      if (!validateEmailForSending(emailBody, { jobId: jobId })) {
+        results.failed++;
+        results.errors.push(`${email}: Email blocked - contained sensitive data`);
+        continue;
+      }
+
+      // Send the email in the same thread
+      sendReplyWithSenderName(thread, emailBody, senderName);
+
+      // Update Negotiation_State:
+      // - Reset attempts to 0 for the new stage
+      // - Update status to reflect new stage
+      // - Update timestamp
+      const newStatus = stage === 'negotiation' ? 'Re-engaged - Negotiation'
+        : stage === 'data_gathering' ? 'Re-engaged - Data Gathering'
+        : 'Re-engaged - Custom';
+
+      stateSheet.getRange(stateRowIndex, 3).setValue(0);           // Column C: Reset attempts
+      stateSheet.getRange(stateRowIndex, 5).setValue(newStatus);   // Column E: Status
+      stateSheet.getRange(stateRowIndex, 6).setValue(new Date());  // Column F: Last Reply Time
+
+      // Generate updated AI summary
+      try {
+        const updatedHistory = conversationHistory + '\n---\n[ME]: ' + emailBody.substring(0, 400);
+        const summary = generateComprehensiveAISummary(
+          updatedHistory,
+          email,
+          jobId,
+          0,
+          newStatus
+        );
+        if (summary) {
+          stateSheet.getRange(stateRowIndex, 9).setValue(summary); // Column I: AI Notes
+        }
+      } catch (summaryErr) {
+        console.error('Failed to generate re-engagement summary:', summaryErr);
+      }
+
+      // Update follow-up labels
+      try {
+        updateFollowUpLabels(candidateThreadId, 'responded');
+      } catch (labelErr) {
+        console.error('Failed to update labels:', labelErr);
+      }
+
+      // Reset Follow_Up_Queue status if candidate was marked Unresponsive
+      // Without this, the task list cross-reference logic would still show "Unresponsive" tag
+      try {
+        const followUpSheet = ss.getSheetByName('Follow_Up_Queue');
+        if (followUpSheet) {
+          const fqData = followUpSheet.getDataRange().getValues();
+          for (let f = 1; f < fqData.length; f++) {
+            if (normalizeEmail(fqData[f][0]) === cleanEmail && String(fqData[f][1]) === String(jobId)) {
+              if (fqData[f][8] === 'Unresponsive' || fqData[f][8] === 'Incomplete Data') {
+                followUpSheet.getRange(f + 1, 9).setValue('Re-engaged');   // Column I: Status
+                followUpSheet.getRange(f + 1, 10).setValue(new Date());    // Column J: Last Updated
+              }
+              break;
+            }
+          }
+        }
+      } catch (fqErr) {
+        console.error('Failed to reset Follow_Up_Queue status:', fqErr);
+      }
+
+      results.success++;
+      debugLog(`Re-engaged ${email} for Job ${jobId} → ${stage}`);
+
+    } catch (e) {
+      results.failed++;
+      results.errors.push(`${candidate.email || 'unknown'}: ${e.message}`);
+      console.error('Re-engage error:', e);
+    }
+  }
+
+  // Invalidate caches so task list refreshes
+  invalidateSheetCache('Negotiation_State');
+  invalidateSheetCache('Follow_Up_Queue');
   return results;
 }
 
@@ -4950,7 +5246,7 @@ function sendBulkEmails(recipients, senderName, subject, htmlBody, jobId, opts) 
       followUpSheet = ss.getSheetByName('Follow_Up_Queue');
       if (!followUpSheet) {
         followUpSheet = ss.insertSheet('Follow_Up_Queue');
-        followUpSheet.appendRow(['Email', 'Job ID', 'Thread ID', 'Name', 'Dev ID', 'Initial Send Time', 'Follow Up 1 Sent', 'Follow Up 2 Sent', 'Status', 'Last Updated', 'Manual Override']);
+        followUpSheet.appendRow(['Email', 'Job ID', 'Thread ID', 'Name', 'Dev ID', 'Initial Send Time', 'Follow Up 1 Sent', 'Follow Up 2 Sent', 'Status', 'Last Updated', 'Manual Override', 'Data Follow Up 1 Sent', 'Data Follow Up 2 Sent', 'Data Follow Up 3 Sent', 'Last Response Time']);
       }
       const fqData = followUpSheet.getDataRange().getValues();
       for (let i = 1; i < fqData.length; i++) {
@@ -5825,6 +6121,9 @@ Reply with only the email body text. No subject line. No placeholders.`;
           // CRITICAL FIX: Check if candidate mentioned a rate in their message OR if rate was already provided
           // If they did, we should NOT send a simple data gathering email - instead let the negotiation
           // logic handle it, which will send a combined "acknowledge rate + request missing info" email
+          // NOTE: Only skip data gathering for rate mentions when negotiation is actually enabled.
+          // When negotiation is disabled, the negotiation logic won't run, so we must send
+          // the data gathering email regardless of rate mentions.
           const rateDetectionPatterns = [
             /(?:my\s+)?(?:expected\s+)?rate\s+(?:is|would\s+be)\s+\$?\s*(\d+(?:\.\d+)?)/i,
             /\$\s*(\d+(?:\.\d+)?)\s*(?:\/\s*hr|\/\s*hour|per\s*hour|an\s*hour)/i,
@@ -5835,31 +6134,36 @@ Reply with only the email body text. No subject line. No placeholders.`;
 
           let candidateMentionedRate = false;
 
-          // Check 1: Rate in current message
-          for (const pattern of rateDetectionPatterns) {
-            if (pattern.test(candidateLatestMessage)) {
-              candidateMentionedRate = true;
-              jobStats.log.push({type: 'info', message: `${candidateEmail} - Rate detected in current message, skipping simple data gathering to let negotiation logic handle combined response`});
-              break;
-            }
-          }
-
-          // Check 2: Rate already provided in previous messages (extracted to answers)
-          // This prevents returning early when rate was in a previous message but not the current one
-          if (!candidateMentionedRate && answers && answers['Expected Rate'] &&
-              answers['Expected Rate'] !== 'NOT_PROVIDED' && answers['Expected Rate'] !== 'PARSE_ERROR') {
-            candidateMentionedRate = true;
-            jobStats.log.push({type: 'info', message: `${candidateEmail} - Rate already extracted from previous messages ($${answers['Expected Rate']}), skipping simple data gathering to let negotiation logic handle`});
-          }
-
-          // Check 3: Also check conversation history for rate mentions
-          // This catches cases where rate was mentioned but not extracted to Expected Rate field
-          if (!candidateMentionedRate && conversationHistory) {
+          // Only check for rate mentions if negotiation is enabled - when negotiation is off,
+          // there's no negotiation logic to handle the combined response, so we must always
+          // send the data gathering email for missing questions
+          if (negotiationEnabled) {
+            // Check 1: Rate in current message
             for (const pattern of rateDetectionPatterns) {
-              if (pattern.test(conversationHistory)) {
+              if (pattern.test(candidateLatestMessage)) {
                 candidateMentionedRate = true;
-                jobStats.log.push({type: 'info', message: `${candidateEmail} - Rate found in conversation history, skipping simple data gathering to let negotiation logic handle`});
+                jobStats.log.push({type: 'info', message: `${candidateEmail} - Rate detected in current message, skipping simple data gathering to let negotiation logic handle combined response`});
                 break;
+              }
+            }
+
+            // Check 2: Rate already provided in previous messages (extracted to answers)
+            // This prevents returning early when rate was in a previous message but not the current one
+            if (!candidateMentionedRate && answers && answers['Expected Rate'] &&
+                answers['Expected Rate'] !== 'NOT_PROVIDED' && answers['Expected Rate'] !== 'PARSE_ERROR') {
+              candidateMentionedRate = true;
+              jobStats.log.push({type: 'info', message: `${candidateEmail} - Rate already extracted from previous messages ($${answers['Expected Rate']}), skipping simple data gathering to let negotiation logic handle`});
+            }
+
+            // Check 3: Also check conversation history for rate mentions
+            // This catches cases where rate was mentioned but not extracted to Expected Rate field
+            if (!candidateMentionedRate && conversationHistory) {
+              for (const pattern of rateDetectionPatterns) {
+                if (pattern.test(conversationHistory)) {
+                  candidateMentionedRate = true;
+                  jobStats.log.push({type: 'info', message: `${candidateEmail} - Rate found in conversation history, skipping simple data gathering to let negotiation logic handle`});
+                  break;
+                }
               }
             }
           }
@@ -6188,9 +6492,32 @@ Write ONLY the email, nothing else.
 
           sendReplyWithSenderName(thread, dataOnlyEmail, getEffectiveSenderName());
 
-          // Update state timestamp
+          // Update state timestamp, status, and AI summary
           if (stateRowIndex > -1) {
+            stateSheet.getRange(stateRowIndex, 5).setValue('Active - Data Pending');
             stateSheet.getRange(stateRowIndex, 6).setValue(new Date());
+
+            // Update AI summary so task list reflects pending data items
+            try {
+              const dataPendingSummary = generateComprehensiveAISummary(
+                conversationHistory + "\n---\n[ME]: " + dataOnlyEmail.substring(0, 400),
+                candidateEmail,
+                jobId,
+                attempts || 0,
+                'Active - Data Pending',
+                {
+                  totalQuestions: saveResult ? saveResult.totalQuestions : 0,
+                  answeredCount: saveResult ? saveResult.answeredCount : 0,
+                  pendingQuestions: pendingDataQuestions.map(q => q.question),
+                  extractedData: saveResult ? (saveResult.extractedData || {}) : {}
+                }
+              );
+              if (dataPendingSummary) {
+                stateSheet.getRange(stateRowIndex, 9).setValue(dataPendingSummary);
+              }
+            } catch (summaryErr) {
+              console.error("Failed to update AI summary for data-pending follow-up:", summaryErr);
+            }
           }
 
           updateFollowUpLabels(thread.getId(), 'responded');
@@ -11363,21 +11690,24 @@ function addToFollowUpQueue(email, jobId, threadId, name, devId) {
 
     if(!sheet) {
       sheet = ss.insertSheet('Follow_Up_Queue');
-      sheet.appendRow(['Email', 'Job ID', 'Thread ID', 'Name', 'Dev ID', 'Initial Send Time', 'Follow Up 1 Sent', 'Follow Up 2 Sent', 'Status', 'Last Updated', 'Manual Override']);
+      sheet.appendRow(['Email', 'Job ID', 'Thread ID', 'Name', 'Dev ID', 'Initial Send Time', 'Follow Up 1 Sent', 'Follow Up 2 Sent', 'Status', 'Last Updated', 'Manual Override', 'Data Follow Up 1 Sent', 'Data Follow Up 2 Sent', 'Data Follow Up 3 Sent', 'Last Response Time']);
     }
 
     // Check if already in queue
+    // FIX: Use normalizeEmail for Gmail dot-variant deduplication (consistent with sendBulkEmails)
     const data = sheet.getDataRange().getValues();
-    const cleanEmail = String(email).toLowerCase().trim();
+    const cleanEmail = normalizeEmail(email);
 
     for(let i = 1; i < data.length; i++) {
-      if(String(data[i][0]).toLowerCase().trim() === cleanEmail && String(data[i][1]) === String(jobId)) {
+      if(normalizeEmail(data[i][0]) === cleanEmail && String(data[i][1]) === String(jobId)) {
         debugLog(`Email ${email} already in follow-up queue for Job ${jobId}`);
         return { success: true, message: "Already in queue" };
       }
     }
 
-    // Add new entry
+    // Add new entry (all 15 columns to match header: Email, Job ID, Thread ID, Name, Dev ID,
+    // Initial Send Time, Follow Up 1 Sent, Follow Up 2 Sent, Status, Last Updated,
+    // Manual Override, Data Follow Up 1 Sent, Data Follow Up 2 Sent, Data Follow Up 3 Sent, Last Response Time)
     sheet.appendRow([
       email,
       jobId,
@@ -11388,7 +11718,12 @@ function addToFollowUpQueue(email, jobId, threadId, name, devId) {
       false,             // Follow Up 1 Sent
       false,             // Follow Up 2 Sent
       'Pending',         // Status
-      new Date()         // Last Updated
+      new Date(),        // Last Updated
+      false,             // Manual Override
+      false,             // Data Follow Up 1 Sent
+      false,             // Data Follow Up 2 Sent
+      false,             // Data Follow Up 3 Sent
+      ''                 // Last Response Time
     ]);
 
     // Add "Awaiting-Response" Gmail label to the thread
