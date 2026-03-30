@@ -7591,6 +7591,29 @@
                 }
             });
 
+            // Recalculate stat cards based on visible (filtered) rows
+            let fActive = 0, fHuman = 0, fAccepted = 0, fInitialOutreach = 0;
+            let fCompleted = 0, fNotInterested = 0, fUnresponsive = 0, fWhatsApp = 0;
+            rows.forEach(row => {
+                if (row.style.display === 'none') return;
+                const tag = row.dataset.statusTag || '';
+                if (tag === 'Completed') fCompleted++;
+                else if (tag === 'Not Interested') fNotInterested++;
+                else if (tag === 'Unresponsive') fUnresponsive++;
+                else if (tag === 'WhatsApp Reachout') fWhatsApp++;
+                else if (tag === 'Human-Negotiation') fHuman++;
+                else if (tag === 'Accepted') fAccepted++;
+                else if (tag === 'Initial Outreach') fInitialOutreach++;
+                else fActive++; // AI-Attempt-*, Data Gathering, etc.
+            });
+            document.getElementById('statTotal').textContent = fActive + fHuman + fAccepted + fInitialOutreach;
+            document.getElementById('statActive').textContent = fActive;
+            document.getElementById('statHuman').textContent = fHuman;
+            document.getElementById('statCompleted').textContent = fCompleted;
+            document.getElementById('statNotInterested').textContent = fNotInterested;
+            document.getElementById('statUnresponsive').textContent = fUnresponsive;
+            document.getElementById('statWhatsApp').textContent = fWhatsApp;
+
             // Show/hide empty state
             const emptyState = document.getElementById('emptyTaskState');
             const table = document.querySelector('#taskListBody').parentElement;
@@ -10996,13 +11019,13 @@
                         const hasJobs = u.jobBreakdown && u.jobBreakdown.length > 0;
                         // Filter out jobs where all metrics are zero — they add noise
                         const nonZeroJobs = hasJobs ? u.jobBreakdown.filter(job =>
-                            (job.emailsSent || 0) + (job.dataFetches || 0) + (job.negotiations || 0) + (job.followUps || 0) + (job.completed || 0) + (job.droppedOff || 0) > 0
+                            (job.emailsSent || 0) + (job.engaged || 0) + (job.followUps || 0) + (job.completed || 0) + (job.droppedOff || 0) > 0
                         ) : [];
                         const hasNonZeroJobs = nonZeroJobs.length > 0;
                         const userRowId = `user-row-${userIndex}`;
 
-                        // Merge Data Gathering + Negotiations into single Engaged count
-                        const userEngaged = (u.dataFetches || 0) + (u.negotiations || 0);
+                        // Engaged count: uses pipeline-aligned status logic (matches summary cards)
+                        const userEngaged = u.engaged || 0;
 
                         // Main user row (parent row)
                         const tr = document.createElement('tr');
@@ -11031,7 +11054,7 @@
                         // Job breakdown rows (child rows - initially hidden, only non-zero jobs)
                         if (hasNonZeroJobs) {
                             nonZeroJobs.forEach((job, jobIndex) => {
-                                const jobEngaged = (job.dataFetches || 0) + (job.negotiations || 0);
+                                const jobEngaged = job.engaged || 0;
                                 const jobTr = document.createElement('tr');
                                 jobTr.id = `job-row-${userIndex}-${jobIndex}`;
                                 jobTr.className = "bg-slate-50/50 dark:bg-slate-900/50 border-b border-slate-50 dark:border-slate-700 job-child-row hidden";

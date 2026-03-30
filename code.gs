@@ -15256,13 +15256,89 @@ function getUserAnalytics(filterEmail, filterJobId, startDate, endDate) {
       }
     }
 
-    // Get pending data gathering count (candidates awaiting data) - MOVED UP to use in job breakdown
+    // Get pending data gathering count (candidates awaiting data) - used for stats cards only
     const dataGatheringStats = getDataGatheringStats();
-    const perJobDataGathering = dataGatheringStats.perJob || {};
 
-    // Get active negotiation stats - MOVED UP to use in job breakdown
+    // Get active negotiation stats - used for stats cards only
     const negotiationStats = getActiveNegotiationStats();
-    const perJobNegotiations = negotiationStats.perJob || {};
+
+    // ====================================================================
+    // PER-JOB PIPELINE STATS: Compute "Engaged" using the SAME status logic
+    // as pipeline cards (getConversionFunnelData) and task list (getAllTasks).
+    // This ensures User Activity table numbers are consistent with summary cards.
+    // ====================================================================
+    const perJobPipelineStats = {}; // key: jobId → { engaged, completed, unresponsive, whatsapp, notInterested, initialOutreach }
+    try {
+      const opsSs = getCachedSpreadsheet();
+      if (opsSs) {
+        const pipeStateSheet = opsSs.getSheetByName('Negotiation_State');
+        const pipeStateData = pipeStateSheet ? pipeStateSheet.getDataRange().getValues() : [];
+        const pipeFollowUpSheet = opsSs.getSheetByName('Follow_Up_Queue');
+        const pipeFollowUpData = pipeFollowUpSheet ? pipeFollowUpSheet.getDataRange().getValues() : [];
+        const pipeUnrespSheet = opsSs.getSheetByName('Unresponsive_Devs');
+        const pipeUnrespData = pipeUnrespSheet ? pipeUnrespSheet.getDataRange().getValues() : [];
+
+        // Build unresponsive set (same logic as getAllTasks / getConversionFunnelData)
+        const pipeUnrespSet = new Set();
+        for (let f = 1; f < pipeFollowUpData.length; f++) {
+          if (pipeFollowUpData[f][8] === 'Unresponsive') {
+            const fuKey = normalizeEmail(pipeFollowUpData[f][0]) + '|' + String(pipeFollowUpData[f][1]);
+            pipeUnrespSet.add(fuKey);
+          }
+        }
+        for (let u = 1; u < pipeUnrespData.length; u++) {
+          if (pipeUnrespData[u][0]) {
+            const udKey = normalizeEmail(pipeUnrespData[u][0]) + '|' + String(pipeUnrespData[u][1]);
+            pipeUnrespSet.add(udKey);
+          }
+        }
+
+        // Deduplicate candidates
+        const pipeCounted = new Set();
+
+        for (let i = 1; i < pipeStateData.length; i++) {
+          if (!pipeStateData[i][0]) continue;
+          const email = normalizeEmail(pipeStateData[i][0]);
+          const pipeJobId = String(pipeStateData[i][1] || '');
+          let status = pipeStateData[i][4] || 'Active';
+          const attempts = Number(pipeStateData[i][2]) || 0;
+
+          // Apply job filter if specified
+          if (jobIdFilter && pipeJobId !== jobIdFilter) continue;
+
+          // Override status to 'Unresponsive' if in unresponsive set
+          const candidateKey = email + '|' + pipeJobId;
+          if (status === 'Initial Outreach' && pipeUnrespSet.has(candidateKey)) {
+            status = 'Unresponsive';
+          }
+
+          if (pipeCounted.has(candidateKey)) continue;
+          pipeCounted.add(candidateKey);
+
+          // Initialize per-job stats
+          if (!perJobPipelineStats[pipeJobId]) {
+            perJobPipelineStats[pipeJobId] = { engaged: 0, completed: 0, unresponsive: 0, whatsapp: 0, notInterested: 0, initialOutreach: 0 };
+          }
+
+          // Categorize using SAME logic as pipeline cards and task list
+          if (status === 'Data Complete' || status.toLowerCase().indexOf('completed') > -1) {
+            perJobPipelineStats[pipeJobId].completed++;
+          } else if (status === 'WhatsApp Reachout') {
+            perJobPipelineStats[pipeJobId].whatsapp++;
+          } else if (status === 'Unresponsive') {
+            perJobPipelineStats[pipeJobId].unresponsive++;
+          } else if (status === 'Human-Negotiation') {
+            perJobPipelineStats[pipeJobId].engaged++;
+          } else if (status === 'Initial Outreach' || attempts === 0) {
+            perJobPipelineStats[pipeJobId].initialOutreach++;
+          } else {
+            perJobPipelineStats[pipeJobId].engaged++; // Active AI negotiation
+          }
+        }
+      }
+    } catch (e) {
+      console.error("Error computing per-job pipeline stats:", e);
+    }
 
     // ====================================================================
     // CENTRALIZED ANALYTICS: Read from shared analytics spreadsheet
@@ -15404,20 +15480,16 @@ function getUserAnalytics(filterEmail, filterJobId, startDate, endDate) {
       .sort((a, b) => b.emailsSent - a.emailsSent)
       .map(u => {
         // Calculate totals for this user across all their jobs
-        let userActiveDataGathering = 0;
-        let userActiveNegotiations = 0;
+        let userEngagedTotal = 0;
         let userActiveFollowUps = 0;
         let userCompletedTotal = 0;
         let userDroppedTotal = 0;
         const userEmailLower = u.email.toLowerCase();
         Object.keys(u.jobBreakdown).forEach(jobKey => {
-          const jobDgStats = perJobDataGathering[jobKey];
-          const jobNegStats = perJobNegotiations[jobKey];
-          if (jobDgStats) {
-            userActiveDataGathering += jobDgStats.pending || 0;
-          }
-          if (jobNegStats) {
-            userActiveNegotiations += (jobNegStats.active || 0) + (jobNegStats.humanEscalated || 0);
+          // Use pipeline-aligned stats (same logic as summary cards and task list)
+          const jobPipeStats = perJobPipelineStats[jobKey];
+          if (jobPipeStats) {
+            userEngagedTotal += jobPipeStats.engaged || 0;
           }
 
           const userJobKey = userEmailLower + '|' + jobKey;
@@ -15451,8 +15523,7 @@ function getUserAnalytics(filterEmail, filterJobId, startDate, endDate) {
         return {
           email: u.email,
           emailsSent: u.emailsSent,
-          dataFetches: userActiveDataGathering,
-          negotiations: userActiveNegotiations,
+          engaged: userEngagedTotal,
           followUps: userActiveFollowUps,
           completed: userCompletedTotal,
           droppedOff: userDroppedTotal,
@@ -15460,11 +15531,9 @@ function getUserAnalytics(filterEmail, filterJobId, startDate, endDate) {
           jobBreakdown: Object.values(u.jobBreakdown)
             .sort((a, b) => b.emailsSent - a.emailsSent)
             .map(j => {
-              const jobDgStats = perJobDataGathering[j.jobId];
-              const activeDataGathering = jobDgStats ? (jobDgStats.pending || 0) : 0;
-
-              const jobNegStats = perJobNegotiations[j.jobId];
-              const activeNegotiations = jobNegStats ? ((jobNegStats.active || 0) + (jobNegStats.humanEscalated || 0)) : 0;
+              // Use pipeline-aligned stats for engaged (same as summary cards)
+              const jobPipeStats = perJobPipelineStats[j.jobId];
+              const jobEngaged = jobPipeStats ? (jobPipeStats.engaged || 0) : 0;
 
               // Per-job completed: use centralized per-user-per-job count
               const jobUserKey = userEmailLower + '|' + j.jobId;
@@ -15492,8 +15561,7 @@ function getUserAnalytics(filterEmail, filterJobId, startDate, endDate) {
               return {
                 jobId: j.jobId,
                 emailsSent: j.emailsSent,
-                dataFetches: activeDataGathering,
-                negotiations: activeNegotiations,
+                engaged: jobEngaged,
                 followUps: activeFollowUps,
                 completed: jobCompletedCount,
                 droppedOff: jobDroppedCount,
