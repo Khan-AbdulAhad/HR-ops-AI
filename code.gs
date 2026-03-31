@@ -6031,13 +6031,23 @@ function processJobNegotiations(jobId, rules, ss, faqContent, negotiationEnabled
               if (initialSendTime) {
                 const daysSinceInitial = (Date.now() - new Date(initialSendTime).getTime()) / (1000 * 60 * 60 * 24);
                 if (daysSinceInitial > MAX_LATE_REPLY_AGE_DAYS) {
-                  jobStats.log.push({type: 'warning', message: `${cleanCandidateEmail} - SAFETY M1: Late reply is ${Math.round(daysSinceInitial)} days old (max ${MAX_LATE_REPLY_AGE_DAYS}). Too stale to auto-reactivate. Escalating to human.`});
-                  try {
-                    const humanLabel = GmailApp.getUserLabelByName('Human-Negotiation') || GmailApp.createLabel('Human-Negotiation');
-                    thread.addLabel(humanLabel);
-                  } catch(labelErr) { console.error('Failed to add Human-Negotiation label:', labelErr); }
-                  // Skip re-activation
-                  matchedRowIndex = -1;
+                  if (isJobClosed) {
+                    // Job is Fulfilled/Stopped: context staleness doesn't matter for a closure email.
+                    // Re-activate the candidate so the existing JOB CLOSED HANDLER below sends the
+                    // polite closure message and marks them Completed. No human needed.
+                    jobStats.log.push({type: 'info', message: `${cleanCandidateEmail} - Late reply is ${Math.round(daysSinceInitial)} days old but job is ${jobAssignmentStatus}. Re-activating to send closure email then mark Completed.`});
+                    // matchedRowIndex stays valid - fall through to re-activation below
+                  } else {
+                    // Active job: negotiation context is too stale for AI to safely resume.
+                    // Escalate to a human recruiter to decide if this candidate is still relevant.
+                    jobStats.log.push({type: 'warning', message: `${cleanCandidateEmail} - SAFETY M1: Late reply is ${Math.round(daysSinceInitial)} days old (max ${MAX_LATE_REPLY_AGE_DAYS}) and job is still active. Too stale to auto-reactivate. Escalating to human.`});
+                    try {
+                      const humanLabel = GmailApp.getUserLabelByName('Human-Negotiation') || GmailApp.createLabel('Human-Negotiation');
+                      thread.addLabel(humanLabel);
+                    } catch(labelErr) { console.error('Failed to add Human-Negotiation label:', labelErr); }
+                    // Skip re-activation
+                    matchedRowIndex = -1;
+                  }
                 }
               }
 
