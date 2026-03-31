@@ -2373,6 +2373,19 @@ function jobHasDataGathering(jobId) {
 }
 
 /**
+ * SAFETY M4: Check if a job is globally paused (AI kill switch per job).
+ * When paused, ALL AI activity for this job is suspended - no negotiations,
+ * no follow-ups, no data gathering. Use this when you need to immediately
+ * stop AI activity for a job without deleting its configuration.
+ * @param {string} jobId - The job ID
+ * @returns {boolean} True if the job is paused
+ */
+function jobIsPaused(jobId) {
+  const settings = getJobSettings(jobId);
+  return settings.paused === true;
+}
+
+/**
  * Update job settings after emails have been sent
  * This allows users to modify AI behavior for existing jobs (e.g., disable negotiation)
  * @param {string} jobId - The job ID to update
@@ -2392,7 +2405,9 @@ function updateJobSettings(jobId, newSettings) {
     const updatedSettings = {
       negotiation: newSettings.hasOwnProperty('negotiation') ? newSettings.negotiation : currentSettings.negotiation,
       followUp: newSettings.hasOwnProperty('followUp') ? newSettings.followUp : currentSettings.followUp,
-      dataGathering: newSettings.hasOwnProperty('dataGathering') ? newSettings.dataGathering : currentSettings.dataGathering
+      dataGathering: newSettings.hasOwnProperty('dataGathering') ? newSettings.dataGathering : currentSettings.dataGathering,
+      // SAFETY M4: paused is the global kill switch - default false (not paused)
+      paused: newSettings.hasOwnProperty('paused') ? newSettings.paused : (currentSettings.paused || false)
     };
 
     // Save the updated settings
@@ -5615,6 +5630,13 @@ function runAutoNegotiator() {
     const jobId = configs[i][0];
     if(!jobId) continue;
 
+    // SAFETY M4: Global pause check - if job is paused, skip ALL AI activity for this job.
+    // This acts as an instant kill switch without needing to delete any configuration.
+    if (jobIsPaused(jobId)) {
+      log.push({type: 'warning', message: `Job ${jobId}: AI is PAUSED (kill switch active) - skipping all negotiations, follow-ups and data gathering`});
+      continue;
+    }
+
     // Check if negotiation OR data gathering is enabled for this job
     // Each feature can work independently now
     const negotiationEnabled = jobHasNegotiation(jobId);
@@ -5794,21 +5816,67 @@ function processJobNegotiations(jobId, rules, ss, faqContent, negotiationEnabled
 
     const msgs = thread.getMessages();
     const lastMsg = msgs[msgs.length - 1];
-    const lastSender = lastMsg.getFrom().toLowerCase();
+    const lastSenderRaw = lastMsg.getFrom(); // e.g. "John Doe <john@example.com>" or "john@example.com"
+    const lastSender = lastSenderRaw.toLowerCase();
 
-    if (myEmail && myEmail.length > 3 && lastSender.indexOf(myEmail) > -1) {
+    // SAFETY M2: Detect bounce/MAILER-DAEMON messages and skip them entirely.
+    // Sending AI replies to a bounce notification would create a reply-loop to a non-existent mailbox.
+    const BOUNCE_SENDER_PATTERNS = [
+      /mailer-daemon/i,
+      /postmaster@/i,
+      /mail delivery/i,
+      /delivery status notification/i,
+      /undeliverable/i,
+      /failed delivery/i,
+      /mail system error/i
+    ];
+    const BOUNCE_SUBJECT_PATTERNS = [
+      /delivery status notification/i,
+      /undeliverable:/i,
+      /returned mail/i,
+      /mail delivery failed/i,
+      /delivery failure/i,
+      /failure notice/i,
+      /auto-reply:/i,
+      /automatic reply:/i,
+      /out of office/i
+    ];
+    const isBounceOrAutoReply = BOUNCE_SENDER_PATTERNS.some(p => p.test(lastSenderRaw)) ||
+                                 BOUNCE_SUBJECT_PATTERNS.some(p => p.test(lastMsg.getSubject() || ''));
+    if (isBounceOrAutoReply) {
+      jobStats.skipped++;
+      jobStats.log.push({type: 'warning', message: `SAFETY M2: Skipped thread - last message looks like a bounce/auto-reply from "${lastSenderRaw}". Subject: "${lastMsg.getSubject()}". AI will not reply to bounce notifications.`});
+      return;
+    }
+
+    // SAFETY BUG5: Split the sender string into email address and display name separately.
+    // Previously we used lastSender.includes(name) on the FULL string, which meant an email
+    // like "recruiter-bot@attacker.com" would match the keyword 'recruiter' even though it is
+    // NOT our system - causing us to incorrectly skip a candidate's reply.
+    // Fix: extract just the email address and just the display name, then check each appropriately.
+    const senderEmailMatch = lastSenderRaw.match(/<([^>]+)>/);
+    const senderEmailOnly = (senderEmailMatch ? senderEmailMatch[1] : lastSenderRaw.replace(/\s.*/, '')).toLowerCase().trim();
+    // Display name is the part before the angle brackets (if present), or empty string
+    const senderDisplayOnly = senderEmailMatch
+      ? lastSenderRaw.replace(/<[^>]+>/, '').replace(/['"]/g, '').trim().toLowerCase()
+      : ''; // No display name portion when sender is bare email
+
+    // Check 1: Last message is from our own account (exact email match)
+    if (myEmail && myEmail.length > 3 && senderEmailOnly.indexOf(myEmail) > -1) {
       jobStats.skipped++;
       jobStats.log.push({type: 'info', message: `Skipped thread: Waiting for candidate reply (last message from ${myEmail})`});
       return;
     }
 
-    // Also check for common sender names used by our system (includes configured sender name)
+    // Check 2: Last message display name matches our known system sender names
+    // IMPORTANT: We check only the display name, NOT the email address.
+    // This prevents "recruiter-for-hire@external.com" from falsely matching keyword 'recruiter'.
     const effectiveSender = getEffectiveSenderName().toLowerCase();
     const ourSenderNames = ['recruiter', 'turing recruitment', 'turing team', EMAIL_SENDER_NAME.toLowerCase(), effectiveSender];
-    const isSentByUs = ourSenderNames.some(name => lastSender.includes(name));
+    const isSentByUs = senderDisplayOnly.length > 0 && ourSenderNames.some(name => senderDisplayOnly.includes(name));
     if (isSentByUs) {
       jobStats.skipped++;
-      jobStats.log.push({type: 'info', message: `Skipped thread - last message from our system`});
+      jobStats.log.push({type: 'info', message: `Skipped thread - last message from our system (display name: "${senderDisplayOnly}")`});
       return;
     }
 
@@ -5818,10 +5886,15 @@ function processJobNegotiations(jobId, rules, ss, faqContent, negotiationEnabled
       const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
 
       for (const msg of recentMessages) {
-        const msgSender = msg.getFrom().toLowerCase();
+        const msgSenderRaw = msg.getFrom();
+        const msgSender = msgSenderRaw.toLowerCase();
         const msgDate = msg.getDate();
-        const wasFromUs = (myEmail && msgSender.indexOf(myEmail) > -1) ||
-                          ourSenderNames.some(name => msgSender.includes(name));
+        // BUG5 fix: same pattern as above - check email address for myEmail, display name for keywords
+        const msgSenderEmailMatch = msgSenderRaw.match(/<([^>]+)>/);
+        const msgSenderEmail = (msgSenderEmailMatch ? msgSenderEmailMatch[1] : msgSenderRaw.replace(/\s.*/, '')).toLowerCase().trim();
+        const msgSenderDisplay = msgSenderEmailMatch ? msgSenderRaw.replace(/<[^>]+>/, '').replace(/['"]/g, '').trim().toLowerCase() : '';
+        const wasFromUs = (myEmail && msgSenderEmail.indexOf(myEmail) > -1) ||
+                          (msgSenderDisplay.length > 0 && ourSenderNames.some(name => msgSenderDisplay.includes(name)));
 
         if (wasFromUs && msgDate > fiveMinutesAgo) {
           jobStats.skipped++;
@@ -5849,9 +5922,44 @@ function processJobNegotiations(jobId, rules, ss, faqContent, negotiationEnabled
       const threadState = threadStateMap.get(threadKey);
 
       if(threadState) {
+        originalExpectedEmail = threadState.originalEmail;
+
+        // SAFETY BUG2: Verify the replying email is at least from the same domain as expected,
+        // or is a Gmail dot-variant of the same address.
+        // If domains are completely different, it may be a third party replying in the thread -
+        // escalate to human review instead of auto-processing.
+        const expectedDomain = originalExpectedEmail ? originalExpectedEmail.split('@')[1] : null;
+        const actualDomain = cleanCandidateEmail.split('@')[1];
+        const isSameDomain = expectedDomain && actualDomain && expectedDomain.toLowerCase() === actualDomain.toLowerCase();
+        const isGmailVariant = normalizeEmail(cleanCandidateEmail) === normalizeEmail(originalExpectedEmail);
+
+        if (!isSameDomain && !isGmailVariant) {
+          // Cross-domain mismatch: could be a forwarded reply, an assistant, or a spoofed sender
+          // Do NOT auto-process - flag for human review
+          jobStats.log.push({
+            type: 'warning',
+            message: `SAFETY BUG2 BLOCKED: ${cleanCandidateEmail} replied in thread for ${originalExpectedEmail} but domains differ (${actualDomain} vs ${expectedDomain}). Escalated to Human-Negotiation for manual review.`
+          });
+          logEmailMismatch(
+            jobId,
+            originalExpectedEmail,
+            cleanCandidateEmail,
+            threadState.name,
+            threadState.devId,
+            currentThreadId,
+            'Negotiation Processing',
+            'BLOCKED - Cross-domain mismatch. Requires manual review.'
+          );
+          try {
+            const humanLabel = GmailApp.getUserLabelByName('Human-Negotiation') || GmailApp.createLabel('Human-Negotiation');
+            thread.addLabel(humanLabel);
+          } catch(labelErr) { console.error('Failed to add Human-Negotiation label:', labelErr); }
+          jobStats.skipped++;
+          return;
+        }
+
         state = threadState;
         usedThreadFallback = true;
-        originalExpectedEmail = threadState.originalEmail;
 
         // Log the email mismatch for user review
         logEmailMismatch(
@@ -5862,12 +5970,12 @@ function processJobNegotiations(jobId, rules, ss, faqContent, negotiationEnabled
           threadState.devId,
           currentThreadId,
           'Negotiation Processing',
-          'Processed with thread fallback'
+          'Processed with thread fallback (same-domain or Gmail variant - verified safe)'
         );
 
         jobStats.log.push({
           type: 'warning',
-          message: `${cleanCandidateEmail} replied from different email (expected: ${originalExpectedEmail}) - using thread fallback. Check Email_Mismatch_Reports.`
+          message: `${cleanCandidateEmail} replied from different email (expected: ${originalExpectedEmail}) - using thread fallback (same domain verified). Check Email_Mismatch_Reports.`
         });
       }
     }
@@ -5880,39 +5988,90 @@ function processJobNegotiations(jobId, rules, ss, faqContent, negotiationEnabled
         const unresponsiveSheet = ss.getSheetByName('Unresponsive_Devs');
         if (unresponsiveSheet) {
           const unresponsiveData = unresponsiveSheet.getDataRange().getValues();
+          const currentThreadId = thread.getId();
+
+          // SAFETY M3: Count how many times this candidate has already been reactivated
+          // (each unresponsive entry for the same email+jobId represents one past reactivation cycle)
+          // Cap at 2 reactivations to prevent infinite loop of unresponsive → reactivated → unresponsive
+          const MAX_REACTIVATIONS = 2;
+          let reactivationCount = 0;
+          let matchedRowIndex = -1;
+
           for (let u = 1; u < unresponsiveData.length; u++) {
             if (normalizeEmail(String(unresponsiveData[u][0])) === cleanCandidateEmail &&
                 String(unresponsiveData[u][1]) === String(jobId)) {
-              const recoveredName = unresponsiveData[u][2] || 'Unknown';
-              const recoveredDevId = unresponsiveData[u][3] || 'N/A';
-              // Create a new Negotiation_State row for this candidate
-              stateSheet.appendRow([
-                cleanCandidateEmail,  // Email
-                jobId,                // Job ID
-                0,                    // Attempt Count
-                '',                   // Last Offer
-                'Active',             // Status
-                new Date(),           // Last Reply Time
-                recoveredDevId,       // Dev ID
-                recoveredName,        // Candidate Name
-                '',                   // AI Notes
-                thread.getId(),       // Thread ID
-                ''                    // Region
-              ]);
-              const newRowIndex = stateSheet.getLastRow();
-              state = {
-                rowIndex: newRowIndex,
-                attempts: 0,
-                lastOffer: '',
-                status: 'Active',
-                name: recoveredName,
-                devId: recoveredDevId,
-                aiNotes: '',
-                region: '',
-                originalEmail: cleanCandidateEmail
-              };
-              jobStats.log.push({type: 'info', message: `${cleanCandidateEmail} was previously Unresponsive and replied late - re-activated as new negotiation entry (row ${newRowIndex})`});
-              break;
+              reactivationCount++;
+              if (matchedRowIndex === -1) matchedRowIndex = u; // Keep first match
+            }
+          }
+
+          if (matchedRowIndex === -1) {
+            // No unresponsive entry found - nothing to reactivate
+          } else if (reactivationCount >= MAX_REACTIVATIONS) {
+            // SAFETY M3: Too many reactivation cycles - escalate to human review
+            jobStats.log.push({type: 'warning', message: `${cleanCandidateEmail} - SAFETY: Max reactivations (${MAX_REACTIVATIONS}) reached. Escalating to human review instead of auto-reactivating.`});
+            try {
+              const humanLabel = GmailApp.getUserLabelByName('Human-Negotiation') || GmailApp.createLabel('Human-Negotiation');
+              thread.addLabel(humanLabel);
+            } catch(labelErr) { console.error('Failed to add Human-Negotiation label:', labelErr); }
+          } else {
+            const u = matchedRowIndex;
+            // SAFETY BUG1: Verify the reply is in the SAME thread as the original outreach
+            // This prevents someone from spoofing a reply in a different thread and triggering AI
+            const storedThreadId = String(unresponsiveData[u][4] || '').trim(); // Column E = Thread ID
+            const threadIdMatches = !storedThreadId || storedThreadId === currentThreadId;
+
+            if (!threadIdMatches) {
+              jobStats.log.push({type: 'warning', message: `${cleanCandidateEmail} - SAFETY BUG1 BLOCKED: Late reply thread ID mismatch (stored: ${storedThreadId}, current: ${currentThreadId}). Skipping re-activation.`});
+            } else {
+              // SAFETY M1: Check if the initial email is too old (> 30 days)
+              // Re-activating very old unresponsive candidates can lead to confusing interactions
+              const initialSendTime = unresponsiveData[u][5]; // Column F = Initial Send Time
+              const MAX_LATE_REPLY_AGE_DAYS = 30;
+              if (initialSendTime) {
+                const daysSinceInitial = (Date.now() - new Date(initialSendTime).getTime()) / (1000 * 60 * 60 * 24);
+                if (daysSinceInitial > MAX_LATE_REPLY_AGE_DAYS) {
+                  jobStats.log.push({type: 'warning', message: `${cleanCandidateEmail} - SAFETY M1: Late reply is ${Math.round(daysSinceInitial)} days old (max ${MAX_LATE_REPLY_AGE_DAYS}). Too stale to auto-reactivate. Escalating to human.`});
+                  try {
+                    const humanLabel = GmailApp.getUserLabelByName('Human-Negotiation') || GmailApp.createLabel('Human-Negotiation');
+                    thread.addLabel(humanLabel);
+                  } catch(labelErr) { console.error('Failed to add Human-Negotiation label:', labelErr); }
+                  // Skip re-activation
+                  matchedRowIndex = -1;
+                }
+              }
+
+              if (matchedRowIndex !== -1) {
+                const recoveredName = unresponsiveData[u][2] || 'Unknown';
+                const recoveredDevId = unresponsiveData[u][3] || 'N/A';
+                // Create a new Negotiation_State row for this candidate
+                stateSheet.appendRow([
+                  cleanCandidateEmail,  // Email
+                  jobId,                // Job ID
+                  0,                    // Attempt Count
+                  '',                   // Last Offer
+                  'Active',             // Status
+                  new Date(),           // Last Reply Time
+                  recoveredDevId,       // Dev ID
+                  recoveredName,        // Candidate Name
+                  '',                   // AI Notes
+                  currentThreadId,      // Thread ID
+                  ''                    // Region
+                ]);
+                const newRowIndex = stateSheet.getLastRow();
+                state = {
+                  rowIndex: newRowIndex,
+                  attempts: 0,
+                  lastOffer: '',
+                  status: 'Active',
+                  name: recoveredName,
+                  devId: recoveredDevId,
+                  aiNotes: '',
+                  region: '',
+                  originalEmail: cleanCandidateEmail
+                };
+                jobStats.log.push({type: 'info', message: `${cleanCandidateEmail} was previously Unresponsive and replied late - re-activated as new negotiation entry (row ${newRowIndex}). Reactivation #${reactivationCount + 1}`});
+              }
             }
           }
         }
@@ -6170,7 +6329,13 @@ Reply with only the email body text. No subject line. No placeholders.`;
 
           // Only send simple data gathering email if candidate did NOT mention a rate
           // If they mentioned a rate, the negotiation logic below will handle both rate AND data gathering
+          // SAFETY BUG4: Track whether we attempted data gathering so we don't accidentally fall through
+          // to negotiation when data is still required but the AI call failed to produce an email.
+          let dataGatheringEmailSent = false;
+          let dataGatheringAttempted = false;
+
           if (!candidateMentionedRate && shouldSendMissingInfoFollowUp(jobId, candidateEmail)) {
+            dataGatheringAttempted = true;
             try {
               const missingInfoEmail = generateMissingInfoFollowUp(
                 candidateName,
@@ -6191,6 +6356,7 @@ Reply with only the email body text. No subject line. No placeholders.`;
                 // Send the follow-up email in the same thread using proper sender name
                 // FIX: Use sendReplyWithSenderName instead of thread.replyAll to respect sender settings
                 sendReplyWithSenderName(thread, missingInfoEmail, getEffectiveSenderName());
+                dataGatheringEmailSent = true;
                 recordMissingInfoFollowUp(jobId, candidateEmail);
                 jobStats.missingInfoFollowUps++;
                 jobStats.log.push({type: 'info', message: `${candidateEmail} - Sent missing info follow-up for ${pendingDataQuestions.length} missing items`});
@@ -6244,6 +6410,15 @@ Reply with only the email body text. No subject line. No placeholders.`;
     } catch(detailsError) {
       // Don't block negotiation if details extraction fails
       console.error("Details extraction error for " + candidateEmail + ":", detailsError);
+    }
+
+    // SAFETY BUG4: If data gathering was attempted but the email failed to generate (AI error or null),
+    // do NOT silently fall through to negotiation while data questions are still pending.
+    // Log a warning and skip this candidate - they will be retried on the next trigger run.
+    if (typeof dataGatheringAttempted !== 'undefined' && dataGatheringAttempted && !dataGatheringEmailSent) {
+      jobStats.log.push({type: 'warning', message: `${cleanCandidateEmail} - SAFETY BUG4: Data gathering email could not be generated (AI error or empty response). Skipping negotiation to prevent sending incomplete email. Will retry next run.`});
+      jobStats.skipped++;
+      return;
     }
 
     // Now handle special cases AFTER data extraction
@@ -6402,6 +6577,20 @@ Reply with only the email body text. No subject line. No placeholders.`;
 
         if (regionMaxRateLimit) {
           jobStats.log.push({type: 'info', message: `${candidateEmail} - Safety limit for ${candidateRegion}: $${regionMaxRateLimit}/hr max (will escalate if rate exceeds this)`});
+        } else {
+          // SAFETY BUG6: Region is specified but completely unrecognized (not in Rate_Tiers and not in
+          // hardcoded REGION_MAX_RATE_LIMITS). Previously this silently defaulted to $200/hr (highest limit).
+          // Now we escalate to human review to prevent auto-accepting unknown rates.
+          jobStats.log.push({type: 'warning', message: `${candidateEmail} - SAFETY BUG6: Region "${candidateRegion}" is unrecognized (not in Rate_Tiers or known region list). Escalating to Human-Negotiation to prevent auto-accepting unknown rate.`});
+          if (stateRowIndex > -1) {
+            stateSheet.getRange(stateRowIndex, 5).setValue('Human-Negotiation');
+          }
+          try {
+            const humanLabel = GmailApp.getUserLabelByName('Human-Negotiation') || GmailApp.createLabel('Human-Negotiation');
+            thread.addLabel(humanLabel);
+          } catch(labelErr) { console.error('Failed to add Human-Negotiation label for unknown region:', labelErr); }
+          jobStats.skipped++;
+          return;
         }
       }
     }
@@ -11841,6 +12030,12 @@ function processFollowUpQueue() {
         continue;
       }
 
+      // SAFETY M4: Skip if job is globally paused
+      if (jobIsPaused(jobId)) {
+        log.push({ type: 'warning', message: `${email} - Job ${jobId} is PAUSED (kill switch) - skipping follow-up` });
+        continue;
+      }
+
       // Skip jobs that don't require follow-ups (e.g., informing-only jobs)
       if(!jobRequiresFollowUp(jobId)) {
         log.push({ type: 'info', message: `${email} - Job ${jobId} is informing-only, skipping follow-up` });
@@ -11848,17 +12043,30 @@ function processFollowUpQueue() {
       }
 
       // Check if candidate is already in active negotiation, completed, or has accepted offer
-      // BUT skip this auto-marking if Manual Override is set (user manually reset this entry)
-      // FIX: Use normalizeEmail for Gmail dot-variant matching
+      // Manual Override allows bypassing negotiation/completed checks (user manually reset entry),
+      // BUT accepted offer is ALWAYS blocked regardless of override - never send follow-ups to
+      // candidates who have already accepted. This prevents harassing candidates who are onboarding.
       const negotiationKey = `${normalizeEmail(email)}|${jobId}`;
-      if(!manualOverride && (activeNegotiations.has(negotiationKey) || completedNegotiations.has(negotiationKey) || acceptedOffers.has(negotiationKey))) {
-        // Mark as responded since they're in negotiation/completed/accepted
+
+      // SAFETY BUG3: Accepted offer is an absolute block - Manual Override cannot bypass this
+      if (acceptedOffers.has(negotiationKey)) {
+        sheet.getRange(i + 1, 9).setValue('Responded');
+        sheet.getRange(i + 1, 10).setValue(new Date());
+        updateFollowUpLabels(threadId, 'responded');
+        logFollowUpToAnalytics(jobId, email, name, 'responded', 'Candidate has accepted offer - follow-ups permanently blocked');
+        log.push({ type: 'success', message: `${email} has accepted offer - follow-ups blocked (Manual Override cannot bypass accepted state)` });
+        processed++;
+        continue;
+      }
+
+      // For active negotiation / completed states: respect Manual Override (user may have reset intentionally)
+      if(!manualOverride && (activeNegotiations.has(negotiationKey) || completedNegotiations.has(negotiationKey))) {
+        // Mark as responded since they're in negotiation/completed
         sheet.getRange(i + 1, 9).setValue('Responded');
         sheet.getRange(i + 1, 10).setValue(new Date());
         updateFollowUpLabels(threadId, 'responded');
         logFollowUpToAnalytics(jobId, email, name, 'responded', 'Auto-detected in negotiations');
-        const reason = activeNegotiations.has(negotiationKey) ? 'in active negotiation' :
-                       completedNegotiations.has(negotiationKey) ? 'in completed negotiations' : 'has accepted offer';
+        const reason = activeNegotiations.has(negotiationKey) ? 'in active negotiation' : 'in completed negotiations';
         log.push({ type: 'success', message: `${email} ${reason} - marked as responded` });
         processed++;
         continue;
@@ -12166,6 +12374,12 @@ function moveToUnresponsive(ss, email, jobId, name, devId, threadId, initialSend
  */
 function sendFollowUpEmail(email, jobId, threadId, name, followUpNumber) {
   try {
+    // SAFETY M4: Block if job is globally paused (kill switch)
+    if (jobIsPaused(jobId)) {
+      debugLog(`Follow-up to ${email} blocked: Job ${jobId} is paused (kill switch active)`);
+      return { success: false, error: 'Job is paused - all AI activity suspended' };
+    }
+
     // SAFETY: Validate that follow-ups are enabled for this job
     if (!jobRequiresFollowUp(jobId)) {
       debugLog(`Follow-up to ${email} blocked: Follow-ups disabled for Job ${jobId}`);
@@ -12260,9 +12474,16 @@ function sendFollowUpEmail(email, jobId, threadId, name, followUpNumber) {
         return { success: false, error: "Thread not AI-managed - email blocked for safety" };
       }
 
-      // SECURITY: Also validate content for fallback path
-      if (!isContentSafe) {
-        return { success: false, error: "Email blocked due to sensitive content" };
+      // SAFETY BUG7: Recompute content safety in the fallback path.
+      // The isContentSafe computed at the top of this function is reused here, but we re-validate
+      // explicitly to make the safety check self-contained and not dependent on earlier state.
+      const isContentSafeFallback = validateEmailForSending(emailBody, {
+        jobId: jobId,
+        devId: null
+      });
+      if (!isContentSafeFallback) {
+        console.error(`BLOCKED: Fallback follow-up to ${email} failed content re-validation.`);
+        return { success: false, error: "Email blocked due to sensitive content (fallback path re-validation)" };
       }
 
       // FIX: Use sendReplyWithSenderName for consistent sender settings
