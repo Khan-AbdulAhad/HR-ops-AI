@@ -6957,6 +6957,45 @@ Reply with only the email body text. No subject line. No placeholders.`;
                               (state?.aiNotes || '').match(/\$(\d+(?:\.\d+?)?)\/?hr/);
       const agreedRate = agreedRateMatch ? agreedRateMatch[1] : null;
 
+      // FIX: Detect explicit confirmation replies from candidates who already provided their data
+      // in a previous message. When a candidate replies with a short confirmation like "Yes, I confirm",
+      // "Confirmed", "I agree", etc., after having already provided details in an earlier reply,
+      // the extraction can't map the confirmation to specific fields, leaving them stuck as "Accepted".
+      // Treat these as data gathering complete since the candidate is confirming previously shared info.
+      if (hasDataGatheringEnabled && !isDataGatheringComplete && pendingDataQuestions.length > 0) {
+        const confirmationPatterns = [
+          /^(?:yes[,.]?\s*)?(?:i\s+)?confirm/i,
+          /^confirmed?\b/i,
+          /^(?:yes[,.]?\s*)?(?:i\s+)?agree/i,
+          /^(?:yes[,.]?\s*)?that(?:'s| is) (?:correct|fine|ok|okay|good|right)/i,
+          /^(?:yes[,.]?\s*)?(?:all|everything)\s+(?:is\s+)?(?:correct|confirmed|good|fine)/i,
+          /^(?:yes[,.]?\s*)?(?:i\s+)?acknowledge/i,
+          /^(?:yes[,.]?\s*)?(?:sounds?\s+)?good/i,
+          /^(?:yes[,.]?\s*)?(?:i\s+)?accept/i,
+          /^(?:looks?\s+)?good(?:\s+to\s+me)?/i,
+          /^(?:yes[,.]?\s*)?no\s+(?:issues?|problems?|objections?)/i
+        ];
+        const trimmedMessage = candidateLatestMessage.trim().replace(/\s+/g, ' ');
+        // Only treat as confirmation if message is short (under 200 chars) - longer messages likely contain new data
+        const isShortConfirmation = trimmedMessage.length < 200 &&
+          confirmationPatterns.some(p => p.test(trimmedMessage));
+
+        if (isShortConfirmation) {
+          // Check if candidate has PREVIOUSLY provided a meaningful portion of data
+          const answeredCount = saveResult ? saveResult.answeredCount : 0;
+          const totalQs = saveResult ? saveResult.totalQuestions : 0;
+          const answeredRatio = totalQs > 0 ? answeredCount / totalQs : 1;
+
+          // If candidate previously provided at least 50% of data and now confirms,
+          // treat as data complete
+          if (answeredRatio >= 0.5) {
+            isDataGatheringComplete = true;
+            pendingDataQuestions = [];
+            jobStats.log.push({type: 'info', message: `${candidateEmail} - Short confirmation detected ("${trimmedMessage.substring(0, 50)}...") with ${answeredCount}/${totalQs} fields filled. Treating as data complete.`});
+          }
+        }
+      }
+
       // If data gathering is pending, send a follow-up for data only (no rate discussion)
       if (hasDataGatheringEnabled && !isDataGatheringComplete && pendingDataQuestions.length > 0) {
         const dataOnlyPrompt = `
@@ -8348,10 +8387,45 @@ Write ONLY the email, nothing else.
       // Remove Awaiting-Response label since offer is accepted and completed
       updateFollowUpLabels(thread.getId(), 'responded');
 
+      // Move to Negotiation_Completed sheet (source of truth for completed candidates)
+      try {
+        const compSheet = ss.getSheetByName('Negotiation_Completed');
+        if (compSheet) {
+          const finalNotes = generateAcceptanceSummaryIfNeeded(
+            state?.aiNotes || '',
+            conversationHistory,
+            Number(rate) || 0,
+            candidateEmail,
+            jobId,
+            'AI Auto-Accepted'
+          );
+          compSheet.appendRow([
+            new Date(),
+            jobId,
+            candidateEmail,
+            candidateName,
+            `Offer Accepted at $${rate}/hr`,
+            finalNotes,
+            devId,
+            candidateRegion || ''
+          ]);
+        }
+        logCompletedToAnalytics(jobId, candidateEmail, candidateName, `Offer Accepted at $${rate}/hr`, devId, candidateRegion || '');
+      } catch (compErr) {
+        console.error("Failed to write to Negotiation_Completed:", compErr);
+      }
+
       if(stateRowIndex > -1) {
         stateSheet.deleteRow(stateRowIndex);
         stateMap.delete(stateKey);
       }
+
+      // Invalidate caches so UI reflects the change immediately
+      invalidateSheetCache('Negotiation_State');
+      invalidateSheetCache('Negotiation_Completed');
+
+      // Log completion to analytics
+      logAnalytics('task_completed', jobId, 1, `Offer accepted at $${rate}/hr`);
 
       jobStats.accepted++;
       jobStats.log.push({type: 'success', message: `${candidateEmail} ACCEPTED at $${rate}/hr (candidate asked less than our offer)`});
