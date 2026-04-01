@@ -5297,10 +5297,18 @@ function sendBulkEmails(recipients, senderName, subject, htmlBody, jobId, opts) 
   let skipped = 0;
   const total = recipients.length;
 
-  // Pre-compute labels array once
+  // Pre-compute labels array once (retry if initial lookup failed)
   const labelsToAdd = [];
-  if (labelId) labelsToAdd.push(labelId);
-  if (aiLabelId) labelsToAdd.push(aiLabelId);
+  if (labelId) {
+    labelsToAdd.push(labelId);
+  } else {
+    console.warn('Initial label lookup failed for "' + labelName + '", will retry before applying');
+  }
+  if (aiLabelId) {
+    labelsToAdd.push(aiLabelId);
+  } else {
+    console.warn('Initial label lookup failed for "' + AI_MANAGED_LABEL + '", will retry before applying');
+  }
 
   // Pre-determine follow-up setting once
   const shouldFollowUp = opts?.jobSettings
@@ -5435,6 +5443,17 @@ function sendBulkEmails(recipients, senderName, subject, htmlBody, jobId, opts) 
 
   // ── Phase 3: Batch apply Job + AI-Managed labels to ALL threads at once ─────
   // One API call instead of one per email — dramatically reduces API quota usage.
+  // Retry label ID lookups if they failed earlier
+  if (!labelId) {
+    const retryLabelId = getOrCreateLabelId(labelName);
+    if (retryLabelId) labelsToAdd.push(retryLabelId);
+    else console.error('Label lookup permanently failed for "' + labelName + '"');
+  }
+  if (!aiLabelId) {
+    const retryAiLabelId = getOrCreateLabelId(AI_MANAGED_LABEL);
+    if (retryAiLabelId) labelsToAdd.push(retryAiLabelId);
+    else console.error('Label lookup permanently failed for "' + AI_MANAGED_LABEL + '"');
+  }
   const allThreadIds = sentResults.map(s => s.threadId);
   if (allThreadIds.length > 0 && labelsToAdd.length > 0) {
     batchModifyThreadLabels(allThreadIds, labelsToAdd, token);
@@ -5588,13 +5607,22 @@ function createMimeMessage(senderName, recipientEmail, subject, htmlBody) {
 }
 
 function getOrCreateLabelId(name) {
-  try {
-    const list = Gmail.Users.Labels.list('me');
-    const existing = list.labels.find(l => l.name === name);
-    if(existing) return existing.id;
-    const created = Gmail.Users.Labels.create({ name: name }, 'me');
-    return created.id;
-  } catch(e) { return null; }
+  var MAX_RETRIES = 3;
+  for (var attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      var list = Gmail.Users.Labels.list('me');
+      var existing = list.labels.find(function(l) { return l.name === name; });
+      if (existing) return existing.id;
+      var created = Gmail.Users.Labels.create({ name: name }, 'me');
+      return created.id;
+    } catch(e) {
+      console.error('getOrCreateLabelId attempt ' + attempt + '/' + MAX_RETRIES + ' failed for "' + name + '":', e);
+      if (attempt < MAX_RETRIES) {
+        Utilities.sleep(1000 * attempt);
+      }
+    }
+  }
+  return null;
 }
 
 /**
@@ -5607,28 +5635,59 @@ function getOrCreateLabelId(name) {
  */
 function batchModifyThreadLabels(threadIds, labelIds, token) {
   if (!threadIds || threadIds.length === 0 || !labelIds || labelIds.length === 0) return;
-  const CHUNK = 1000; // Gmail batchModify max IDs per request
-  for (let i = 0; i < threadIds.length; i += CHUNK) {
-    const chunk = threadIds.slice(i, i + CHUNK);
-    try {
-      const response = UrlFetchApp.fetch(
-        'https://gmail.googleapis.com/gmail/v1/users/me/threads/batchModify',
-        {
-          method: 'POST',
-          headers: {
-            'Authorization': 'Bearer ' + token,
-            'Content-Type': 'application/json'
-          },
-          payload: JSON.stringify({ ids: chunk, addLabelIds: labelIds }),
-          muteHttpExceptions: true
+  var CHUNK = 1000; // Gmail batchModify max IDs per request
+  var MAX_RETRIES = 3;
+  for (var i = 0; i < threadIds.length; i += CHUNK) {
+    var chunk = threadIds.slice(i, i + CHUNK);
+    var success = false;
+    for (var attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+      try {
+        var response = UrlFetchApp.fetch(
+          'https://gmail.googleapis.com/gmail/v1/users/me/threads/batchModify',
+          {
+            method: 'POST',
+            headers: {
+              'Authorization': 'Bearer ' + token,
+              'Content-Type': 'application/json'
+            },
+            payload: JSON.stringify({ ids: chunk, addLabelIds: labelIds }),
+            muteHttpExceptions: true
+          }
+        );
+        var code = response.getResponseCode();
+        if (code === 204 || code === 200) {
+          success = true;
+          break;
         }
-      );
-      const code = response.getResponseCode();
-      if (code !== 204 && code !== 200) {
-        console.error('batchModifyThreadLabels failed (HTTP ' + code + '):', response.getContentText().substring(0, 200));
+        console.error('batchModifyThreadLabels attempt ' + attempt + '/' + MAX_RETRIES + ' failed (HTTP ' + code + '):', response.getContentText().substring(0, 200));
+      } catch (e) {
+        console.error('batchModifyThreadLabels attempt ' + attempt + '/' + MAX_RETRIES + ' error:', e);
       }
-    } catch (e) {
-      console.error('batchModifyThreadLabels error:', e);
+      if (attempt < MAX_RETRIES) {
+        Utilities.sleep(1000 * attempt);
+      }
+    }
+    if (!success) {
+      console.warn('batchModifyThreadLabels: batch API failed after ' + MAX_RETRIES + ' retries, falling back to GmailApp for ' + chunk.length + ' threads');
+      labelIds.forEach(function(lblId) {
+        try {
+          var labels = Gmail.Users.Labels.list('me').labels || [];
+          var labelObj = labels.find(function(l) { return l.id === lblId; });
+          if (!labelObj) return;
+          var gmailLabel = GmailApp.getUserLabelByName(labelObj.name);
+          if (!gmailLabel) gmailLabel = GmailApp.createLabel(labelObj.name);
+          chunk.forEach(function(tid) {
+            try {
+              var thread = GmailApp.getThreadById(tid);
+              if (thread) thread.addLabel(gmailLabel);
+            } catch (perThreadErr) {
+              console.error('Fallback label error for thread ' + tid + ':', perThreadErr);
+            }
+          });
+        } catch (fallbackErr) {
+          console.error('batchModifyThreadLabels fallback error for label ' + lblId + ':', fallbackErr);
+        }
+      });
     }
   }
 }
