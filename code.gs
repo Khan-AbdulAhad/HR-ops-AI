@@ -383,9 +383,30 @@ function buildNegotiationReplyPrompt(params) {
 
   const attempts = parseInt(attempt) - 1; // Convert to 0-indexed like production
   const max = parseFloat(maxRate) || Math.round(rate * 1.2); // Default max to 120% of target if not set
-  const firstOfferRate = Math.round(rate * 0.8); // 80% of target for first offer (matches production)
+  let firstOfferRate = Math.round(rate * 0.8); // 80% of target for first offer (matches production)
   const secondOfferRate = rate; // 100% of target for second offer
   const isFirstResponse = attempts === 0;
+
+  // FIX: Extract any rate already offered in conversation history to avoid undercutting our own offer
+  if (conversationContext) {
+    const previousOfferPatterns = [
+      /(?:we\s+can\s+offer|offer(?:ing)?|rate\s+(?:of|is|would\s+be)|compensation\s+(?:of|is))\s+\$\s*(\d+(?:\.\d+)?)\s*(?:\/\s*hr|\/\s*hour|per\s*hour|an\s*hour)?/gi,
+      /\$\s*(\d+(?:\.\d+)?)\s*(?:\/\s*hr|\/\s*hour|per\s*hour|an\s*hour)\s+(?:for\s+this\s+role|rate)/gi
+    ];
+    let maxPreviouslyOffered = 0;
+    for (const pattern of previousOfferPatterns) {
+      let match;
+      while ((match = pattern.exec(conversationContext)) !== null) {
+        const offeredRate = parseFloat(match[1]);
+        if (offeredRate > 0 && offeredRate > maxPreviouslyOffered) {
+          maxPreviouslyOffered = offeredRate;
+        }
+      }
+    }
+    if (maxPreviouslyOffered > 0 && firstOfferRate < maxPreviouslyOffered) {
+      firstOfferRate = maxPreviouslyOffered;
+    }
+  }
 
   // Region context for the prompt (if provided)
   const regionContext = region ? `\n- Candidate Region: ${region} (rates adjusted for this region)` : '';
@@ -7223,8 +7244,33 @@ Write ONLY the email, nothing else.
     // Attempt 1 (attempts=0): 80% of target rate
     // Attempt 2 (attempts=1): 100% of target rate
     // Attempt 3+ (attempts>=2): Human escalation
-    const firstOfferRate = Math.round(targetRate * 0.8); // 80% of target for first offer
+    let firstOfferRate = Math.round(targetRate * 0.8); // 80% of target for first offer
     const secondOfferRate = targetRate; // 100% of target for second offer
+
+    // FIX: Extract any rate already offered in the conversation history (from our initial outreach)
+    // to ensure we NEVER offer less than what was already communicated to the candidate.
+    // This prevents the scenario where initial outreach offers $15 but region rates recalculate to $11.
+    if (conversationHistory) {
+      const previousOfferPatterns = [
+        /(?:we\s+can\s+offer|offer(?:ing)?|rate\s+(?:of|is|would\s+be)|compensation\s+(?:of|is))\s+\$\s*(\d+(?:\.\d+)?)\s*(?:\/\s*hr|\/\s*hour|per\s*hour|an\s*hour)?/gi,
+        /\$\s*(\d+(?:\.\d+)?)\s*(?:\/\s*hr|\/\s*hour|per\s*hour|an\s*hour)\s+(?:for\s+this\s+role|rate)/gi
+      ];
+      let maxPreviouslyOffered = 0;
+      for (const pattern of previousOfferPatterns) {
+        let match;
+        while ((match = pattern.exec(conversationHistory)) !== null) {
+          const offeredRate = parseFloat(match[1]);
+          if (offeredRate > 0 && offeredRate > maxPreviouslyOffered) {
+            maxPreviouslyOffered = offeredRate;
+          }
+        }
+      }
+      if (maxPreviouslyOffered > 0 && firstOfferRate < maxPreviouslyOffered) {
+        jobStats.log.push({type: 'info', message: `${candidateEmail} - FIX: firstOfferRate $${firstOfferRate}/hr is below previously offered $${maxPreviouslyOffered}/hr in thread. Raising to $${maxPreviouslyOffered}/hr to avoid undercutting our own offer.`});
+        firstOfferRate = maxPreviouslyOffered;
+      }
+    }
+
     const currentOfferRate = attempts === 0 ? firstOfferRate : secondOfferRate;
 
     // AI-POWERED RATE ANALYSIS: Use AI to intelligently analyze developer's message and decide action
@@ -7313,6 +7359,12 @@ CRITICAL - NEGOTIATION IS NOT DISINTEREST:
 - "I would like $X instead" or "Can we do $X?" or "I request flexibility to adjust the rate" = COUNTER, NOT not_interested
 - Accepting terms but requesting a rate change = COUNTER (negotiation), NOT not_interested
 - Only mark NOT_INTERESTED for clear, unambiguous withdrawal from the entire process
+
+CRITICAL - ASKING QUESTIONS IS NOT DISINTEREST:
+- If a candidate asks questions about the role, payment process, platform, invoicing, schedule, etc. they are ENGAGED and interested
+- Questions about how things work (payment, tools, process) = COUNTER (they want to learn more before confirming), NOT not_interested
+- A candidate who confirms availability, commitment, and interest but asks about payment details is clearly INTERESTED
+- "I'm still very interested and open to discussing further" + questions = COUNTER, NOT not_interested
 
 NOT INTERESTED DETECTION (candidate declining to proceed):
 - "not interested" or "no longer interested"
@@ -9251,9 +9303,13 @@ Write ONLY the email, nothing else.
         /\bdon'?t\s+want\s+to\s+(proceed|continue|move\s+forward)\b/i,
         /\bpass\s+on\s+this\s+(opportunity|role|offer|position)\b/i
       ];
-      const isFallbackNotInterested = fallbackNotInterestedPatterns.some(p => p.test(candidateLatestMessage));
+      // FIX: Use candidateOwnMessage (quoted text stripped) instead of candidateLatestMessage
+      // to prevent false "not interested" flags from our own outreach text quoted in the reply
+      const isFallbackNotInterested = fallbackNotInterestedPatterns.some(p => p.test(candidateOwnMessage));
+      // Also check for positive interest to prevent false flags on negotiating candidates
+      const isFallbackPositiveInterest = positiveInterestPatterns.some(p => p.test(candidateOwnMessage));
 
-      if (isFallbackNotInterested) {
+      if (isFallbackNotInterested && !isFallbackPositiveInterest) {
         // AI wrote a reply (possibly acknowledging withdrawal) but didn't use ACTION: NOT_INTERESTED
         // Send the AI's reply (it likely acknowledged the withdrawal properly), then update status
         // SECURITY: Validate AI response before sending
