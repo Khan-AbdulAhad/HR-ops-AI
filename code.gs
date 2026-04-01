@@ -5970,8 +5970,18 @@ function processJobNegotiations(jobId, rules, ss, faqContent, negotiationEnabled
   const query = `label:Job-${jobId} label:${AI_MANAGED_LABEL} -label:Completed`;
   let threads = [];
 
+  // FIX: Fetch ALL matching threads using pagination (Gmail API returns max 50 per call).
+  // Previously only the first 50 threads were fetched, causing candidates beyond that limit
+  // to never be processed (only their AI summaries were generated, with no replies sent).
   try {
-    threads = GmailApp.search(query, 0, 50);
+    const BATCH_SIZE = 50;
+    let offset = 0;
+    let batch;
+    do {
+      batch = GmailApp.search(query, offset, BATCH_SIZE);
+      threads = threads.concat(batch);
+      offset += BATCH_SIZE;
+    } while (batch.length === BATCH_SIZE);
   } catch(e) {
     return {replied:0, escalated:0, accepted:0, skipped:0, processed:0, log:[{type:'error', message:`Gmail search failed for Job ${jobId}: ${e.message}`}]};
   }
@@ -5982,6 +5992,11 @@ function processJobNegotiations(jobId, rules, ss, faqContent, negotiationEnabled
       replied:0, escalated:0, accepted:0, skipped:0, processed:0, detailsExtracted:0,
       log:[{type:'info', message:`No pending threads for Job ${jobId}. All may be completed or no AI-Managed threads exist.`}]
     };
+  }
+
+  if (threads.length > 50) {
+    // Log when pagination fetched more than the old 50-thread limit
+    console.log(`Job ${jobId}: Fetched ${threads.length} threads (pagination active)`);
   }
 
   const stateSheet = ss.getSheetByName('Negotiation_State');
