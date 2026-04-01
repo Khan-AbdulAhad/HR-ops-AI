@@ -4065,14 +4065,41 @@ function getAllTasks(filters) {
     }
   }
 
-  // 4. Get Job IDs from Email_Logs (sent emails) - ensures all emailed jobs appear in filter
+  // 4. Get Job IDs from Email_Logs AND recover candidates missing from negotiation sheets
+  // Email_Logs = source of truth for who was contacted. Any candidate emailed but not in
+  // Negotiation_State/Tasks/Completed gets added as "Initial Outreach" (Awaiting Response)
   const emailLogsData = getCachedSheetData('Email_Logs', 30); // 30 second cache
   if(emailLogsData && emailLogsData.length > 1) {
     for(let i=1; i<emailLogsData.length; i++) {
-      if(emailLogsData[i][1]) {
-        const jobId = String(emailLogsData[i][1]);
-        if(jobId && jobId !== 'undefined' && jobId !== 'null') {
-          jobIdSet.add(jobId);
+      const elJobId = String(emailLogsData[i][1] || '');
+      if(elJobId && elJobId !== 'undefined' && elJobId !== 'null') {
+        jobIdSet.add(elJobId);
+      }
+      // Recover candidates emailed but missing from negotiation sheets
+      const logEmail = normalizeEmail(emailLogsData[i][2]);
+      const logType = String(emailLogsData[i][5] || '');
+      if (logEmail && elJobId && !(logType && logType.toLowerCase().includes('follow'))) {
+        const logKey = logEmail + '|' + elJobId;
+        if (!countedCandidates.has(logKey)) {
+          countedCandidates.add(logKey);
+          // Apply filters before counting
+          if(jobFilter !== 'all' && elJobId !== jobFilter) continue;
+          if(statusFilter !== 'all' && statusFilter !== 'Initial Outreach') continue;
+          statInitialOutreach++;
+          tasks.push({
+            email: emailLogsData[i][2],
+            jobId: elJobId,
+            devId: 'N/A',
+            name: emailLogsData[i][3] || 'Unknown',
+            status: 'Initial Outreach',
+            attempts: 0,
+            tags: 'Initial Outreach',
+            type: 'Negotiating',
+            lastReply: 'N/A',
+            sortTimestamp: 0,
+            aiNotes: '',
+            threadId: emailLogsData[i][4] || ''
+          });
         }
       }
     }
@@ -6000,7 +6027,6 @@ function processJobNegotiations(jobId, rules, ss, faqContent, negotiationEnabled
   }
 
   const stateSheet = ss.getSheetByName('Negotiation_State');
-  const taskSheet = ss.getSheetByName('Negotiation_Tasks');
 
   let jobStats = {replied:0, escalated:0, accepted:0, notInterested:0, skipped:0, processed:0, detailsExtracted:0, missingInfoFollowUps:0, log:[]};
   
@@ -6926,6 +6952,45 @@ Reply with only the email body text. No subject line. No placeholders.`;
                               currentStatus.match(/\$(\d+(?:\.\d+?)?)/) ||
                               (state?.aiNotes || '').match(/\$(\d+(?:\.\d+?)?)\/?hr/);
       const agreedRate = agreedRateMatch ? agreedRateMatch[1] : null;
+
+      // FIX: Detect explicit confirmation replies from candidates who already provided their data
+      // in a previous message. When a candidate replies with a short confirmation like "Yes, I confirm",
+      // "Confirmed", "I agree", etc., after having already provided details in an earlier reply,
+      // the extraction can't map the confirmation to specific fields, leaving them stuck as "Accepted".
+      // Treat these as data gathering complete since the candidate is confirming previously shared info.
+      if (hasDataGatheringEnabled && !isDataGatheringComplete && pendingDataQuestions.length > 0) {
+        const confirmationPatterns = [
+          /^(?:yes[,.]?\s*)?(?:i\s+)?confirm/i,
+          /^confirmed?\b/i,
+          /^(?:yes[,.]?\s*)?(?:i\s+)?agree/i,
+          /^(?:yes[,.]?\s*)?that(?:'s| is) (?:correct|fine|ok|okay|good|right)/i,
+          /^(?:yes[,.]?\s*)?(?:all|everything)\s+(?:is\s+)?(?:correct|confirmed|good|fine)/i,
+          /^(?:yes[,.]?\s*)?(?:i\s+)?acknowledge/i,
+          /^(?:yes[,.]?\s*)?(?:sounds?\s+)?good/i,
+          /^(?:yes[,.]?\s*)?(?:i\s+)?accept/i,
+          /^(?:looks?\s+)?good(?:\s+to\s+me)?/i,
+          /^(?:yes[,.]?\s*)?no\s+(?:issues?|problems?|objections?)/i
+        ];
+        const trimmedMessage = candidateLatestMessage.trim().replace(/\s+/g, ' ');
+        // Only treat as confirmation if message is short (under 200 chars) - longer messages likely contain new data
+        const isShortConfirmation = trimmedMessage.length < 200 &&
+          confirmationPatterns.some(p => p.test(trimmedMessage));
+
+        if (isShortConfirmation) {
+          // Check if candidate has PREVIOUSLY provided a meaningful portion of data
+          const answeredCount = saveResult ? saveResult.answeredCount : 0;
+          const totalQs = saveResult ? saveResult.totalQuestions : 0;
+          const answeredRatio = totalQs > 0 ? answeredCount / totalQs : 1;
+
+          // If candidate previously provided at least 50% of data and now confirms,
+          // treat as data complete
+          if (answeredRatio >= 0.5) {
+            isDataGatheringComplete = true;
+            pendingDataQuestions = [];
+            jobStats.log.push({type: 'info', message: `${candidateEmail} - Short confirmation detected ("${trimmedMessage.substring(0, 50)}...") with ${answeredCount}/${totalQs} fields filled. Treating as data complete.`});
+          }
+        }
+      }
 
       // If data gathering is pending, send a follow-up for data only (no rate discussion)
       if (hasDataGatheringEnabled && !isDataGatheringComplete && pendingDataQuestions.length > 0) {
@@ -8263,7 +8328,8 @@ Write ONLY the email, nothing else.
       }
 
       // Data gathering is complete OR not enabled - proceed with full acceptance
-      taskSheet.appendRow([new Date(), jobId, candidateName, candidateEmail, rate, "Pending Archive", devId, thread.getId(), candidateRegion || '']);
+      // NOTE: No longer writing to Negotiation_Tasks (redundant intermediate sheet).
+      // Candidates go directly to Negotiation_Completed below after acceptance email is sent.
 
       try {
         updateJobCandidateStatus(ss, jobId, candidateEmail, 'Offer Accepted', `$${rate}/hr`, `$${rate}/hr`);
@@ -8318,10 +8384,45 @@ Write ONLY the email, nothing else.
       // Remove Awaiting-Response label since offer is accepted and completed
       updateFollowUpLabels(thread.getId(), 'responded');
 
+      // Move to Negotiation_Completed sheet (source of truth for completed candidates)
+      try {
+        const compSheet = ss.getSheetByName('Negotiation_Completed');
+        if (compSheet) {
+          const finalNotes = generateAcceptanceSummaryIfNeeded(
+            state?.aiNotes || '',
+            conversationHistory,
+            Number(rate) || 0,
+            candidateEmail,
+            jobId,
+            'AI Auto-Accepted'
+          );
+          compSheet.appendRow([
+            new Date(),
+            jobId,
+            candidateEmail,
+            candidateName,
+            `Offer Accepted at $${rate}/hr`,
+            finalNotes,
+            devId,
+            candidateRegion || ''
+          ]);
+        }
+        logCompletedToAnalytics(jobId, candidateEmail, candidateName, `Offer Accepted at $${rate}/hr`, devId, candidateRegion || '');
+      } catch (compErr) {
+        console.error("Failed to write to Negotiation_Completed:", compErr);
+      }
+
       if(stateRowIndex > -1) {
         stateSheet.deleteRow(stateRowIndex);
         stateMap.delete(stateKey);
       }
+
+      // Invalidate caches so UI reflects the change immediately
+      invalidateSheetCache('Negotiation_State');
+      invalidateSheetCache('Negotiation_Completed');
+
+      // Log completion to analytics
+      logAnalytics('task_completed', jobId, 1, `Offer accepted at $${rate}/hr`);
 
       jobStats.accepted++;
       jobStats.log.push({type: 'success', message: `${candidateEmail} ACCEPTED at $${rate}/hr (candidate asked less than our offer)`});
@@ -15905,8 +16006,9 @@ function getUserAnalytics(filterEmail, filterJobId, startDate, endDate) {
 
           // Initialize per-job stats
           if (!perJobPipelineStats[pipeJobId]) {
-            perJobPipelineStats[pipeJobId] = { engaged: 0, completed: 0, unresponsive: 0, whatsapp: 0, notInterested: 0, initialOutreach: 0 };
+            perJobPipelineStats[pipeJobId] = { engaged: 0, completed: 0, unresponsive: 0, whatsapp: 0, notInterested: 0, initialOutreach: 0, totalOutreach: 0 };
           }
+          perJobPipelineStats[pipeJobId].totalOutreach++;
 
           // Categorize using SAME logic as pipeline cards and task list
           if (status === 'Data Complete' || status.toLowerCase().indexOf('completed') > -1) {
@@ -15923,6 +16025,84 @@ function getUserAnalytics(filterEmail, filterJobId, startDate, endDate) {
             perJobPipelineStats[pipeJobId].engaged++; // Active AI negotiation
           }
         }
+
+        // 2. Process Negotiation_Tasks (Accepted offers — same as getConversionFunnelData)
+        const pipeTasksSheet = opsSs.getSheetByName('Negotiation_Tasks');
+        const pipeTasksData = pipeTasksSheet ? pipeTasksSheet.getDataRange().getValues() : [];
+        for (let i = 1; i < pipeTasksData.length; i++) {
+          if (!pipeTasksData[i][3]) continue;
+          if (pipeTasksData[i][5] === 'Archived') continue;
+          const taskJobId = String(pipeTasksData[i][1] || '');
+          const taskEmail = normalizeEmail(pipeTasksData[i][3]);
+
+          if (jobIdFilter && taskJobId !== jobIdFilter) continue;
+
+          const taskKey = taskEmail + '|' + taskJobId;
+          if (pipeCounted.has(taskKey)) continue;
+          pipeCounted.add(taskKey);
+
+          if (!perJobPipelineStats[taskJobId]) {
+            perJobPipelineStats[taskJobId] = { engaged: 0, completed: 0, unresponsive: 0, whatsapp: 0, notInterested: 0, initialOutreach: 0, totalOutreach: 0 };
+          }
+          perJobPipelineStats[taskJobId].completed++;
+          perJobPipelineStats[taskJobId].totalOutreach++;
+        }
+
+        // 3. Process Negotiation_Completed (same as getConversionFunnelData)
+        const pipeCompletedSheet = opsSs.getSheetByName('Negotiation_Completed');
+        const pipeCompletedData = pipeCompletedSheet ? pipeCompletedSheet.getDataRange().getValues() : [];
+        for (let i = 1; i < pipeCompletedData.length; i++) {
+          const compJobId = String(pipeCompletedData[i][1] || '');
+          const compEmail = normalizeEmail(pipeCompletedData[i][2]);
+          const compStatus = String(pipeCompletedData[i][4] || '');
+
+          if (!compEmail) continue;
+          if (jobIdFilter && compJobId !== jobIdFilter) continue;
+
+          const compKey = compEmail + '|' + compJobId;
+          if (pipeCounted.has(compKey)) continue;
+          pipeCounted.add(compKey);
+
+          if (!perJobPipelineStats[compJobId]) {
+            perJobPipelineStats[compJobId] = { engaged: 0, completed: 0, unresponsive: 0, whatsapp: 0, notInterested: 0, initialOutreach: 0, totalOutreach: 0 };
+          }
+          if (compStatus === 'Not Interested') {
+            perJobPipelineStats[compJobId].notInterested++;
+          } else {
+            perJobPipelineStats[compJobId].completed++;
+          }
+          perJobPipelineStats[compJobId].totalOutreach++;
+        }
+
+        // 4. Reconcile with Email_Logs — source of truth for total outreach
+        // Any candidate emailed but not in Negotiation_State/Tasks/Completed
+        // gets counted as "Initial Outreach" (same logic as getAllTasks & getConversionFunnelData)
+        const pipeEmailLogsData = getCachedSheetData('Email_Logs', 30);
+        if (pipeEmailLogsData && pipeEmailLogsData.length > 1) {
+          for (let i = 1; i < pipeEmailLogsData.length; i++) {
+            const elJobId = String(pipeEmailLogsData[i][1] || '');
+            const logEmail = normalizeEmail(pipeEmailLogsData[i][2]);
+            const logType = String(pipeEmailLogsData[i][5] || '');
+
+            // Skip follow-up emails (only count initial outreach)
+            if (logType && logType.toLowerCase().includes('follow')) continue;
+            if (!logEmail || !elJobId) continue;
+
+            // Apply job filter if specified
+            if (jobIdFilter && elJobId !== jobIdFilter) continue;
+
+            const logKey = logEmail + '|' + elJobId;
+            if (pipeCounted.has(logKey)) continue;
+            pipeCounted.add(logKey);
+
+            if (!perJobPipelineStats[elJobId]) {
+              perJobPipelineStats[elJobId] = { engaged: 0, completed: 0, unresponsive: 0, whatsapp: 0, notInterested: 0, initialOutreach: 0, totalOutreach: 0 };
+            }
+            perJobPipelineStats[elJobId].initialOutreach++;
+            perJobPipelineStats[elJobId].totalOutreach++;
+          }
+        }
+
       }
     } catch (e) {
       console.error("Error computing per-job pipeline stats:", e);
@@ -16057,10 +16237,13 @@ function getUserAnalytics(filterEmail, filterJobId, startDate, endDate) {
       console.error("Error reading FollowUp_Analytics:", e);
     }
 
-    // Fallback: If centralized sheets are empty (not yet populated with historical data),
-    // try reading from per-user sheets as fallback for the current user's own data
+    // Read from per-user Follow_Up_Queue as primary source for follow-up counts
+    // (centralized FollowUp_Analytics may have incomplete data if not all events were logged)
     const followUpStats = getFollowUpStats();
-    const hasCentralizedFollowUps = totalActiveFollowUps > 0 || (ss.getSheetByName('FollowUp_Analytics') !== null);
+    const currentUserEmail = (Session.getActiveUser().getEmail() || '').toLowerCase();
+    // Only use centralized FollowUp_Analytics for OTHER users' data (team lead/admin view)
+    // For current user's own data, always prefer Follow_Up_Queue (source of truth)
+    const hasCentralizedFollowUps = totalActiveFollowUps > 0;
     const hasCentralizedCompleted = totalCompletedFromSheet > 0 || (ss.getSheetByName('Completed_Analytics') !== null);
 
     // Convert user map to sorted array with job breakdown
@@ -16073,11 +16256,13 @@ function getUserAnalytics(filterEmail, filterJobId, startDate, endDate) {
         let userCompletedTotal = 0;
         let userDroppedTotal = 0;
         const userEmailLower = u.email.toLowerCase();
+        let userOutreachTotal = 0;
         Object.keys(u.jobBreakdown).forEach(jobKey => {
           // Use pipeline-aligned stats (same logic as summary cards and task list)
           const jobPipeStats = perJobPipelineStats[jobKey];
           if (jobPipeStats) {
             userEngagedTotal += jobPipeStats.engaged || 0;
+            userOutreachTotal += jobPipeStats.totalOutreach || 0;
           }
 
           const userJobKey = userEmailLower + '|' + jobKey;
@@ -16095,11 +16280,13 @@ function getUserAnalytics(filterEmail, filterJobId, startDate, endDate) {
             userDroppedTotal += droppedPerUserJob[userJobKey];
           }
 
-          // Follow-ups: Use centralized FollowUp_Analytics (per-user per-job)
-          if (hasCentralizedFollowUps && followUpActivePerUserJob[userJobKey] !== undefined) {
+          // Follow-ups: Prefer per-user Follow_Up_Queue for current user (source of truth)
+          // Use centralized FollowUp_Analytics only for other users (team lead/admin view)
+          const isCurrentUser = userEmailLower === currentUserEmail;
+          if (!isCurrentUser && hasCentralizedFollowUps && followUpActivePerUserJob[userJobKey] !== undefined) {
             userActiveFollowUps += followUpActivePerUserJob[userJobKey];
           } else {
-            // Fallback: use per-user Follow_Up_Queue for current user's own data
+            // Use per-user Follow_Up_Queue (accurate source of truth for current user)
             const perJobFu = followUpStats.perJob || {};
             const jobFuStats = perJobFu[jobKey];
             if (jobFuStats) {
@@ -16108,20 +16295,24 @@ function getUserAnalytics(filterEmail, filterJobId, startDate, endDate) {
           }
         });
 
+        // Use pipeline-derived unique candidate count when available, fall back to Activity_Log count
+        const effectiveEmailsSent = userOutreachTotal > 0 ? userOutreachTotal : u.emailsSent;
         return {
           email: u.email,
-          emailsSent: u.emailsSent,
+          emailsSent: effectiveEmailsSent,
           engaged: userEngagedTotal,
           followUps: userActiveFollowUps,
           completed: userCompletedTotal,
           droppedOff: userDroppedTotal,
-          totalActions: u.emailsSent + userActiveFollowUps,
+          totalActions: effectiveEmailsSent + userActiveFollowUps,
           jobBreakdown: Object.values(u.jobBreakdown)
             .sort((a, b) => b.emailsSent - a.emailsSent)
             .map(j => {
-              // Use pipeline-aligned stats for engaged (same as summary cards)
+              // Use pipeline-aligned stats for engaged and outreach (same as summary cards)
               const jobPipeStats = perJobPipelineStats[j.jobId];
               const jobEngaged = jobPipeStats ? (jobPipeStats.engaged || 0) : 0;
+              // Use pipeline-derived unique candidate count when available
+              const jobOutreach = (jobPipeStats && jobPipeStats.totalOutreach > 0) ? jobPipeStats.totalOutreach : j.emailsSent;
 
               // Per-job completed: use centralized per-user-per-job count
               const jobUserKey = userEmailLower + '|' + j.jobId;
@@ -16133,12 +16324,13 @@ function getUserAnalytics(filterEmail, filterJobId, startDate, endDate) {
               // Per-job dropped off
               const jobDroppedCount = droppedPerUserJob[jobUserKey] || 0;
 
-              // Per-job follow-ups: use centralized per-user-per-job count
+              // Per-job follow-ups: prefer per-user Follow_Up_Queue for current user
               let activeFollowUps = 0;
-              if (hasCentralizedFollowUps && followUpActivePerUserJob[jobUserKey] !== undefined) {
+              const isCurrentUserJob = userEmailLower === currentUserEmail;
+              if (!isCurrentUserJob && hasCentralizedFollowUps && followUpActivePerUserJob[jobUserKey] !== undefined) {
                 activeFollowUps = followUpActivePerUserJob[jobUserKey];
               } else {
-                // Fallback to per-user Follow_Up_Queue
+                // Use per-user Follow_Up_Queue (source of truth for current user)
                 const perJobFu = followUpStats.perJob || {};
                 const jobFuStats = perJobFu[j.jobId];
                 if (jobFuStats) {
@@ -16148,12 +16340,12 @@ function getUserAnalytics(filterEmail, filterJobId, startDate, endDate) {
 
               return {
                 jobId: j.jobId,
-                emailsSent: j.emailsSent,
+                emailsSent: jobOutreach,
                 engaged: jobEngaged,
                 followUps: activeFollowUps,
                 completed: jobCompletedCount,
                 droppedOff: jobDroppedCount,
-                totalActions: j.emailsSent + activeFollowUps
+                totalActions: jobOutreach + activeFollowUps
               };
             })
         };
@@ -17047,7 +17239,9 @@ function getConversionFunnelFromCentralized(access, filterJobId, startDate, endD
     }
 
     // --- Count outreach from Activity_Log (email_sent actions) ---
-    const outreachEmails = new Set();
+    // Activity_Log stores aggregate batch counts (e.g. count=50), not per-candidate rows
+    // Sum the count column to get total emails sent
+    let activityLogOutreach = 0;
     const activitySheet = ss.getSheetByName('Activity_Log');
     if (activitySheet && activitySheet.getLastRow() > 1) {
       const actData = activitySheet.getDataRange().getValues();
@@ -17056,7 +17250,7 @@ function getConversionFunnelFromCentralized(access, filterJobId, startDate, endD
         const userEmail = String(actData[i][1] || '').toLowerCase();
         const action = String(actData[i][2] || '');
         const jobId = String(actData[i][3] || '');
-        const details = String(actData[i][5] || '');
+        const count = parseInt(actData[i][4]) || 1;
 
         if (action !== 'email_sent') continue;
         if (allowedEmails !== null && !allowedEmails.includes(userEmail)) continue;
@@ -17064,9 +17258,7 @@ function getConversionFunnelFromCentralized(access, filterJobId, startDate, endD
         if (timestamp && startDateFilter && new Date(timestamp) < startDateFilter) continue;
         if (timestamp && endDateFilter && new Date(timestamp) > endDateFilter) continue;
 
-        // Use details field as candidate identifier if available, else count by job+user
-        const candidateKey = details ? (details + '|' + jobId) : (userEmail + '|' + jobId + '|' + i);
-        outreachEmails.add(candidateKey);
+        activityLogOutreach += count;
       }
     }
 
@@ -17165,8 +17357,12 @@ function getConversionFunnelFromCentralized(access, filterJobId, startDate, endD
     }
 
     // Build pipeline cards
-    const totalCandidates = statInitialOutreach + statActive + statCompleted +
-                            statNotInterested + statUnresponsive;
+    // Use Activity_Log outreach as floor — any gap = candidates emailed but not yet in status sheets
+    const statusTotal = statInitialOutreach + statActive + statCompleted +
+                        statNotInterested + statUnresponsive;
+    const missingFromSheets = Math.max(0, activityLogOutreach - statusTotal);
+    statInitialOutreach += missingFromSheets;
+    const totalCandidates = statusTotal + missingFromSheets;
 
     const pipelineCards = {
       totalOutreach: totalCandidates,
@@ -17179,7 +17375,7 @@ function getConversionFunnelFromCentralized(access, filterJobId, startDate, endD
     };
 
     // Build funnel
-    const totalOutreach = Math.max(outreachEmails.size, totalCandidates);
+    const totalOutreach = totalCandidates;
     const totalResponded = respondedCompletedEmails.size + statActive;
     const totalAccepted = accepted;
 
@@ -17429,10 +17625,18 @@ function getConversionFunnelData(filterJobId, startDate, endDate) {
     }
 
     // =====================================================================
-    // Build pipeline cards from status-based counts (matches task list exactly)
+    // Build pipeline cards
+    // Email_Logs = source of truth for total outreach (every email sent = one candidate)
+    // Statuses come from Negotiation_State + Tasks + Completed
+    // Any candidate emailed but missing from status sheets = Awaiting Response
     // =====================================================================
-    const totalCandidates = statInitialOutreach + statActive + statHuman + statUnresponsive +
-                            statWhatsApp + statAccepted + statCompleted + statNotInterested;
+    const statusTotal = statInitialOutreach + statActive + statHuman + statUnresponsive +
+                        statWhatsApp + statAccepted + statCompleted + statNotInterested;
+    const emailLogsTotal = outreachEmails.size;
+    // If more candidates were emailed than have status entries, the difference is Awaiting Response
+    const missingFromSheets = Math.max(0, emailLogsTotal - statusTotal);
+    statInitialOutreach += missingFromSheets;
+    const totalCandidates = statusTotal + missingFromSheets;
 
     const pipelineCards = {
       totalOutreach: totalCandidates,
