@@ -4561,6 +4561,18 @@ Write ONLY the email body. No subject line. No placeholders.`;
         console.error('Failed to generate re-engagement summary:', summaryErr);
       }
 
+      // Remove "Completed" Gmail label so the thread re-enters the AI processing queue.
+      // Without this, processJobNegotiations() would never pick up the candidate's reply
+      // because its search query excludes threads with the "Completed" label.
+      try {
+        const completedLabel = GmailApp.getUserLabelByName('Completed');
+        if (completedLabel) {
+          thread.removeLabel(completedLabel);
+        }
+      } catch (completedLabelErr) {
+        console.error('Failed to remove Completed label during re-engagement:', completedLabelErr);
+      }
+
       // Update follow-up labels
       try {
         updateFollowUpLabels(candidateThreadId, 'responded');
