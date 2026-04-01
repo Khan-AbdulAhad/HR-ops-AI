@@ -5298,79 +5298,120 @@ function sendBulkEmails(recipients, senderName, subject, htmlBody, jobId, opts) 
     } catch (e) { /* ignore */ }
   }
 
-  recipients.forEach((r, index) => {
+  // ── Phase 1: Pre-process recipients — dedup + build MIME messages ──────────
+  const toSend = []; // { r, rawMessage, emailKey }
+  recipients.forEach(r => {
+    const emailKey = normalizeEmail(r.email) + '_' + String(jobId);
+    if (existingEmails.has(emailKey)) {
+      skipped++;
+      return;
+    }
+    let body = htmlBody.replace(/{{name}}/gi, r.name.split(' ')[0]);
+    body = body.replace(/{{job_link}}/gi, jdLink);
+    const rawMessage = createMimeMessage(effectiveSenderName, r.email, subject, body);
+    toSend.push({ r, rawMessage, emailKey });
+  });
+
+  // ── Phase 2: Send all emails concurrently via UrlFetchApp.fetchAll() ────────
+  // Process in sub-batches of 50 to stay within Gmail API rate limits.
+  // Each fetchAll() call fires all requests in the chunk in parallel, giving a
+  // ~50× speedup over sequential Gmail.Users.Messages.send() calls.
+  const token = ScriptApp.getOAuthToken();
+  const CONCURRENT_CHUNK = 50;
+  const sentResults = []; // { r, threadId, emailKey }
+
+  for (let i = 0; i < toSend.length; i += CONCURRENT_CHUNK) {
+    const chunk = toSend.slice(i, i + CONCURRENT_CHUNK);
+    const requests = chunk.map(({ rawMessage }) => ({
+      url: 'https://gmail.googleapis.com/gmail/v1/users/me/messages/send',
+      method: 'POST',
+      headers: {
+        'Authorization': 'Bearer ' + token,
+        'Content-Type': 'application/json'
+      },
+      payload: JSON.stringify({ raw: rawMessage }),
+      muteHttpExceptions: true
+    }));
+
+    let responses;
     try {
-      // FIX: Use normalizeEmail to prevent Gmail dot-variant duplicates
-      const emailKey = normalizeEmail(r.email) + '_' + String(jobId);
+      responses = UrlFetchApp.fetchAll(requests);
+    } catch (fetchErr) {
+      // Whole chunk failed (network error) — record errors for every recipient
+      chunk.forEach(({ r }) => errors.push(`Network error for ${r.email}: ${fetchErr.message}`));
+      continue;
+    }
 
-      // Check if already in system
-      if(existingEmails.has(emailKey)) {
-        skipped++;
-        return;
-      }
-
-      // Replace placeholders: {{name}} and {{job_link}}
-      let body = htmlBody.replace(/{{name}}/gi, r.name.split(' ')[0]);
-      body = body.replace(/{{job_link}}/gi, jdLink);
-      const rawMessage = createMimeMessage(effectiveSenderName, r.email, subject, body);
-      const message = Gmail.Users.Messages.send({ raw: rawMessage }, 'me');
-      const threadId = message.threadId;
-
-      // Apply labels
-      if (labelsToAdd.length > 0) {
-        Gmail.Users.Threads.modify({ addLabelIds: labelsToAdd }, 'me', threadId);
-      }
-
-      const region = r.region || '';
-      const now = new Date();
-
-      // Collect rows for batch write instead of individual appendRow calls
-      logRows.push([now, jobId, r.email, r.name, threadId, "Initial", region]);
-      stateRows.push([r.email, jobId, 0, "Initial Sent", "Initial Outreach", now, r.devId || "N/A", r.name, "", threadId, region]);
-      existingEmails.add(emailKey);
-
-      // Collect job details row
-      if (jobDetailsSheet && jdHeaders.length > 0) {
-        // FIX: Use normalizeEmail for Gmail dot-variant deduplication
-        const normalizedRecipientEmail = normalizeEmail(r.email);
-        if (!jobDetailsExistingEmails.has(normalizedRecipientEmail)) {
-          const rowData = new Array(jdHeaders.length).fill('');
-          const tIdx = jdHeaders.indexOf('Timestamp');
-          const eIdx = jdHeaders.indexOf('Email');
-          const nIdx = jdHeaders.indexOf('Name');
-          const dIdx = jdHeaders.indexOf('Dev ID');
-          const thIdx = jdHeaders.indexOf('Thread ID');
-          const rIdx = jdHeaders.indexOf('Region');
-          const sIdx = jdHeaders.indexOf('Status');
-          if (tIdx !== -1) rowData[tIdx] = now;
-          if (eIdx !== -1) rowData[eIdx] = r.email;
-          if (nIdx !== -1) rowData[nIdx] = r.name;
-          if (dIdx !== -1) rowData[dIdx] = r.devId || 'N/A';
-          if (thIdx !== -1) rowData[thIdx] = threadId;
-          if (rIdx !== -1) rowData[rIdx] = region;
-          if (sIdx !== -1) rowData[sIdx] = 'Outreach Sent';
-          jobDetailsRows.push(rowData);
-          jobDetailsExistingEmails.add(normalizedRecipientEmail);
+    responses.forEach((response, j) => {
+      const { r, emailKey } = chunk[j];
+      const responseCode = response.getResponseCode();
+      if (responseCode === 200) {
+        try {
+          const result = JSON.parse(response.getContentText());
+          sentResults.push({ r, threadId: result.threadId, emailKey });
+          existingEmails.add(emailKey);
+          count++;
+        } catch (parseErr) {
+          errors.push(`Failed for ${r.email}: Could not parse send response`);
         }
+      } else if (responseCode === 429) {
+        errors.push(`Rate limited for ${r.email}: quota exceeded — retry later`);
+      } else {
+        let errMsg = '';
+        try { errMsg = JSON.parse(response.getContentText())?.error?.message || ''; } catch (e) {}
+        errors.push(`Failed for ${r.email}: HTTP ${responseCode}${errMsg ? ' — ' + errMsg : ''}`);
       }
+    });
+  }
 
-      // Collect follow-up queue row
-      if (shouldFollowUp && followUpSheet) {
-        // FIX: Use normalizeEmail for Gmail dot-variant deduplication
-        const fqKey = normalizeEmail(r.email) + '_' + String(jobId);
-        if (!followUpExistingEmails.has(fqKey)) {
-          followUpRows.push({
-            row: [r.email, jobId, threadId, r.name, r.devId || 'N/A', now, false, false, 'Pending', now],
-            threadId: threadId
-          });
-          followUpExistingEmails.add(fqKey);
-        }
+  // ── Phase 3: Batch apply Job + AI-Managed labels to ALL threads at once ─────
+  // One API call instead of one per email — dramatically reduces API quota usage.
+  const allThreadIds = sentResults.map(s => s.threadId);
+  if (allThreadIds.length > 0 && labelsToAdd.length > 0) {
+    batchModifyThreadLabels(allThreadIds, labelsToAdd, token);
+  }
+
+  // ── Phase 4: Collect sheet rows from sent results ────────────────────────────
+  const now = new Date();
+  sentResults.forEach(({ r, threadId }) => {
+    const region = r.region || '';
+    logRows.push([now, jobId, r.email, r.name, threadId, "Initial", region]);
+    stateRows.push([r.email, jobId, 0, "Initial Sent", "Initial Outreach", now, r.devId || "N/A", r.name, "", threadId, region]);
+
+    // Job details row
+    if (jobDetailsSheet && jdHeaders.length > 0) {
+      const normalizedRecipientEmail = normalizeEmail(r.email);
+      if (!jobDetailsExistingEmails.has(normalizedRecipientEmail)) {
+        const rowData = new Array(jdHeaders.length).fill('');
+        const tIdx = jdHeaders.indexOf('Timestamp');
+        const eIdx = jdHeaders.indexOf('Email');
+        const nIdx = jdHeaders.indexOf('Name');
+        const dIdx = jdHeaders.indexOf('Dev ID');
+        const thIdx = jdHeaders.indexOf('Thread ID');
+        const rIdx = jdHeaders.indexOf('Region');
+        const sIdx = jdHeaders.indexOf('Status');
+        if (tIdx !== -1) rowData[tIdx] = now;
+        if (eIdx !== -1) rowData[eIdx] = r.email;
+        if (nIdx !== -1) rowData[nIdx] = r.name;
+        if (dIdx !== -1) rowData[dIdx] = r.devId || 'N/A';
+        if (thIdx !== -1) rowData[thIdx] = threadId;
+        if (rIdx !== -1) rowData[rIdx] = region;
+        if (sIdx !== -1) rowData[sIdx] = 'Outreach Sent';
+        jobDetailsRows.push(rowData);
+        jobDetailsExistingEmails.add(normalizedRecipientEmail);
       }
+    }
 
-      count++;
-    } catch(e) {
-      console.error(e);
-      errors.push(`Failed for ${r.email}: ${e.message}`);
+    // Follow-up queue row
+    if (shouldFollowUp && followUpSheet) {
+      const fqKey = normalizeEmail(r.email) + '_' + String(jobId);
+      if (!followUpExistingEmails.has(fqKey)) {
+        followUpRows.push({
+          row: [r.email, jobId, threadId, r.name, r.devId || 'N/A', now, false, false, 'Pending', now],
+          threadId: threadId
+        });
+        followUpExistingEmails.add(fqKey);
+      }
     }
   });
 
@@ -5389,19 +5430,33 @@ function sendBulkEmails(recipients, senderName, subject, htmlBody, jobId, opts) 
       const fqRowData = followUpRows.map(fr => fr.row);
       followUpSheet.getRange(followUpSheet.getLastRow() + 1, 1, fqRowData.length, fqRowData[0].length).setValues(fqRowData);
 
-      // Apply "Awaiting-Response" Gmail label to follow-up threads
-      const awaitLabel = GmailApp.getUserLabelByName(FOLLOW_UP_LABELS.AWAITING_RESPONSE) ||
-                         GmailApp.createLabel(FOLLOW_UP_LABELS.AWAITING_RESPONSE);
-      followUpRows.forEach(fr => {
-        if (fr.threadId) {
-          try {
-            const thread = GmailApp.getThreadById(fr.threadId);
-            if (thread) thread.addLabel(awaitLabel);
-          } catch (labelErr) {
-            console.error("Error adding Awaiting-Response label:", labelErr);
+      // Batch apply "Awaiting-Response" Gmail label to ALL follow-up threads at once.
+      // Uses batchModifyThreadLabels (single API call) instead of one call per thread.
+      try {
+        const awaitLabelId = getOrCreateLabelId(FOLLOW_UP_LABELS.AWAITING_RESPONSE);
+        if (awaitLabelId) {
+          const awaitThreadIds = followUpRows.map(fr => fr.threadId).filter(Boolean);
+          if (awaitThreadIds.length > 0) {
+            batchModifyThreadLabels(awaitThreadIds, [awaitLabelId], token);
           }
+        } else {
+          // Fallback: apply label via GmailApp if label ID lookup fails
+          const awaitLabel = GmailApp.getUserLabelByName(FOLLOW_UP_LABELS.AWAITING_RESPONSE) ||
+                             GmailApp.createLabel(FOLLOW_UP_LABELS.AWAITING_RESPONSE);
+          followUpRows.forEach(fr => {
+            if (fr.threadId) {
+              try {
+                const thread = GmailApp.getThreadById(fr.threadId);
+                if (thread) thread.addLabel(awaitLabel);
+              } catch (labelErr) {
+                console.error("Error adding Awaiting-Response label:", labelErr);
+              }
+            }
+          });
         }
-      });
+      } catch (awaitLabelErr) {
+        console.error("Error batch-applying Awaiting-Response labels:", awaitLabelErr);
+      }
     }
   } catch (batchErr) {
     console.error("Batch write error:", batchErr);
@@ -5471,6 +5526,42 @@ function getOrCreateLabelId(name) {
     const created = Gmail.Users.Labels.create({ name: name }, 'me');
     return created.id;
   } catch(e) { return null; }
+}
+
+/**
+ * Batch apply Gmail labels to multiple threads in a single API call.
+ * Uses Gmail's threads.batchModify endpoint — far faster than one modify per thread.
+ * Automatically splits into chunks of 1000 (API limit per request).
+ * @param {string[]} threadIds - Gmail thread IDs to label
+ * @param {string[]} labelIds  - Gmail label IDs to add
+ * @param {string}   token     - OAuth2 bearer token (ScriptApp.getOAuthToken())
+ */
+function batchModifyThreadLabels(threadIds, labelIds, token) {
+  if (!threadIds || threadIds.length === 0 || !labelIds || labelIds.length === 0) return;
+  const CHUNK = 1000; // Gmail batchModify max IDs per request
+  for (let i = 0; i < threadIds.length; i += CHUNK) {
+    const chunk = threadIds.slice(i, i + CHUNK);
+    try {
+      const response = UrlFetchApp.fetch(
+        'https://gmail.googleapis.com/gmail/v1/users/me/threads/batchModify',
+        {
+          method: 'POST',
+          headers: {
+            'Authorization': 'Bearer ' + token,
+            'Content-Type': 'application/json'
+          },
+          payload: JSON.stringify({ ids: chunk, addLabelIds: labelIds }),
+          muteHttpExceptions: true
+        }
+      );
+      const code = response.getResponseCode();
+      if (code !== 204 && code !== 200) {
+        console.error('batchModifyThreadLabels failed (HTTP ' + code + '):', response.getContentText().substring(0, 200));
+      }
+    } catch (e) {
+      console.error('batchModifyThreadLabels error:', e);
+    }
+  }
 }
 
 /**
