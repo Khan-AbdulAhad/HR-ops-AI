@@ -5396,49 +5396,72 @@ function sendBulkEmails(recipients, senderName, subject, htmlBody, jobId, opts) 
   const token = ScriptApp.getOAuthToken();
   const CONCURRENT_CHUNK = 50;
   const sentResults = []; // { r, threadId, emailKey }
+  const MAX_RATE_LIMIT_RETRIES = 3;
 
   for (let i = 0; i < toSend.length; i += CONCURRENT_CHUNK) {
     const chunk = toSend.slice(i, i + CONCURRENT_CHUNK);
-    const requests = chunk.map(({ rawMessage }) => ({
-      url: 'https://gmail.googleapis.com/gmail/v1/users/me/messages/send',
-      method: 'POST',
-      headers: {
-        'Authorization': 'Bearer ' + token,
-        'Content-Type': 'application/json'
-      },
-      payload: JSON.stringify({ raw: rawMessage }),
-      muteHttpExceptions: true
-    }));
 
-    let responses;
-    try {
-      responses = UrlFetchApp.fetchAll(requests);
-    } catch (fetchErr) {
-      // Whole chunk failed (network error) — record errors for every recipient
-      chunk.forEach(({ r }) => errors.push(`Network error for ${r.email}: ${fetchErr.message}`));
-      continue;
-    }
+    // Track which items in the chunk still need sending (for rate-limit retries)
+    let pending = chunk.map((item, idx) => ({ ...item, originalIdx: idx }));
 
-    responses.forEach((response, j) => {
-      const { r, emailKey } = chunk[j];
-      const responseCode = response.getResponseCode();
-      if (responseCode === 200) {
-        try {
-          const result = JSON.parse(response.getContentText());
-          sentResults.push({ r, threadId: result.threadId, emailKey });
-          existingEmails.add(emailKey);
-          count++;
-        } catch (parseErr) {
-          errors.push(`Failed for ${r.email}: Could not parse send response`);
-        }
-      } else if (responseCode === 429) {
-        errors.push(`Rate limited for ${r.email}: quota exceeded — retry later`);
-      } else {
-        let errMsg = '';
-        try { errMsg = JSON.parse(response.getContentText())?.error?.message || ''; } catch (e) {}
-        errors.push(`Failed for ${r.email}: HTTP ${responseCode}${errMsg ? ' — ' + errMsg : ''}`);
+    for (let attempt = 0; attempt <= MAX_RATE_LIMIT_RETRIES && pending.length > 0; attempt++) {
+      if (attempt > 0) {
+        // Exponential backoff: 2s, 4s, 8s before retrying rate-limited emails
+        const backoffMs = Math.pow(2, attempt) * 1000;
+        console.warn('Rate limit: retrying ' + pending.length + ' emails (attempt ' + (attempt + 1) + '/' + (MAX_RATE_LIMIT_RETRIES + 1) + ') after ' + backoffMs + 'ms backoff');
+        Utilities.sleep(backoffMs);
       }
-    });
+
+      const requests = pending.map(({ rawMessage }) => ({
+        url: 'https://gmail.googleapis.com/gmail/v1/users/me/messages/send',
+        method: 'POST',
+        headers: {
+          'Authorization': 'Bearer ' + token,
+          'Content-Type': 'application/json'
+        },
+        payload: JSON.stringify({ raw: rawMessage }),
+        muteHttpExceptions: true
+      }));
+
+      let responses;
+      try {
+        responses = UrlFetchApp.fetchAll(requests);
+      } catch (fetchErr) {
+        // Whole chunk failed (network error) — record errors for every recipient
+        pending.forEach(({ r }) => errors.push(`Network error for ${r.email}: ${fetchErr.message}`));
+        pending = [];
+        break;
+      }
+
+      const stillRateLimited = [];
+      responses.forEach((response, j) => {
+        const pendingItem = pending[j];
+        const { r, emailKey } = pendingItem;
+        const responseCode = response.getResponseCode();
+        if (responseCode === 200) {
+          try {
+            const result = JSON.parse(response.getContentText());
+            sentResults.push({ r, threadId: result.threadId, emailKey });
+            existingEmails.add(emailKey);
+            count++;
+          } catch (parseErr) {
+            errors.push(`Failed for ${r.email}: Could not parse send response`);
+          }
+        } else if (responseCode === 429) {
+          if (attempt < MAX_RATE_LIMIT_RETRIES) {
+            stillRateLimited.push(pendingItem);
+          } else {
+            errors.push(`Rate limited for ${r.email}: quota exceeded after ${MAX_RATE_LIMIT_RETRIES + 1} attempts`);
+          }
+        } else {
+          let errMsg = '';
+          try { errMsg = JSON.parse(response.getContentText())?.error?.message || ''; } catch (e) {}
+          errors.push(`Failed for ${r.email}: HTTP ${responseCode}${errMsg ? ' — ' + errMsg : ''}`);
+        }
+      });
+
+      pending = stillRateLimited;
+    }
   }
 
   // ── Phase 3: Batch apply Job + AI-Managed labels to ALL threads at once ─────
