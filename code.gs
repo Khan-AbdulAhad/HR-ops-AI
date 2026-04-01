@@ -3933,6 +3933,8 @@ function getAllTasks(filters) {
       tag = 'Human-Negotiation';
     } else if(status === 'Active - Data Gathering') {
       tag = 'Data Gathering';
+    } else if(status === 'Awaiting Additional Data') {
+      tag = 'Awaiting Additional Data';
     } else if(status.startsWith('Re-engaged')) {
       tag = status.replace('Re-engaged - ', 'Re-engaged: ');
     } else if(status === 'Initial Outreach' || attempts === 0) {
@@ -19748,6 +19750,31 @@ function sendSupplementaryDataRequest(jobId, candidateEmails, additionalQuestion
           console.warn(`Could not update follow-up queue for ${candidate.email}:`, updateErr);
         }
 
+        // Update Negotiation_State to reflect the supplementary data request
+        // This keeps tracking consistent — status shows candidate was contacted for more info
+        try {
+          const nsUrl = getStoredSheetUrl();
+          if (nsUrl) {
+            const nsSs = SpreadsheetApp.openByUrl(nsUrl);
+            const negStateSheet = nsSs.getSheetByName('Negotiation_State');
+            if (negStateSheet) {
+              const nsData = negStateSheet.getDataRange().getValues();
+              const cleanEmail = String(candidate.email).toLowerCase().trim();
+              for (let ni = 1; ni < nsData.length; ni++) {
+                if (normalizeEmail(nsData[ni][0]) === normalizeEmail(cleanEmail) &&
+                    String(nsData[ni][1]) === String(jobId)) {
+                  negStateSheet.getRange(ni + 1, 3).setValue(0);                                // Column C: Reset attempts
+                  negStateSheet.getRange(ni + 1, 5).setValue('Awaiting Additional Data');        // Column E: Status
+                  negStateSheet.getRange(ni + 1, 6).setValue(new Date());                       // Column F: Last Reply Time
+                  break;
+                }
+              }
+            }
+          }
+        } catch (nsErr) {
+          console.warn(`Could not update Negotiation_State for ${candidate.email}:`, nsErr);
+        }
+
         debugLog(`Sent supplementary data request to ${candidate.email}`);
         sentCount++;
 
@@ -19757,6 +19784,10 @@ function sendSupplementaryDataRequest(jobId, candidateEmails, additionalQuestion
         failedCount++;
       }
     });
+
+    // Invalidate caches so task list reflects updated statuses
+    invalidateSheetCache('Negotiation_State');
+    invalidateSheetCache('Follow_Up_Queue');
 
     return {
       success: true,
