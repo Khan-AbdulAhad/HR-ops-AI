@@ -4302,6 +4302,25 @@ function updateCandidateStatusTag(email, jobId, newStatus) {
             console.error('Failed to update job details sheet:', e);
           }
 
+          // Also update Completed_Analytics (shared) so centralized analytics stay in sync
+          try {
+            const analyticsSs = getAnalyticsSpreadsheet();
+            if (analyticsSs) {
+              const caSheet = analyticsSs.getSheetByName('Completed_Analytics');
+              if (caSheet && caSheet.getLastRow() > 1) {
+                const caData = caSheet.getDataRange().getValues();
+                for (let a = 1; a < caData.length; a++) {
+                  if (normalizeEmail(caData[a][3]) === normalizedEmail && String(caData[a][2]) === String(jobId)) {
+                    caSheet.getRange(a + 1, 6).setValue(newStatus); // Column 6 = Final Status in Completed_Analytics
+                    break;
+                  }
+                }
+              }
+            }
+          } catch (e) {
+            console.error('Failed to update Completed_Analytics:', e);
+          }
+
           return { success: true };
         }
       }
