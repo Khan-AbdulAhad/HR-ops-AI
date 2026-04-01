@@ -4066,8 +4066,6 @@ function getAllTasks(filters) {
   }
 
   // 4. Get Job IDs from Email_Logs (sent emails) - ensures all emailed jobs appear in filter
-  // Also reconcile: candidates in Email_Logs but missing from Negotiation sheets
-  // (e.g., due to batch write errors) should still count as Initial Outreach
   const emailLogsData = getCachedSheetData('Email_Logs', 30); // 30 second cache
   if(emailLogsData && emailLogsData.length > 1) {
     for(let i=1; i<emailLogsData.length; i++) {
@@ -4075,34 +4073,6 @@ function getAllTasks(filters) {
         const jobId = String(emailLogsData[i][1]);
         if(jobId && jobId !== 'undefined' && jobId !== 'null') {
           jobIdSet.add(jobId);
-        }
-      }
-      // Check for candidates in Email_Logs but not in any negotiation sheet
-      const logEmail = normalizeEmail(emailLogsData[i][2]);
-      const logJobId = String(emailLogsData[i][1] || '');
-      const logType = String(emailLogsData[i][5] || '');
-      if (logEmail && logJobId && !(logType && logType.toLowerCase().includes('follow'))) {
-        const logKey = logEmail + '|' + logJobId;
-        if (!countedCandidates.has(logKey)) {
-          countedCandidates.add(logKey);
-          // Apply filters before counting
-          if (jobFilter !== 'all' && logJobId !== jobFilter) continue;
-          if (statusFilter !== 'all' && statusFilter !== 'Initial Outreach') continue;
-          statInitialOutreach++;
-          tasks.push({
-            email: emailLogsData[i][2],
-            jobId: logJobId,
-            devId: 'N/A',
-            name: emailLogsData[i][3] || 'Unknown',
-            status: 'Initial Outreach',
-            attempts: 0,
-            tags: 'Initial Outreach',
-            type: 'Negotiating',
-            lastReply: 'N/A',
-            sortTimestamp: 0,
-            aiNotes: '',
-            threadId: ''
-          });
         }
       }
     }
@@ -6030,7 +6000,6 @@ function processJobNegotiations(jobId, rules, ss, faqContent, negotiationEnabled
   }
 
   const stateSheet = ss.getSheetByName('Negotiation_State');
-  const taskSheet = ss.getSheetByName('Negotiation_Tasks');
 
   let jobStats = {replied:0, escalated:0, accepted:0, notInterested:0, skipped:0, processed:0, detailsExtracted:0, missingInfoFollowUps:0, log:[]};
   
@@ -8332,7 +8301,8 @@ Write ONLY the email, nothing else.
       }
 
       // Data gathering is complete OR not enabled - proceed with full acceptance
-      taskSheet.appendRow([new Date(), jobId, candidateName, candidateEmail, rate, "Pending Archive", devId, thread.getId(), candidateRegion || '']);
+      // NOTE: No longer writing to Negotiation_Tasks (redundant intermediate sheet).
+      // Candidates go directly to Negotiation_Completed below after acceptance email is sent.
 
       try {
         updateJobCandidateStatus(ss, jobId, candidateEmail, 'Offer Accepted', `$${rate}/hr`, `$${rate}/hr`);
@@ -16077,27 +16047,6 @@ function getUserAnalytics(filterEmail, filterJobId, startDate, endDate) {
           perJobPipelineStats[compJobId].totalOutreach++;
         }
 
-        // 4. Reconcile: Candidates in Email_Logs but missing from Negotiation sheets
-        const pipeEmailLogsSheet = opsSs.getSheetByName('Email_Logs');
-        const pipeEmailLogsData = pipeEmailLogsSheet ? pipeEmailLogsSheet.getDataRange().getValues() : [];
-        for (let i = 1; i < pipeEmailLogsData.length; i++) {
-          const logEmail = normalizeEmail(pipeEmailLogsData[i][2]);
-          const logJobId = String(pipeEmailLogsData[i][1] || '');
-          const logType = String(pipeEmailLogsData[i][5] || '');
-          if (!logEmail || !logJobId) continue;
-          if (logType && logType.toLowerCase().includes('follow')) continue;
-          if (jobIdFilter && logJobId !== jobIdFilter) continue;
-
-          const logKey = logEmail + '|' + logJobId;
-          if (pipeCounted.has(logKey)) continue;
-          pipeCounted.add(logKey);
-
-          if (!perJobPipelineStats[logJobId]) {
-            perJobPipelineStats[logJobId] = { engaged: 0, completed: 0, unresponsive: 0, whatsapp: 0, notInterested: 0, initialOutreach: 0, totalOutreach: 0 };
-          }
-          perJobPipelineStats[logJobId].initialOutreach++;
-          perJobPipelineStats[logJobId].totalOutreach++;
-        }
       }
     } catch (e) {
       console.error("Error computing per-job pipeline stats:", e);
@@ -16232,10 +16181,13 @@ function getUserAnalytics(filterEmail, filterJobId, startDate, endDate) {
       console.error("Error reading FollowUp_Analytics:", e);
     }
 
-    // Fallback: If centralized sheets are empty (not yet populated with historical data),
-    // try reading from per-user sheets as fallback for the current user's own data
+    // Read from per-user Follow_Up_Queue as primary source for follow-up counts
+    // (centralized FollowUp_Analytics may have incomplete data if not all events were logged)
     const followUpStats = getFollowUpStats();
-    const hasCentralizedFollowUps = totalActiveFollowUps > 0 || (ss.getSheetByName('FollowUp_Analytics') !== null);
+    const currentUserEmail = (Session.getActiveUser().getEmail() || '').toLowerCase();
+    // Only use centralized FollowUp_Analytics for OTHER users' data (team lead/admin view)
+    // For current user's own data, always prefer Follow_Up_Queue (source of truth)
+    const hasCentralizedFollowUps = totalActiveFollowUps > 0;
     const hasCentralizedCompleted = totalCompletedFromSheet > 0 || (ss.getSheetByName('Completed_Analytics') !== null);
 
     // Convert user map to sorted array with job breakdown
@@ -16272,11 +16224,13 @@ function getUserAnalytics(filterEmail, filterJobId, startDate, endDate) {
             userDroppedTotal += droppedPerUserJob[userJobKey];
           }
 
-          // Follow-ups: Use centralized FollowUp_Analytics (per-user per-job)
-          if (hasCentralizedFollowUps && followUpActivePerUserJob[userJobKey] !== undefined) {
+          // Follow-ups: Prefer per-user Follow_Up_Queue for current user (source of truth)
+          // Use centralized FollowUp_Analytics only for other users (team lead/admin view)
+          const isCurrentUser = userEmailLower === currentUserEmail;
+          if (!isCurrentUser && hasCentralizedFollowUps && followUpActivePerUserJob[userJobKey] !== undefined) {
             userActiveFollowUps += followUpActivePerUserJob[userJobKey];
           } else {
-            // Fallback: use per-user Follow_Up_Queue for current user's own data
+            // Use per-user Follow_Up_Queue (accurate source of truth for current user)
             const perJobFu = followUpStats.perJob || {};
             const jobFuStats = perJobFu[jobKey];
             if (jobFuStats) {
@@ -16314,12 +16268,13 @@ function getUserAnalytics(filterEmail, filterJobId, startDate, endDate) {
               // Per-job dropped off
               const jobDroppedCount = droppedPerUserJob[jobUserKey] || 0;
 
-              // Per-job follow-ups: use centralized per-user-per-job count
+              // Per-job follow-ups: prefer per-user Follow_Up_Queue for current user
               let activeFollowUps = 0;
-              if (hasCentralizedFollowUps && followUpActivePerUserJob[jobUserKey] !== undefined) {
+              const isCurrentUserJob = userEmailLower === currentUserEmail;
+              if (!isCurrentUserJob && hasCentralizedFollowUps && followUpActivePerUserJob[jobUserKey] !== undefined) {
                 activeFollowUps = followUpActivePerUserJob[jobUserKey];
               } else {
-                // Fallback to per-user Follow_Up_Queue
+                // Use per-user Follow_Up_Queue (source of truth for current user)
                 const perJobFu = followUpStats.perJob || {};
                 const jobFuStats = perJobFu[j.jobId];
                 if (jobFuStats) {
@@ -17346,16 +17301,12 @@ function getConversionFunnelFromCentralized(access, filterJobId, startDate, endD
     }
 
     // Build pipeline cards
-    // Reconcile: if Activity_Log outreach count is higher than status-counted candidates,
-    // the extra candidates are awaiting response (missing from FollowUp/Completed analytics)
+    // Source of truth: centralized analytics sheets (FollowUp_Analytics + Completed_Analytics)
     const totalCandidates = statInitialOutreach + statActive + statCompleted +
                             statNotInterested + statUnresponsive;
-    const missingFromCentralized = Math.max(0, outreachEmails.size - totalCandidates);
-    statInitialOutreach += missingFromCentralized;
 
-    const reconciledTotal = totalCandidates + missingFromCentralized;
     const pipelineCards = {
-      totalOutreach: reconciledTotal,
+      totalOutreach: totalCandidates,
       awaitingResponse: statInitialOutreach,
       engaged: statActive,
       completed: statCompleted,
@@ -17365,7 +17316,7 @@ function getConversionFunnelFromCentralized(access, filterJobId, startDate, endD
     };
 
     // Build funnel
-    const totalOutreach = reconciledTotal;
+    const totalOutreach = totalCandidates;
     const totalResponded = respondedCompletedEmails.size + statActive;
     const totalAccepted = accepted;
 
@@ -17469,9 +17420,7 @@ function getConversionFunnelData(filterJobId, startDate, endDate) {
     const tasksData = tasksSheet ? tasksSheet.getDataRange().getValues() : [];
 
     // Count unique outreach emails (total contacted) for rate calculations
-    // Use email|jobId pairs for proper multi-job deduplication
     const outreachEmails = new Set();
-    const outreachEmailJobPairs = new Set();
     for (let i = 1; i < emailData.length; i++) {
       const timestamp = emailData[i][0];
       const jobId = String(emailData[i][1] || '');
@@ -17481,10 +17430,7 @@ function getConversionFunnelData(filterJobId, startDate, endDate) {
       if (filterJobId && jobId !== filterJobId) continue;
       if (timestamp && startDateFilter && new Date(timestamp) < startDateFilter) continue;
       if (timestamp && endDateFilter && new Date(timestamp) > endDateFilter) continue;
-      if (email) {
-        outreachEmails.add(email);
-        outreachEmailJobPairs.add(email + '|' + jobId);
-      }
+      if (email) outreachEmails.add(email);
     }
 
     // =====================================================================
@@ -17620,20 +17566,8 @@ function getConversionFunnelData(filterJobId, startDate, endDate) {
     }
 
     // =====================================================================
-    // Reconcile: Candidates in Email_Logs but missing from Negotiation sheets
-    // (e.g., due to batch write errors) should still count as Awaiting Response
-    // =====================================================================
-    let missingFromState = 0;
-    outreachEmailJobPairs.forEach(pair => {
-      if (!countedCandidates.has(pair)) {
-        missingFromState++;
-        statInitialOutreach++;
-        countedCandidates.add(pair);
-      }
-    });
-
-    // =====================================================================
     // Build pipeline cards from status-based counts (matches task list exactly)
+    // Source of truth: Negotiation_State + Negotiation_Tasks + Negotiation_Completed
     // =====================================================================
     const totalCandidates = statInitialOutreach + statActive + statHuman + statUnresponsive +
                             statWhatsApp + statAccepted + statCompleted + statNotInterested;
