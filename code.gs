@@ -17239,7 +17239,9 @@ function getConversionFunnelFromCentralized(access, filterJobId, startDate, endD
     }
 
     // --- Count outreach from Activity_Log (email_sent actions) ---
-    const outreachEmails = new Set();
+    // Activity_Log stores aggregate batch counts (e.g. count=50), not per-candidate rows
+    // Sum the count column to get total emails sent
+    let activityLogOutreach = 0;
     const activitySheet = ss.getSheetByName('Activity_Log');
     if (activitySheet && activitySheet.getLastRow() > 1) {
       const actData = activitySheet.getDataRange().getValues();
@@ -17248,7 +17250,7 @@ function getConversionFunnelFromCentralized(access, filterJobId, startDate, endD
         const userEmail = String(actData[i][1] || '').toLowerCase();
         const action = String(actData[i][2] || '');
         const jobId = String(actData[i][3] || '');
-        const details = String(actData[i][5] || '');
+        const count = parseInt(actData[i][4]) || 1;
 
         if (action !== 'email_sent') continue;
         if (allowedEmails !== null && !allowedEmails.includes(userEmail)) continue;
@@ -17256,9 +17258,7 @@ function getConversionFunnelFromCentralized(access, filterJobId, startDate, endD
         if (timestamp && startDateFilter && new Date(timestamp) < startDateFilter) continue;
         if (timestamp && endDateFilter && new Date(timestamp) > endDateFilter) continue;
 
-        // Use details field as candidate identifier if available, else count by job+user
-        const candidateKey = details ? (details + '|' + jobId) : (userEmail + '|' + jobId + '|' + i);
-        outreachEmails.add(candidateKey);
+        activityLogOutreach += count;
       }
     }
 
@@ -17357,9 +17357,12 @@ function getConversionFunnelFromCentralized(access, filterJobId, startDate, endD
     }
 
     // Build pipeline cards
-    // Source of truth: centralized analytics sheets (FollowUp_Analytics + Completed_Analytics)
-    const totalCandidates = statInitialOutreach + statActive + statCompleted +
-                            statNotInterested + statUnresponsive;
+    // Use Activity_Log outreach as floor — any gap = candidates emailed but not yet in status sheets
+    const statusTotal = statInitialOutreach + statActive + statCompleted +
+                        statNotInterested + statUnresponsive;
+    const missingFromSheets = Math.max(0, activityLogOutreach - statusTotal);
+    statInitialOutreach += missingFromSheets;
+    const totalCandidates = statusTotal + missingFromSheets;
 
     const pipelineCards = {
       totalOutreach: totalCandidates,
