@@ -4065,14 +4065,41 @@ function getAllTasks(filters) {
     }
   }
 
-  // 4. Get Job IDs from Email_Logs (sent emails) - ensures all emailed jobs appear in filter
+  // 4. Get Job IDs from Email_Logs AND recover candidates missing from negotiation sheets
+  // Email_Logs = source of truth for who was contacted. Any candidate emailed but not in
+  // Negotiation_State/Tasks/Completed gets added as "Initial Outreach" (Awaiting Response)
   const emailLogsData = getCachedSheetData('Email_Logs', 30); // 30 second cache
   if(emailLogsData && emailLogsData.length > 1) {
     for(let i=1; i<emailLogsData.length; i++) {
-      if(emailLogsData[i][1]) {
-        const jobId = String(emailLogsData[i][1]);
-        if(jobId && jobId !== 'undefined' && jobId !== 'null') {
-          jobIdSet.add(jobId);
+      const elJobId = String(emailLogsData[i][1] || '');
+      if(elJobId && elJobId !== 'undefined' && elJobId !== 'null') {
+        jobIdSet.add(elJobId);
+      }
+      // Recover candidates emailed but missing from negotiation sheets
+      const logEmail = normalizeEmail(emailLogsData[i][2]);
+      const logType = String(emailLogsData[i][5] || '');
+      if (logEmail && elJobId && !(logType && logType.toLowerCase().includes('follow'))) {
+        const logKey = logEmail + '|' + elJobId;
+        if (!countedCandidates.has(logKey)) {
+          countedCandidates.add(logKey);
+          // Apply filters before counting
+          if(jobFilter !== 'all' && elJobId !== jobFilter) continue;
+          if(statusFilter !== 'all' && statusFilter !== 'Initial Outreach') continue;
+          statInitialOutreach++;
+          tasks.push({
+            email: emailLogsData[i][2],
+            jobId: elJobId,
+            devId: 'N/A',
+            name: emailLogsData[i][3] || 'Unknown',
+            status: 'Initial Outreach',
+            attempts: 0,
+            tags: 'Initial Outreach',
+            type: 'Negotiating',
+            lastReply: 'N/A',
+            sortTimestamp: 0,
+            aiNotes: '',
+            threadId: emailLogsData[i][4] || ''
+          });
         }
       }
     }
@@ -16047,6 +16074,35 @@ function getUserAnalytics(filterEmail, filterJobId, startDate, endDate) {
           perJobPipelineStats[compJobId].totalOutreach++;
         }
 
+        // 4. Reconcile with Email_Logs — source of truth for total outreach
+        // Any candidate emailed but not in Negotiation_State/Tasks/Completed
+        // gets counted as "Initial Outreach" (same logic as getAllTasks & getConversionFunnelData)
+        const pipeEmailLogsData = getCachedSheetData('Email_Logs', 30);
+        if (pipeEmailLogsData && pipeEmailLogsData.length > 1) {
+          for (let i = 1; i < pipeEmailLogsData.length; i++) {
+            const elJobId = String(pipeEmailLogsData[i][1] || '');
+            const logEmail = normalizeEmail(pipeEmailLogsData[i][2]);
+            const logType = String(pipeEmailLogsData[i][5] || '');
+
+            // Skip follow-up emails (only count initial outreach)
+            if (logType && logType.toLowerCase().includes('follow')) continue;
+            if (!logEmail || !elJobId) continue;
+
+            // Apply job filter if specified
+            if (jobIdFilter && elJobId !== jobIdFilter) continue;
+
+            const logKey = logEmail + '|' + elJobId;
+            if (pipeCounted.has(logKey)) continue;
+            pipeCounted.add(logKey);
+
+            if (!perJobPipelineStats[elJobId]) {
+              perJobPipelineStats[elJobId] = { engaged: 0, completed: 0, unresponsive: 0, whatsapp: 0, notInterested: 0, initialOutreach: 0, totalOutreach: 0 };
+            }
+            perJobPipelineStats[elJobId].initialOutreach++;
+            perJobPipelineStats[elJobId].totalOutreach++;
+          }
+        }
+
       }
     } catch (e) {
       console.error("Error computing per-job pipeline stats:", e);
@@ -17566,11 +17622,18 @@ function getConversionFunnelData(filterJobId, startDate, endDate) {
     }
 
     // =====================================================================
-    // Build pipeline cards from status-based counts (matches task list exactly)
-    // Source of truth: Negotiation_State + Negotiation_Tasks + Negotiation_Completed
+    // Build pipeline cards
+    // Email_Logs = source of truth for total outreach (every email sent = one candidate)
+    // Statuses come from Negotiation_State + Tasks + Completed
+    // Any candidate emailed but missing from status sheets = Awaiting Response
     // =====================================================================
-    const totalCandidates = statInitialOutreach + statActive + statHuman + statUnresponsive +
-                            statWhatsApp + statAccepted + statCompleted + statNotInterested;
+    const statusTotal = statInitialOutreach + statActive + statHuman + statUnresponsive +
+                        statWhatsApp + statAccepted + statCompleted + statNotInterested;
+    const emailLogsTotal = outreachEmails.size;
+    // If more candidates were emailed than have status entries, the difference is Awaiting Response
+    const missingFromSheets = Math.max(0, emailLogsTotal - statusTotal);
+    statInitialOutreach += missingFromSheets;
+    const totalCandidates = statusTotal + missingFromSheets;
 
     const pipelineCards = {
       totalOutreach: totalCandidates,
