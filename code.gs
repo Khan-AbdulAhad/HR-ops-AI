@@ -5527,51 +5527,77 @@ function sendBulkEmails(recipients, senderName, subject, htmlBody, jobId, opts) 
   });
 
   // Batch write all collected rows at once (much faster than individual appendRow calls)
-  try {
-    if (logRows.length > 0) {
-      logSheet.getRange(logSheet.getLastRow() + 1, 1, logRows.length, logRows[0].length).setValues(logRows);
-    }
-    if (stateRows.length > 0) {
-      stateSheet.getRange(stateSheet.getLastRow() + 1, 1, stateRows.length, stateRows[0].length).setValues(stateRows);
-    }
-    if (jobDetailsRows.length > 0 && jobDetailsSheet) {
-      jobDetailsSheet.getRange(jobDetailsSheet.getLastRow() + 1, 1, jobDetailsRows.length, jobDetailsRows[0].length).setValues(jobDetailsRows);
-    }
-    if (followUpRows.length > 0 && followUpSheet) {
-      const fqRowData = followUpRows.map(fr => fr.row);
-      followUpSheet.getRange(followUpSheet.getLastRow() + 1, 1, fqRowData.length, fqRowData[0].length).setValues(fqRowData);
+  // Each sheet write is isolated so one failure doesn't block the others.
+  // Rows are chunked to avoid hitting Google Sheets API limits on large batches.
+  var SHEET_CHUNK = 50;
 
-      // Batch apply "Awaiting-Response" Gmail label to ALL follow-up threads at once.
-      // Uses batchModifyThreadLabels (single API call) instead of one call per thread.
-      try {
-        const awaitLabelId = getOrCreateLabelId(FOLLOW_UP_LABELS.AWAITING_RESPONSE);
-        if (awaitLabelId) {
-          const awaitThreadIds = followUpRows.map(fr => fr.threadId).filter(Boolean);
-          if (awaitThreadIds.length > 0) {
-            batchModifyThreadLabels(awaitThreadIds, [awaitLabelId], token);
-          }
-        } else {
-          // Fallback: apply label via GmailApp if label ID lookup fails
-          const awaitLabel = GmailApp.getUserLabelByName(FOLLOW_UP_LABELS.AWAITING_RESPONSE) ||
-                             GmailApp.createLabel(FOLLOW_UP_LABELS.AWAITING_RESPONSE);
-          followUpRows.forEach(fr => {
-            if (fr.threadId) {
-              try {
-                const thread = GmailApp.getThreadById(fr.threadId);
-                if (thread) thread.addLabel(awaitLabel);
-              } catch (labelErr) {
-                console.error("Error adding Awaiting-Response label:", labelErr);
-              }
-            }
-          });
-        }
-      } catch (awaitLabelErr) {
-        console.error("Error batch-applying Awaiting-Response labels:", awaitLabelErr);
-      }
+  function chunkedSetValues(sheet, rows) {
+    for (var ci = 0; ci < rows.length; ci += SHEET_CHUNK) {
+      var chunk = rows.slice(ci, ci + SHEET_CHUNK);
+      sheet.getRange(sheet.getLastRow() + 1, 1, chunk.length, chunk[0].length).setValues(chunk);
     }
-  } catch (batchErr) {
-    console.error("Batch write error:", batchErr);
-    errors.push("Some data may not have been recorded: " + batchErr.message);
+  }
+
+  if (logRows.length > 0) {
+    try {
+      chunkedSetValues(logSheet, logRows);
+    } catch (logWriteErr) {
+      console.error("Email_Logs batch write error:", logWriteErr);
+      errors.push("Email logs may not have been recorded: " + logWriteErr.message);
+    }
+  }
+  if (stateRows.length > 0) {
+    try {
+      chunkedSetValues(stateSheet, stateRows);
+    } catch (stateWriteErr) {
+      console.error("Negotiation_State batch write error:", stateWriteErr);
+      errors.push("Negotiation state rows may not have been recorded: " + stateWriteErr.message);
+    }
+  }
+  if (jobDetailsRows.length > 0 && jobDetailsSheet) {
+    try {
+      chunkedSetValues(jobDetailsSheet, jobDetailsRows);
+    } catch (jdWriteErr) {
+      console.error("Job details batch write error:", jdWriteErr);
+      errors.push("Job details rows may not have been recorded: " + jdWriteErr.message);
+    }
+  }
+  if (followUpRows.length > 0 && followUpSheet) {
+    try {
+      const fqRowData = followUpRows.map(fr => fr.row);
+      chunkedSetValues(followUpSheet, fqRowData);
+    } catch (fqWriteErr) {
+      console.error("Follow_Up_Queue batch write error:", fqWriteErr);
+      errors.push("Follow-up queue rows may not have been recorded: " + fqWriteErr.message);
+    }
+
+    // Batch apply "Awaiting-Response" Gmail label to ALL follow-up threads at once.
+    // Uses batchModifyThreadLabels (single API call) instead of one call per thread.
+    try {
+      const awaitLabelId = getOrCreateLabelId(FOLLOW_UP_LABELS.AWAITING_RESPONSE);
+      if (awaitLabelId) {
+        const awaitThreadIds = followUpRows.map(fr => fr.threadId).filter(Boolean);
+        if (awaitThreadIds.length > 0) {
+          batchModifyThreadLabels(awaitThreadIds, [awaitLabelId], token);
+        }
+      } else {
+        // Fallback: apply label via GmailApp if label ID lookup fails
+        const awaitLabel = GmailApp.getUserLabelByName(FOLLOW_UP_LABELS.AWAITING_RESPONSE) ||
+                           GmailApp.createLabel(FOLLOW_UP_LABELS.AWAITING_RESPONSE);
+        followUpRows.forEach(fr => {
+          if (fr.threadId) {
+            try {
+              const thread = GmailApp.getThreadById(fr.threadId);
+              if (thread) thread.addLabel(awaitLabel);
+            } catch (labelErr) {
+              console.error("Error adding Awaiting-Response label:", labelErr);
+            }
+          }
+        });
+      }
+    } catch (awaitLabelErr) {
+      console.error("Error batch-applying Awaiting-Response labels:", awaitLabelErr);
+    }
   }
 
   // Log data consumption for tracking
