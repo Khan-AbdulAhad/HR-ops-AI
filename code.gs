@@ -5970,8 +5970,18 @@ function processJobNegotiations(jobId, rules, ss, faqContent, negotiationEnabled
   const query = `label:Job-${jobId} label:${AI_MANAGED_LABEL} -label:Completed`;
   let threads = [];
 
+  // FIX: Fetch ALL matching threads using pagination (Gmail API returns max 50 per call).
+  // Previously only the first 50 threads were fetched, causing candidates beyond that limit
+  // to never be processed (only their AI summaries were generated, with no replies sent).
   try {
-    threads = GmailApp.search(query, 0, 50);
+    const BATCH_SIZE = 50;
+    let offset = 0;
+    let batch;
+    do {
+      batch = GmailApp.search(query, offset, BATCH_SIZE);
+      threads = threads.concat(batch);
+      offset += BATCH_SIZE;
+    } while (batch.length === BATCH_SIZE);
   } catch(e) {
     return {replied:0, escalated:0, accepted:0, skipped:0, processed:0, log:[{type:'error', message:`Gmail search failed for Job ${jobId}: ${e.message}`}]};
   }
@@ -5982,6 +5992,11 @@ function processJobNegotiations(jobId, rules, ss, faqContent, negotiationEnabled
       replied:0, escalated:0, accepted:0, skipped:0, processed:0, detailsExtracted:0,
       log:[{type:'info', message:`No pending threads for Job ${jobId}. All may be completed or no AI-Managed threads exist.`}]
     };
+  }
+
+  if (threads.length > 50) {
+    // Log when pagination fetched more than the old 50-thread limit
+    console.log(`Job ${jobId}: Fetched ${threads.length} threads (pagination active)`);
   }
 
   const stateSheet = ss.getSheetByName('Negotiation_State');
@@ -6459,6 +6474,39 @@ Reply with only the email body text. No subject line. No placeholders.`;
     // This ensures we capture candidate data even during ongoing negotiation or escalation
     const candidateLatestMessage = lastMsg.getPlainBody();
 
+    // FIX: Strip quoted reply text from candidate's message so regex checks only match
+    // the candidate's OWN words, not our outreach template (which contains "Not Interested" etc.)
+    function stripQuotedTextFromReply(body) {
+      if (!body) return '';
+      const lines = body.split('\n');
+      const cleanLines = [];
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        if (/^On\s+.{10,80}\s+wrote:\s*$/i.test(line)) break;
+        if (/^-{3,}\s*(Forwarded|Original)\s+message/i.test(line)) break;
+        if (/^From:\s+.+@.+/i.test(line)) break;
+        if (/^\s*>/.test(line)) continue;
+        cleanLines.push(line);
+      }
+      return cleanLines.join('\n');
+    }
+    const candidateOwnMessage = stripQuotedTextFromReply(candidateLatestMessage);
+
+    // Positive-interest patterns: if candidate's own text matches these, they are clearly interested
+    // Used to prevent false "not interested" flags from stray regex matches
+    const positiveInterestPatterns = [
+      /\b(?:i\s+am|i'm|yes[,.]?\s+(?:i\s+am|i'm)?)\s+interested\b/i,
+      /\byes[,.]?\s+(?:i\s+am|i'm|definitely|absolutely|of\s+course)\b/i,
+      /\binterested\s+in\s+(?:this|the)\s+(?:position|role|opportunity|job)\b/i,
+      /\bwould\s+(?:love|like)\s+to\s+(?:proceed|continue|move\s+forward|explore|discuss|know\s+more)\b/i,
+      /\bcount\s+me\s+in\b/i,
+      /\bplease\s+(?:proceed|share|send)\s+(?:the|more)?\s*(?:details|information)\b/i,
+      /\bready\s+to\s+(?:start|proceed|go|begin)\b/i,
+      /\blooking\s+forward\s+to\b/i,
+      /\bi\s+(?:understand\s+and\s+)?accept\b/i,
+      /\bi\s+(?:can|would)\s+(?:like\s+to\s+)?(?:confirm|agree)\b/i
+    ];
+
     // Track data gathering status - used to prevent premature completion
     // FIX: If data gathering is enabled but incomplete, we should NOT mark thread as Completed
     let isDataGatheringComplete = true; // Default to true (no data gathering questions)
@@ -6528,8 +6576,9 @@ Reply with only the email body text. No subject line. No placeholders.`;
           /\bdeclining\s+this\s+opportunity\b/i,
           /\bnot\s+(?:looking\s+for|interested\s+in)\s+(?:a\s+)?(?:contract(?:ual)?|freelance|part[\s-]?time)\b/i
         ];
-        const isNotInterestedEarly = notInterestedGuardPatterns.some(p => p.test(candidateLatestMessage));
-        if (isNotInterestedEarly) {
+        const isNotInterestedEarly = notInterestedGuardPatterns.some(p => p.test(candidateOwnMessage));
+        const isPositiveInterestEarly = positiveInterestPatterns.some(p => p.test(candidateOwnMessage));
+        if (isNotInterestedEarly && !isPositiveInterestEarly) {
           jobStats.log.push({type: 'info', message: `${candidateEmail} - NOT INTERESTED detected before data gathering. Skipping data follow-up to let negotiation flow handle status update.`});
           // Don't return early - fall through to negotiation logic which has proper NOT_INTERESTED handling
         }
@@ -7171,9 +7220,17 @@ RATE RANGE DETECTION - CRITICAL:
   - "between $20 and $25 per hour" → rate_range_low: 20, rate_range_high: 25, proposed_rate: 25
   - "$30/hr" (single rate) → rate_range_low: null, rate_range_high: null, proposed_rate: 30
 
+CRITICAL - GENERAL INTEREST IS NOT RATE ACCEPTANCE:
+- "I am interested", "Yes, I am interested", "I'm interested in this position/role/opportunity" = EXPRESSING INTEREST in the role, NOT accepting any rate
+- "Yes" or "Sure" followed by interest in the role/position (not referencing a specific rate) = NOT acceptance
+- If the candidate's message ONLY expresses general interest without mentioning or acknowledging a specific rate number, treat as ACTION: COUNTER to ask them to confirm the specific terms
+- Acceptance REQUIRES the candidate to explicitly reference, acknowledge, or agree to a SPECIFIC RATE NUMBER we offered
+- Example: "Yes, I am interested in this position" → ACTION: COUNTER (no rate mentioned)
+- Example: "Yes, $15/hr works for me" → ACTION: AUTO_ACCEPT (rate explicitly acknowledged)
+
 ACCEPTANCE DETECTION RULES - CRITICAL:
-- Acceptance ONLY applies when candidate agrees to a rate WE proposed
-- "sure", "ok", "okay", "yes", "I agree", "works for me", "that works", "sounds good" IN RESPONSE TO OUR OFFER = ACCEPTING
+- Acceptance ONLY applies when candidate agrees to a rate WE proposed AND explicitly references or acknowledges the rate
+- "sure", "ok", "okay", "yes", "I agree", "works for me", "that works", "sounds good" IN RESPONSE TO OUR OFFER = ACCEPTING **only if they clearly reference the rate or terms**
 - "$X works for me" where $X was OUR offer = ACCEPTING at rate $X
 - "I accept $X" or "I can do $X" where $X is what WE offered = ACCEPTING at rate $X
 - "otherwise I am ok with $X" or "otherwise I can do $X" where $X ≤ our max = ACCEPTING at $X (candidate is offering a fallback they're willing to work at)
@@ -7185,6 +7242,12 @@ CRITICAL - EXTRACTING THE AGREED RATE FROM CONVERSATION HISTORY:
 - Example: If we offered $12, candidate counter-offered $14, we agreed to $14, and candidate says "yes that's fine" → agreed_rate = 14 (NOT 12!)
 - Example: If candidate said "I can do $14" and we replied accepting that rate, then candidate says "great, works for me" → agreed_rate = 14
 - ALWAYS check the conversation history for the most recent negotiated rate when is_accepting_offer is true
+
+CRITICAL - NEGOTIATION IS NOT DISINTEREST:
+- If a candidate proposes a different/higher rate, they are NEGOTIATING, not declining
+- "I would like $X instead" or "Can we do $X?" or "I request flexibility to adjust the rate" = COUNTER, NOT not_interested
+- Accepting terms but requesting a rate change = COUNTER (negotiation), NOT not_interested
+- Only mark NOT_INTERESTED for clear, unambiguous withdrawal from the entire process
 
 NOT INTERESTED DETECTION (candidate declining to proceed):
 - "not interested" or "no longer interested"
@@ -8291,9 +8354,10 @@ Write ONLY the email, nothing else.
       /\bnot\s+(?:looking\s+for|interested\s+in)\s+(?:a\s+)?(?:contract(?:ual)?|freelance|part[\s-]?time)\b/i
     ];
 
-    const isNotInterestedByRegex = notInterestedPatterns.some(p => p.test(candidateLatestMessage));
-    if (isNotInterestedByRegex) {
-      jobStats.log.push({type: 'info', message: `${candidateEmail} - NOT INTERESTED (SAFETY NET): Regex detected disinterest in message`});
+    const isNotInterestedByRegex = notInterestedPatterns.some(p => p.test(candidateOwnMessage));
+    const isPositiveInterestSafetyNet = positiveInterestPatterns.some(p => p.test(candidateOwnMessage));
+    if (isNotInterestedByRegex && !isPositiveInterestSafetyNet) {
+      jobStats.log.push({type: 'info', message: `${candidateEmail} - NOT INTERESTED (SAFETY NET): Regex detected disinterest in candidate's own message (quoted text excluded)`});
       handleNotInterested({
         jobStats, candidateEmail, conversationHistory, jobId, attempts,
         stateRowIndex, stateSheet, stateMap, stateKey, ss, candidateName,
