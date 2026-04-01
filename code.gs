@@ -4066,6 +4066,8 @@ function getAllTasks(filters) {
   }
 
   // 4. Get Job IDs from Email_Logs (sent emails) - ensures all emailed jobs appear in filter
+  // Also reconcile: candidates in Email_Logs but missing from Negotiation sheets
+  // (e.g., due to batch write errors) should still count as Initial Outreach
   const emailLogsData = getCachedSheetData('Email_Logs', 30); // 30 second cache
   if(emailLogsData && emailLogsData.length > 1) {
     for(let i=1; i<emailLogsData.length; i++) {
@@ -4073,6 +4075,34 @@ function getAllTasks(filters) {
         const jobId = String(emailLogsData[i][1]);
         if(jobId && jobId !== 'undefined' && jobId !== 'null') {
           jobIdSet.add(jobId);
+        }
+      }
+      // Check for candidates in Email_Logs but not in any negotiation sheet
+      const logEmail = normalizeEmail(emailLogsData[i][2]);
+      const logJobId = String(emailLogsData[i][1] || '');
+      const logType = String(emailLogsData[i][5] || '');
+      if (logEmail && logJobId && !(logType && logType.toLowerCase().includes('follow'))) {
+        const logKey = logEmail + '|' + logJobId;
+        if (!countedCandidates.has(logKey)) {
+          countedCandidates.add(logKey);
+          // Apply filters before counting
+          if (jobFilter !== 'all' && logJobId !== jobFilter) continue;
+          if (statusFilter !== 'all' && statusFilter !== 'Initial Outreach') continue;
+          statInitialOutreach++;
+          tasks.push({
+            email: emailLogsData[i][2],
+            jobId: logJobId,
+            devId: 'N/A',
+            name: emailLogsData[i][3] || 'Unknown',
+            status: 'Initial Outreach',
+            attempts: 0,
+            tags: 'Initial Outreach',
+            type: 'Negotiating',
+            lastReply: 'N/A',
+            sortTimestamp: 0,
+            aiNotes: '',
+            threadId: ''
+          });
         }
       }
     }
@@ -15972,6 +16002,28 @@ function getUserAnalytics(filterEmail, filterJobId, startDate, endDate) {
           }
           perJobPipelineStats[compJobId].totalOutreach++;
         }
+
+        // 4. Reconcile: Candidates in Email_Logs but missing from Negotiation sheets
+        const pipeEmailLogsSheet = opsSs.getSheetByName('Email_Logs');
+        const pipeEmailLogsData = pipeEmailLogsSheet ? pipeEmailLogsSheet.getDataRange().getValues() : [];
+        for (let i = 1; i < pipeEmailLogsData.length; i++) {
+          const logEmail = normalizeEmail(pipeEmailLogsData[i][2]);
+          const logJobId = String(pipeEmailLogsData[i][1] || '');
+          const logType = String(pipeEmailLogsData[i][5] || '');
+          if (!logEmail || !logJobId) continue;
+          if (logType && logType.toLowerCase().includes('follow')) continue;
+          if (jobIdFilter && logJobId !== jobIdFilter) continue;
+
+          const logKey = logEmail + '|' + logJobId;
+          if (pipeCounted.has(logKey)) continue;
+          pipeCounted.add(logKey);
+
+          if (!perJobPipelineStats[logJobId]) {
+            perJobPipelineStats[logJobId] = { engaged: 0, completed: 0, unresponsive: 0, whatsapp: 0, notInterested: 0, initialOutreach: 0, totalOutreach: 0 };
+          }
+          perJobPipelineStats[logJobId].initialOutreach++;
+          perJobPipelineStats[logJobId].totalOutreach++;
+        }
       }
     } catch (e) {
       console.error("Error computing per-job pipeline stats:", e);
@@ -17220,11 +17272,16 @@ function getConversionFunnelFromCentralized(access, filterJobId, startDate, endD
     }
 
     // Build pipeline cards
+    // Reconcile: if Activity_Log outreach count is higher than status-counted candidates,
+    // the extra candidates are awaiting response (missing from FollowUp/Completed analytics)
     const totalCandidates = statInitialOutreach + statActive + statCompleted +
                             statNotInterested + statUnresponsive;
+    const missingFromCentralized = Math.max(0, outreachEmails.size - totalCandidates);
+    statInitialOutreach += missingFromCentralized;
 
+    const reconciledTotal = totalCandidates + missingFromCentralized;
     const pipelineCards = {
-      totalOutreach: totalCandidates,
+      totalOutreach: reconciledTotal,
       awaitingResponse: statInitialOutreach,
       engaged: statActive,
       completed: statCompleted,
@@ -17234,7 +17291,7 @@ function getConversionFunnelFromCentralized(access, filterJobId, startDate, endD
     };
 
     // Build funnel
-    const totalOutreach = Math.max(outreachEmails.size, totalCandidates);
+    const totalOutreach = reconciledTotal;
     const totalResponded = respondedCompletedEmails.size + statActive;
     const totalAccepted = accepted;
 
@@ -17338,7 +17395,9 @@ function getConversionFunnelData(filterJobId, startDate, endDate) {
     const tasksData = tasksSheet ? tasksSheet.getDataRange().getValues() : [];
 
     // Count unique outreach emails (total contacted) for rate calculations
+    // Use email|jobId pairs for proper multi-job deduplication
     const outreachEmails = new Set();
+    const outreachEmailJobPairs = new Set();
     for (let i = 1; i < emailData.length; i++) {
       const timestamp = emailData[i][0];
       const jobId = String(emailData[i][1] || '');
@@ -17348,7 +17407,10 @@ function getConversionFunnelData(filterJobId, startDate, endDate) {
       if (filterJobId && jobId !== filterJobId) continue;
       if (timestamp && startDateFilter && new Date(timestamp) < startDateFilter) continue;
       if (timestamp && endDateFilter && new Date(timestamp) > endDateFilter) continue;
-      if (email) outreachEmails.add(email);
+      if (email) {
+        outreachEmails.add(email);
+        outreachEmailJobPairs.add(email + '|' + jobId);
+      }
     }
 
     // =====================================================================
@@ -17482,6 +17544,19 @@ function getConversionFunnelData(filterJobId, startDate, endDate) {
         statCompleted++;
       }
     }
+
+    // =====================================================================
+    // Reconcile: Candidates in Email_Logs but missing from Negotiation sheets
+    // (e.g., due to batch write errors) should still count as Awaiting Response
+    // =====================================================================
+    let missingFromState = 0;
+    outreachEmailJobPairs.forEach(pair => {
+      if (!countedCandidates.has(pair)) {
+        missingFromState++;
+        statInitialOutreach++;
+        countedCandidates.add(pair);
+      }
+    });
 
     // =====================================================================
     // Build pipeline cards from status-based counts (matches task list exactly)
