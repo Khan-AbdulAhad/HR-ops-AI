@@ -5396,49 +5396,72 @@ function sendBulkEmails(recipients, senderName, subject, htmlBody, jobId, opts) 
   const token = ScriptApp.getOAuthToken();
   const CONCURRENT_CHUNK = 50;
   const sentResults = []; // { r, threadId, emailKey }
+  const MAX_RATE_LIMIT_RETRIES = 3;
 
   for (let i = 0; i < toSend.length; i += CONCURRENT_CHUNK) {
     const chunk = toSend.slice(i, i + CONCURRENT_CHUNK);
-    const requests = chunk.map(({ rawMessage }) => ({
-      url: 'https://gmail.googleapis.com/gmail/v1/users/me/messages/send',
-      method: 'POST',
-      headers: {
-        'Authorization': 'Bearer ' + token,
-        'Content-Type': 'application/json'
-      },
-      payload: JSON.stringify({ raw: rawMessage }),
-      muteHttpExceptions: true
-    }));
 
-    let responses;
-    try {
-      responses = UrlFetchApp.fetchAll(requests);
-    } catch (fetchErr) {
-      // Whole chunk failed (network error) — record errors for every recipient
-      chunk.forEach(({ r }) => errors.push(`Network error for ${r.email}: ${fetchErr.message}`));
-      continue;
-    }
+    // Track which items in the chunk still need sending (for rate-limit retries)
+    let pending = chunk.map((item, idx) => ({ ...item, originalIdx: idx }));
 
-    responses.forEach((response, j) => {
-      const { r, emailKey } = chunk[j];
-      const responseCode = response.getResponseCode();
-      if (responseCode === 200) {
-        try {
-          const result = JSON.parse(response.getContentText());
-          sentResults.push({ r, threadId: result.threadId, emailKey });
-          existingEmails.add(emailKey);
-          count++;
-        } catch (parseErr) {
-          errors.push(`Failed for ${r.email}: Could not parse send response`);
-        }
-      } else if (responseCode === 429) {
-        errors.push(`Rate limited for ${r.email}: quota exceeded — retry later`);
-      } else {
-        let errMsg = '';
-        try { errMsg = JSON.parse(response.getContentText())?.error?.message || ''; } catch (e) {}
-        errors.push(`Failed for ${r.email}: HTTP ${responseCode}${errMsg ? ' — ' + errMsg : ''}`);
+    for (let attempt = 0; attempt <= MAX_RATE_LIMIT_RETRIES && pending.length > 0; attempt++) {
+      if (attempt > 0) {
+        // Exponential backoff: 2s, 4s, 8s before retrying rate-limited emails
+        const backoffMs = Math.pow(2, attempt) * 1000;
+        console.warn('Rate limit: retrying ' + pending.length + ' emails (attempt ' + (attempt + 1) + '/' + (MAX_RATE_LIMIT_RETRIES + 1) + ') after ' + backoffMs + 'ms backoff');
+        Utilities.sleep(backoffMs);
       }
-    });
+
+      const requests = pending.map(({ rawMessage }) => ({
+        url: 'https://gmail.googleapis.com/gmail/v1/users/me/messages/send',
+        method: 'POST',
+        headers: {
+          'Authorization': 'Bearer ' + token,
+          'Content-Type': 'application/json'
+        },
+        payload: JSON.stringify({ raw: rawMessage }),
+        muteHttpExceptions: true
+      }));
+
+      let responses;
+      try {
+        responses = UrlFetchApp.fetchAll(requests);
+      } catch (fetchErr) {
+        // Whole chunk failed (network error) — record errors for every recipient
+        pending.forEach(({ r }) => errors.push(`Network error for ${r.email}: ${fetchErr.message}`));
+        pending = [];
+        break;
+      }
+
+      const stillRateLimited = [];
+      responses.forEach((response, j) => {
+        const pendingItem = pending[j];
+        const { r, emailKey } = pendingItem;
+        const responseCode = response.getResponseCode();
+        if (responseCode === 200) {
+          try {
+            const result = JSON.parse(response.getContentText());
+            sentResults.push({ r, threadId: result.threadId, emailKey });
+            existingEmails.add(emailKey);
+            count++;
+          } catch (parseErr) {
+            errors.push(`Failed for ${r.email}: Could not parse send response`);
+          }
+        } else if (responseCode === 429) {
+          if (attempt < MAX_RATE_LIMIT_RETRIES) {
+            stillRateLimited.push(pendingItem);
+          } else {
+            errors.push(`Rate limited for ${r.email}: quota exceeded after ${MAX_RATE_LIMIT_RETRIES + 1} attempts`);
+          }
+        } else {
+          let errMsg = '';
+          try { errMsg = JSON.parse(response.getContentText())?.error?.message || ''; } catch (e) {}
+          errors.push(`Failed for ${r.email}: HTTP ${responseCode}${errMsg ? ' — ' + errMsg : ''}`);
+        }
+      });
+
+      pending = stillRateLimited;
+    }
   }
 
   // ── Phase 3: Batch apply Job + AI-Managed labels to ALL threads at once ─────
@@ -5504,51 +5527,77 @@ function sendBulkEmails(recipients, senderName, subject, htmlBody, jobId, opts) 
   });
 
   // Batch write all collected rows at once (much faster than individual appendRow calls)
-  try {
-    if (logRows.length > 0) {
-      logSheet.getRange(logSheet.getLastRow() + 1, 1, logRows.length, logRows[0].length).setValues(logRows);
-    }
-    if (stateRows.length > 0) {
-      stateSheet.getRange(stateSheet.getLastRow() + 1, 1, stateRows.length, stateRows[0].length).setValues(stateRows);
-    }
-    if (jobDetailsRows.length > 0 && jobDetailsSheet) {
-      jobDetailsSheet.getRange(jobDetailsSheet.getLastRow() + 1, 1, jobDetailsRows.length, jobDetailsRows[0].length).setValues(jobDetailsRows);
-    }
-    if (followUpRows.length > 0 && followUpSheet) {
-      const fqRowData = followUpRows.map(fr => fr.row);
-      followUpSheet.getRange(followUpSheet.getLastRow() + 1, 1, fqRowData.length, fqRowData[0].length).setValues(fqRowData);
+  // Each sheet write is isolated so one failure doesn't block the others.
+  // Rows are chunked to avoid hitting Google Sheets API limits on large batches.
+  var SHEET_CHUNK = 50;
 
-      // Batch apply "Awaiting-Response" Gmail label to ALL follow-up threads at once.
-      // Uses batchModifyThreadLabels (single API call) instead of one call per thread.
-      try {
-        const awaitLabelId = getOrCreateLabelId(FOLLOW_UP_LABELS.AWAITING_RESPONSE);
-        if (awaitLabelId) {
-          const awaitThreadIds = followUpRows.map(fr => fr.threadId).filter(Boolean);
-          if (awaitThreadIds.length > 0) {
-            batchModifyThreadLabels(awaitThreadIds, [awaitLabelId], token);
-          }
-        } else {
-          // Fallback: apply label via GmailApp if label ID lookup fails
-          const awaitLabel = GmailApp.getUserLabelByName(FOLLOW_UP_LABELS.AWAITING_RESPONSE) ||
-                             GmailApp.createLabel(FOLLOW_UP_LABELS.AWAITING_RESPONSE);
-          followUpRows.forEach(fr => {
-            if (fr.threadId) {
-              try {
-                const thread = GmailApp.getThreadById(fr.threadId);
-                if (thread) thread.addLabel(awaitLabel);
-              } catch (labelErr) {
-                console.error("Error adding Awaiting-Response label:", labelErr);
-              }
-            }
-          });
-        }
-      } catch (awaitLabelErr) {
-        console.error("Error batch-applying Awaiting-Response labels:", awaitLabelErr);
-      }
+  function chunkedSetValues(sheet, rows) {
+    for (var ci = 0; ci < rows.length; ci += SHEET_CHUNK) {
+      var chunk = rows.slice(ci, ci + SHEET_CHUNK);
+      sheet.getRange(sheet.getLastRow() + 1, 1, chunk.length, chunk[0].length).setValues(chunk);
     }
-  } catch (batchErr) {
-    console.error("Batch write error:", batchErr);
-    errors.push("Some data may not have been recorded: " + batchErr.message);
+  }
+
+  if (logRows.length > 0) {
+    try {
+      chunkedSetValues(logSheet, logRows);
+    } catch (logWriteErr) {
+      console.error("Email_Logs batch write error:", logWriteErr);
+      errors.push("Email logs may not have been recorded: " + logWriteErr.message);
+    }
+  }
+  if (stateRows.length > 0) {
+    try {
+      chunkedSetValues(stateSheet, stateRows);
+    } catch (stateWriteErr) {
+      console.error("Negotiation_State batch write error:", stateWriteErr);
+      errors.push("Negotiation state rows may not have been recorded: " + stateWriteErr.message);
+    }
+  }
+  if (jobDetailsRows.length > 0 && jobDetailsSheet) {
+    try {
+      chunkedSetValues(jobDetailsSheet, jobDetailsRows);
+    } catch (jdWriteErr) {
+      console.error("Job details batch write error:", jdWriteErr);
+      errors.push("Job details rows may not have been recorded: " + jdWriteErr.message);
+    }
+  }
+  if (followUpRows.length > 0 && followUpSheet) {
+    try {
+      const fqRowData = followUpRows.map(fr => fr.row);
+      chunkedSetValues(followUpSheet, fqRowData);
+    } catch (fqWriteErr) {
+      console.error("Follow_Up_Queue batch write error:", fqWriteErr);
+      errors.push("Follow-up queue rows may not have been recorded: " + fqWriteErr.message);
+    }
+
+    // Batch apply "Awaiting-Response" Gmail label to ALL follow-up threads at once.
+    // Uses batchModifyThreadLabels (single API call) instead of one call per thread.
+    try {
+      const awaitLabelId = getOrCreateLabelId(FOLLOW_UP_LABELS.AWAITING_RESPONSE);
+      if (awaitLabelId) {
+        const awaitThreadIds = followUpRows.map(fr => fr.threadId).filter(Boolean);
+        if (awaitThreadIds.length > 0) {
+          batchModifyThreadLabels(awaitThreadIds, [awaitLabelId], token);
+        }
+      } else {
+        // Fallback: apply label via GmailApp if label ID lookup fails
+        const awaitLabel = GmailApp.getUserLabelByName(FOLLOW_UP_LABELS.AWAITING_RESPONSE) ||
+                           GmailApp.createLabel(FOLLOW_UP_LABELS.AWAITING_RESPONSE);
+        followUpRows.forEach(fr => {
+          if (fr.threadId) {
+            try {
+              const thread = GmailApp.getThreadById(fr.threadId);
+              if (thread) thread.addLabel(awaitLabel);
+            } catch (labelErr) {
+              console.error("Error adding Awaiting-Response label:", labelErr);
+            }
+          }
+        });
+      }
+    } catch (awaitLabelErr) {
+      console.error("Error batch-applying Awaiting-Response labels:", awaitLabelErr);
+    }
   }
 
   // Log data consumption for tracking
@@ -9178,7 +9227,12 @@ function escalateToHuman(thread, reason, candidateName, conversationContext) {
     }
 
     const label = GmailApp.getUserLabelByName("Human-Negotiation") || GmailApp.createLabel("Human-Negotiation");
-    thread.addLabel(label);
+    for (var _hRetry = 1; _hRetry <= 3; _hRetry++) {
+      try { thread.addLabel(label); break; } catch (_hErr) {
+        console.warn('escalateToHuman addLabel attempt ' + _hRetry + '/3 failed:', _hErr.message);
+        if (_hRetry < 3) Utilities.sleep(1000 * _hRetry);
+      }
+    }
 
     // Generate handoff message - inform candidate about talent ops taking over
     const firstName = candidateName ? candidateName.split(' ')[0] : 'there';
@@ -10823,9 +10877,14 @@ Return ONLY the JSON, no other text.
 
         // Update labels: Remove Human-Negotiation, Add Human-Negotiation-Completed
         if (humanLabel) {
-          thread.removeLabel(humanLabel);
+          try { thread.removeLabel(humanLabel); } catch (rmErr) { console.warn('Could not remove Human-Negotiation label:', rmErr.message); }
         }
-        thread.addLabel(humanCompletedLabel);
+        for (var _cRetry = 1; _cRetry <= 3; _cRetry++) {
+          try { thread.addLabel(humanCompletedLabel); break; } catch (_cErr) {
+            console.warn('addLabel Human-Negotiation-Completed attempt ' + _cRetry + '/3 failed:', _cErr.message);
+            if (_cRetry < 3) Utilities.sleep(1000 * _cRetry);
+          }
+        }
 
         results.processed++;
 
@@ -12478,18 +12537,28 @@ function updateFollowUpLabels(threadId, newStatus) {
     });
 
     // Add appropriate label based on new status
+    // Each addLabel is wrapped with retry to handle transient Gmail API failures
+    function safeAddLabel(t, lbl, retries) {
+      retries = retries || 3;
+      for (var a = 1; a <= retries; a++) {
+        try { t.addLabel(lbl); return; } catch (err) {
+          console.warn('addLabel attempt ' + a + '/' + retries + ' failed for "' + lbl.getName() + '":', err.message);
+          if (a < retries) Utilities.sleep(1000 * a);
+        }
+      }
+    }
     switch(newStatus) {
       case 'pending':
-        thread.addLabel(awaitingLabel);
+        safeAddLabel(thread, awaitingLabel);
         break;
       case 'followup1':
-        thread.addLabel(followUp1Label);
+        safeAddLabel(thread, followUp1Label);
         break;
       case 'followup2':
-        thread.addLabel(followUp2Label);
+        safeAddLabel(thread, followUp2Label);
         break;
       case 'unresponsive':
-        thread.addLabel(unresponsiveLabel);
+        safeAddLabel(thread, unresponsiveLabel);
         break;
       case 'responded':
         // FIX: Do NOT add Completed label here - 'responded' just means we've replied to the candidate
@@ -12866,25 +12935,34 @@ function updateDataGatheringFollowUpLabels(threadId, followUpNumber) {
                                 GmailApp.createLabel(FOLLOW_UP_LABELS.INCOMPLETE_DATA);
 
     // Apply the appropriate label based on follow-up number
-    // Helper to safely remove a label
+    // Helpers to safely remove/add labels with retry
     function safeRemove(lbl) {
       try { thread.removeLabel(lbl); } catch (e) { console.warn('Could not remove label ' + lbl.getName() + ':', e.message); }
     }
+    function safeAdd(lbl, retries) {
+      retries = retries || 3;
+      for (var a = 1; a <= retries; a++) {
+        try { thread.addLabel(lbl); return; } catch (err) {
+          console.warn('addLabel attempt ' + a + '/' + retries + ' failed for "' + lbl.getName() + '":', err.message);
+          if (a < retries) Utilities.sleep(1000 * a);
+        }
+      }
+    }
 
     if (followUpNumber === 1) {
-      thread.addLabel(dataFollowUp1Label);
+      safeAdd(dataFollowUp1Label);
     } else if (followUpNumber === 2) {
       safeRemove(dataFollowUp1Label);
-      thread.addLabel(dataFollowUp2Label);
+      safeAdd(dataFollowUp2Label);
     } else if (followUpNumber === 3) {
       safeRemove(dataFollowUp1Label);
       safeRemove(dataFollowUp2Label);
-      thread.addLabel(dataFollowUp3Label);
+      safeAdd(dataFollowUp3Label);
     } else if (followUpNumber === 'incomplete') {
       safeRemove(dataFollowUp1Label);
       safeRemove(dataFollowUp2Label);
       safeRemove(dataFollowUp3Label);
-      thread.addLabel(incompleteDataLabel);
+      safeAdd(incompleteDataLabel);
     }
   } catch (e) {
     console.error(`Error updating data gathering follow-up labels:`, e);
@@ -13553,19 +13631,30 @@ function updateNegotiationFollowUpLabels(threadId, newStatus) {
     const negUnresponsiveLabel = GmailApp.getUserLabelByName(FOLLOW_UP_LABELS.NEG_UNRESPONSIVE) ||
                                   GmailApp.createLabel(FOLLOW_UP_LABELS.NEG_UNRESPONSIVE);
 
+    // Helper to safely add labels with retry
+    function safeAdd(t, lbl, retries) {
+      retries = retries || 3;
+      for (var a = 1; a <= retries; a++) {
+        try { t.addLabel(lbl); return; } catch (err) {
+          console.warn('addLabel attempt ' + a + '/' + retries + ' failed for "' + lbl.getName() + '":', err.message);
+          if (a < retries) Utilities.sleep(1000 * a);
+        }
+      }
+    }
+
     if (newStatus === 'negfollowup1') {
-      thread.addLabel(negFollowUp1Label);
+      safeAdd(thread, negFollowUp1Label);
     } else if (newStatus === 'negfollowup2') {
-      thread.addLabel(negFollowUp2Label);
+      safeAdd(thread, negFollowUp2Label);
     } else if (newStatus === 'unresponsive') {
       // Remove follow-up labels and add unresponsive
       try { thread.removeLabel(negFollowUp1Label); } catch(e) {}
       try { thread.removeLabel(negFollowUp2Label); } catch(e) {}
-      thread.addLabel(negUnresponsiveLabel);
+      safeAdd(thread, negUnresponsiveLabel);
       // Also add the general Unresponsive label for consistency
       const generalUnresponsiveLabel = GmailApp.getUserLabelByName(FOLLOW_UP_LABELS.UNRESPONSIVE) ||
                                         GmailApp.createLabel(FOLLOW_UP_LABELS.UNRESPONSIVE);
-      thread.addLabel(generalUnresponsiveLabel);
+      safeAdd(thread, generalUnresponsiveLabel);
     }
   } catch (e) {
     console.error(`Error updating negotiation follow-up labels:`, e);
