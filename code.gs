@@ -4286,6 +4286,27 @@ function updateCandidateStatusTag(email, jobId, newStatus) {
       }
     }
 
+    // Candidate not in Negotiation_State — check Negotiation_Completed (candidates already moved there still appear in the task list)
+    const compSheet = ss.getSheetByName('Negotiation_Completed');
+    if (compSheet) {
+      const compData = compSheet.getDataRange().getValues();
+      for (let r = 1; r < compData.length; r++) {
+        if (normalizeEmail(compData[r][2]) === normalizedEmail && String(compData[r][1]) === String(jobId)) {
+          compSheet.getRange(r + 1, 5).setValue(newStatus); // Column 5 = Final Status
+          invalidateSheetCache('Negotiation_Completed');
+
+          // Also update the job details sheet
+          try {
+            updateJobCandidateStatus(ss, jobId, email, newStatus, null);
+          } catch (e) {
+            console.error('Failed to update job details sheet:', e);
+          }
+
+          return { success: true };
+        }
+      }
+    }
+
     return { success: false, message: 'Candidate not found' };
   } catch (e) {
     console.error('Error updating candidate status tag:', e);
