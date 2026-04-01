@@ -9201,7 +9201,12 @@ function escalateToHuman(thread, reason, candidateName, conversationContext) {
     }
 
     const label = GmailApp.getUserLabelByName("Human-Negotiation") || GmailApp.createLabel("Human-Negotiation");
-    thread.addLabel(label);
+    for (var _hRetry = 1; _hRetry <= 3; _hRetry++) {
+      try { thread.addLabel(label); break; } catch (_hErr) {
+        console.warn('escalateToHuman addLabel attempt ' + _hRetry + '/3 failed:', _hErr.message);
+        if (_hRetry < 3) Utilities.sleep(1000 * _hRetry);
+      }
+    }
 
     // Generate handoff message - inform candidate about talent ops taking over
     const firstName = candidateName ? candidateName.split(' ')[0] : 'there';
@@ -10846,9 +10851,14 @@ Return ONLY the JSON, no other text.
 
         // Update labels: Remove Human-Negotiation, Add Human-Negotiation-Completed
         if (humanLabel) {
-          thread.removeLabel(humanLabel);
+          try { thread.removeLabel(humanLabel); } catch (rmErr) { console.warn('Could not remove Human-Negotiation label:', rmErr.message); }
         }
-        thread.addLabel(humanCompletedLabel);
+        for (var _cRetry = 1; _cRetry <= 3; _cRetry++) {
+          try { thread.addLabel(humanCompletedLabel); break; } catch (_cErr) {
+            console.warn('addLabel Human-Negotiation-Completed attempt ' + _cRetry + '/3 failed:', _cErr.message);
+            if (_cRetry < 3) Utilities.sleep(1000 * _cRetry);
+          }
+        }
 
         results.processed++;
 
@@ -12501,18 +12511,28 @@ function updateFollowUpLabels(threadId, newStatus) {
     });
 
     // Add appropriate label based on new status
+    // Each addLabel is wrapped with retry to handle transient Gmail API failures
+    function safeAddLabel(t, lbl, retries) {
+      retries = retries || 3;
+      for (var a = 1; a <= retries; a++) {
+        try { t.addLabel(lbl); return; } catch (err) {
+          console.warn('addLabel attempt ' + a + '/' + retries + ' failed for "' + lbl.getName() + '":', err.message);
+          if (a < retries) Utilities.sleep(1000 * a);
+        }
+      }
+    }
     switch(newStatus) {
       case 'pending':
-        thread.addLabel(awaitingLabel);
+        safeAddLabel(thread, awaitingLabel);
         break;
       case 'followup1':
-        thread.addLabel(followUp1Label);
+        safeAddLabel(thread, followUp1Label);
         break;
       case 'followup2':
-        thread.addLabel(followUp2Label);
+        safeAddLabel(thread, followUp2Label);
         break;
       case 'unresponsive':
-        thread.addLabel(unresponsiveLabel);
+        safeAddLabel(thread, unresponsiveLabel);
         break;
       case 'responded':
         // FIX: Do NOT add Completed label here - 'responded' just means we've replied to the candidate
@@ -12889,25 +12909,34 @@ function updateDataGatheringFollowUpLabels(threadId, followUpNumber) {
                                 GmailApp.createLabel(FOLLOW_UP_LABELS.INCOMPLETE_DATA);
 
     // Apply the appropriate label based on follow-up number
-    // Helper to safely remove a label
+    // Helpers to safely remove/add labels with retry
     function safeRemove(lbl) {
       try { thread.removeLabel(lbl); } catch (e) { console.warn('Could not remove label ' + lbl.getName() + ':', e.message); }
     }
+    function safeAdd(lbl, retries) {
+      retries = retries || 3;
+      for (var a = 1; a <= retries; a++) {
+        try { thread.addLabel(lbl); return; } catch (err) {
+          console.warn('addLabel attempt ' + a + '/' + retries + ' failed for "' + lbl.getName() + '":', err.message);
+          if (a < retries) Utilities.sleep(1000 * a);
+        }
+      }
+    }
 
     if (followUpNumber === 1) {
-      thread.addLabel(dataFollowUp1Label);
+      safeAdd(dataFollowUp1Label);
     } else if (followUpNumber === 2) {
       safeRemove(dataFollowUp1Label);
-      thread.addLabel(dataFollowUp2Label);
+      safeAdd(dataFollowUp2Label);
     } else if (followUpNumber === 3) {
       safeRemove(dataFollowUp1Label);
       safeRemove(dataFollowUp2Label);
-      thread.addLabel(dataFollowUp3Label);
+      safeAdd(dataFollowUp3Label);
     } else if (followUpNumber === 'incomplete') {
       safeRemove(dataFollowUp1Label);
       safeRemove(dataFollowUp2Label);
       safeRemove(dataFollowUp3Label);
-      thread.addLabel(incompleteDataLabel);
+      safeAdd(incompleteDataLabel);
     }
   } catch (e) {
     console.error(`Error updating data gathering follow-up labels:`, e);
@@ -13576,19 +13605,30 @@ function updateNegotiationFollowUpLabels(threadId, newStatus) {
     const negUnresponsiveLabel = GmailApp.getUserLabelByName(FOLLOW_UP_LABELS.NEG_UNRESPONSIVE) ||
                                   GmailApp.createLabel(FOLLOW_UP_LABELS.NEG_UNRESPONSIVE);
 
+    // Helper to safely add labels with retry
+    function safeAdd(t, lbl, retries) {
+      retries = retries || 3;
+      for (var a = 1; a <= retries; a++) {
+        try { t.addLabel(lbl); return; } catch (err) {
+          console.warn('addLabel attempt ' + a + '/' + retries + ' failed for "' + lbl.getName() + '":', err.message);
+          if (a < retries) Utilities.sleep(1000 * a);
+        }
+      }
+    }
+
     if (newStatus === 'negfollowup1') {
-      thread.addLabel(negFollowUp1Label);
+      safeAdd(thread, negFollowUp1Label);
     } else if (newStatus === 'negfollowup2') {
-      thread.addLabel(negFollowUp2Label);
+      safeAdd(thread, negFollowUp2Label);
     } else if (newStatus === 'unresponsive') {
       // Remove follow-up labels and add unresponsive
       try { thread.removeLabel(negFollowUp1Label); } catch(e) {}
       try { thread.removeLabel(negFollowUp2Label); } catch(e) {}
-      thread.addLabel(negUnresponsiveLabel);
+      safeAdd(thread, negUnresponsiveLabel);
       // Also add the general Unresponsive label for consistency
       const generalUnresponsiveLabel = GmailApp.getUserLabelByName(FOLLOW_UP_LABELS.UNRESPONSIVE) ||
                                         GmailApp.createLabel(FOLLOW_UP_LABELS.UNRESPONSIVE);
-      thread.addLabel(generalUnresponsiveLabel);
+      safeAdd(thread, generalUnresponsiveLabel);
     }
   } catch (e) {
     console.error(`Error updating negotiation follow-up labels:`, e);
