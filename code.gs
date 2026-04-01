@@ -15905,8 +15905,9 @@ function getUserAnalytics(filterEmail, filterJobId, startDate, endDate) {
 
           // Initialize per-job stats
           if (!perJobPipelineStats[pipeJobId]) {
-            perJobPipelineStats[pipeJobId] = { engaged: 0, completed: 0, unresponsive: 0, whatsapp: 0, notInterested: 0, initialOutreach: 0 };
+            perJobPipelineStats[pipeJobId] = { engaged: 0, completed: 0, unresponsive: 0, whatsapp: 0, notInterested: 0, initialOutreach: 0, totalOutreach: 0 };
           }
+          perJobPipelineStats[pipeJobId].totalOutreach++;
 
           // Categorize using SAME logic as pipeline cards and task list
           if (status === 'Data Complete' || status.toLowerCase().indexOf('completed') > -1) {
@@ -15922,6 +15923,54 @@ function getUserAnalytics(filterEmail, filterJobId, startDate, endDate) {
           } else {
             perJobPipelineStats[pipeJobId].engaged++; // Active AI negotiation
           }
+        }
+
+        // 2. Process Negotiation_Tasks (Accepted offers — same as getConversionFunnelData)
+        const pipeTasksSheet = opsSs.getSheetByName('Negotiation_Tasks');
+        const pipeTasksData = pipeTasksSheet ? pipeTasksSheet.getDataRange().getValues() : [];
+        for (let i = 1; i < pipeTasksData.length; i++) {
+          if (!pipeTasksData[i][3]) continue;
+          if (pipeTasksData[i][5] === 'Archived') continue;
+          const taskJobId = String(pipeTasksData[i][1] || '');
+          const taskEmail = normalizeEmail(pipeTasksData[i][3]);
+
+          if (jobIdFilter && taskJobId !== jobIdFilter) continue;
+
+          const taskKey = taskEmail + '|' + taskJobId;
+          if (pipeCounted.has(taskKey)) continue;
+          pipeCounted.add(taskKey);
+
+          if (!perJobPipelineStats[taskJobId]) {
+            perJobPipelineStats[taskJobId] = { engaged: 0, completed: 0, unresponsive: 0, whatsapp: 0, notInterested: 0, initialOutreach: 0, totalOutreach: 0 };
+          }
+          perJobPipelineStats[taskJobId].completed++;
+          perJobPipelineStats[taskJobId].totalOutreach++;
+        }
+
+        // 3. Process Negotiation_Completed (same as getConversionFunnelData)
+        const pipeCompletedSheet = opsSs.getSheetByName('Negotiation_Completed');
+        const pipeCompletedData = pipeCompletedSheet ? pipeCompletedSheet.getDataRange().getValues() : [];
+        for (let i = 1; i < pipeCompletedData.length; i++) {
+          const compJobId = String(pipeCompletedData[i][1] || '');
+          const compEmail = normalizeEmail(pipeCompletedData[i][2]);
+          const compStatus = String(pipeCompletedData[i][4] || '');
+
+          if (!compEmail) continue;
+          if (jobIdFilter && compJobId !== jobIdFilter) continue;
+
+          const compKey = compEmail + '|' + compJobId;
+          if (pipeCounted.has(compKey)) continue;
+          pipeCounted.add(compKey);
+
+          if (!perJobPipelineStats[compJobId]) {
+            perJobPipelineStats[compJobId] = { engaged: 0, completed: 0, unresponsive: 0, whatsapp: 0, notInterested: 0, initialOutreach: 0, totalOutreach: 0 };
+          }
+          if (compStatus === 'Not Interested') {
+            perJobPipelineStats[compJobId].notInterested++;
+          } else {
+            perJobPipelineStats[compJobId].completed++;
+          }
+          perJobPipelineStats[compJobId].totalOutreach++;
         }
       }
     } catch (e) {
@@ -16073,11 +16122,13 @@ function getUserAnalytics(filterEmail, filterJobId, startDate, endDate) {
         let userCompletedTotal = 0;
         let userDroppedTotal = 0;
         const userEmailLower = u.email.toLowerCase();
+        let userOutreachTotal = 0;
         Object.keys(u.jobBreakdown).forEach(jobKey => {
           // Use pipeline-aligned stats (same logic as summary cards and task list)
           const jobPipeStats = perJobPipelineStats[jobKey];
           if (jobPipeStats) {
             userEngagedTotal += jobPipeStats.engaged || 0;
+            userOutreachTotal += jobPipeStats.totalOutreach || 0;
           }
 
           const userJobKey = userEmailLower + '|' + jobKey;
@@ -16108,20 +16159,24 @@ function getUserAnalytics(filterEmail, filterJobId, startDate, endDate) {
           }
         });
 
+        // Use pipeline-derived unique candidate count when available, fall back to Activity_Log count
+        const effectiveEmailsSent = userOutreachTotal > 0 ? userOutreachTotal : u.emailsSent;
         return {
           email: u.email,
-          emailsSent: u.emailsSent,
+          emailsSent: effectiveEmailsSent,
           engaged: userEngagedTotal,
           followUps: userActiveFollowUps,
           completed: userCompletedTotal,
           droppedOff: userDroppedTotal,
-          totalActions: u.emailsSent + userActiveFollowUps,
+          totalActions: effectiveEmailsSent + userActiveFollowUps,
           jobBreakdown: Object.values(u.jobBreakdown)
             .sort((a, b) => b.emailsSent - a.emailsSent)
             .map(j => {
-              // Use pipeline-aligned stats for engaged (same as summary cards)
+              // Use pipeline-aligned stats for engaged and outreach (same as summary cards)
               const jobPipeStats = perJobPipelineStats[j.jobId];
               const jobEngaged = jobPipeStats ? (jobPipeStats.engaged || 0) : 0;
+              // Use pipeline-derived unique candidate count when available
+              const jobOutreach = (jobPipeStats && jobPipeStats.totalOutreach > 0) ? jobPipeStats.totalOutreach : j.emailsSent;
 
               // Per-job completed: use centralized per-user-per-job count
               const jobUserKey = userEmailLower + '|' + j.jobId;
@@ -16148,12 +16203,12 @@ function getUserAnalytics(filterEmail, filterJobId, startDate, endDate) {
 
               return {
                 jobId: j.jobId,
-                emailsSent: j.emailsSent,
+                emailsSent: jobOutreach,
                 engaged: jobEngaged,
                 followUps: activeFollowUps,
                 completed: jobCompletedCount,
                 droppedOff: jobDroppedCount,
-                totalActions: j.emailsSent + activeFollowUps
+                totalActions: jobOutreach + activeFollowUps
               };
             })
         };
