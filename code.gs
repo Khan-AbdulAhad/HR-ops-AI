@@ -3886,7 +3886,7 @@ function getAllTasks(filters) {
   const jobSettingsMap = {}; // Cache job settings to avoid repeated lookups
 
   // Stats counters
-  let statActive = 0, statHuman = 0, statAccepted = 0, statInitialOutreach = 0, statUnresponsive = 0, statWhatsApp = 0, statCompleted = 0;
+  let statActive = 0, statHuman = 0, statAccepted = 0, statInitialOutreach = 0, statFollowUp = 0, statUnresponsive = 0, statWhatsApp = 0, statCompleted = 0;
 
   // FIX: Track unique candidates across sheets to prevent double-counting
   const countedCandidates = new Set();
@@ -3973,6 +3973,8 @@ function getAllTasks(filters) {
       statUnresponsive++;
     } else if(status === 'Human-Negotiation') {
       statHuman++;
+    } else if(status === 'Follow Up') {
+      statFollowUp++;
     } else if(status === 'Initial Outreach' || attempts === 0) {
       statInitialOutreach++;
     } else {
@@ -3999,6 +4001,8 @@ function getAllTasks(filters) {
       tag = 'Awaiting Additional Data';
     } else if(status.startsWith('Re-engaged')) {
       tag = status.replace('Re-engaged - ', 'Re-engaged: ');
+    } else if(status === 'Follow Up') {
+      tag = 'Follow Up';
     } else if(status === 'Initial Outreach' || attempts === 0) {
       tag = 'Initial Outreach';
     } else {
@@ -4125,6 +4129,7 @@ function getAllTasks(filters) {
           devId: String(followUpData[f][4] || '').trim(),
           name: String(followUpData[f][3] || '').trim(),
           threadId: String(followUpData[f][2] || '').trim(),
+          f1Done: followUpData[f][6] === true || followUpData[f][6] === 'TRUE',
           status: String(followUpData[f][8] || '').trim()
         });
       }
@@ -4150,15 +4155,20 @@ function getAllTasks(filters) {
           const recoveredDevId = (fqEntry.devId && fqEntry.devId !== 'N/A') ? fqEntry.devId : 'N/A';
           const recoveredName = (fqEntry.name && fqEntry.name !== 'Unknown') ? fqEntry.name : (emailLogsData[i][3] || 'Unknown');
           const recoveredThreadId = fqEntry.threadId || emailLogsData[i][4] || '';
-          // Determine status: if in follow-up queue, show "Follow Up" instead of "Initial Outreach"
-          const isInFollowUp = fqLookup.has(logKey);
+          // Determine status: only show "Follow Up" if at least one follow-up email was actually sent
+          // FIX: Previously showed "Follow Up" as soon as candidate was in queue (before any follow-up sent)
+          const isInFollowUp = fqLookup.has(logKey) && fqEntry.f1Done;
           const recoveredStatus = isInFollowUp ? 'Follow Up' : 'Initial Outreach';
           const recoveredTag = isInFollowUp ? 'Follow Up' : 'Initial Outreach';
 
           // Apply filters before counting
           if(jobFilter !== 'all' && elJobId !== jobFilter) continue;
           if(statusFilter !== 'all' && statusFilter !== recoveredStatus && statusFilter !== 'Initial Outreach') continue;
-          statInitialOutreach++;
+          if (isInFollowUp) {
+            statFollowUp++;
+          } else {
+            statInitialOutreach++;
+          }
           tasks.push({
             email: emailLogsData[i][2],
             jobId: elJobId,
@@ -4196,11 +4206,12 @@ function getAllTasks(filters) {
     tasks: tasks,
     jobIds: Array.from(jobIdSet).sort(),
     stats: {
-      total: statActive + statHuman + statAccepted + statInitialOutreach,
+      total: statActive + statHuman + statAccepted + statInitialOutreach + statFollowUp,
       active: statActive,
       human: statHuman,
       accepted: statAccepted,
       initialOutreach: statInitialOutreach,
+      followUp: statFollowUp,
       completed: statCompleted,
       notInterested: statNotInterested,
       unresponsive: statUnresponsive,
@@ -6043,6 +6054,8 @@ function enrichNegotiationStateData(ss) {
         threadId: String(fqData[i][2] || '').trim(),
         name: String(fqData[i][3] || '').trim(),
         devId: String(fqData[i][4] || '').trim(),
+        f1Done: fqData[i][6] === true || fqData[i][6] === 'TRUE',
+        f2Done: fqData[i][7] === true || fqData[i][7] === 'TRUE',
         fqStatus: String(fqData[i][8] || '').trim()
       });
     }
@@ -6192,10 +6205,19 @@ function enrichNegotiationStateData(ss) {
 
     if (updated) enrichedCount++;
 
-    // Status Sync: If candidate is in Follow_Up_Queue (any non-Responded status)
-    // and Negotiation_State status is "Initial Outreach", change to "Follow Up"
-    if (row.needsStatusSync && fq.fqStatus && fq.fqStatus !== 'Responded') {
+    // Status Sync: If candidate is in Follow_Up_Queue AND at least one follow-up email
+    // has been sent (f1Done), change status from "Initial Outreach" to "Follow Up".
+    // FIX: Previously this triggered as soon as candidate was added to Follow_Up_Queue
+    // (status='Pending'), even before any follow-up was sent. Now requires f1Done=true.
+    if (row.needsStatusSync && fq.fqStatus && fq.fqStatus !== 'Responded' && fq.f1Done) {
       stateSheet.getRange(row.rowIndex, 5).setValue('Follow Up'); // Column 5 = Status
+      // FIX: Also update AI notes to reflect follow-up context instead of stale "No Updates Yet"
+      const f2Done = fq.f2Done || false;
+      let followUpNote = '1st follow-up sent, awaiting response';
+      if (f2Done) {
+        followUpNote = '2nd follow-up sent, awaiting response';
+      }
+      stateSheet.getRange(row.rowIndex, 9).setValue(followUpNote); // Column 9 = AI Notes
       statusSyncCount++;
       log.push({ type: 'info', message: `Status synced to "Follow Up" for ${row.email} (Job ${row.jobId}) - candidate is in follow-up queue (${fq.fqStatus})` });
     }
@@ -6247,7 +6269,9 @@ function enrichNegotiationStateData(ss) {
         const rawEmail = String(fqCheckData[i][0] || '').trim(); // Use original email, not normalized
 
         // Determine the right status for the recovered row
-        let recoveredStatus = 'Follow Up';
+        // FIX: Only set "Follow Up" if at least one follow-up was actually sent (f1Done)
+        const recoveryF1Done = fqCheckData[i][6] === true || fqCheckData[i][6] === 'TRUE';
+        let recoveredStatus = recoveryF1Done ? 'Follow Up' : 'Initial Outreach';
         if (fqStatus === 'Responded') recoveredStatus = 'Active';
 
         // Try to enrich further from Email_Logs and Job Details
@@ -6263,7 +6287,17 @@ function enrichNegotiationStateData(ss) {
           } catch(e) { /* continue with what we have */ }
         }
 
-        recoveryRows.push([rawEmail, fqJobId, 0, '', recoveredStatus, new Date(), bestDevId, bestName, '', fqThreadId, bestRegion]);
+        // FIX: Set meaningful AI notes for recovered candidates based on follow-up status
+        const fqF2Done = fqCheckData[i][7] === true || fqCheckData[i][7] === 'TRUE';
+        let recoveredNotes = 'No Updates Yet';
+        if (fqStatus === 'Responded') {
+          recoveredNotes = 'Candidate responded to follow-up';
+        } else if (fqF2Done) {
+          recoveredNotes = '2nd follow-up sent, awaiting response';
+        } else if (recoveryF1Done) {
+          recoveredNotes = '1st follow-up sent, awaiting response';
+        }
+        recoveryRows.push([rawEmail, fqJobId, 0, '', recoveredStatus, new Date(), bestDevId, bestName, recoveredNotes, fqThreadId, bestRegion]);
         stateEmails.add(fqKey); // Prevent duplicates within this loop
         recoveredCount++;
         log.push({ type: 'success', message: `Recovered ${rawEmail} (Job ${fqJobId}) to Negotiation_State as "${recoveredStatus}" - DevID: ${bestDevId}, Name: ${bestName}` });
@@ -10788,6 +10822,24 @@ function generateMissingSummaries(ss) {
           stateSheet.getRange(candidate.rowIndex, 9).setValue('No Updates Yet');
           result.generated++;
           result.log.push({ type: 'info', message: `${candidate.email} - No updates yet (initial outreach, awaiting response)` });
+          continue;
+        }
+
+        // FIX: Handle "Follow Up" status efficiently - set a descriptive note without AI call
+        const isFollowUp = statusLower === 'follow up';
+        if (isFollowUp && candidate.followUpInfo) {
+          const fu = candidate.followUpInfo;
+          let followUpNote = 'Follow-up sent, awaiting response';
+          if (fu.status === 'Responded') {
+            followUpNote = 'Candidate responded to follow-up';
+          } else if (fu.f2Done) {
+            followUpNote = '2nd follow-up sent, awaiting response';
+          } else if (fu.f1Done) {
+            followUpNote = '1st follow-up sent, awaiting response';
+          }
+          stateSheet.getRange(candidate.rowIndex, 9).setValue(followUpNote);
+          result.generated++;
+          result.log.push({ type: 'info', message: `${candidate.email} - ${followUpNote} (follow-up status)` });
           continue;
         }
 
