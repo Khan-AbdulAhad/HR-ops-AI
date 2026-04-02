@@ -5889,6 +5889,9 @@ function enrichNegotiationStateData(ss) {
 
   if (rowsToCheck.length === 0) return { enriched: 0, statusSynced: 0, log: [] };
 
+  // Debug: Log how many rows need checking
+  log.push({ type: 'info', message: `Found ${rowsToCheck.length} Negotiation_State rows needing enrichment or status sync` });
+
   // Build lookup maps from all source sheets
 
   // 1. Follow_Up_Queue: [0]Email, [1]JobID, [2]ThreadID, [3]Name, [4]DevID, [8]Status
@@ -5983,12 +5986,21 @@ function enrichNegotiationStateData(ss) {
   let statusSyncCount = 0;
   const log = [];
 
+  // Debug: Log FQ map size and a sample of keys for troubleshooting
+  log.push({ type: 'info', message: `Lookup maps built - FQ: ${fqMap.size} entries, EL: ${elMap.size} entries, Comp: ${compMap.size} entries, JD: ${jobDetailsMap.size} entries` });
+
   rowsToCheck.forEach(row => {
     const key = row.email + '_' + row.jobId;
     const fq = fqMap.get(key) || {};
     const el = elMap.get(key) || {};
     const comp = compMap.get(key) || {};
     const jd = jobDetailsMap.get(key) || {};
+
+    // Debug: Log lookup result for rows needing devId
+    if (row.needsDevId) {
+      const hasFQ = fqMap.has(key);
+      log.push({ type: 'info', message: `Lookup for ${row.email} (Job ${row.jobId}): key="${key}" FQ-match=${hasFQ} FQ-devId="${fq.devId || 'none'}" EL-name="${el.name || 'none'}" JD-devId="${jd.devId || 'none'}"` });
+    }
 
     let updated = false;
 
