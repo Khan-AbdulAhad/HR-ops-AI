@@ -5969,13 +5969,25 @@ function sendReplyWithSenderName(thread, replyBody, senderName) {
     const rawMessage = Utilities.base64EncodeWebSafe(mime, Utilities.Charset.UTF_8);
     
     // Send as reply to existing thread
+    // FIX: Track whether send succeeded to prevent duplicate email in fallback.
+    // Previously, if Gmail.Users.Messages.send() succeeded but something threw
+    // after it (or it threw after partially sending), the catch block would
+    // call thread.reply() — sending a SECOND copy of the same email.
+    let sendSucceeded = false;
     Gmail.Users.Messages.send({
       raw: rawMessage,
       threadId: threadId
     }, 'me');
-    
+    sendSucceeded = true;
+
     return true;
   } catch(e) {
+    // If the Gmail API send already succeeded, do NOT send a fallback — it would be a duplicate
+    if (sendSucceeded) {
+      console.warn("sendReplyWithSenderName: Gmail API send succeeded but post-send code threw. NOT sending fallback to avoid duplicate email. Error:", e);
+      return true;
+    }
+
     console.error("Failed to send reply with sender name:", e);
     // Fallback to regular reply - but ONLY if thread has AI-Managed label
     try {
