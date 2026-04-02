@@ -9269,11 +9269,20 @@ ${rules.startDates.map((d, i) => `  ${i + 1}. ${d}`).join('\n')}
 === YOUR RATE PARAMETERS ===
 - Initial Offer: $${firstOfferRate}/hr
 - Maximum Rate: $${maxRate}/hr (NEVER reveal this to candidate)
-${rateAnalysis && rateAnalysis.rate_range_low && rateAnalysis.rate_range_low <= maxRate ? `
+${rateAnalysis && rateAnalysis.rate_range_low && rateAnalysis.rate_range_low <= maxRate && rateAnalysis.rate_range_high <= maxRate ? `
 === DETECTED CANDIDATE RATE RANGE ===
 - Candidate stated a range: $${rateAnalysis.rate_range_low}/hr - $${rateAnalysis.rate_range_high}/hr
 - YOUR COUNTER-OFFER: Propose $${rateAnalysis.rate_range_low}/hr (the lower end of their stated range)
 - Do NOT accept the upper end ($${rateAnalysis.rate_range_high}/hr) - start with the lower end to negotiate the best rate
+` : ''}
+${rateAnalysis && rateAnalysis.rate_range_low && rateAnalysis.rate_range_low <= maxRate && rateAnalysis.rate_range_high > maxRate ? `
+=== DETECTED CANDIDATE RATE RANGE (PARTIALLY EXCEEDS BUDGET) ===
+- Candidate stated a range: $${rateAnalysis.rate_range_low}/hr - $${rateAnalysis.rate_range_high}/hr
+- The upper end ($${rateAnalysis.rate_range_high}/hr) EXCEEDS your maximum of $${maxRate}/hr
+- The lower end ($${rateAnalysis.rate_range_low}/hr) is within budget
+- YOUR COUNTER-OFFER: Propose $${rateAnalysis.rate_range_low}/hr (the lower end of their range - this is within your budget)
+- Do NOT offer anything higher than $${maxRate}/hr
+- NEVER propose or accept the upper end of their range
 ` : ''}
 ${rateAnalysis && rateAnalysis.rate_range_low && rateAnalysis.rate_range_low > maxRate ? `
 === DETECTED CANDIDATE RATE RANGE (EXCEEDS BUDGET) ===
