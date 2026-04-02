@@ -16918,7 +16918,7 @@ function getUserAnalytics(filterEmail, filterJobId, startDate, endDate) {
     // Per-user per-job completed counts for accurate multi-user attribution
     // Also track "Not Interested" per user per job for Dropped Off column
     const completedPerUserJob = {}; // key: "userEmail|jobId" → count
-    const droppedPerUserJob = {};   // key: "userEmail|jobId" → count (Not Interested)
+    const droppedPerUserJob = {};   // key: "userEmail|jobId" → count (Not Interested only, excludes Unresponsive)
     const completedPerJob = {};     // key: jobId → total count
     let totalCompletedFromSheet = 0;
     try {
@@ -17014,14 +17014,13 @@ function getUserAnalytics(filterEmail, filterJobId, startDate, endDate) {
           }
         }
 
-        // Count active follow-ups and unresponsive per user per job
+        // Count active follow-ups per user per job (unresponsive tracked separately by pipeline cards)
         const terminalActions = new Set(['responded', 'unresponsive']);
         Object.values(candidateState).forEach(state => {
           const userJobKey = state.userEmail + '|' + state.jobId;
           if (state.action === 'unresponsive') {
-            // Track unresponsive per user per job for Dropped Off column
-            if (!droppedPerUserJob[userJobKey]) droppedPerUserJob[userJobKey] = 0;
-            droppedPerUserJob[userJobKey]++;
+            // Unresponsive candidates are NOT counted as Dropped Off
+            // They are tracked separately (consistent with pipeline cards and job performance)
           } else if (!terminalActions.has(state.action)) {
             // This candidate is still in active follow-up
             if (!followUpActivePerUserJob[userJobKey]) followUpActivePerUserJob[userJobKey] = 0;
@@ -17075,7 +17074,7 @@ function getUserAnalytics(filterEmail, filterJobId, startDate, endDate) {
             userCompletedTotal += u.jobBreakdown[jobKey].completed || 0;
           }
 
-          // Dropped Off: Not Interested (from Completed_Analytics) + Unresponsive (from FollowUp_Analytics)
+          // Dropped Off: Not Interested only (from Completed_Analytics), consistent with pipeline cards
           if (droppedPerUserJob[userJobKey]) {
             userDroppedTotal += droppedPerUserJob[userJobKey];
           }
