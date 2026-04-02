@@ -6054,6 +6054,235 @@ function enrichNegotiationStateData(ss) {
   return { enriched: enrichedCount, statusSynced: statusSyncCount, log: log };
 }
 
+/**
+ * Enriches existing rows in Negotiation_Completed and Negotiation_Tasks sheets
+ * that have "Unknown" names or "N/A" Dev IDs by looking up from other sheets.
+ * This fixes historical bad data on every AI run.
+ */
+function enrichCompletedAndTasksData(ss) {
+  let fixedCount = 0;
+  const log = [];
+
+  // Fix Negotiation_Completed: [0]Timestamp, [1]JobID, [2]Email, [3]Name, [4]FinalStatus, [5]Notes, [6]DevID, [7]Region
+  try {
+    const compSheet = ss.getSheetByName('Negotiation_Completed');
+    if (compSheet && compSheet.getLastRow() > 1) {
+      const compData = compSheet.getDataRange().getValues();
+      for (let i = 1; i < compData.length; i++) {
+        const email = String(compData[i][2] || '').toLowerCase().trim();
+        const jobId = String(compData[i][1] || '');
+        const name = String(compData[i][3] || '').trim();
+        const devId = String(compData[i][6] || '').trim();
+        const region = String(compData[i][7] || '').trim();
+
+        if (!email || !jobId) continue;
+        const needsFix = (name === 'Unknown' || !name) || (devId === 'N/A' || !devId) || !region;
+        if (!needsFix) continue;
+
+        const enriched = lookupCandidateDetails(ss, email, jobId, { name: name || 'Unknown', devId: devId || 'N/A', threadId: '', region: region });
+        let updated = false;
+        if ((name === 'Unknown' || !name) && enriched.name !== 'Unknown') {
+          compSheet.getRange(i + 1, 4).setValue(enriched.name);
+          updated = true;
+        }
+        if ((devId === 'N/A' || !devId) && enriched.devId !== 'N/A') {
+          compSheet.getRange(i + 1, 7).setValue(enriched.devId);
+          updated = true;
+        }
+        if (!region && enriched.region) {
+          compSheet.getRange(i + 1, 8).setValue(enriched.region);
+          updated = true;
+        }
+        if (updated) {
+          fixedCount++;
+          log.push({ type: 'success', message: `Enriched Negotiation_Completed row for ${email} (Job ${jobId}): name=${enriched.name}, devId=${enriched.devId}` });
+        }
+      }
+    }
+  } catch (e) {
+    log.push({ type: 'warning', message: 'Negotiation_Completed enrichment error: ' + e.message });
+  }
+
+  // Fix Negotiation_Tasks: [0]Timestamp, [1]JobID, [2]Name, [3]Email, [4]AgreedRate, [5]Status, [6]DevID, [7]ThreadID, [8]Region
+  try {
+    const taskSheet = ss.getSheetByName('Negotiation_Tasks');
+    if (taskSheet && taskSheet.getLastRow() > 1) {
+      const taskData = taskSheet.getDataRange().getValues();
+      for (let i = 1; i < taskData.length; i++) {
+        const email = String(taskData[i][3] || '').toLowerCase().trim();
+        const jobId = String(taskData[i][1] || '');
+        const name = String(taskData[i][2] || '').trim();
+        const devId = String(taskData[i][6] || '').trim();
+        const threadId = String(taskData[i][7] || '').trim();
+        const region = String(taskData[i][8] || '').trim();
+
+        if (!email || !jobId) continue;
+        const needsFix = (name === 'Unknown' || !name) || (devId === 'N/A' || !devId) || !threadId || !region;
+        if (!needsFix) continue;
+
+        const enriched = lookupCandidateDetails(ss, email, jobId, { name: name || 'Unknown', devId: devId || 'N/A', threadId: threadId, region: region });
+        let updated = false;
+        if ((name === 'Unknown' || !name) && enriched.name !== 'Unknown') {
+          taskSheet.getRange(i + 1, 3).setValue(enriched.name);
+          updated = true;
+        }
+        if ((devId === 'N/A' || !devId) && enriched.devId !== 'N/A') {
+          taskSheet.getRange(i + 1, 7).setValue(enriched.devId);
+          updated = true;
+        }
+        if (!threadId && enriched.threadId) {
+          taskSheet.getRange(i + 1, 8).setValue(enriched.threadId);
+          updated = true;
+        }
+        if (!region && enriched.region) {
+          taskSheet.getRange(i + 1, 9).setValue(enriched.region);
+          updated = true;
+        }
+        if (updated) {
+          fixedCount++;
+          log.push({ type: 'success', message: `Enriched Negotiation_Tasks row for ${email} (Job ${jobId}): name=${enriched.name}, devId=${enriched.devId}` });
+        }
+      }
+    }
+  } catch (e) {
+    log.push({ type: 'warning', message: 'Negotiation_Tasks enrichment error: ' + e.message });
+  }
+
+  return { fixed: fixedCount, log: log };
+}
+
+/**
+ * Looks up missing candidate details (name, devId, threadId, region) from
+ * Follow_Up_Queue, Email_Logs, Job_XXXXX_Details, and Negotiation_Completed.
+ * Returns an object with the best available values.
+ *
+ * @param {SpreadsheetApp.Spreadsheet} ss - Main spreadsheet
+ * @param {string} email - Candidate email (lowercase)
+ * @param {string} jobId - Job ID
+ * @param {Object} current - Current known values { name, devId, threadId, region }
+ * @returns {Object} Enriched values { name, devId, threadId, region }
+ */
+function lookupCandidateDetails(ss, email, jobId, current) {
+  const result = {
+    name: current.name || 'Unknown',
+    devId: current.devId || 'N/A',
+    threadId: current.threadId || '',
+    region: current.region || ''
+  };
+
+  function isMissing(val, ...defaults) {
+    return !val || defaults.some(d => val === d);
+  }
+
+  const needsName = isMissing(result.name, 'Unknown');
+  const needsDevId = isMissing(result.devId, 'N/A');
+  const needsThreadId = isMissing(result.threadId);
+  const needsRegion = isMissing(result.region);
+
+  if (!needsName && !needsDevId && !needsThreadId && !needsRegion) return result;
+
+  const cleanEmail = email.toLowerCase().trim();
+
+  // 1. Follow_Up_Queue: [0]Email, [1]JobID, [2]ThreadID, [3]Name, [4]DevID
+  try {
+    const fqSheet = ss.getSheetByName('Follow_Up_Queue');
+    if (fqSheet && fqSheet.getLastRow() > 1) {
+      const fqData = fqSheet.getDataRange().getValues();
+      for (let i = 1; i < fqData.length; i++) {
+        if (String(fqData[i][0] || '').toLowerCase().trim() === cleanEmail && String(fqData[i][1]) === String(jobId)) {
+          const fqName = String(fqData[i][3] || '').trim();
+          const fqDevId = String(fqData[i][4] || '').trim();
+          const fqThreadId = String(fqData[i][2] || '').trim();
+          if (needsName && fqName && fqName !== 'Unknown') result.name = fqName;
+          if (needsDevId && fqDevId && fqDevId !== 'N/A') result.devId = fqDevId;
+          if (needsThreadId && fqThreadId) result.threadId = fqThreadId;
+          break;
+        }
+      }
+    }
+  } catch (e) { console.error('lookupCandidateDetails - Follow_Up_Queue error:', e); }
+
+  // 2. Email_Logs: [0]Timestamp, [1]JobID, [2]Email, [3]Name, [4]ThreadID, [6]Country
+  try {
+    const elSheet = ss.getSheetByName('Email_Logs');
+    if (elSheet && elSheet.getLastRow() > 1) {
+      const elData = elSheet.getDataRange().getValues();
+      for (let i = 1; i < elData.length; i++) {
+        if (String(elData[i][2] || '').toLowerCase().trim() === cleanEmail && String(elData[i][1]) === String(jobId)) {
+          const elName = String(elData[i][3] || '').trim();
+          const elThreadId = String(elData[i][4] || '').trim();
+          const elCountry = String(elData[i][6] || '').trim();
+          if (isMissing(result.name, 'Unknown') && elName && elName !== 'Unknown') result.name = elName;
+          if (isMissing(result.threadId) && elThreadId) result.threadId = elThreadId;
+          if (isMissing(result.region) && elCountry) result.region = elCountry;
+          break;
+        }
+      }
+    }
+  } catch (e) { console.error('lookupCandidateDetails - Email_Logs error:', e); }
+
+  // 3. Job_XXXXX_Details (in Jobs spreadsheet)
+  try {
+    const jobsSs = getCachedJobsSpreadsheet();
+    if (jobsSs) {
+      const detailSheet = jobsSs.getSheetByName('Job_' + jobId + '_Details');
+      if (detailSheet && detailSheet.getLastRow() > 1) {
+        const headers = detailSheet.getRange(1, 1, 1, detailSheet.getLastColumn()).getValues()[0];
+        const eIdx = headers.indexOf('Email');
+        const nIdx = headers.indexOf('Name');
+        const dIdx = headers.indexOf('Dev ID');
+        const thIdx = headers.indexOf('Thread ID');
+        const rIdx = headers.indexOf('Region');
+        if (eIdx !== -1) {
+          const detailData = detailSheet.getDataRange().getValues();
+          for (let i = 1; i < detailData.length; i++) {
+            if (String(detailData[i][eIdx] || '').toLowerCase().trim() === cleanEmail) {
+              if (isMissing(result.name, 'Unknown') && nIdx !== -1) {
+                const jdName = String(detailData[i][nIdx] || '').trim();
+                if (jdName && jdName !== 'Unknown') result.name = jdName;
+              }
+              if (isMissing(result.devId, 'N/A') && dIdx !== -1) {
+                const jdDevId = String(detailData[i][dIdx] || '').trim();
+                if (jdDevId && jdDevId !== 'N/A') result.devId = jdDevId;
+              }
+              if (isMissing(result.threadId) && thIdx !== -1) {
+                const jdThreadId = String(detailData[i][thIdx] || '').trim();
+                if (jdThreadId) result.threadId = jdThreadId;
+              }
+              if (isMissing(result.region) && rIdx !== -1) {
+                const jdRegion = String(detailData[i][rIdx] || '').trim();
+                if (jdRegion) result.region = jdRegion;
+              }
+              break;
+            }
+          }
+        }
+      }
+    }
+  } catch (e) { console.error('lookupCandidateDetails - Job Details error:', e); }
+
+  // 4. Negotiation_Completed: [0]Timestamp, [1]JobID, [2]Email, [3]Name, [6]DevID, [7]Region
+  try {
+    const compSheet = ss.getSheetByName('Negotiation_Completed');
+    if (compSheet && compSheet.getLastRow() > 1) {
+      const compData = compSheet.getDataRange().getValues();
+      for (let i = 1; i < compData.length; i++) {
+        if (String(compData[i][2] || '').toLowerCase().trim() === cleanEmail && String(compData[i][1]) === String(jobId)) {
+          const cName = String(compData[i][3] || '').trim();
+          const cDevId = String(compData[i][6] || '').trim();
+          const cRegion = String(compData[i][7] || '').trim();
+          if (isMissing(result.name, 'Unknown') && cName && cName !== 'Unknown') result.name = cName;
+          if (isMissing(result.devId, 'N/A') && cDevId && cDevId !== 'N/A') result.devId = cDevId;
+          if (isMissing(result.region) && cRegion) result.region = cRegion;
+          break;
+        }
+      }
+    }
+  } catch (e) { console.error('lookupCandidateDetails - Negotiation_Completed error:', e); }
+
+  return result;
+}
+
 // ======================================================
 // ===    AUTOMATED NEGOTIATION AGENT (ENHANCED)      ===
 // ======================================================
@@ -6133,6 +6362,17 @@ function runAutoNegotiator() {
     enrichResult.log.forEach(l => log.push(l));
   } catch(e) {
     log.push({type: 'warning', message: 'Data enrichment skipped: ' + e.message});
+  }
+
+  // STEP 3.6: Fix existing Unknown/N/A entries in Negotiation_Completed and Negotiation_Tasks
+  try {
+    const compTaskEnrichResult = enrichCompletedAndTasksData(ss);
+    if (compTaskEnrichResult.fixed > 0) {
+      log.push({type: 'success', message: `Fixed ${compTaskEnrichResult.fixed} rows with Unknown/N/A in Completed & Tasks sheets`});
+      compTaskEnrichResult.log.forEach(l => log.push(l));
+    }
+  } catch(e) {
+    log.push({type: 'warning', message: 'Completed/Tasks enrichment skipped: ' + e.message});
   }
 
   if(configs.length <= 1) {
@@ -6630,6 +6870,31 @@ function processJobNegotiations(jobId, rules, ss, faqContent, negotiationEnabled
     let devId = state ? state.devId : 'N/A';
     let candidateRegion = state ? state.region : '';
     let currentStatus = state ? (state.status || '') : '';
+
+    // ENRICHMENT: If name/devId/region are missing, look them up from other sheets
+    const _needsEnrich = (candidateName === 'Unknown' || devId === 'N/A' || !candidateRegion);
+    if (_needsEnrich) {
+      try {
+        const enriched = lookupCandidateDetails(ss, cleanCandidateEmail, jobId, {
+          name: candidateName,
+          devId: devId,
+          threadId: state ? (stateData[state.rowIndex - 1][9] || '') : thread.getId(),
+          region: candidateRegion
+        });
+        if (candidateName === 'Unknown' && enriched.name !== 'Unknown') candidateName = enriched.name;
+        if (devId === 'N/A' && enriched.devId !== 'N/A') devId = enriched.devId;
+        if (!candidateRegion && enriched.region) candidateRegion = enriched.region;
+        // Update state sheet with enriched values so future runs don't re-lookup
+        if (stateRowIndex > 0) {
+          if (candidateName !== (state ? state.name : 'Unknown')) stateSheet.getRange(stateRowIndex, 8).setValue(candidateName);
+          if (devId !== (state ? state.devId : 'N/A')) stateSheet.getRange(stateRowIndex, 7).setValue(devId);
+          if (candidateRegion && candidateRegion !== (state ? state.region : '')) stateSheet.getRange(stateRowIndex, 11).setValue(candidateRegion);
+          if (enriched.threadId && state && !stateData[state.rowIndex - 1][9]) stateSheet.getRange(stateRowIndex, 10).setValue(enriched.threadId);
+        }
+      } catch(enrichErr) {
+        console.error('Failed to enrich candidate details:', enrichErr);
+      }
+    }
 
     // STATUS TAG CHECK: If candidate is marked as "Completed" in the task list (Negotiation_State),
     // stop all AI processing and ensure the Gmail "Completed" label is applied
@@ -10845,11 +11110,24 @@ function syncCompletedFromGmail() {
       for(let r=stateData.length-1; r>=1; r--) {
         if(String(stateData[r][0]).toLowerCase() === candidateEmail && String(stateData[r][1]) === String(jobId)) {
           // Found in state sheet - move to completed
-          const devId = stateData[r][6] || 'N/A';
-          const name = stateData[r][7] || candidateName || 'Unknown';
+          let devId = stateData[r][6] || 'N/A';
+          let name = stateData[r][7] || candidateName || 'Unknown';
           const lastStatus = stateData[r][4] || 'Completed via Gmail';
-          const threadId = stateData[r][9] || thread.getId();
-          const region = stateData[r][10] || '';
+          let threadId = stateData[r][9] || thread.getId();
+          let region = stateData[r][10] || '';
+
+          // ENRICHMENT: Look up missing details from other sheets before writing to completed
+          if (name === 'Unknown' || devId === 'N/A' || !region || !threadId) {
+            try {
+              const enriched = lookupCandidateDetails(ss, candidateEmail, String(jobId), { name, devId, threadId, region });
+              if (name === 'Unknown' && enriched.name !== 'Unknown') name = enriched.name;
+              if (devId === 'N/A' && enriched.devId !== 'N/A') devId = enriched.devId;
+              if (!threadId && enriched.threadId) threadId = enriched.threadId;
+              if (!region && enriched.region) region = enriched.region;
+            } catch(enrichErr) {
+              console.error('syncCompletedFromGmail - enrichment error:', enrichErr);
+            }
+          }
           let aiNotes = stateData[r][8] || '';
 
           // EXTRACT DATA FROM CANDIDATE'S RESPONSE before marking complete
@@ -11002,9 +11280,20 @@ function syncCompletedFromGmail() {
         if(String(taskData[r][3]).toLowerCase() === candidateEmail && String(taskData[r][1]) === String(jobId)) {
           if(taskData[r][5] === 'Archived') continue; // Already archived
 
-          const devId = taskData[r][6] || 'N/A';
-          const name = taskData[r][2] || candidateName || 'Unknown';
+          let devId = taskData[r][6] || 'N/A';
+          let name = taskData[r][2] || candidateName || 'Unknown';
           const agreedRate = taskData[r][4] || 'N/A';
+
+          // ENRICHMENT: Look up missing details from other sheets
+          if (name === 'Unknown' || devId === 'N/A') {
+            try {
+              const enriched = lookupCandidateDetails(ss, candidateEmail, String(jobId), { name, devId, threadId: taskData[r][7] || '', region: taskData[r][8] || '' });
+              if (name === 'Unknown' && enriched.name !== 'Unknown') name = enriched.name;
+              if (devId === 'N/A' && enriched.devId !== 'N/A') devId = enriched.devId;
+            } catch(enrichErr) {
+              console.error('syncCompletedFromGmail (Tasks) - enrichment error:', enrichErr);
+            }
+          }
 
           // FIX: Generate AI summary from conversation instead of hardcoded text
           // This gives the recruiter useful context about what happened in the negotiation
