@@ -9329,11 +9329,27 @@ ${rules.startDates.map((d, i) => `  ${i + 1}. ${d}`).join('\n')}
 === YOUR RATE PARAMETERS ===
 - Initial Offer: $${firstOfferRate}/hr
 - Maximum Rate: $${maxRate}/hr (NEVER reveal this to candidate)
-${rateAnalysis && rateAnalysis.rate_range_low ? `
+${rateAnalysis && rateAnalysis.rate_range_low && rateAnalysis.rate_range_low <= maxRate && rateAnalysis.rate_range_high <= maxRate ? `
 === DETECTED CANDIDATE RATE RANGE ===
 - Candidate stated a range: $${rateAnalysis.rate_range_low}/hr - $${rateAnalysis.rate_range_high}/hr
 - YOUR COUNTER-OFFER: Propose $${rateAnalysis.rate_range_low}/hr (the lower end of their stated range)
 - Do NOT accept the upper end ($${rateAnalysis.rate_range_high}/hr) - start with the lower end to negotiate the best rate
+` : ''}
+${rateAnalysis && rateAnalysis.rate_range_low && rateAnalysis.rate_range_low <= maxRate && rateAnalysis.rate_range_high > maxRate ? `
+=== DETECTED CANDIDATE RATE RANGE (PARTIALLY EXCEEDS BUDGET) ===
+- Candidate stated a range: $${rateAnalysis.rate_range_low}/hr - $${rateAnalysis.rate_range_high}/hr
+- The upper end ($${rateAnalysis.rate_range_high}/hr) EXCEEDS your maximum of $${maxRate}/hr
+- The lower end ($${rateAnalysis.rate_range_low}/hr) is within budget
+- YOUR COUNTER-OFFER: Propose $${rateAnalysis.rate_range_low}/hr (the lower end of their range - this is within your budget)
+- Do NOT offer anything higher than $${maxRate}/hr
+- NEVER propose or accept the upper end of their range
+` : ''}
+${rateAnalysis && rateAnalysis.rate_range_low && rateAnalysis.rate_range_low > maxRate ? `
+=== DETECTED CANDIDATE RATE RANGE (EXCEEDS BUDGET) ===
+- Candidate stated a range: $${rateAnalysis.rate_range_low}/hr - $${rateAnalysis.rate_range_high}/hr
+- BOTH ends of this range EXCEED your maximum rate of $${maxRate}/hr
+- Do NOT propose any rate from their range - treat this as a rate above your max
+- Follow the NEGOTIATION FLOW rules below for "rate > max" scenario
 ` : ''}
 === CRITICAL RATE NEGOTIATION RULES ===
 **GOLDEN RULE - NEVER EXCEED TALENT'S ASK:**
@@ -10116,6 +10132,90 @@ Write ONLY the email, nothing else.
         console.error(`BLOCKED: Negotiation email to ${candidateEmail} contained sensitive data.`);
         jobStats.log.push({type: 'error', message: `${candidateEmail} - Email blocked due to sensitive content. Check Security_Audit_Log.`});
         return;
+      }
+
+      // SAFETY CHECK: Extract any rate mentioned in the AI's email and block if it exceeds maxRate
+      // This catches cases where the AI offers a rate above budget despite prompt instructions
+      const emailRateMatch = aiResponse.match(/\$\s*(\d+(?:\.\d+)?)\s*(?:\/\s*hr|\/\s*hour|per\s*hour)/i);
+      if (emailRateMatch) {
+        const emailRate = parseFloat(emailRateMatch[1]);
+        if (emailRate > maxRate) {
+          jobStats.log.push({type: 'warning', message: `${candidateEmail} - SAFETY BLOCK: AI email contains rate $${emailRate}/hr which exceeds max $${maxRate}/hr. Replacing with counter-offer at $${secondOfferRate}/hr.`});
+
+          // Send a proper counter-offer instead of the AI's over-budget email
+          const safeCounterRate = attempts === 0 ? secondOfferRate : maxRate;
+          const safeCounterPrompt = `
+You are a recruiter at Turing. Write a brief negotiation email to ${candidateName.split(' ')[0]}.
+
+The candidate proposed a rate above our budget for this role.
+
+YOUR COUNTER-OFFER: $${formatRate(safeCounterRate)}/hr
+
+TASK:
+- Thank them for their response and interest
+- Make a counter-offer of $${formatRate(safeCounterRate)}/hr as the rate we can offer for this role
+- Be confident and direct: "Based on the scope of this role, we can offer $${formatRate(safeCounterRate)}/hr"
+- Keep it professional and concise
+${pendingDataQuestions && pendingDataQuestions.length > 0 ? `
+- Also politely request these missing items: ${pendingDataQuestions.map(q => q.question).join(', ')}` : ''}
+
+FORMAT:
+Hi ${candidateName.split(' ')[0]},
+
+[Brief acknowledgment]
+
+Based on the scope of this role, we can offer $${formatRate(safeCounterRate)}/hr.
+
+[Call to action]
+
+Best regards,
+${getEffectiveSignature()}
+
+Write ONLY the email, nothing else.
+`;
+
+          try {
+            const safeEmail = callAI(safeCounterPrompt);
+
+            if (!validateEmailForSending(safeEmail, { jobId: jobId })) {
+              console.error(`BLOCKED: Safe counter-offer email to ${candidateEmail} contained sensitive data.`);
+              return;
+            }
+
+            sendReplyWithSenderName(thread, safeEmail, getEffectiveSenderName());
+
+            try {
+              updateJobCandidateStatus(ss, jobId, candidateEmail, 'Counter Offer Sent', null, `$${emailRate}/hr`, `$${safeCounterRate}/hr`);
+            } catch(detailsErr) {
+              console.error("Failed to update job details sheet:", detailsErr);
+            }
+
+            const newAttemptCount = attempts + 1;
+            const updatedHistory = conversationHistory + "\n---\n[ME]: " + safeEmail.substring(0, 400);
+            let counterSummary = `Attempt ${newAttemptCount}: Counter-offered $${safeCounterRate}/hr (safety override)`;
+            try {
+              counterSummary = generateComprehensiveAISummary(updatedHistory, candidateEmail, jobId, newAttemptCount, 'AI Active');
+            } catch(e) {
+              console.error("Failed to generate summary:", e);
+            }
+
+            if(stateRowIndex > -1) {
+              stateSheet.getRange(stateRowIndex, 3).setValue(newAttemptCount);
+              stateSheet.getRange(stateRowIndex, 4).setValue(`Counter Offer $${safeCounterRate}/hr`);
+              stateSheet.getRange(stateRowIndex, 5).setValue("Active");
+              stateSheet.getRange(stateRowIndex, 6).setValue(new Date());
+              stateSheet.getRange(stateRowIndex, 9).setValue(counterSummary);
+            }
+
+            updateFollowUpLabels(thread.getId(), 'responded');
+            jobStats.replied++;
+            jobStats.log.push({type: 'info', message: `${candidateEmail} - Safety override: Counter-offered $${safeCounterRate}/hr instead of AI's $${emailRate}/hr - attempt ${newAttemptCount}/2`});
+            return;
+          } catch(emailErr) {
+            console.error("Failed to send safe counter-offer email:", emailErr);
+            return;
+          }
+        }
       }
 
       sendReplyWithSenderName(thread, aiResponse, getEffectiveSenderName());
