@@ -3531,8 +3531,22 @@ function saveJobCandidateDetails(ss, jobId, candidateEmail, candidateName, devId
   const rowData = new Array(headers.length).fill('');
   rowData[timestampColIdx] = new Date();
   rowData[emailColIdx] = candidateEmail;
-  rowData[nameColIdx] = candidateName;
-  rowData[devIdColIdx] = devId || 'N/A';
+
+  // ENRICHMENT: If name or devId are Unknown/N/A, try to look up from other sheets
+  let enrichedName = candidateName;
+  let enrichedDevId = devId || 'N/A';
+  if (enrichedName === 'Unknown' || !enrichedName || enrichedDevId === 'N/A' || !enrichedDevId) {
+    try {
+      const mainSs = SpreadsheetApp.openByUrl(getStoredSheetUrl());
+      const details = lookupCandidateDetails(mainSs, candidateEmail, String(jobId), { name: enrichedName || 'Unknown', devId: enrichedDevId || 'N/A', threadId: threadId || '', region: region || '' });
+      if ((enrichedName === 'Unknown' || !enrichedName) && details.name !== 'Unknown') enrichedName = details.name;
+      if ((enrichedDevId === 'N/A' || !enrichedDevId) && details.devId !== 'N/A') enrichedDevId = details.devId;
+      if (!region && details.region) region = details.region;
+    } catch(e) { /* continue with what we have */ }
+  }
+
+  rowData[nameColIdx] = enrichedName || 'Unknown';
+  rowData[devIdColIdx] = enrichedDevId || 'N/A';
   rowData[threadIdColIdx] = threadId || '';
   if(regionColIdx !== -1) rowData[regionColIdx] = region || '';
   rowData[notesColIdx] = answers.negotiation_notes || '';
@@ -3608,6 +3622,18 @@ function saveJobCandidateDetails(ss, jobId, candidateEmail, candidateName, devId
       }
       // Keep existing region if new one is empty
       if (col === regionColIdx && !rowData[col] && existingRow[col]) {
+        rowData[col] = existingRow[col];
+      }
+      // Preserve existing Name if new one is Unknown/empty
+      if (col === nameColIdx && (!rowData[col] || rowData[col] === 'Unknown') && existingRow[col] && existingRow[col] !== 'Unknown') {
+        rowData[col] = existingRow[col];
+      }
+      // Preserve existing Dev ID if new one is N/A/empty
+      if (col === devIdColIdx && (!rowData[col] || rowData[col] === 'N/A') && existingRow[col] && existingRow[col] !== 'N/A') {
+        rowData[col] = existingRow[col];
+      }
+      // Preserve existing Thread ID if new one is empty
+      if (col === threadIdColIdx && !rowData[col] && existingRow[col]) {
         rowData[col] = existingRow[col];
       }
       // Preserve financial columns (set by updateJobCandidateStatus, not by data gathering)
@@ -6261,6 +6287,71 @@ function enrichCompletedAndTasksData(ss) {
     }
   } catch (e) {
     log.push({ type: 'warning', message: 'Negotiation_Tasks enrichment error: ' + e.message });
+  }
+
+  // Fix Job_XXXXX_Details sheets: Unknown names and N/A Dev IDs
+  try {
+    const jobsSs = getCachedJobsSpreadsheet();
+    if (jobsSs) {
+      // Get all job IDs from config
+      const configSheet = ss.getSheetByName('Negotiation_Config');
+      if (configSheet && configSheet.getLastRow() > 1) {
+        const configData = configSheet.getDataRange().getValues();
+        for (let c = 1; c < configData.length; c++) {
+          const jId = String(configData[c][0] || '');
+          if (!jId) continue;
+          const detailSheet = jobsSs.getSheetByName('Job_' + jId + '_Details');
+          if (!detailSheet || detailSheet.getLastRow() <= 1) continue;
+
+          const headers = detailSheet.getRange(1, 1, 1, detailSheet.getLastColumn()).getValues()[0];
+          const eIdx = headers.indexOf('Email');
+          const nIdx = headers.indexOf('Name');
+          const dIdx = headers.indexOf('Dev ID');
+          const thIdx = headers.indexOf('Thread ID');
+          const rIdx = headers.indexOf('Region');
+          if (eIdx === -1) continue;
+
+          const detailData = detailSheet.getDataRange().getValues();
+          for (let i = 1; i < detailData.length; i++) {
+            const email = normalizeEmail(detailData[i][eIdx]);
+            if (!email) continue;
+
+            const name = nIdx !== -1 ? String(detailData[i][nIdx] || '').trim() : '';
+            const devId = dIdx !== -1 ? String(detailData[i][dIdx] || '').trim() : '';
+            const threadId = thIdx !== -1 ? String(detailData[i][thIdx] || '').trim() : '';
+            const region = rIdx !== -1 ? String(detailData[i][rIdx] || '').trim() : '';
+
+            const needsFix = (name === 'Unknown' || !name) || (devId === 'N/A' || !devId);
+            if (!needsFix) continue;
+
+            const enriched = lookupCandidateDetails(ss, email, jId, { name: name || 'Unknown', devId: devId || 'N/A', threadId: threadId, region: region });
+            let updated = false;
+            if ((name === 'Unknown' || !name) && nIdx !== -1 && enriched.name !== 'Unknown') {
+              detailSheet.getRange(i + 1, nIdx + 1).setValue(enriched.name);
+              updated = true;
+            }
+            if ((devId === 'N/A' || !devId) && dIdx !== -1 && enriched.devId !== 'N/A') {
+              detailSheet.getRange(i + 1, dIdx + 1).setValue(enriched.devId);
+              updated = true;
+            }
+            if (!threadId && thIdx !== -1 && enriched.threadId) {
+              detailSheet.getRange(i + 1, thIdx + 1).setValue(enriched.threadId);
+              updated = true;
+            }
+            if (!region && rIdx !== -1 && enriched.region) {
+              detailSheet.getRange(i + 1, rIdx + 1).setValue(enriched.region);
+              updated = true;
+            }
+            if (updated) {
+              fixedCount++;
+              log.push({ type: 'success', message: `Enriched Job_${jId}_Details row for ${email}: name=${enriched.name}, devId=${enriched.devId}` });
+            }
+          }
+        }
+      }
+    }
+  } catch (e) {
+    log.push({ type: 'warning', message: 'Job Details enrichment error: ' + e.message });
   }
 
   return { fixed: fixedCount, log: log };
