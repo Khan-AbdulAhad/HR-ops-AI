@@ -5541,6 +5541,9 @@ function sendBulkEmails(recipients, senderName, subject, htmlBody, jobId, opts) 
         if (responseCode === 200) {
           try {
             const result = JSON.parse(response.getContentText());
+            if (!result.threadId) {
+              console.error('Gmail send succeeded for ' + r.email + ' but returned no threadId. Response: ' + response.getContentText().substring(0, 200));
+            }
             sentResults.push({ r, threadId: result.threadId, emailKey });
             existingEmails.add(emailKey);
             count++;
@@ -5582,9 +5585,66 @@ function sendBulkEmails(recipients, senderName, subject, htmlBody, jobId, opts) 
     if (retryAiLabelId) labelsToAdd.push(retryAiLabelId);
     else console.error('Label lookup permanently failed for "' + AI_MANAGED_LABEL + '"');
   }
-  const allThreadIds = sentResults.map(s => s.threadId);
+  // Filter out any null/undefined threadIds to prevent poisoning the batch
+  const allThreadIds = sentResults.map(s => s.threadId).filter(Boolean);
   if (allThreadIds.length > 0 && labelsToAdd.length > 0) {
+    // Brief pause to let Gmail fully index newly-created threads before labeling.
+    // Without this, threads created milliseconds ago may not be findable by the
+    // batchModify endpoint, causing individual threads to silently miss labels.
+    Utilities.sleep(2000);
     batchModifyThreadLabels(allThreadIds, labelsToAdd, token);
+
+    // ── Verification pass: confirm labels were applied to every thread ──────
+    // Gmail's batchModify can return 200 but silently skip threads that weren't
+    // fully indexed yet. This pass catches any stragglers and labels them individually.
+    try {
+      Utilities.sleep(1500);
+      var labelNames = [];
+      labelsToAdd.forEach(function(lblId) {
+        try {
+          var labels = Gmail.Users.Labels.list('me').labels || [];
+          var found = labels.find(function(l) { return l.id === lblId; });
+          if (found) labelNames.push({ id: lblId, name: found.name });
+        } catch (e) {}
+      });
+
+      if (labelNames.length > 0) {
+        var missedCount = 0;
+        allThreadIds.forEach(function(tid) {
+          try {
+            var threadData = Gmail.Users.Threads.get('me', tid, { format: 'minimal' });
+            var threadLabelIds = (threadData.messages && threadData.messages[0] && threadData.messages[0].labelIds) || [];
+            var missing = labelsToAdd.filter(function(lid) { return threadLabelIds.indexOf(lid) === -1; });
+            if (missing.length > 0) {
+              missedCount++;
+              // Apply missing labels individually via GmailApp fallback
+              var thread = GmailApp.getThreadById(tid);
+              if (thread) {
+                missing.forEach(function(mLblId) {
+                  var match = labelNames.find(function(ln) { return ln.id === mLblId; });
+                  if (match) {
+                    var gmLabel = GmailApp.getUserLabelByName(match.name);
+                    if (!gmLabel) gmLabel = GmailApp.createLabel(match.name);
+                    for (var vRetry = 1; vRetry <= 3; vRetry++) {
+                      try { thread.addLabel(gmLabel); break; } catch (vErr) {
+                        if (vRetry < 3) Utilities.sleep(1000 * vRetry);
+                      }
+                    }
+                  }
+                });
+              }
+            }
+          } catch (verifyErr) {
+            console.warn('Label verification failed for thread ' + tid + ':', verifyErr.message);
+          }
+        });
+        if (missedCount > 0) {
+          console.warn('Label verification: fixed ' + missedCount + ' thread(s) with missing labels');
+        }
+      }
+    } catch (verifyPassErr) {
+      console.error('Label verification pass error:', verifyPassErr);
+    }
   }
 
   // ── Phase 4: Collect sheet rows from sent results ────────────────────────────
