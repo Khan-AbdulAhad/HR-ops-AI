@@ -5319,6 +5319,14 @@ function getEmailLogs(jobId) {
 
 // UPDATED: Send Email with progress callback support + Job Details Sheet creation + {{job_link}} placeholder
 function sendBulkEmails(recipients, senderName, subject, htmlBody, jobId, opts) {
+  // FIX: Prevent concurrent bulk sends (e.g. double-click or overlapping batches)
+  // from sending duplicate emails to the same recipients
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(30000)) {
+    return {success: false, sent: 0, errors: ["Another email send is in progress. Please wait and try again."]};
+  }
+  try {
+
   const url = getStoredSheetUrl();
   if(!url) return {success: false, sent: 0, errors: ["No config URL set. Please configure in Settings."]};
 
@@ -5815,6 +5823,10 @@ function sendBulkEmails(recipients, senderName, subject, htmlBody, jobId, opts) 
   }
 
   return {success: true, sent: count, skipped: skipped, total: total, errors: errors};
+
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 function createMimeMessage(senderName, recipientEmail, subject, htmlBody) {
@@ -5957,13 +5969,25 @@ function sendReplyWithSenderName(thread, replyBody, senderName) {
     const rawMessage = Utilities.base64EncodeWebSafe(mime, Utilities.Charset.UTF_8);
     
     // Send as reply to existing thread
+    // FIX: Track whether send succeeded to prevent duplicate email in fallback.
+    // Previously, if Gmail.Users.Messages.send() succeeded but something threw
+    // after it (or it threw after partially sending), the catch block would
+    // call thread.reply() — sending a SECOND copy of the same email.
+    let sendSucceeded = false;
     Gmail.Users.Messages.send({
       raw: rawMessage,
       threadId: threadId
     }, 'me');
-    
+    sendSucceeded = true;
+
     return true;
   } catch(e) {
+    // If the Gmail API send already succeeded, do NOT send a fallback — it would be a duplicate
+    if (sendSucceeded) {
+      console.warn("sendReplyWithSenderName: Gmail API send succeeded but post-send code threw. NOT sending fallback to avoid duplicate email. Error:", e);
+      return true;
+    }
+
     console.error("Failed to send reply with sender name:", e);
     // Fallback to regular reply - but ONLY if thread has AI-Managed label
     try {
@@ -6614,6 +6638,17 @@ function lookupCandidateDetails(ss, email, jobId, current) {
 // ======================================================
 
 function runAutoNegotiator() {
+  // FIX: Prevent concurrent execution that causes duplicate emails.
+  // Without this lock, overlapping triggers (or manual + trigger) both read thread state
+  // before either sends a reply, causing both to send — resulting in double emails.
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(5000)) {
+    console.warn('runAutoNegotiator: Another instance is already running. Skipping to prevent duplicate emails.');
+    return {status: "Skipped", message: "Another negotiation run is already in progress. Skipped to prevent duplicate emails.", stats: null, log: [{type: 'warning', message: 'Skipped: concurrent execution detected (lock held by another instance)'}]};
+  }
+
+  try {
+
   const url = getStoredSheetUrl();
   if(!url) return {status: "Error", message: "No Config URL. Please set your Google Sheets URL in Config.", stats: null, log: []};
   
@@ -6796,6 +6831,10 @@ function runAutoNegotiator() {
   invalidateSheetCache('Negotiation_Completed');
 
   return {status: "Success", stats: stats, log: log};
+
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 function processJobNegotiations(jobId, rules, ss, faqContent, negotiationEnabled = true) {
@@ -13964,25 +14003,35 @@ function sendFollowUpEmail(email, jobId, threadId, name, followUpNumber) {
  * Can be called from the UI or set up as a time-based trigger
  */
 function runFollowUpProcessor() {
-  debugLog("Starting follow-up processor...");
-  const result = processFollowUpQueue();
-  debugLog(`Follow-up processing complete. Results:`, result);
+  // FIX: Prevent concurrent follow-up processing that could send duplicate follow-up emails
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(5000)) {
+    console.warn('runFollowUpProcessor: Another instance is already running. Skipping to prevent duplicate emails.');
+    return { outreach: { sent: 0 }, dataGathering: { sent: 0 }, negotiation: { sent: 0 }, skipped: true };
+  }
+  try {
+    debugLog("Starting follow-up processor...");
+    const result = processFollowUpQueue();
+    debugLog(`Follow-up processing complete. Results:`, result);
 
-  // Also process data gathering follow-ups
-  debugLog("Starting data gathering follow-up processor...");
-  const dataResult = processDataGatheringFollowUps();
-  debugLog(`Data gathering follow-up processing complete. Results:`, dataResult);
+    // Also process data gathering follow-ups
+    debugLog("Starting data gathering follow-up processor...");
+    const dataResult = processDataGatheringFollowUps();
+    debugLog(`Data gathering follow-up processing complete. Results:`, dataResult);
 
-  // Also process mid-negotiation follow-ups (candidate responded initially, then went silent)
-  debugLog("Starting mid-negotiation follow-up processor...");
-  const negResult = processNegotiationFollowUps();
-  debugLog(`Mid-negotiation follow-up processing complete. Results:`, negResult);
+    // Also process mid-negotiation follow-ups (candidate responded initially, then went silent)
+    debugLog("Starting mid-negotiation follow-up processor...");
+    const negResult = processNegotiationFollowUps();
+    debugLog(`Mid-negotiation follow-up processing complete. Results:`, negResult);
 
-  return {
-    outreach: result,
-    dataGathering: dataResult,
-    negotiation: negResult
-  };
+    return {
+      outreach: result,
+      dataGathering: dataResult,
+      negotiation: negResult
+    };
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 /**
