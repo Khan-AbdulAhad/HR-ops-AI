@@ -4068,6 +4068,21 @@ function getAllTasks(filters) {
   // 4. Get Job IDs from Email_Logs AND recover candidates missing from negotiation sheets
   // Email_Logs = source of truth for who was contacted. Any candidate emailed but not in
   // Negotiation_State/Tasks/Completed gets added as "Initial Outreach" (Awaiting Response)
+  // Build Follow_Up_Queue lookup for enriching recovered candidates with Dev ID, Name, etc.
+  const fqLookup = new Map();
+  if(followUpData && followUpData.length > 1) {
+    for(let f = 1; f < followUpData.length; f++) {
+      const fqKey = normalizeEmail(followUpData[f][0]) + '|' + String(followUpData[f][1] || '');
+      if (!fqLookup.has(fqKey)) {
+        fqLookup.set(fqKey, {
+          devId: String(followUpData[f][4] || '').trim(),
+          name: String(followUpData[f][3] || '').trim(),
+          threadId: String(followUpData[f][2] || '').trim(),
+          status: String(followUpData[f][8] || '').trim()
+        });
+      }
+    }
+  }
   const emailLogsData = getCachedSheetData('Email_Logs', 30); // 30 second cache
   if(emailLogsData && emailLogsData.length > 1) {
     for(let i=1; i<emailLogsData.length; i++) {
@@ -4082,23 +4097,34 @@ function getAllTasks(filters) {
         const logKey = logEmail + '|' + elJobId;
         if (!countedCandidates.has(logKey)) {
           countedCandidates.add(logKey);
+
+          // Enrich from Follow_Up_Queue (has Dev ID, Name, Thread ID)
+          const fqEntry = fqLookup.get(logKey) || {};
+          const recoveredDevId = (fqEntry.devId && fqEntry.devId !== 'N/A') ? fqEntry.devId : 'N/A';
+          const recoveredName = (fqEntry.name && fqEntry.name !== 'Unknown') ? fqEntry.name : (emailLogsData[i][3] || 'Unknown');
+          const recoveredThreadId = fqEntry.threadId || emailLogsData[i][4] || '';
+          // Determine status: if in follow-up queue, show "Follow Up" instead of "Initial Outreach"
+          const isInFollowUp = fqLookup.has(logKey);
+          const recoveredStatus = isInFollowUp ? 'Follow Up' : 'Initial Outreach';
+          const recoveredTag = isInFollowUp ? 'Follow Up' : 'Initial Outreach';
+
           // Apply filters before counting
           if(jobFilter !== 'all' && elJobId !== jobFilter) continue;
-          if(statusFilter !== 'all' && statusFilter !== 'Initial Outreach') continue;
+          if(statusFilter !== 'all' && statusFilter !== recoveredStatus && statusFilter !== 'Initial Outreach') continue;
           statInitialOutreach++;
           tasks.push({
             email: emailLogsData[i][2],
             jobId: elJobId,
-            devId: 'N/A',
-            name: emailLogsData[i][3] || 'Unknown',
-            status: 'Initial Outreach',
+            devId: recoveredDevId,
+            name: recoveredName,
+            status: recoveredStatus,
             attempts: 0,
-            tags: 'Initial Outreach',
+            tags: recoveredTag,
             type: 'Negotiating',
             lastReply: 'N/A',
             sortTimestamp: 0,
             aiNotes: '',
-            threadId: emailLogsData[i][4] || ''
+            threadId: recoveredThreadId
           });
         }
       }
@@ -6063,7 +6089,84 @@ function enrichNegotiationStateData(ss) {
     }
   });
 
-  return { enriched: enrichedCount, statusSynced: statusSyncCount, log: log };
+  // RECOVERY: Re-create Negotiation_State rows for candidates in Follow_Up_Queue
+  // but missing from Negotiation_State (and not in Negotiation_Completed as active "Completed").
+  // This handles cases where candidates were moved to Completed (deleting their state row)
+  // but then the Completed label was removed, leaving them orphaned in Follow_Up_Queue only.
+  let recoveredCount = 0;
+  try {
+    // Build set of emails already in Negotiation_State
+    const stateEmails = new Set();
+    // Re-read state data to include any rows we just enriched
+    const freshStateData = stateSheet.getDataRange().getValues();
+    for (let i = 1; i < freshStateData.length; i++) {
+      const sKey = normalizeEmail(freshStateData[i][0]) + '_' + String(freshStateData[i][1] || '');
+      stateEmails.add(sKey);
+    }
+
+    // Build set of emails in Negotiation_Completed (these are done, don't re-add)
+    const completedEmails = new Set();
+    const compSheetCheck = ss.getSheetByName('Negotiation_Completed');
+    if (compSheetCheck && compSheetCheck.getLastRow() > 1) {
+      const compCheckData = compSheetCheck.getDataRange().getValues();
+      for (let i = 1; i < compCheckData.length; i++) {
+        const cKey = normalizeEmail(compCheckData[i][2]) + '_' + String(compCheckData[i][1] || '');
+        completedEmails.add(cKey);
+      }
+    }
+
+    // Check Follow_Up_Queue for candidates missing from both State and Completed
+    if (fqSheet && fqSheet.getLastRow() > 1) {
+      const fqCheckData = fqSheet.getDataRange().getValues();
+      const recoveryRows = [];
+      for (let i = 1; i < fqCheckData.length; i++) {
+        const fqEmail = normalizeEmail(fqCheckData[i][0]);
+        const fqJobId = String(fqCheckData[i][1] || '');
+        if (!fqEmail || !fqJobId) continue;
+
+        const fqKey = fqEmail + '_' + fqJobId;
+        if (stateEmails.has(fqKey) || completedEmails.has(fqKey)) continue;
+
+        // This candidate is in Follow_Up_Queue but not in State or Completed - recover them
+        const fqThreadId = String(fqCheckData[i][2] || '').trim();
+        const fqName = String(fqCheckData[i][3] || '').trim() || 'Unknown';
+        const fqDevId = String(fqCheckData[i][4] || '').trim() || 'N/A';
+        const fqStatus = String(fqCheckData[i][8] || '').trim();
+        const rawEmail = String(fqCheckData[i][0] || '').trim(); // Use original email, not normalized
+
+        // Determine the right status for the recovered row
+        let recoveredStatus = 'Follow Up';
+        if (fqStatus === 'Responded') recoveredStatus = 'Active';
+
+        // Try to enrich further from Email_Logs and Job Details
+        let bestName = fqName;
+        let bestDevId = fqDevId;
+        let bestRegion = '';
+        if (bestName === 'Unknown' || bestDevId === 'N/A' || !bestRegion) {
+          try {
+            const enriched = lookupCandidateDetails(ss, rawEmail, fqJobId, { name: bestName, devId: bestDevId, threadId: fqThreadId, region: '' });
+            if (bestName === 'Unknown' && enriched.name !== 'Unknown') bestName = enriched.name;
+            if (bestDevId === 'N/A' && enriched.devId !== 'N/A') bestDevId = enriched.devId;
+            if (enriched.region) bestRegion = enriched.region;
+          } catch(e) { /* continue with what we have */ }
+        }
+
+        recoveryRows.push([rawEmail, fqJobId, 0, '', recoveredStatus, new Date(), bestDevId, bestName, '', fqThreadId, bestRegion]);
+        stateEmails.add(fqKey); // Prevent duplicates within this loop
+        recoveredCount++;
+        log.push({ type: 'success', message: `Recovered ${rawEmail} (Job ${fqJobId}) to Negotiation_State as "${recoveredStatus}" - DevID: ${bestDevId}, Name: ${bestName}` });
+      }
+
+      // Batch write recovered rows
+      if (recoveryRows.length > 0) {
+        stateSheet.getRange(stateSheet.getLastRow() + 1, 1, recoveryRows.length, recoveryRows[0].length).setValues(recoveryRows);
+      }
+    }
+  } catch(recoveryErr) {
+    log.push({ type: 'warning', message: 'Follow_Up_Queue recovery error: ' + recoveryErr.message });
+  }
+
+  return { enriched: enrichedCount, statusSynced: statusSyncCount, recovered: recoveredCount, log: log };
 }
 
 /**
@@ -6365,11 +6468,15 @@ function runAutoNegotiator() {
     const enrichResult = enrichNegotiationStateData(ss);
     stats.enriched = enrichResult.enriched;
     stats.statusSynced = enrichResult.statusSynced;
+    stats.recovered = enrichResult.recovered || 0;
     if (enrichResult.enriched > 0) {
       log.push({type: 'success', message: `Enriched missing data for ${enrichResult.enriched} candidates (Dev ID, Thread ID, Name, or Region)`});
     }
     if (enrichResult.statusSynced > 0) {
       log.push({type: 'success', message: `Synced ${enrichResult.statusSynced} candidates from "Initial Outreach" to "Follow Up" status`});
+    }
+    if (enrichResult.recovered > 0) {
+      log.push({type: 'success', message: `Recovered ${enrichResult.recovered} candidates to Negotiation_State from Follow_Up_Queue (were missing from State sheet)`});
     }
     enrichResult.log.forEach(l => log.push(l));
   } catch(e) {
