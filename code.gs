@@ -5833,6 +5833,228 @@ function sendReplyWithSenderName(thread, replyBody, senderName) {
 }
 
 // ======================================================
+// ===    DATA ENRICHMENT & STATUS SYNC               ===
+// ======================================================
+
+/**
+ * Enriches Negotiation_State rows that have missing data (Dev ID, Thread ID, Name, Region)
+ * by looking up values from Follow_Up_Queue, Email_Logs, Job_XXXXX_Details, and Negotiation_Completed.
+ * Also syncs status: candidates in Follow_Up_Queue with "Pending" status get their
+ * Negotiation_State status changed from "Initial Outreach" to "Follow Up".
+ */
+function enrichNegotiationStateData(ss) {
+  const stateSheet = ss.getSheetByName('Negotiation_State');
+  if (!stateSheet || stateSheet.getLastRow() <= 1) return { enriched: 0, statusSynced: 0, log: [] };
+
+  const stateData = stateSheet.getDataRange().getValues();
+  // Columns: [0]Email, [1]JobID, [2]AttemptCount, [3]LastOffer, [4]Status, [5]LastReplyTime, [6]DevID, [7]Name, [8]AINotes, [9]ThreadID, [10]Region
+
+  // Identify rows that need enrichment or status sync
+  const rowsToCheck = [];
+  for (let i = 1; i < stateData.length; i++) {
+    const row = stateData[i];
+    const email = String(row[0] || '').toLowerCase().trim();
+    const jobId = String(row[1] || '');
+    if (!email || !jobId) continue;
+
+    const devId = String(row[6] || '').trim();
+    const name = String(row[7] || '').trim();
+    const threadId = String(row[9] || '').trim();
+    const region = String(row[10] || '').trim();
+    const status = String(row[4] || '').trim();
+
+    const needsDevId = !devId || devId === 'N/A' || devId === '';
+    const needsName = !name || name === 'Unknown' || name === '';
+    const needsThreadId = !threadId || threadId === '';
+    const needsRegion = !region || region === '';
+    const needsStatusSync = (status === 'Initial Outreach');
+
+    if (needsDevId || needsName || needsThreadId || needsRegion || needsStatusSync) {
+      rowsToCheck.push({
+        rowIndex: i + 1, // 1-based sheet row
+        email: email,
+        jobId: jobId,
+        needsDevId: needsDevId,
+        needsName: needsName,
+        needsThreadId: needsThreadId,
+        needsRegion: needsRegion,
+        needsStatusSync: needsStatusSync,
+        currentDevId: devId,
+        currentName: name,
+        currentThreadId: threadId,
+        currentRegion: region
+      });
+    }
+  }
+
+  if (rowsToCheck.length === 0) return { enriched: 0, statusSynced: 0, log: [] };
+
+  // Build lookup maps from all source sheets
+
+  // 1. Follow_Up_Queue: [0]Email, [1]JobID, [2]ThreadID, [3]Name, [4]DevID, [8]Status
+  const fqSheet = ss.getSheetByName('Follow_Up_Queue');
+  const fqMap = new Map(); // key: email_jobId -> { threadId, name, devId, fqStatus }
+  if (fqSheet && fqSheet.getLastRow() > 1) {
+    const fqData = fqSheet.getDataRange().getValues();
+    for (let i = 1; i < fqData.length; i++) {
+      const key = String(fqData[i][0] || '').toLowerCase().trim() + '_' + String(fqData[i][1] || '');
+      fqMap.set(key, {
+        threadId: String(fqData[i][2] || '').trim(),
+        name: String(fqData[i][3] || '').trim(),
+        devId: String(fqData[i][4] || '').trim(),
+        fqStatus: String(fqData[i][8] || '').trim()
+      });
+    }
+  }
+
+  // 2. Email_Logs: [0]Timestamp, [1]JobID, [2]Email, [3]Name, [4]ThreadID, [5]Type, [6]Country
+  const elSheet = ss.getSheetByName('Email_Logs');
+  const elMap = new Map(); // key: email_jobId -> { threadId, name, country }
+  if (elSheet && elSheet.getLastRow() > 1) {
+    const elData = elSheet.getDataRange().getValues();
+    for (let i = 1; i < elData.length; i++) {
+      const key = String(elData[i][2] || '').toLowerCase().trim() + '_' + String(elData[i][1] || '');
+      // Keep the first (earliest) entry as it has the initial outreach data
+      if (!elMap.has(key)) {
+        elMap.set(key, {
+          threadId: String(elData[i][4] || '').trim(),
+          name: String(elData[i][3] || '').trim(),
+          country: String(elData[i][6] || '').trim()
+        });
+      }
+    }
+  }
+
+  // 3. Negotiation_Completed: [0]Timestamp, [1]JobID, [2]Email, [3]Name, [4]FinalStatus, [5]Notes, [6]DevID, [7]Region
+  const compSheet = ss.getSheetByName('Negotiation_Completed');
+  const compMap = new Map(); // key: email_jobId -> { name, devId, region }
+  if (compSheet && compSheet.getLastRow() > 1) {
+    const compData = compSheet.getDataRange().getValues();
+    for (let i = 1; i < compData.length; i++) {
+      const key = String(compData[i][2] || '').toLowerCase().trim() + '_' + String(compData[i][1] || '');
+      compMap.set(key, {
+        name: String(compData[i][3] || '').trim(),
+        devId: String(compData[i][6] || '').trim(),
+        region: String(compData[i][7] || '').trim()
+      });
+    }
+  }
+
+  // 4. Job_XXXXX_Details sheets (stored in separate Jobs spreadsheet)
+  // Columns: Timestamp, Email, Name, Dev ID, Thread ID, Region, Status, + dynamic
+  const jobDetailsMap = new Map(); // key: email_jobId -> { name, devId, threadId, region }
+  try {
+    const jobsSs = getCachedJobsSpreadsheet();
+    if (jobsSs) {
+      // Collect unique job IDs from rows to check
+      const jobIds = new Set(rowsToCheck.map(r => r.jobId));
+      jobIds.forEach(jId => {
+        const detailSheet = jobsSs.getSheetByName('Job_' + jId + '_Details');
+        if (detailSheet && detailSheet.getLastRow() > 1) {
+          const headers = detailSheet.getRange(1, 1, 1, detailSheet.getLastColumn()).getValues()[0];
+          const eIdx = headers.indexOf('Email');
+          const nIdx = headers.indexOf('Name');
+          const dIdx = headers.indexOf('Dev ID');
+          const thIdx = headers.indexOf('Thread ID');
+          const rIdx = headers.indexOf('Region');
+          if (eIdx === -1) return;
+
+          const detailData = detailSheet.getDataRange().getValues();
+          for (let i = 1; i < detailData.length; i++) {
+            const email = String(detailData[i][eIdx] || '').toLowerCase().trim();
+            if (!email) continue;
+            const key = email + '_' + jId;
+            jobDetailsMap.set(key, {
+              name: nIdx !== -1 ? String(detailData[i][nIdx] || '').trim() : '',
+              devId: dIdx !== -1 ? String(detailData[i][dIdx] || '').trim() : '',
+              threadId: thIdx !== -1 ? String(detailData[i][thIdx] || '').trim() : '',
+              region: rIdx !== -1 ? String(detailData[i][rIdx] || '').trim() : ''
+            });
+          }
+        }
+      });
+    }
+  } catch (e) {
+    console.error('Failed to load Job Details sheets for enrichment:', e);
+  }
+
+  // Now enrich each row that needs it
+  let enrichedCount = 0;
+  let statusSyncCount = 0;
+  const log = [];
+
+  rowsToCheck.forEach(row => {
+    const key = row.email + '_' + row.jobId;
+    const fq = fqMap.get(key) || {};
+    const el = elMap.get(key) || {};
+    const comp = compMap.get(key) || {};
+    const jd = jobDetailsMap.get(key) || {};
+
+    let updated = false;
+
+    // Helper: pick first non-empty, non-N/A value from sources
+    function pickBest(current, ...candidates) {
+      for (const val of candidates) {
+        if (val && val !== 'N/A' && val !== 'Unknown' && val !== '') return val;
+      }
+      return current;
+    }
+
+    // Enrich Dev ID
+    if (row.needsDevId) {
+      const bestDevId = pickBest(row.currentDevId, fq.devId, jd.devId, comp.devId);
+      if (bestDevId && bestDevId !== row.currentDevId && bestDevId !== 'N/A') {
+        stateSheet.getRange(row.rowIndex, 7).setValue(bestDevId); // Column 7 = Dev ID
+        updated = true;
+        log.push({ type: 'success', message: `Enriched Dev ID for ${row.email} (Job ${row.jobId}): ${bestDevId}` });
+      }
+    }
+
+    // Enrich Name
+    if (row.needsName) {
+      const bestName = pickBest(row.currentName, fq.name, el.name, jd.name, comp.name);
+      if (bestName && bestName !== row.currentName && bestName !== 'Unknown') {
+        stateSheet.getRange(row.rowIndex, 8).setValue(bestName); // Column 8 = Name
+        updated = true;
+        log.push({ type: 'success', message: `Enriched Name for ${row.email} (Job ${row.jobId}): ${bestName}` });
+      }
+    }
+
+    // Enrich Thread ID
+    if (row.needsThreadId) {
+      const bestThreadId = pickBest(row.currentThreadId, fq.threadId, el.threadId, jd.threadId);
+      if (bestThreadId && bestThreadId !== row.currentThreadId) {
+        stateSheet.getRange(row.rowIndex, 10).setValue(bestThreadId); // Column 10 = Thread ID
+        updated = true;
+        log.push({ type: 'success', message: `Enriched Thread ID for ${row.email} (Job ${row.jobId}): ${bestThreadId}` });
+      }
+    }
+
+    // Enrich Region (also try country from Email_Logs as fallback)
+    if (row.needsRegion) {
+      const bestRegion = pickBest(row.currentRegion, jd.region, comp.region, el.country);
+      if (bestRegion && bestRegion !== row.currentRegion) {
+        stateSheet.getRange(row.rowIndex, 11).setValue(bestRegion); // Column 11 = Region
+        updated = true;
+        log.push({ type: 'success', message: `Enriched Region for ${row.email} (Job ${row.jobId}): ${bestRegion}` });
+      }
+    }
+
+    if (updated) enrichedCount++;
+
+    // Status Sync: If candidate is in Follow_Up_Queue with "Pending" status
+    // and Negotiation_State status is "Initial Outreach", change to "Follow Up"
+    if (row.needsStatusSync && fq.fqStatus === 'Pending') {
+      stateSheet.getRange(row.rowIndex, 5).setValue('Follow Up'); // Column 5 = Status
+      statusSyncCount++;
+      log.push({ type: 'info', message: `Status synced to "Follow Up" for ${row.email} (Job ${row.jobId}) - candidate is in follow-up queue` });
+    }
+  });
+
+  return { enriched: enrichedCount, statusSynced: statusSyncCount, log: log };
+}
+
+// ======================================================
 // ===    AUTOMATED NEGOTIATION AGENT (ENHANCED)      ===
 // ======================================================
 
@@ -5893,6 +6115,24 @@ function runAutoNegotiator() {
     }
   } catch(e) {
     log.push({type: 'warning', message: 'Summary generation skipped: ' + e.message});
+  }
+
+  // STEP 3.5: Enrich missing data in Negotiation_State (Dev ID, Thread ID, Name, Region)
+  // and sync status for candidates in Follow_Up_Queue ("Initial Outreach" -> "Follow Up")
+  log.push({type: 'info', message: 'Enriching missing candidate data and syncing follow-up statuses...'});
+  try {
+    const enrichResult = enrichNegotiationStateData(ss);
+    stats.enriched = enrichResult.enriched;
+    stats.statusSynced = enrichResult.statusSynced;
+    if (enrichResult.enriched > 0) {
+      log.push({type: 'success', message: `Enriched missing data for ${enrichResult.enriched} candidates (Dev ID, Thread ID, Name, or Region)`});
+    }
+    if (enrichResult.statusSynced > 0) {
+      log.push({type: 'success', message: `Synced ${enrichResult.statusSynced} candidates from "Initial Outreach" to "Follow Up" status`});
+    }
+    enrichResult.log.forEach(l => log.push(l));
+  } catch(e) {
+    log.push({type: 'warning', message: 'Data enrichment skipped: ' + e.message});
   }
 
   if(configs.length <= 1) {
