@@ -9291,6 +9291,11 @@
 
                     // Update progress after each batch completes
                     updateSendProgress(totalSent, total, batchNum, totalBatches, errors, startTime);
+
+                    // Cooldown between batches to avoid Gmail API rate limits (skip after last batch)
+                    if (i + BATCH_SIZE < total && !emailSendingAborted) {
+                        await new Promise(resolve => setTimeout(resolve, 5000)); // 5s pause
+                    }
                 }
 
                 // Mark 100% complete

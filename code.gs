@@ -5438,13 +5438,13 @@ function sendBulkEmails(recipients, senderName, subject, htmlBody, jobId, opts) 
   });
 
   // ── Phase 2: Send all emails concurrently via UrlFetchApp.fetchAll() ────────
-  // Process in sub-batches of 50 to stay within Gmail API rate limits.
-  // Each fetchAll() call fires all requests in the chunk in parallel, giving a
-  // ~50× speedup over sequential Gmail.Users.Messages.send() calls.
+  // Process in sub-batches of 15 to stay within Gmail API rate limits.
+  // Each fetchAll() call fires all requests in the chunk in parallel.
+  // 2s cooldown between chunks + aggressive retry backoff for 429s.
   const token = ScriptApp.getOAuthToken();
-  const CONCURRENT_CHUNK = 50;
+  const CONCURRENT_CHUNK = 15;
   const sentResults = []; // { r, threadId, emailKey }
-  const MAX_RATE_LIMIT_RETRIES = 3;
+  const MAX_RATE_LIMIT_RETRIES = 5;
 
   for (let i = 0; i < toSend.length; i += CONCURRENT_CHUNK) {
     const chunk = toSend.slice(i, i + CONCURRENT_CHUNK);
@@ -5454,9 +5454,9 @@ function sendBulkEmails(recipients, senderName, subject, htmlBody, jobId, opts) 
 
     for (let attempt = 0; attempt <= MAX_RATE_LIMIT_RETRIES && pending.length > 0; attempt++) {
       if (attempt > 0) {
-        // Exponential backoff: 2s, 4s, 8s before retrying rate-limited emails
-        const backoffMs = Math.pow(2, attempt) * 1000;
-        console.warn('Rate limit: retrying ' + pending.length + ' emails (attempt ' + (attempt + 1) + '/' + (MAX_RATE_LIMIT_RETRIES + 1) + ') after ' + backoffMs + 'ms backoff');
+        // Exponential backoff: 5s, 15s, 30s, 45s, 60s before retrying rate-limited emails
+        const backoffMs = [5000, 15000, 30000, 45000, 60000][attempt - 1];
+        console.warn('Rate limit: retrying ' + pending.length + ' emails (attempt ' + (attempt + 1) + '/' + (MAX_RATE_LIMIT_RETRIES + 1) + ') after ' + (backoffMs / 1000) + 's backoff');
         Utilities.sleep(backoffMs);
       }
 
@@ -5509,6 +5509,11 @@ function sendBulkEmails(recipients, senderName, subject, htmlBody, jobId, opts) 
       });
 
       pending = stillRateLimited;
+    }
+
+    // Cooldown between chunks to avoid sustained rate-limit pressure
+    if (i + CONCURRENT_CHUNK < toSend.length) {
+      Utilities.sleep(2000); // 2s pause between sub-batches
     }
   }
 
