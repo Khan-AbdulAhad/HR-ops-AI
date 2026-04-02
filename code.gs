@@ -9586,14 +9586,13 @@ Respond with ONLY the email text OR the ACTION code. No other explanations.
         const rateInMessage = candidateMessage.match(/\$\s*(\d+(?:\.\d+)?)/);
         const extractedRate = rateInMessage ? rateInMessage[1] : null;
 
-        const summaryMsg = extractedRate
-          ? `Candidate proposed $${extractedRate}/hr (our target: $${targetRate}, max: $${maxRate}). Attempt ${attempts + 1}/2 - sending counter-offer of $${targetRate}/hr.`
-          : `Attempt ${attempts + 1}/2 - continuing negotiation with offer of $${targetRate}/hr.`;
-        jobStats.log.push({type: 'info', message: `${candidateEmail} - ${summaryMsg}`});
+        // Use attempt-based rate: 80% of target for first attempt, full target for second
+        const currentOffer = attempts === 0 ? firstOfferRate : secondOfferRate;
 
-        // Use already-calculated region-specific rates (targetRate and maxRate are set above)
-        // Always use target rate - don't start lower
-        const currentOffer = targetRate;
+        const summaryMsg = extractedRate
+          ? `Candidate proposed $${extractedRate}/hr (our target: $${targetRate}, max: $${maxRate}). Attempt ${attempts + 1}/2 - sending counter-offer of $${formatRate(currentOffer)}/hr.`
+          : `Attempt ${attempts + 1}/2 - continuing negotiation with offer of $${formatRate(currentOffer)}/hr.`;
+        jobStats.log.push({type: 'info', message: `${candidateEmail} - ${summaryMsg}`});
 
         const retryPrompt = `
 You are a recruiter at Turing. You MUST write a negotiation email.
