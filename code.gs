@@ -5853,7 +5853,7 @@ function enrichNegotiationStateData(ss) {
   const rowsToCheck = [];
   for (let i = 1; i < stateData.length; i++) {
     const row = stateData[i];
-    const email = String(row[0] || '').toLowerCase().trim();
+    const email = normalizeEmail(row[0]);
     const jobId = String(row[1] || '');
     if (!email || !jobId) continue;
 
@@ -5893,11 +5893,11 @@ function enrichNegotiationStateData(ss) {
 
   // 1. Follow_Up_Queue: [0]Email, [1]JobID, [2]ThreadID, [3]Name, [4]DevID, [8]Status
   const fqSheet = ss.getSheetByName('Follow_Up_Queue');
-  const fqMap = new Map(); // key: email_jobId -> { threadId, name, devId, fqStatus }
+  const fqMap = new Map(); // key: normalizedEmail_jobId -> { threadId, name, devId, fqStatus }
   if (fqSheet && fqSheet.getLastRow() > 1) {
     const fqData = fqSheet.getDataRange().getValues();
     for (let i = 1; i < fqData.length; i++) {
-      const key = String(fqData[i][0] || '').toLowerCase().trim() + '_' + String(fqData[i][1] || '');
+      const key = normalizeEmail(fqData[i][0]) + '_' + String(fqData[i][1] || '');
       fqMap.set(key, {
         threadId: String(fqData[i][2] || '').trim(),
         name: String(fqData[i][3] || '').trim(),
@@ -5909,11 +5909,11 @@ function enrichNegotiationStateData(ss) {
 
   // 2. Email_Logs: [0]Timestamp, [1]JobID, [2]Email, [3]Name, [4]ThreadID, [5]Type, [6]Country
   const elSheet = ss.getSheetByName('Email_Logs');
-  const elMap = new Map(); // key: email_jobId -> { threadId, name, country }
+  const elMap = new Map(); // key: normalizedEmail_jobId -> { threadId, name, country }
   if (elSheet && elSheet.getLastRow() > 1) {
     const elData = elSheet.getDataRange().getValues();
     for (let i = 1; i < elData.length; i++) {
-      const key = String(elData[i][2] || '').toLowerCase().trim() + '_' + String(elData[i][1] || '');
+      const key = normalizeEmail(elData[i][2]) + '_' + String(elData[i][1] || '');
       // Keep the first (earliest) entry as it has the initial outreach data
       if (!elMap.has(key)) {
         elMap.set(key, {
@@ -5927,11 +5927,11 @@ function enrichNegotiationStateData(ss) {
 
   // 3. Negotiation_Completed: [0]Timestamp, [1]JobID, [2]Email, [3]Name, [4]FinalStatus, [5]Notes, [6]DevID, [7]Region
   const compSheet = ss.getSheetByName('Negotiation_Completed');
-  const compMap = new Map(); // key: email_jobId -> { name, devId, region }
+  const compMap = new Map(); // key: normalizedEmail_jobId -> { name, devId, region }
   if (compSheet && compSheet.getLastRow() > 1) {
     const compData = compSheet.getDataRange().getValues();
     for (let i = 1; i < compData.length; i++) {
-      const key = String(compData[i][2] || '').toLowerCase().trim() + '_' + String(compData[i][1] || '');
+      const key = normalizeEmail(compData[i][2]) + '_' + String(compData[i][1] || '');
       compMap.set(key, {
         name: String(compData[i][3] || '').trim(),
         devId: String(compData[i][6] || '').trim(),
@@ -5961,7 +5961,7 @@ function enrichNegotiationStateData(ss) {
 
           const detailData = detailSheet.getDataRange().getValues();
           for (let i = 1; i < detailData.length; i++) {
-            const email = String(detailData[i][eIdx] || '').toLowerCase().trim();
+            const email = normalizeEmail(detailData[i][eIdx]);
             if (!email) continue;
             const key = email + '_' + jId;
             jobDetailsMap.set(key, {
@@ -6042,12 +6042,12 @@ function enrichNegotiationStateData(ss) {
 
     if (updated) enrichedCount++;
 
-    // Status Sync: If candidate is in Follow_Up_Queue with "Pending" status
+    // Status Sync: If candidate is in Follow_Up_Queue (any non-Responded status)
     // and Negotiation_State status is "Initial Outreach", change to "Follow Up"
-    if (row.needsStatusSync && fq.fqStatus === 'Pending') {
+    if (row.needsStatusSync && fq.fqStatus && fq.fqStatus !== 'Responded') {
       stateSheet.getRange(row.rowIndex, 5).setValue('Follow Up'); // Column 5 = Status
       statusSyncCount++;
-      log.push({ type: 'info', message: `Status synced to "Follow Up" for ${row.email} (Job ${row.jobId}) - candidate is in follow-up queue` });
+      log.push({ type: 'info', message: `Status synced to "Follow Up" for ${row.email} (Job ${row.jobId}) - candidate is in follow-up queue (${fq.fqStatus})` });
     }
   });
 
@@ -6069,7 +6069,7 @@ function enrichCompletedAndTasksData(ss) {
     if (compSheet && compSheet.getLastRow() > 1) {
       const compData = compSheet.getDataRange().getValues();
       for (let i = 1; i < compData.length; i++) {
-        const email = String(compData[i][2] || '').toLowerCase().trim();
+        const email = normalizeEmail(compData[i][2]);
         const jobId = String(compData[i][1] || '');
         const name = String(compData[i][3] || '').trim();
         const devId = String(compData[i][6] || '').trim();
@@ -6109,7 +6109,7 @@ function enrichCompletedAndTasksData(ss) {
     if (taskSheet && taskSheet.getLastRow() > 1) {
       const taskData = taskSheet.getDataRange().getValues();
       for (let i = 1; i < taskData.length; i++) {
-        const email = String(taskData[i][3] || '').toLowerCase().trim();
+        const email = normalizeEmail(taskData[i][3]);
         const jobId = String(taskData[i][1] || '');
         const name = String(taskData[i][2] || '').trim();
         const devId = String(taskData[i][6] || '').trim();
@@ -6181,7 +6181,7 @@ function lookupCandidateDetails(ss, email, jobId, current) {
 
   if (!needsName && !needsDevId && !needsThreadId && !needsRegion) return result;
 
-  const cleanEmail = email.toLowerCase().trim();
+  const cleanEmail = normalizeEmail(email);
 
   // 1. Follow_Up_Queue: [0]Email, [1]JobID, [2]ThreadID, [3]Name, [4]DevID
   try {
@@ -6189,7 +6189,7 @@ function lookupCandidateDetails(ss, email, jobId, current) {
     if (fqSheet && fqSheet.getLastRow() > 1) {
       const fqData = fqSheet.getDataRange().getValues();
       for (let i = 1; i < fqData.length; i++) {
-        if (String(fqData[i][0] || '').toLowerCase().trim() === cleanEmail && String(fqData[i][1]) === String(jobId)) {
+        if (normalizeEmail(fqData[i][0]) === cleanEmail && String(fqData[i][1]) === String(jobId)) {
           const fqName = String(fqData[i][3] || '').trim();
           const fqDevId = String(fqData[i][4] || '').trim();
           const fqThreadId = String(fqData[i][2] || '').trim();
@@ -6208,7 +6208,7 @@ function lookupCandidateDetails(ss, email, jobId, current) {
     if (elSheet && elSheet.getLastRow() > 1) {
       const elData = elSheet.getDataRange().getValues();
       for (let i = 1; i < elData.length; i++) {
-        if (String(elData[i][2] || '').toLowerCase().trim() === cleanEmail && String(elData[i][1]) === String(jobId)) {
+        if (normalizeEmail(elData[i][2]) === cleanEmail && String(elData[i][1]) === String(jobId)) {
           const elName = String(elData[i][3] || '').trim();
           const elThreadId = String(elData[i][4] || '').trim();
           const elCountry = String(elData[i][6] || '').trim();
@@ -6236,7 +6236,7 @@ function lookupCandidateDetails(ss, email, jobId, current) {
         if (eIdx !== -1) {
           const detailData = detailSheet.getDataRange().getValues();
           for (let i = 1; i < detailData.length; i++) {
-            if (String(detailData[i][eIdx] || '').toLowerCase().trim() === cleanEmail) {
+            if (normalizeEmail(detailData[i][eIdx]) === cleanEmail) {
               if (isMissing(result.name, 'Unknown') && nIdx !== -1) {
                 const jdName = String(detailData[i][nIdx] || '').trim();
                 if (jdName && jdName !== 'Unknown') result.name = jdName;
@@ -6267,7 +6267,7 @@ function lookupCandidateDetails(ss, email, jobId, current) {
     if (compSheet && compSheet.getLastRow() > 1) {
       const compData = compSheet.getDataRange().getValues();
       for (let i = 1; i < compData.length; i++) {
-        if (String(compData[i][2] || '').toLowerCase().trim() === cleanEmail && String(compData[i][1]) === String(jobId)) {
+        if (normalizeEmail(compData[i][2]) === cleanEmail && String(compData[i][1]) === String(jobId)) {
           const cName = String(compData[i][3] || '').trim();
           const cDevId = String(compData[i][6] || '').trim();
           const cRegion = String(compData[i][7] || '').trim();
