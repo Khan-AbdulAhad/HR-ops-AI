@@ -8568,10 +8568,12 @@ Return ONLY the JSON object, no other text.
       jobStats.log.push({type: 'success', message: `${candidateEmail} - AI recommends AUTO-ACCEPT at $${rate}/hr (agreed: $${rateAnalysis.agreed_rate || 'N/A'}, proposed: $${rateAnalysis.proposed_rate || 'N/A'}, target: $${targetRate}/hr)`});
 
       // Rate validation: if rate exceeds maxRate, negotiate first (2 attempts) then escalate
+      // Use attempt-based rates: attempt 0 → firstOfferRate (80% target), attempt 1 → secondOfferRate (target)
       let shouldSkipAutoAccept = false;
       if (rate > maxRate) {
         if (attempts < 2) {
-          jobStats.log.push({type: 'info', message: `${candidateEmail} - Rate $${rate}/hr exceeds max $${maxRate}/hr. Attempt ${attempts + 1}/2 - will counter-offer at $${maxRate}/hr instead of auto-accepting.`});
+          const attemptOfferRate = attempts === 0 ? firstOfferRate : secondOfferRate;
+          jobStats.log.push({type: 'info', message: `${candidateEmail} - Rate $${rate}/hr exceeds max $${maxRate}/hr. Attempt ${attempts + 1}/2 - will counter-offer at $${attemptOfferRate}/hr instead of auto-accepting.`});
           shouldSkipAutoAccept = true;
         } else {
           jobStats.log.push({type: 'warning', message: `${candidateEmail} - Rate $${rate}/hr exceeds max $${maxRate}/hr after ${attempts} negotiation attempts. Escalating to human review.`});
@@ -8610,10 +8612,10 @@ Return ONLY the JSON object, no other text.
         }
       }
 
-      // Skip auto-accept if rate exceeds maxRate — send counter-offer instead
+      // Skip auto-accept if rate exceeds maxRate — send counter-offer using attempt-based rate
       if (shouldSkipAutoAccept) {
-        const counterOfferRate = maxRate;
-        jobStats.log.push({type: 'info', message: `${candidateEmail} - Skipping auto-accept, sending counter-offer at $${counterOfferRate}/hr`});
+        const counterOfferRate = attempts === 0 ? firstOfferRate : secondOfferRate;
+        jobStats.log.push({type: 'info', message: `${candidateEmail} - Skipping auto-accept, sending counter-offer at $${counterOfferRate}/hr (attempt ${attempts + 1}/2)`});
 
         // ACTUALLY SEND A COUNTER-OFFER at the appropriate rate
         const counterOfferPrompt = `
@@ -9642,10 +9644,12 @@ Write ONLY the email, nothing else.
       const rate = rateMatch ? Number(rateMatch[1].replace('$','').replace('/hr','').trim()) : Number(rules.target);
 
       // Rate validation: if rate exceeds maxRate, negotiate first (2 attempts) then escalate
+      // Use attempt-based rates: attempt 0 → firstOfferRate (80% target), attempt 1 → secondOfferRate (target)
       let shouldSkipActionAccept = false;
       if (rate > maxRate) {
         if (attempts < 2) {
-          jobStats.log.push({type: 'info', message: `${candidateEmail} - (ACTION:ACCEPT) Rate $${rate}/hr exceeds max $${maxRate}/hr. Attempt ${attempts + 1}/2 - will counter-offer at $${maxRate}/hr.`});
+          const attemptOfferRate = attempts === 0 ? firstOfferRate : secondOfferRate;
+          jobStats.log.push({type: 'info', message: `${candidateEmail} - (ACTION:ACCEPT) Rate $${rate}/hr exceeds max $${maxRate}/hr. Attempt ${attempts + 1}/2 - will counter-offer at $${attemptOfferRate}/hr.`});
           shouldSkipActionAccept = true;
         } else {
           jobStats.log.push({type: 'warning', message: `${candidateEmail} - Rate $${rate}/hr exceeds max $${maxRate}/hr after ${attempts} negotiation attempts. Escalating to human review.`});
@@ -9683,10 +9687,10 @@ Write ONLY the email, nothing else.
         }
       }
 
-      // Skip ACTION:ACCEPT if rate exceeds maxRate — send counter-offer instead
+      // Skip ACTION:ACCEPT if rate exceeds maxRate — send counter-offer using attempt-based rate
       if (shouldSkipActionAccept) {
-        const counterOfferRate = maxRate;
-        jobStats.log.push({type: 'info', message: `${candidateEmail} - Skipping ACTION:ACCEPT, sending counter-offer at $${counterOfferRate}/hr`});
+        const counterOfferRate = attempts === 0 ? firstOfferRate : secondOfferRate;
+        jobStats.log.push({type: 'info', message: `${candidateEmail} - Skipping ACTION:ACCEPT, sending counter-offer at $${counterOfferRate}/hr (attempt ${attempts + 1}/2)`});
 
         // ACTUALLY SEND A COUNTER-OFFER at the appropriate rate
         const counterOfferPrompt = `
