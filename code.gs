@@ -6963,9 +6963,10 @@ function processJobNegotiations(jobId, rules, ss, faqContent, negotiationEnabled
     if (labels.includes("Human-Negotiation")) {
       // Update Negotiation_State sheet status if not already "Human-Negotiation"
       try {
-        const stateData = stateSheet.getDataRange().getValues();
+        const hnStateData = stateSheet.getDataRange().getValues();
         const msgs_ = thread.getMessages();
         let candEmail = '';
+        // Try to find candidate email from reply messages (non-me sender)
         for (let m of msgs_) {
           const from = m.getFrom().toLowerCase();
           if (from.indexOf(myEmail) === -1) {
@@ -6974,17 +6975,68 @@ function processJobNegotiations(jobId, rules, ss, faqContent, negotiationEnabled
             break;
           }
         }
+        // FALLBACK: If candidate hasn't replied (Initial Outreach), extract from "To" field
+        if (!candEmail && msgs_.length > 0) {
+          const toHeader = msgs_[0].getTo() || '';
+          const toEmails = toHeader.split(',');
+          for (const toEntry of toEmails) {
+            const trimmed = toEntry.trim().toLowerCase();
+            if (trimmed.indexOf(myEmail) === -1) {
+              const emailMatch = trimmed.match(/<([^>]+)>/);
+              candEmail = emailMatch ? emailMatch[1] : trimmed.replace(/.*<|>.*/g, '');
+              break;
+            }
+          }
+        }
         if (candEmail) {
           candEmail = candEmail.toLowerCase().trim();
-          for (let r = 1; r < stateData.length; r++) {
-            if (String(stateData[r][0]).toLowerCase().trim() === candEmail && String(stateData[r][1]) === String(jobId)) {
-              const currentStatus = String(stateData[r][4] || '');
+          let foundInState = false;
+          let stateRowForSummary = -1;
+          for (let r = 1; r < hnStateData.length; r++) {
+            if (String(hnStateData[r][0]).toLowerCase().trim() === candEmail && String(hnStateData[r][1]) === String(jobId)) {
+              foundInState = true;
+              stateRowForSummary = r + 1;
+              const currentStatus = String(hnStateData[r][4] || '');
               if (currentStatus !== 'Human-Negotiation') {
                 stateSheet.getRange(r + 1, 5).setValue('Human-Negotiation');
                 debugLog(`Gmail label sync: Updated ${candEmail} status from "${currentStatus}" to "Human-Negotiation" (Gmail label detected)`);
               }
               break;
             }
+          }
+          // If candidate is NOT in Negotiation_State, add them
+          if (!foundInState) {
+            let name = 'Unknown';
+            let devId = 'N/A';
+            let region = '';
+            try {
+              const enriched = lookupCandidateDetails(ss, candEmail, String(jobId), { name, devId, threadId: thread.getId(), region });
+              if (enriched.name && enriched.name !== 'Unknown') name = enriched.name;
+              if (enriched.devId && enriched.devId !== 'N/A') devId = enriched.devId;
+              if (enriched.region) region = enriched.region;
+            } catch(enrichErr) {}
+            stateSheet.appendRow([
+              candEmail, jobId, 0, '', 'Human-Negotiation', new Date(),
+              devId, name, '',
+              thread.getId(), region
+            ]);
+            stateRowForSummary = stateSheet.getLastRow();
+            debugLog(`Gmail label sync: Added ${candEmail} (Job ${jobId}) to Negotiation_State as "Human-Negotiation"`);
+          }
+
+          // Generate AI summary for the human recruiter from the conversation thread
+          if (stateRowForSummary > 0 && msgs_.length > 1) {
+            try {
+              const summary = generateConversationSummary(msgs_, candEmail, myEmail);
+              if (summary) {
+                stateSheet.getRange(stateRowForSummary, 9).setValue(summary);
+              }
+            } catch(summaryErr) {
+              console.error('Failed to generate AI summary for Human-Negotiation candidate:', summaryErr);
+            }
+          } else if (stateRowForSummary > 0 && msgs_.length <= 1) {
+            // Only outreach email exists - no conversation to summarize
+            stateSheet.getRange(stateRowForSummary, 9).setValue('Manually escalated to Human-Negotiation - awaiting candidate response');
           }
         }
       } catch(syncErr) {
@@ -11938,6 +11990,8 @@ function syncCompletedFromGmail() {
  * If a user manually labels a thread as "Human-Negotiation" in Gmail,
  * this function updates the candidate's status in the sheet so the task list
  * reflects the label and AI stops sending emails to that candidate.
+ * If the candidate is NOT in Negotiation_State (e.g., still in Follow_Up_Queue/Email_Logs only),
+ * they are added to Negotiation_State with "Human-Negotiation" status.
  */
 function syncHumanNegotiationFromGmail() {
   const url = getStoredSheetUrl();
@@ -11957,13 +12011,14 @@ function syncHumanNegotiationFromGmail() {
 
     if (threads.length === 0) return { synced: 0 };
 
-    const stateData = stateSheet.getDataRange().getValues();
+    // Read state data once (re-read after each append to keep row indices accurate)
+    let stateData = stateSheet.getDataRange().getValues();
 
     threads.forEach(thread => {
       const msgs = thread.getMessages();
       if (msgs.length === 0) return;
 
-      // Extract candidate email from thread
+      // Extract candidate email from thread (first non-me sender)
       let candidateEmail = '';
       for (let m of msgs) {
         const from = m.getFrom().toLowerCase();
@@ -11973,12 +12028,53 @@ function syncHumanNegotiationFromGmail() {
           break;
         }
       }
+
+      // FALLBACK: If no candidate reply exists (Initial Outreach - candidate hasn't replied yet),
+      // extract the recipient email from the first message's "To" field instead
+      if (!candidateEmail) {
+        try {
+          const firstMsg = msgs[0];
+          const toHeader = firstMsg.getTo() || '';
+          // Parse "To" field - could be "Name <email>" or just "email"
+          const toEmails = toHeader.split(',');
+          for (const toEntry of toEmails) {
+            const trimmed = toEntry.trim().toLowerCase();
+            if (trimmed.indexOf(myEmail) === -1) {
+              const emailMatch = trimmed.match(/<([^>]+)>/);
+              candidateEmail = emailMatch ? emailMatch[1] : trimmed.replace(/.*<|>.*/g, '');
+              break;
+            }
+          }
+        } catch(toErr) {
+          console.error('syncHumanNegotiationFromGmail: Failed to extract To email:', toErr);
+        }
+      }
+
       if (!candidateEmail) return;
       candidateEmail = candidateEmail.toLowerCase().trim();
 
+      // Extract job ID from thread labels
+      let threadJobId = '';
+      try {
+        const threadLabels = thread.getLabels();
+        for (const label of threadLabels) {
+          const labelName = label.getName();
+          if (labelName.startsWith('Job-')) {
+            threadJobId = labelName.replace('Job-', '');
+            break;
+          }
+        }
+      } catch(labelErr) {
+        console.error('syncHumanNegotiationFromGmail: Failed to extract job ID from labels:', labelErr);
+      }
+
       // Find in state sheet and update status if not already "Human-Negotiation"
+      let foundInState = false;
       for (let r = 1; r < stateData.length; r++) {
-        if (String(stateData[r][0]).toLowerCase().trim() === candidateEmail) {
+        const stateEmail = String(stateData[r][0]).toLowerCase().trim();
+        const stateJobId = String(stateData[r][1]);
+        if (stateEmail === candidateEmail && (!threadJobId || stateJobId === threadJobId)) {
+          foundInState = true;
           const currentStatus = String(stateData[r][4] || '');
           if (currentStatus !== 'Human-Negotiation') {
             stateSheet.getRange(r + 1, 5).setValue('Human-Negotiation');
@@ -11986,6 +12082,47 @@ function syncHumanNegotiationFromGmail() {
             syncedCount++;
           }
           break;
+        }
+      }
+
+      // If candidate is NOT in Negotiation_State, add them with "Human-Negotiation" status
+      // This handles candidates still in Follow_Up_Queue/Email_Logs who were manually labeled
+      if (!foundInState && threadJobId) {
+        try {
+          // Look up candidate details from other sheets
+          let name = 'Unknown';
+          let devId = 'N/A';
+          let region = '';
+          try {
+            const enriched = lookupCandidateDetails(ss, candidateEmail, threadJobId, { name, devId, threadId: thread.getId(), region });
+            if (enriched.name && enriched.name !== 'Unknown') name = enriched.name;
+            if (enriched.devId && enriched.devId !== 'N/A') devId = enriched.devId;
+            if (enriched.region) region = enriched.region;
+          } catch(enrichErr) {
+            console.error('syncHumanNegotiationFromGmail: enrichment error:', enrichErr);
+          }
+
+          stateSheet.appendRow([
+            candidateEmail,      // Email
+            threadJobId,         // Job ID
+            0,                   // Attempt Count
+            '',                  // Last Offer
+            'Human-Negotiation', // Status
+            new Date(),          // Last Reply Time
+            devId,               // Dev ID
+            name,                // Name
+            'Manually escalated to Human-Negotiation via Gmail label', // AI Notes
+            thread.getId(),      // Thread ID
+            region               // Region
+          ]);
+
+          // Re-read state data after append to keep indices accurate for next iteration
+          stateData = stateSheet.getDataRange().getValues();
+
+          debugLog(`syncHumanNegotiationFromGmail: Added ${candidateEmail} (Job ${threadJobId}) to Negotiation_State as "Human-Negotiation"`);
+          syncedCount++;
+        } catch(addErr) {
+          console.error('syncHumanNegotiationFromGmail: Failed to add candidate to state:', addErr);
         }
       }
     });
