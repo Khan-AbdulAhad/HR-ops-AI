@@ -3938,8 +3938,11 @@ function getAllTasks(filters) {
     const settings = getJobSettingsCached(jobId);
 
     // Override status to 'Unresponsive' if candidate is found in Follow_Up_Queue or Unresponsive_Devs
+    // FIX: Also override 'Follow Up' status — candidates whose status was synced to 'Follow Up'
+    // (after 1st follow-up sent) were not being caught by the previous 'Initial Outreach'-only check,
+    // so they stayed stuck on 'Follow Up' tag even after being moved to Unresponsive_Devs sheet.
     const candidateKey = normalizeEmail(stateData[i][0]) + '|' + jobId;
-    if(status === 'Initial Outreach' && unresponsiveSet.has(candidateKey)) {
+    if((status === 'Initial Outreach' || status === 'Follow Up') && unresponsiveSet.has(candidateKey)) {
       status = 'Unresponsive';
     }
 
