@@ -6682,6 +6682,18 @@ function runAutoNegotiator() {
     log.push({type: 'warning', message: 'Gmail sync skipped: ' + e.message});
   }
   
+  // STEP 1.5: Sync "Human-Negotiation" Gmail labels to Negotiation_State sheet status
+  // This ensures that when a user manually labels an email as "Human-Negotiation" in Gmail,
+  // the task list status reflects it and AI stops sending emails to that candidate
+  try {
+    const humanSyncResult = syncHumanNegotiationFromGmail();
+    if (humanSyncResult.synced > 0) {
+      log.push({type: 'success', message: `Synced ${humanSyncResult.synced} candidates to "Human-Negotiation" status from Gmail labels`});
+    }
+  } catch(e) {
+    log.push({type: 'warning', message: 'Human-Negotiation label sync skipped: ' + e.message});
+  }
+
   // STEP 2: Process completed human escalations (threads with Human-Negotiation + Completed labels)
   try {
     const humanResult = processCompletedHumanEscalations();
@@ -6954,6 +6966,45 @@ function processJobNegotiations(jobId, rules, ss, faqContent, negotiationEnabled
     if (labels.includes("Completed")) {
       jobStats.skipped++;
       jobStats.log.push({type: 'info', message: `Skipped thread: Already completed`});
+      return;
+    }
+
+    // BUG FIX: If the "Human-Negotiation" Gmail label was manually added by user,
+    // sync the status to the Negotiation_State sheet and skip AI email processing.
+    // This ensures that when a user labels an email as "Human-Negotiation" in Gmail,
+    // the task list status reflects this AND no AI emails are sent.
+    if (labels.includes("Human-Negotiation")) {
+      // Update Negotiation_State sheet status if not already "Human-Negotiation"
+      try {
+        const stateData = stateSheet.getDataRange().getValues();
+        const msgs_ = thread.getMessages();
+        let candEmail = '';
+        for (let m of msgs_) {
+          const from = m.getFrom().toLowerCase();
+          if (from.indexOf(myEmail) === -1) {
+            const emailMatch = from.match(/<([^>]+)>/);
+            candEmail = emailMatch ? emailMatch[1] : from.replace(/.*<|>.*/g, '');
+            break;
+          }
+        }
+        if (candEmail) {
+          candEmail = candEmail.toLowerCase().trim();
+          for (let r = 1; r < stateData.length; r++) {
+            if (String(stateData[r][0]).toLowerCase().trim() === candEmail && String(stateData[r][1]) === String(jobId)) {
+              const currentStatus = String(stateData[r][4] || '');
+              if (currentStatus !== 'Human-Negotiation') {
+                stateSheet.getRange(r + 1, 5).setValue('Human-Negotiation');
+                debugLog(`Gmail label sync: Updated ${candEmail} status from "${currentStatus}" to "Human-Negotiation" (Gmail label detected)`);
+              }
+              break;
+            }
+          }
+        }
+      } catch(syncErr) {
+        console.error('Failed to sync Human-Negotiation label to sheet:', syncErr);
+      }
+      jobStats.skipped++;
+      jobStats.log.push({type: 'info', message: `Skipped thread: Human-Negotiation label detected - no AI emails will be sent`});
       return;
     }
 
@@ -7306,7 +7357,8 @@ function processJobNegotiations(jobId, rules, ss, faqContent, negotiationEnabled
 
     // JOB CLOSED HANDLER: If job is Fulfilled or Stopped, reply to candidate with a closure message
     // instead of running normal negotiation. Data extraction is skipped as the job is no longer active.
-    if (isJobClosed) {
+    // BUG FIX: Skip closure email if candidate is under Human-Negotiation - a human is handling this
+    if (isJobClosed && (!state || state.status !== 'Human-Negotiation')) {
       try {
         // Gather other active jobs from Negotiation_Config for potential matching mention
         let otherJobsText = '';
@@ -7488,7 +7540,10 @@ Reply with only the email body text. No subject line. No placeholders.`;
         // This prevents duplicate emails (one for data gathering, one for negotiation)
         // NOTE: Use filtered pendingDataQuestions (excludes negotiation-managed headers) to avoid
         // sending data gathering emails that ask for "Negotiation Response" or "Expected Rate"
-        if (pendingDataQuestions.length > 0 && !isDataGatheringComplete && !isNotInterestedEarly) {
+        // BUG FIX: Skip data gathering EMAIL if candidate is under Human-Negotiation.
+        // Data extraction to sheet still happens above, but NO email should be sent by AI.
+        if (pendingDataQuestions.length > 0 && !isDataGatheringComplete && !isNotInterestedEarly
+            && (!state || state.status !== 'Human-Negotiation')) {
           // CRITICAL FIX: Check if candidate mentioned a rate in their message OR if rate was already provided
           // If they did, we should NOT send a simple data gathering email - instead let the negotiation
           // logic handle it, which will send a combined "acknowledge rate + request missing info" email
@@ -11630,6 +11685,22 @@ function syncCompletedFromGmail() {
       const stateData = stateSheet.getDataRange().getValues();
       for(let r=stateData.length-1; r>=1; r--) {
         if(String(stateData[r][0]).toLowerCase() === candidateEmail && String(stateData[r][1]) === String(jobId)) {
+          // BUG FIX: Check if the candidate's current status in the sheet is still "Completed".
+          // If the user manually changed the status AWAY from Completed (e.g., to correct a mistake),
+          // respect that change by removing the Gmail "Completed" label instead of overriding the correction.
+          const currentSheetStatus = String(stateData[r][4] || '').trim();
+          if (currentSheetStatus && currentSheetStatus.toLowerCase().indexOf('completed') === -1 && currentSheetStatus !== 'Data Complete') {
+            // User has manually changed status away from Completed - respect the correction
+            try {
+              const completedLabel = GmailApp.getUserLabelByName("Completed");
+              if (completedLabel) thread.removeLabel(completedLabel);
+              debugLog(`syncCompletedFromGmail: Removed stale "Completed" Gmail label for ${candidateEmail} - sheet status is "${currentSheetStatus}" (user corrected status)`);
+            } catch(labelErr) {
+              console.error('Failed to remove stale Completed label:', labelErr);
+            }
+            break; // Skip this candidate - don't move to completed
+          }
+
           // Found in state sheet - move to completed
           let devId = stateData[r][6] || 'N/A';
           let name = stateData[r][7] || candidateName || 'Unknown';
@@ -11873,6 +11944,69 @@ function syncCompletedFromGmail() {
   }
   
   return { synced: syncedCount, cleaned: cleanedCount };
+}
+
+/**
+ * Syncs "Human-Negotiation" Gmail label to Negotiation_State sheet status.
+ * If a user manually labels a thread as "Human-Negotiation" in Gmail,
+ * this function updates the candidate's status in the sheet so the task list
+ * reflects the label and AI stops sending emails to that candidate.
+ */
+function syncHumanNegotiationFromGmail() {
+  const url = getStoredSheetUrl();
+  if (!url) return { synced: 0 };
+
+  const ss = SpreadsheetApp.openByUrl(url);
+  const stateSheet = ss.getSheetByName('Negotiation_State');
+  if (!stateSheet) return { synced: 0 };
+
+  let syncedCount = 0;
+  const myEmail = Session.getActiveUser().getEmail().toLowerCase();
+
+  // Search for threads with Human-Negotiation label (but NOT Completed - those are handled separately)
+  try {
+    const query = `label:Human-Negotiation -label:Completed label:${AI_MANAGED_LABEL}`;
+    const threads = GmailApp.search(query, 0, 100);
+
+    if (threads.length === 0) return { synced: 0 };
+
+    const stateData = stateSheet.getDataRange().getValues();
+
+    threads.forEach(thread => {
+      const msgs = thread.getMessages();
+      if (msgs.length === 0) return;
+
+      // Extract candidate email from thread
+      let candidateEmail = '';
+      for (let m of msgs) {
+        const from = m.getFrom().toLowerCase();
+        if (from.indexOf(myEmail) === -1) {
+          const emailMatch = from.match(/<([^>]+)>/);
+          candidateEmail = emailMatch ? emailMatch[1] : from.replace(/.*<|>.*/g, '');
+          break;
+        }
+      }
+      if (!candidateEmail) return;
+      candidateEmail = candidateEmail.toLowerCase().trim();
+
+      // Find in state sheet and update status if not already "Human-Negotiation"
+      for (let r = 1; r < stateData.length; r++) {
+        if (String(stateData[r][0]).toLowerCase().trim() === candidateEmail) {
+          const currentStatus = String(stateData[r][4] || '');
+          if (currentStatus !== 'Human-Negotiation') {
+            stateSheet.getRange(r + 1, 5).setValue('Human-Negotiation');
+            debugLog(`syncHumanNegotiationFromGmail: Updated ${candidateEmail} status from "${currentStatus}" to "Human-Negotiation"`);
+            syncedCount++;
+          }
+          break;
+        }
+      }
+    });
+  } catch (e) {
+    console.error('syncHumanNegotiationFromGmail error:', e);
+  }
+
+  return { synced: syncedCount };
 }
 
 /**
