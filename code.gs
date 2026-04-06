@@ -4396,27 +4396,6 @@ function updateCandidateStatusTag(email, jobId, newStatus) {
           console.error('Failed to update job details sheet:', e);
         }
 
-        // FIX: When status changes to Human-Negotiation, also mark Follow_Up_Queue as "Responded"
-        // so follow-ups stop immediately instead of waiting for the next processFollowUpQueue() cycle
-        if (newStatus === 'Human-Negotiation') {
-          try {
-            const fqSheet = ss.getSheetByName('Follow_Up_Queue');
-            if (fqSheet && fqSheet.getLastRow() > 1) {
-              const fqData = fqSheet.getDataRange().getValues();
-              for (let f = 1; f < fqData.length; f++) {
-                const fqStatus = String(fqData[f][8] || '');
-                if (normalizeEmail(fqData[f][0]) === normalizedEmail && String(fqData[f][1]) === String(jobId) && fqStatus !== 'Responded' && fqStatus !== 'Unresponsive') {
-                  fqSheet.getRange(f + 1, 9).setValue('Responded');
-                  fqSheet.getRange(f + 1, 10).setValue(new Date());
-                  break;
-                }
-              }
-            }
-          } catch(fqErr) {
-            console.error('Failed to update Follow_Up_Queue for Human-Negotiation:', fqErr);
-          }
-        }
-
         return { success: true };
       }
     }
