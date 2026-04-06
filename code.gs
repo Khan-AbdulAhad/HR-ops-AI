@@ -4902,11 +4902,37 @@ function moveToCompleted(email, finalStatus, jobIdFilter) {
     }
   }
 
+  // FIX: Mark Follow_Up_Queue entry as 'Responded' to prevent duplicate follow-up emails.
+  // Previously, moveToCompleted() did not touch the Follow_Up_Queue at all, so completed
+  // candidates kept receiving follow-up emails from the automated follow-up processor.
+  if(moved) {
+    try {
+      const followUpSheet = ss.getSheetByName('Follow_Up_Queue');
+      if(followUpSheet) {
+        const fqData = followUpSheet.getDataRange().getValues();
+        const normalizedClean = normalizeEmail(email);
+        for(let i = fqData.length - 1; i >= 1; i--) {
+          const fqKey = normalizeEmail(fqData[i][0]);
+          const fqJobId = String(fqData[i][1]);
+          if(fqKey === normalizedClean && (!jobIdFilter || fqJobId === String(jobIdFilter))) {
+            followUpSheet.getRange(i + 1, 9).setValue('Responded');  // Status column
+            followUpSheet.getRange(i + 1, 10).setValue(new Date());  // Last Updated column
+            debugLog(`moveToCompleted: Marked Follow_Up_Queue entry as Responded for ${email} Job ${fqJobId}`);
+            break;
+          }
+        }
+      }
+    } catch(fqErr) {
+      console.error("Failed to update Follow_Up_Queue on completion:", fqErr);
+    }
+  }
+
   // Invalidate caches after modifying data
   if(moved) {
     invalidateSheetCache('Negotiation_State');
     invalidateSheetCache('Negotiation_Tasks');
     invalidateSheetCache('Negotiation_Completed');
+    invalidateSheetCache('Follow_Up_Queue');
   }
 
   return { success: moved, message: moved ? "Moved to completed" : "Email not found", jobId: taskInfo.jobId };
@@ -11722,11 +11748,13 @@ function syncCompletedFromGmail() {
       
       if(!candidateEmail) return;
       candidateEmail = candidateEmail.toLowerCase().trim();
-      
+      // FIX: Use normalizeEmail for Gmail dot-variant matching (consistent with sendBulkEmails)
+      const normalizedCandidateEmail = normalizeEmail(candidateEmail);
+
       // Check if this email exists in State sheet (not yet synced)
       const stateData = stateSheet.getDataRange().getValues();
       for(let r=stateData.length-1; r>=1; r--) {
-        if(String(stateData[r][0]).toLowerCase() === candidateEmail && String(stateData[r][1]) === String(jobId)) {
+        if(normalizeEmail(stateData[r][0]) === normalizedCandidateEmail && String(stateData[r][1]) === String(jobId)) {
           // BUG FIX: Check if the candidate's current status in the sheet is still "Completed".
           // If the user manually changed the status AWAY from Completed (e.g., to correct a mistake),
           // respect that change by removing the Gmail "Completed" label instead of overriding the correction.
@@ -11911,7 +11939,7 @@ function syncCompletedFromGmail() {
       // Also check Task sheet (accepted offers)
       const taskData = taskSheet.getDataRange().getValues();
       for(let r=taskData.length-1; r>=1; r--) {
-        if(String(taskData[r][3]).toLowerCase() === candidateEmail && String(taskData[r][1]) === String(jobId)) {
+        if(normalizeEmail(taskData[r][3]) === normalizedCandidateEmail && String(taskData[r][1]) === String(jobId)) {
           if(taskData[r][5] === 'Archived') continue; // Already archived
 
           let devId = taskData[r][6] || 'N/A';
@@ -11971,6 +11999,28 @@ function syncCompletedFromGmail() {
         }
       }
 
+      // FIX: Mark Follow_Up_Queue entry as 'Responded' to prevent duplicate follow-up emails
+      // after Gmail sync completion (same fix as in moveToCompleted)
+      try {
+        const followUpSheet = ss.getSheetByName('Follow_Up_Queue');
+        if(followUpSheet) {
+          const fqData = followUpSheet.getDataRange().getValues();
+          for(let fi = fqData.length - 1; fi >= 1; fi--) {
+            if(normalizeEmail(fqData[fi][0]) === normalizedCandidateEmail && String(fqData[fi][1]) === String(jobId)) {
+              const fqStatus = fqData[fi][8];
+              if(fqStatus !== 'Responded' && fqStatus !== 'Unresponsive') {
+                followUpSheet.getRange(fi + 1, 9).setValue('Responded');
+                followUpSheet.getRange(fi + 1, 10).setValue(new Date());
+                debugLog(`syncCompletedFromGmail: Marked Follow_Up_Queue as Responded for ${candidateEmail}`);
+              }
+              break;
+            }
+          }
+        }
+      } catch(fqErr) {
+        console.error("syncCompletedFromGmail - Failed to update Follow_Up_Queue:", fqErr);
+      }
+
       // CLEANUP: Remove Human-Negotiation label if thread has Completed label
       const humanLabel = GmailApp.getUserLabelByName("Human-Negotiation");
       if(humanLabel) {
@@ -11984,7 +12034,12 @@ function syncCompletedFromGmail() {
       }
     });
   }
-  
+
+  // Invalidate Follow_Up_Queue cache after sync
+  if(syncedCount > 0) {
+    invalidateSheetCache('Follow_Up_Queue');
+  }
+
   return { synced: syncedCount, cleaned: cleanedCount };
 }
 
