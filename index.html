@@ -8564,6 +8564,10 @@
                         addLog('success', summary);
                         showToast(summary, "success");
                         loadTasks();
+                    } else if(res.status === 'Skipped') {
+                        statusEl.textContent = 'Skipped';
+                        addLog('warning', res.message);
+                        showToast(res.message, "warning");
                     } else {
                         statusEl.textContent = 'Error';
                         addLog('error', 'Error: ' + res.message);
