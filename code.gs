@@ -464,7 +464,7 @@ This is your FIRST response:
 - If candidate stated a RANGE within your max ($${max}/hr) → Propose the LOWER end of their range. Say: "Based on the scope of this role, we can offer $[lower end]/hr"
 - If candidate stated a single rate ≤ $${max}/hr → Accept their rate exactly
 - If candidate stated a rate > $${max}/hr → Counter with $${secondOfferRate}/hr
-- If candidate hasn't mentioned a rate → Offer $${firstOfferRate}/hr
+- If candidate hasn't mentioned a rate but expressed general interest → Do NOT offer a new rate. Instead, acknowledge their interest and ask them to confirm they are aligned with the rate and compensation details shared in the original outreach email. This is a confirmation step, not a negotiation.
 - If candidate says "rate is too low" without a number → Ask: "What rate would you be comfortable with?"
 ` : `
 This is your FOLLOW-UP response:
@@ -599,7 +599,7 @@ ${getEffectiveSignature()}
 ${isFirstResponse ? `
 - If candidate stated a rate ≤ $${max}/hr → Accept their rate and confirm details
 - If candidate stated a rate > $${max}/hr → Counter with $${secondOfferRate}/hr
-- If no rate mentioned → Offer $${firstOfferRate}/hr confidently
+- If no rate mentioned but candidate expressed general interest → Do NOT offer a new rate. Acknowledge their interest and ask them to confirm they are aligned with the rate and compensation details shared in the original outreach email.
 - If they say "too low" without a number → Ask what rate they'd be comfortable with
 - Present rates without justification or internal terminology
 - ONLY answer questions from the FAQ - for anything else, politely defer
@@ -9437,7 +9437,7 @@ This is your FIRST response:
 - If candidate stated a RANGE within your max ($${maxRate}/hr) → Propose the LOWER end of their range. Say: "Based on the scope of this role, we can offer $[lower end]/hr"
 - If candidate stated a single rate ≤ $${maxRate}/hr → Accept their rate exactly
 - If candidate stated a rate > $${maxRate}/hr → Counter with $${secondOfferRate}/hr
-- If candidate hasn't mentioned a rate → Offer $${firstOfferRate}/hr
+- If candidate hasn't mentioned a rate but expressed general interest → Do NOT offer a new rate. Instead, acknowledge their interest and ask them to confirm they are aligned with the rate and compensation details shared in the original outreach email. This is a confirmation step, not a negotiation.
 - If candidate says "rate is too low" without a number → Ask: "What rate would you be comfortable with?"
 ` : `
 This is your FOLLOW-UP response:
@@ -9552,7 +9552,7 @@ ${getEffectiveSignature()}
 ${isFirstResponse ? `
 - If candidate stated a rate ≤ $${maxRate}/hr → Accept their rate and confirm details
 - If candidate stated a rate > $${maxRate}/hr → Counter with $${secondOfferRate}/hr
-- If no rate mentioned → Offer $${firstOfferRate}/hr confidently
+- If no rate mentioned but candidate expressed general interest → Do NOT offer a new rate. Acknowledge their interest and ask them to confirm they are aligned with the rate and compensation details shared in the original outreach email.
 - If they say "too low" without a number → Ask what rate they'd be comfortable with
 - Present rates without justification or internal terminology
 - ONLY answer questions from the FAQ - for anything else, politely defer
