@@ -12017,6 +12017,10 @@ function syncHumanNegotiationFromGmail() {
     // Read state data once (re-read after each append to keep row indices accurate)
     let stateData = stateSheet.getDataRange().getValues();
 
+    // FIX: Pre-read Follow_Up_Queue data once for efficient lookups (instead of per-thread)
+    const fqSheet = ss.getSheetByName('Follow_Up_Queue');
+    const fqData = (fqSheet && fqSheet.getLastRow() > 1) ? fqSheet.getDataRange().getValues() : [];
+
     threads.forEach(thread => {
       const msgs = thread.getMessages();
       if (msgs.length === 0) return;
@@ -12055,6 +12059,8 @@ function syncHumanNegotiationFromGmail() {
 
       if (!candidateEmail) return;
       candidateEmail = candidateEmail.toLowerCase().trim();
+      // FIX: Use normalizeEmail for Gmail dot-variant matching (e.g., john.doe@gmail.com vs johndoe@gmail.com)
+      const normalizedCandidateEmail = normalizeEmail(candidateEmail);
 
       // Extract job ID from thread labels
       let threadJobId = '';
@@ -12072,15 +12078,19 @@ function syncHumanNegotiationFromGmail() {
       }
 
       // Find in state sheet and update status if not already "Human-Negotiation"
+      // FIX: Use normalizeEmail() for matching to handle Gmail dot-variants
       let foundInState = false;
+      let matchedJobId = threadJobId;
       for (let r = 1; r < stateData.length; r++) {
-        const stateEmail = String(stateData[r][0]).toLowerCase().trim();
+        const stateEmail = normalizeEmail(stateData[r][0]);
         const stateJobId = String(stateData[r][1]);
-        if (stateEmail === candidateEmail && (!threadJobId || stateJobId === threadJobId)) {
+        if (stateEmail === normalizedCandidateEmail && (!threadJobId || stateJobId === threadJobId)) {
           foundInState = true;
+          matchedJobId = stateJobId;
           const currentStatus = String(stateData[r][4] || '');
           if (currentStatus !== 'Human-Negotiation') {
             stateSheet.getRange(r + 1, 5).setValue('Human-Negotiation');
+            stateSheet.getRange(r + 1, 9).setValue('Manually escalated to Human-Negotiation via Gmail label');
             debugLog(`syncHumanNegotiationFromGmail: Updated ${candidateEmail} status from "${currentStatus}" to "Human-Negotiation"`);
             syncedCount++;
           }
@@ -12127,6 +12137,26 @@ function syncHumanNegotiationFromGmail() {
         } catch(addErr) {
           console.error('syncHumanNegotiationFromGmail: Failed to add candidate to state:', addErr);
         }
+      }
+
+      // FIX: Also update Follow_Up_Queue status to "Responded" so follow-ups stop immediately
+      // Previously, follow-ups would continue until processFollowUpQueue() detected the active negotiation
+      try {
+        if (fqSheet && fqData.length > 1) {
+          for (let f = 1; f < fqData.length; f++) {
+            const fqEmail = normalizeEmail(fqData[f][0]);
+            const fqJobId = String(fqData[f][1]);
+            const fqStatus = String(fqData[f][8] || '');
+            if (fqEmail === normalizedCandidateEmail && (!matchedJobId || fqJobId === matchedJobId) && fqStatus !== 'Responded' && fqStatus !== 'Unresponsive') {
+              fqSheet.getRange(f + 1, 9).setValue('Responded');  // Column 9 = Status
+              fqSheet.getRange(f + 1, 10).setValue(new Date());  // Column 10 = Last Updated
+              debugLog(`syncHumanNegotiationFromGmail: Marked ${candidateEmail} as "Responded" in Follow_Up_Queue`);
+              break;
+            }
+          }
+        }
+      } catch(fqErr) {
+        console.error('syncHumanNegotiationFromGmail: Failed to update Follow_Up_Queue:', fqErr);
       }
     });
   } catch (e) {
