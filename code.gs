@@ -7004,9 +7004,11 @@ function processJobNegotiations(jobId, rules, ss, faqContent, negotiationEnabled
         if (candEmail) {
           candEmail = candEmail.toLowerCase().trim();
           let foundInState = false;
+          let stateRowForSummary = -1;
           for (let r = 1; r < hnStateData.length; r++) {
             if (String(hnStateData[r][0]).toLowerCase().trim() === candEmail && String(hnStateData[r][1]) === String(jobId)) {
               foundInState = true;
+              stateRowForSummary = r + 1;
               const currentStatus = String(hnStateData[r][4] || '');
               if (currentStatus !== 'Human-Negotiation') {
                 stateSheet.getRange(r + 1, 5).setValue('Human-Negotiation');
@@ -7028,10 +7030,26 @@ function processJobNegotiations(jobId, rules, ss, faqContent, negotiationEnabled
             } catch(enrichErr) {}
             stateSheet.appendRow([
               candEmail, jobId, 0, '', 'Human-Negotiation', new Date(),
-              devId, name, 'Manually escalated to Human-Negotiation via Gmail label',
+              devId, name, '',
               thread.getId(), region
             ]);
+            stateRowForSummary = stateSheet.getLastRow();
             debugLog(`Gmail label sync: Added ${candEmail} (Job ${jobId}) to Negotiation_State as "Human-Negotiation"`);
+          }
+
+          // Generate AI summary for the human recruiter from the conversation thread
+          if (stateRowForSummary > 0 && msgs_.length > 1) {
+            try {
+              const summary = generateConversationSummary(msgs_, candEmail, myEmail);
+              if (summary) {
+                stateSheet.getRange(stateRowForSummary, 9).setValue(summary);
+              }
+            } catch(summaryErr) {
+              console.error('Failed to generate AI summary for Human-Negotiation candidate:', summaryErr);
+            }
+          } else if (stateRowForSummary > 0 && msgs_.length <= 1) {
+            // Only outreach email exists - no conversation to summarize
+            stateSheet.getRange(stateRowForSummary, 9).setValue('Manually escalated to Human-Negotiation - awaiting candidate response');
           }
         }
       } catch(syncErr) {
