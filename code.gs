@@ -6223,7 +6223,7 @@ function enrichNegotiationStateData(ss) {
     // has been sent (f1Done), change status from "Initial Outreach" to "Follow Up".
     // FIX: Previously this triggered as soon as candidate was added to Follow_Up_Queue
     // (status='Pending'), even before any follow-up was sent. Now requires f1Done=true.
-    if (row.needsStatusSync && fq.fqStatus && fq.fqStatus !== 'Responded' && fq.f1Done) {
+    if (row.needsStatusSync && fq.fqStatus && fq.fqStatus !== 'Responded' && fq.fqStatus !== 'Unresponsive' && fq.f1Done) {
       stateSheet.getRange(row.rowIndex, 5).setValue('Follow Up'); // Column 5 = Status
       // FIX: Also update AI notes to reflect follow-up context instead of stale "No Updates Yet"
       const f2Done = fq.f2Done || false;
@@ -6234,6 +6234,14 @@ function enrichNegotiationStateData(ss) {
       stateSheet.getRange(row.rowIndex, 9).setValue(followUpNote); // Column 9 = AI Notes
       statusSyncCount++;
       log.push({ type: 'info', message: `Status synced to "Follow Up" for ${row.email} (Job ${row.jobId}) - candidate is in follow-up queue (${fq.fqStatus})` });
+    } else if (row.needsStatusSync && fq.fqStatus === 'Unresponsive') {
+      // FIX: If Follow_Up_Queue status is "Unresponsive", sync that instead of "Follow Up".
+      // Previously, unresponsive candidates with "Initial Outreach" in Negotiation_State would get
+      // overwritten to "Follow Up" because the condition didn't exclude "Unresponsive" FQ status.
+      stateSheet.getRange(row.rowIndex, 5).setValue('Unresponsive'); // Column 5 = Status
+      stateSheet.getRange(row.rowIndex, 9).setValue('Marked unresponsive after follow-ups'); // Column 9 = AI Notes
+      statusSyncCount++;
+      log.push({ type: 'info', message: `Status synced to "Unresponsive" for ${row.email} (Job ${row.jobId}) - candidate is unresponsive in follow-up queue` });
     }
   });
 
@@ -6287,6 +6295,7 @@ function enrichNegotiationStateData(ss) {
         const recoveryF1Done = fqCheckData[i][6] === true || fqCheckData[i][6] === 'TRUE';
         let recoveredStatus = recoveryF1Done ? 'Follow Up' : 'Initial Outreach';
         if (fqStatus === 'Responded') recoveredStatus = 'Active';
+        if (fqStatus === 'Unresponsive') recoveredStatus = 'Unresponsive';
 
         // Try to enrich further from Email_Logs and Job Details
         let bestName = fqName;
