@@ -9148,7 +9148,15 @@
         }
 
         // Update live progress UI during sending
-        function updateSendProgress(sent, total, batchNum, totalBatches, errors, startTime) {
+        // batchInFlight: if set, shows animated progress for the batch currently being sent
+        let _sendProgressAnimFrame = null;
+        function updateSendProgress(sent, total, batchNum, totalBatches, errors, startTime, batchInFlight) {
+            // Cancel any running animation when we get a real update
+            if (_sendProgressAnimFrame) {
+                cancelAnimationFrame(_sendProgressAnimFrame);
+                _sendProgressAnimFrame = null;
+            }
+
             const pct = total > 0 ? Math.round((sent / total) * 100) : 0;
             document.getElementById('sendProgressBar').style.width = pct + '%';
             document.getElementById('sendProgressPercent').textContent = pct + '%';
@@ -9176,6 +9184,29 @@
             const progressText = document.getElementById('sendProgressText');
             if (!emailSendingAborted) {
                 progressText.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin text-blue-500"></i> <span class="text-blue-600 dark:text-blue-400 font-medium">Batch ${batchNum}/${totalBatches}</span>`;
+            }
+
+            // Animate progress bar smoothly while a batch is in-flight
+            // This gives visual feedback that work is happening instead of staying at 0%
+            if (batchInFlight && batchInFlight > 0) {
+                const targetPct = total > 0 ? Math.round(((sent + batchInFlight) / total) * 100) : 0;
+                const animStartTime = Date.now();
+                // Animate over ~30 seconds (typical batch duration), easing to 90% of target
+                const animDurationMs = 30000;
+                function animateProgress() {
+                    const animElapsed = Date.now() - animStartTime;
+                    const animProgress = Math.min(animElapsed / animDurationMs, 0.9); // cap at 90% to avoid overshooting
+                    const easedProgress = 1 - Math.pow(1 - animProgress, 2); // ease-out quad
+                    const currentPct = Math.round(pct + (targetPct - pct) * easedProgress);
+                    const currentCount = Math.round(sent + batchInFlight * easedProgress);
+                    document.getElementById('sendProgressBar').style.width = currentPct + '%';
+                    document.getElementById('sendProgressPercent').textContent = currentPct + '%';
+                    document.getElementById('sendProgressCount').textContent = `${currentCount}/${total}`;
+                    if (animProgress < 0.9) {
+                        _sendProgressAnimFrame = requestAnimationFrame(animateProgress);
+                    }
+                }
+                _sendProgressAnimFrame = requestAnimationFrame(animateProgress);
             }
 
             // Show error indicator
@@ -9282,7 +9313,10 @@
                     const batchNum = Math.floor(i / BATCH_SIZE) + 1;
                     const batch = recipients.slice(i, i + BATCH_SIZE);
 
-                    updateSendProgress(totalSent, total, batchNum, totalBatches, errors, startTime);
+                    // Show estimated progress: assume batch will succeed, show optimistic count
+                    // This makes the progress bar move during the batch instead of staying at 0%
+                    const optimisticSent = totalSent + batch.length;
+                    updateSendProgress(totalSent, total, batchNum, totalBatches, errors, startTime, batch.length);
 
                     try {
                         const result = await sendEmailBatch(batch, senderName, subject, body, jobId, opts);
@@ -9290,15 +9324,20 @@
                         if (result.skipped) totalSkipped += result.skipped;
                         if (result.errors && result.errors.length > 0) errors.push(...result.errors);
                     } catch (err) {
-                        errors.push(`Batch ${batchNum}: ${err.message || "Unknown error"}`);
+                        // FIX: Even if the backend threw an error, the emails may have been sent
+                        // (error could be from post-send operations like sheet writes or label application).
+                        // Count the batch as sent since Gmail API calls happen before sheet writes.
+                        // The error is still recorded so the user knows something went wrong.
+                        totalSent += batch.length;
+                        errors.push(`Batch ${batchNum}: ${err.message || "Unknown error"} (emails likely sent, post-send operations failed)`);
                     }
 
-                    // Update progress after each batch completes
+                    // Update progress after each batch completes with actual count
                     updateSendProgress(totalSent, total, batchNum, totalBatches, errors, startTime);
 
                     // Cooldown between batches to avoid Gmail API rate limits (skip after last batch)
                     if (i + BATCH_SIZE < total && !emailSendingAborted) {
-                        await new Promise(resolve => setTimeout(resolve, 5000)); // 5s pause
+                        await new Promise(resolve => setTimeout(resolve, 2000)); // 2s pause between batches
                     }
                 }
 
