@@ -7316,6 +7316,25 @@ function processJobNegotiations(jobId, rules, ss, faqContent, negotiationEnabled
                   region: '',
                   originalEmail: cleanCandidateEmail
                 };
+
+                // FIX: Remove 'Unresponsive' Gmail label from the thread on reactivation.
+                // Without this, the thread keeps the stale label and confuses the follow-up processor.
+                try {
+                  updateFollowUpLabels(currentThreadId, 'responded');
+                } catch(labelErr) {
+                  console.warn('Failed to remove Unresponsive label during reactivation:', labelErr.message);
+                }
+
+                // FIX: Remove the candidate's row from Unresponsive_Devs after successful reactivation.
+                // Without this, the reactivationCount keeps incrementing on every trigger cycle
+                // (since the old row remains), hitting MAX_REACTIVATIONS and permanently blocking
+                // the candidate from being processed by AI.
+                try {
+                  unresponsiveSheet.deleteRow(u + 1); // u is 0-based data index, sheet rows are 1-based + header
+                } catch(delErr) {
+                  console.warn('Failed to clean up Unresponsive_Devs row during reactivation:', delErr.message);
+                }
+
                 jobStats.log.push({type: 'info', message: `${cleanCandidateEmail} was previously Unresponsive and replied late - re-activated as new negotiation entry (row ${newRowIndex}). Reactivation #${reactivationCount + 1}`});
               }
             }
