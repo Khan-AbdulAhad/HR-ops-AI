@@ -9230,7 +9230,6 @@ Write ONLY the email, nothing else.
       jobStats.accepted++;
       jobStats.log.push({type: 'success', message: `${candidateEmail} ACCEPTED at $${rate}/hr (candidate asked less than our offer)`});
       return;
-      } // Close candidateProposedRate <= maxRate acceptance block
     }
 
     // SAFETY NET: Regex-based "not interested" detection before fallback prompt
