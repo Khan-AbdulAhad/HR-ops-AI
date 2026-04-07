@@ -2896,7 +2896,8 @@ function generateMissingInfoFollowUp(candidateName, pendingQuestions, conversati
     return null;
   }
 
-  const firstName = candidateName.split(' ')[0];
+  // BUG FIX: Null-check candidateName to prevent TypeError crash
+  const firstName = candidateName ? candidateName.split(' ')[0] : 'there';
   const missingInfoList = pendingQuestions.map((q, i) => `${i+1}. ${q.question}`).join('\n');
 
   // Build start dates context if available
@@ -7930,6 +7931,118 @@ Reply with only the email body text. No subject line. No placeholders.`;
     // CHECK: Skip negotiation if negotiation is disabled for this job
     // Data extraction and gathering still happen above - this only skips the rate negotiation part
     if (!negotiationEnabled) {
+      // BUG FIX: Handle "Not Interested" candidates when negotiation is OFF.
+      // Previously, the not-interested flag was set but the code returned before
+      // the negotiation flow could update the status, leaving these candidates
+      // stuck in "Active" and continuing to receive follow-up emails.
+      const isNotInterestedNow = notInterestedGuardPatterns
+        ? notInterestedGuardPatterns.some(p => p.test(candidateOwnMessage))
+        : false;
+      const isPositiveNow = positiveInterestPatterns
+        ? positiveInterestPatterns.some(p => p.test(candidateOwnMessage))
+        : false;
+
+      if (isNotInterestedNow && !isPositiveNow) {
+        try {
+          // Mark as Not Interested in Negotiation_State
+          if (stateRowIndex > -1) {
+            stateSheet.getRange(stateRowIndex, 5).setValue('Not Interested');
+            stateSheet.getRange(stateRowIndex, 6).setValue(new Date());
+          }
+          // Apply Gmail labels
+          try {
+            const niLabel = GmailApp.getUserLabelByName('Not-Interested') || GmailApp.createLabel('Not-Interested');
+            thread.addLabel(niLabel);
+            markCompleted(thread);
+          } catch(labelErr) { console.error('Failed to add Not-Interested label:', labelErr); }
+
+          // Generate summary
+          const niSummary = generateComprehensiveAISummary(
+            conversationHistory, cleanCandidateEmail, jobId, attempts || 0, 'Not Interested'
+          );
+          if (stateRowIndex > -1 && niSummary) {
+            stateSheet.getRange(stateRowIndex, 9).setValue(niSummary);
+          }
+
+          jobStats.notInterested = (jobStats.notInterested || 0) + 1;
+          jobStats.log.push({type: 'info', message: `${cleanCandidateEmail} - Not Interested (negotiation off) - marked and completed`});
+          return;
+        } catch(niErr) {
+          console.error('Failed to handle Not Interested (negotiation off):', niErr);
+        }
+      }
+
+      // BUG FIX: When negotiation is OFF and data gathering is complete (or no pending questions),
+      // check if the candidate asked a question (FAQ or general). If so, send a reply.
+      // Previously, the code returned immediately without replying, leaving the candidate ghosted.
+      const candidateAskedQuestion = candidateOwnMessage && (
+        candidateOwnMessage.includes('?') ||
+        /\b(?:can you|could you|what is|what are|how (?:do|does|is|are|will|can)|when (?:will|do|is)|where (?:do|is)|who (?:is|will)|is (?:there|this|it)|please (?:let me know|tell me|clarify|explain))\b/i.test(candidateOwnMessage)
+      );
+
+      if (candidateAskedQuestion && (isDataGatheringComplete || pendingDataQuestions.length === 0)) {
+        try {
+          const questionReplyPrompt = `
+You are a professional recruiter at Turing. The candidate has replied with a question. Answer it helpfully.
+
+CANDIDATE NAME: ${candidateName ? candidateName.split(' ')[0] : 'there'}
+
+CANDIDATE'S MESSAGE:
+"${candidateLatestMessage}"
+
+CONVERSATION HISTORY:
+${conversationHistory}
+
+JOB CONTEXT:
+${rules.jobDescription || 'Freelance opportunity at Turing'}
+
+${faqContent ? `FAQs (ONLY use if candidate explicitly asks a matching question):\n${faqContent}` : ''}
+
+=== REDIRECT RULES FOR COMMON INQUIRIES ===
+If candidate asks about these topics, provide the appropriate contact:
+- Time tracking/Jibble questions → "Please reach out to peopleoperations@turing.com"
+- Contract/onboarding questions → "Please visit help.turing.com or email onboarding@turing.com"
+- IT access issues → "Please contact TuringITSupport@turing.com"
+- Payment/Deel issues → "Please check the Deel Knowledge Base or contact Deel Support"
+
+IMPORTANT BEHAVIORAL GUIDELINES:
+1. **This Conversation Does Not Mean Selection**
+   - After collecting details, information goes to team/client for final decision
+   - Avoid "welcome to the team" or anything implying they're already hired
+2. **Never Suggest Phone Calls or Meetings**
+   - Keep everything email-based
+3. If the question is in the FAQ, answer it naturally
+4. If the question is NOT in the FAQ and is about internal processes, politely say you'll connect them with the team
+5. Keep the tone professional and friendly
+6. Keep it concise (3-5 sentences)
+
+EMAIL FORMAT:
+Hi ${candidateName ? candidateName.split(' ')[0] : 'there'},
+
+[Answer their question]
+
+Best regards,
+${getEffectiveSignature()}
+
+Write ONLY the email body, nothing else.
+`;
+          const questionReply = callAI(questionReplyPrompt);
+
+          if (questionReply && !questionReply.startsWith('ACTION: ESCALATE')) {
+            // Validate email content before sending
+            if (validateEmailForSending(questionReply, { jobId: jobId })) {
+              sendReplyWithSenderName(thread, questionReply, getEffectiveSenderName());
+              jobStats.replied++;
+              jobStats.log.push({type: 'info', message: `${cleanCandidateEmail} - Answered candidate question (negotiation off, data complete)`});
+            } else {
+              jobStats.log.push({type: 'warning', message: `${cleanCandidateEmail} - Question reply blocked: contained sensitive data`});
+            }
+          }
+        } catch (questionReplyErr) {
+          console.error('Failed to generate question reply (negotiation off):', questionReplyErr);
+        }
+      }
+
       // FIX: Generate and save AI summary for data-extraction-only jobs
       // Previously, the AI summary was never updated when negotiation was disabled,
       // because the summary generation only happened inside negotiation-specific code paths
@@ -14394,7 +14507,9 @@ function processDataGatheringFollowUps() {
     for (let i = 1; i < stateData.length; i++) {
       const email = String(stateData[i][0]).toLowerCase().trim();
       const jobId = String(stateData[i][1]);
-      const threadId = stateData[i][2];
+      // BUG FIX: Column index 2 is Attempt Count, NOT Thread ID.
+      // Thread ID is at index 9 (column 10) in Negotiation_State.
+      const threadId = stateData[i][9];
       const status = String(stateData[i][4] || '').toLowerCase();
       const lastUpdated = stateData[i][8] ? new Date(stateData[i][8]) : null;
 
@@ -14446,7 +14561,9 @@ function processDataGatheringFollowUps() {
               const senderEmail = senderEmailMatch[1] || sender.trim();
 
               // Check if from candidate
-              if (senderEmail.includes(email) || email.includes(senderEmail)) {
+              // BUG FIX: Use normalizeEmail() for Gmail dot-variant matching
+              // Previously used includes() which fails for dot-variants (e.g., john.doe@gmail.com vs johndoe@gmail.com)
+              if (normalizeEmail(senderEmail) === normalizeEmail(email) || senderEmail.includes(email) || email.includes(senderEmail)) {
                 const msgDate = msg.getDate();
                 if (!candidateLastResponseTime || msgDate > candidateLastResponseTime) {
                   candidateLastResponseTime = msgDate;
