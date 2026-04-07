@@ -4440,7 +4440,38 @@ function updateCandidateStatusTag(email, jobId, newStatus) {
       }
     }
 
-    return { success: false, message: 'Candidate not found' };
+    // Candidate not in Negotiation_State or Negotiation_Completed — auto-add to Negotiation_State
+    // Rule: Any candidate reached out via the app MUST be present in the Negotiation_State sheet
+    try {
+      const details = lookupCandidateDetails(ss, email, String(jobId), { name: 'Unknown', devId: 'N/A', threadId: '', region: '' });
+      stateSheet.appendRow([
+        email,                // Email
+        jobId,                // Job ID
+        0,                    // Attempt Count
+        '',                   // Last Offer
+        newStatus,            // Status (the status being set)
+        new Date(),           // Last Reply Time
+        details.devId,        // Dev ID
+        details.name,         // Name
+        'Auto-added to Negotiation_State during status update (candidate was missing from sheet)', // AI Notes
+        details.threadId,     // Thread ID
+        details.region        // Region
+      ]);
+      invalidateSheetCache('Negotiation_State');
+
+      // Also update the job details sheet
+      try {
+        updateJobCandidateStatus(ss, jobId, email, newStatus, null);
+      } catch (e) {
+        console.error('Failed to update job details sheet:', e);
+      }
+
+      console.log('Auto-added candidate ' + email + ' (job ' + jobId + ') to Negotiation_State with status: ' + newStatus);
+      return { success: true };
+    } catch (autoAddErr) {
+      console.error('Failed to auto-add candidate to Negotiation_State:', autoAddErr);
+      return { success: false, message: 'Candidate not found and auto-add failed: ' + autoAddErr.message };
+    }
   } catch (e) {
     console.error('Error updating candidate status tag:', e);
     return { success: false, message: e.message };
