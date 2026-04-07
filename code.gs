@@ -3910,12 +3910,23 @@ function getAllTasks(filters) {
   // Build a Set of unresponsive candidates by cross-referencing Follow_Up_Queue and Unresponsive_Devs
   // This ensures candidates already marked unresponsive (before Negotiation_State was updated) show correctly
   const unresponsiveSet = new Set();
+  // FIX: Also build a Set of candidates still pending in Follow_Up_Queue (not responded/unresponsive).
+  // Used below to detect and correct inconsistent statuses where Negotiation_State shows active
+  // negotiation (e.g., "AI-Attempt-1/2") but the candidate never actually responded.
+  const pendingFollowUpSet = new Set();
   const followUpData = getCachedSheetData('Follow_Up_Queue', 30);
   if(followUpData && followUpData.length > 1) {
     for(let f = 1; f < followUpData.length; f++) {
-      if(followUpData[f][8] === 'Unresponsive') { // Column 9 (index 8) = Status
-        const fuKey = normalizeEmail(followUpData[f][0]) + '|' + String(followUpData[f][1]);
+      const fqStatus = followUpData[f][8];
+      const fuKey = normalizeEmail(followUpData[f][0]) + '|' + String(followUpData[f][1]);
+      if(fqStatus === 'Unresponsive') {
         unresponsiveSet.add(fuKey);
+      } else if(fqStatus !== 'Responded') {
+        // Candidate is still pending in follow-up queue (hasn't responded)
+        const f1Done = followUpData[f][6] === true || followUpData[f][6] === 'TRUE';
+        if (f1Done) {
+          pendingFollowUpSet.add(fuKey); // At least 1 follow-up sent, no response
+        }
       }
     }
   }
@@ -3944,6 +3955,20 @@ function getAllTasks(filters) {
     const candidateKey = normalizeEmail(stateData[i][0]) + '|' + jobId;
     if((status === 'Initial Outreach' || status === 'Follow Up') && unresponsiveSet.has(candidateKey)) {
       status = 'Unresponsive';
+    }
+
+    // FIX: Detect inconsistent status where Negotiation_State shows active negotiation
+    // (attempts > 0, status not a special case → would produce "AI-Attempt-X/2" tag)
+    // but the candidate is still pending in Follow_Up_Queue (meaning they never actually responded).
+    // This can happen when the sender detection in processJobNegotiations fails and our own
+    // follow-up/outreach email is mistakenly treated as a candidate response.
+    // Correct the status to "Follow Up" so the tag reflects the real state.
+    if (attempts > 0 && pendingFollowUpSet.has(candidateKey) &&
+        status !== 'Initial Outreach' && status !== 'Follow Up' && status !== 'Unresponsive' &&
+        status !== 'Human-Negotiation' && status !== 'Not Interested' && status !== 'WhatsApp Reachout' &&
+        !status.toLowerCase().includes('completed') && !status.toLowerCase().includes('data complete') &&
+        !status.startsWith('Re-engaged')) {
+      status = 'Follow Up';
     }
 
     // Collect all job IDs for filter dropdown
@@ -7188,6 +7213,19 @@ function processJobNegotiations(jobId, rules, ss, faqContent, negotiationEnabled
 
     // FALLBACK: If email lookup fails, try thread-based lookup (for different email replies)
     if(!state) {
+      // FIX: Before trying thread-based fallback, check if the extracted "candidate" email
+      // is actually our own email. This happens when sender detection (Checks 1 & 2) fails
+      // (e.g., Session.getActiveUser().getEmail() returns empty in trigger context, or sender
+      // name was changed). In that case, our own follow-up/outreach message gets treated as a
+      // "candidate response". The thread fallback would then map it to the real candidate's state,
+      // causing the system to process our own email as their response, increment their attempts,
+      // and incorrectly change their status to "AI-Attempt-1/2".
+      if (myEmail && cleanCandidateEmail === myEmail) {
+        jobStats.skipped++;
+        jobStats.log.push({type: 'info', message: `Skipped thread: Extracted sender email matches our own email (${myEmail}) - likely a follow-up or outreach message not caught by sender detection`});
+        return;
+      }
+
       const currentThreadId = thread.getId();
       const threadKey = currentThreadId + '_' + String(jobId);
       const threadState = threadStateMap.get(threadKey);
@@ -7199,10 +7237,36 @@ function processJobNegotiations(jobId, rules, ss, faqContent, negotiationEnabled
         // or is a Gmail dot-variant of the same address.
         // If domains are completely different, it may be a third party replying in the thread -
         // escalate to human review instead of auto-processing.
+        // FIX: If myEmail was empty in the initial check (trigger context), try to detect it now
+        // and block if the "candidate" email is actually us. This prevents our own follow-up emails
+        // from being treated as candidate responses via the thread fallback.
+        if (!myEmail || myEmail.length <= 3) {
+          try {
+            const profileEmail = Gmail.Users.getProfile('me').emailAddress;
+            if (profileEmail && cleanCandidateEmail === profileEmail.toLowerCase()) {
+              jobStats.skipped++;
+              jobStats.log.push({type: 'info', message: `Skipped thread: Sender ${cleanCandidateEmail} is our own email (detected via Gmail profile) - not a candidate response`});
+              return;
+            }
+          } catch(profileErr) {
+            console.warn('Could not verify sender via Gmail profile:', profileErr.message);
+          }
+        }
+
         const expectedDomain = originalExpectedEmail ? originalExpectedEmail.split('@')[1] : null;
         const actualDomain = cleanCandidateEmail.split('@')[1];
         const isSameDomain = expectedDomain && actualDomain && expectedDomain.toLowerCase() === actualDomain.toLowerCase();
         const isGmailVariant = normalizeEmail(cleanCandidateEmail) === normalizeEmail(originalExpectedEmail);
+
+        // FIX: Also check if the sender email matches our own email (same-domain case).
+        // Previously, when sender detection failed and both emails shared a domain (e.g., @gmail.com),
+        // our own follow-up/outreach was treated as a candidate response, causing incorrect
+        // "AI-Attempt-1/2" status for candidates who never responded.
+        if (myEmail && normalizeEmail(cleanCandidateEmail) === normalizeEmail(myEmail)) {
+          jobStats.skipped++;
+          jobStats.log.push({type: 'info', message: `Skipped thread: Sender ${cleanCandidateEmail} matches our email ${myEmail} (thread fallback) - not a candidate response`});
+          return;
+        }
 
         if (!isSameDomain && !isGmailVariant) {
           // Cross-domain mismatch: could be a forwarded reply, an assistant, or a spoofed sender
