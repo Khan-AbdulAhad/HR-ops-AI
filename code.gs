@@ -2135,6 +2135,11 @@ RULES:
 - If the email asks Yes/No questions (e.g., "Do you agree?", "Are you available?", "Can you confirm?"), create appropriate headers for those and mark them as Yes/No type questions
 - Maximum 10 questions/headers
 - IMPORTANT: Only include "Expected Rate" if the email explicitly asks the candidate what rate they want/expect. Do NOT include it if the email merely mentions rates for agreement/confirmation.
+- CRITICAL: Do NOT split a single question into multiple sub-questions. For example:
+  * "Are you available for a technical interview?" is ONE Yes/No question → create ONE column like "Interview Availability"
+  * Do NOT create separate columns for "Preferred Date", "Preferred Time", "Time Zone" unless the email EXPLICITLY asks for specific dates/times
+  * "What is your earliest availability to start?" is ONE question → create ONE column like "Start Date"
+  * Do NOT infer or add questions the email did not ask. If the email asks 3 questions, return exactly 3 items.
 
 Return ONLY the JSON array, no other text.
 `;
@@ -2549,8 +2554,12 @@ TASK:
 Determine the PRIMARY type of this email from the list above.
 
 DETECTION RULES:
-1. "availability" - Email asks about interview scheduling, available dates, time slots, calendar availability
-   Keywords: "schedule", "interview", "available", "time slot", "calendar", "when can you", "date", "time"
+1. "availability" - Email EXPLICITLY asks for specific interview dates, time slots, or calendar availability.
+   The email must be SCHEDULING an interview, not just asking if the candidate is interested or generally available.
+   MATCH: "please share your available dates", "what time works for you", "schedule an interview slot", "pick a time slot"
+   DO NOT MATCH: "Are you available for an interview?" (this is asking about interest/willingness, NOT scheduling)
+   DO NOT MATCH: "Are you interested in exploring this role?" (this is interest check, NOT scheduling)
+   Keywords that ONLY count when combined with scheduling intent: "schedule", "time slot", "calendar", "book a slot", "pick a date"
 
 2. "negotiation" - Email discusses rate, salary, compensation negotiation
    Keywords: "rate", "compensation", "salary", "offer", "negotiate", "hourly", "per hour"
@@ -2561,8 +2570,9 @@ DETECTION RULES:
 4. "document_request" - Email requests documents like ID, certificates, resume
    Keywords: "documents", "ID proof", "certificate", "resume", "portfolio", "please send", "submit"
 
-5. "follow_up" - General follow-up or reminder email
-   Keywords: "follow up", "reminder", "checking in", "haven't heard", "still interested"
+5. "follow_up" - General follow-up or reminder email. This is also the DEFAULT for general outreach emails
+   that check interest, ask yes/no questions about availability, or gather initial candidate information.
+   Keywords: "follow up", "reminder", "checking in", "haven't heard", "still interested", "are you interested", "are you available"
 
 6. "rejection" - Email informing of rejection or not moving forward
    Keywords: "unfortunately", "not moving forward", "other candidates", "rejected"
@@ -5405,15 +5415,27 @@ function sendBulkEmails(recipients, senderName, subject, htmlBody, jobId, opts) 
       // Running email type detection on the outreach email causes extra questions
       // (e.g. "Preferred Date", "Preferred Time", "Time Zone") to be added even though
       // the outreach email never asked for them.
+      // BUG FIX: Also skip dynamic column detection for bulk sends (same email to more candidates).
+      // The initial outreach questions are already captured. Only detect new email types when
+      // the email content is genuinely DIFFERENT from the initial outreach (e.g., a scheduling
+      // email sent after the interest-check outreach).
       if (!sheetResult.isNew) {
-        try {
-          const dynamicResult = processEmailForDynamicColumns(jobId, subject, htmlBody);
-          if (dynamicResult.success && dynamicResult.columnsAdded.length > 0) {
-            debugLog(`Added dynamic columns for email type '${dynamicResult.emailType}': ${dynamicResult.columnsAdded.join(', ')}`);
+        // Check if this is a genuinely different email type by comparing with stored outreach
+        // If the email body matches the initial outreach pattern (contains candidate placeholders
+        // or is being sent to multiple recipients), skip dynamic column detection
+        const isLikelyBulkSend = recipients && recipients.length > 1;
+        if (!isLikelyBulkSend) {
+          try {
+            const dynamicResult = processEmailForDynamicColumns(jobId, subject, htmlBody);
+            if (dynamicResult.success && dynamicResult.columnsAdded.length > 0) {
+              debugLog(`Added dynamic columns for email type '${dynamicResult.emailType}': ${dynamicResult.columnsAdded.join(', ')}`);
+            }
+          } catch (dynamicError) {
+            console.error("Failed to process email for dynamic columns:", dynamicError);
+            // Don't fail the whole operation
           }
-        } catch (dynamicError) {
-          console.error("Failed to process email for dynamic columns:", dynamicError);
-          // Don't fail the whole operation
+        } else {
+          debugLog(`Skipped dynamic column detection: bulk send to ${recipients.length} recipients (same outreach email)`);
         }
       }
     } else {
