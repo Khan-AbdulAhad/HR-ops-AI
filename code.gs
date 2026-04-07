@@ -7387,15 +7387,6 @@ function processJobNegotiations(jobId, rules, ss, faqContent, negotiationEnabled
     let candidateRegion = state ? state.region : '';
     let currentStatus = state ? (state.status || '') : '';
 
-    // FIX: Immediately mark Follow_Up_Queue entry as "Responded" when candidate response is detected.
-    // Previously, the Follow_Up_Queue was only updated by processFollowUpQueue() running periodically,
-    // causing candidates in active negotiations to appear on the follow-up page with stale statuses.
-    try {
-      markFollowUpQueueAsResponded(ss, cleanCandidateEmail, jobId);
-    } catch(fqErr) {
-      console.error('Failed to mark Follow_Up_Queue as responded:', fqErr);
-    }
-
     // ENRICHMENT: If name/devId/region are missing, look them up from other sheets
     const _needsEnrich = (candidateName === 'Unknown' || devId === 'N/A' || !candidateRegion);
     if (_needsEnrich) {
@@ -13520,10 +13511,7 @@ function processFollowUpQueue() {
       const stateStatus = String(stateData[j][4] || '').toLowerCase(); // Status is column 5 (index 4)
       // Only consider as "active negotiation" if status indicates actual response/negotiation
       // Exclude "Initial Outreach" entries - those are just initial emails sent, no response yet
-      // FIX: Also check attempts > 0 as a safety net - if AI has processed a response (incrementing
-      // attempts), the candidate should be considered active even if status is empty/unexpected
-      const stateAttempts = parseInt(stateData[j][2]) || 0; // Column 3 (index 2) = attempts
-      const isActualNegotiation = stateAttempts > 0 || (stateStatus && !stateStatus.includes('initial outreach') && !stateStatus.includes('initial sent'));
+      const isActualNegotiation = stateStatus && !stateStatus.includes('initial outreach') && !stateStatus.includes('initial sent');
       if(stateEmail && stateJobId && isActualNegotiation) {
         activeNegotiations.add(`${stateEmail}|${stateJobId}`);
       }
@@ -14948,46 +14936,6 @@ function updateNegotiationFollowUpLabels(threadId, newStatus) {
 // The canonical version is now the single definition above with full parameter support.
 
 /**
- * Mark a Follow_Up_Queue entry as "Responded" when a candidate response is detected.
- * This should be called immediately when a candidate response is processed (e.g., during
- * negotiation processing) to prevent stale follow-up entries from appearing on the follow-up page.
- * Previously, the Follow_Up_Queue was only updated by the periodic processFollowUpQueue() function,
- * causing candidates in active negotiations (e.g., "AI-Attempt-1/2") to incorrectly remain on the
- * follow-up page with stale statuses like "2nd Follow-Up Sent".
- * @param {Object} ss - SpreadsheetApp spreadsheet object
- * @param {string} email - Candidate email
- * @param {string} jobId - Job ID
- * @returns {boolean} True if an entry was updated
- */
-function markFollowUpQueueAsResponded(ss, email, jobId) {
-  try {
-    const followUpSheet = ss.getSheetByName('Follow_Up_Queue');
-    if (!followUpSheet || followUpSheet.getLastRow() <= 1) return false;
-
-    const fqData = followUpSheet.getDataRange().getValues();
-    const normalizedEmail = normalizeEmail(email);
-    const jobIdStr = String(jobId);
-
-    for (let i = fqData.length - 1; i >= 1; i--) {
-      const fqEmail = normalizeEmail(fqData[i][0]);
-      const fqJobId = String(fqData[i][1]);
-      const fqStatus = String(fqData[i][8] || '');
-
-      if (fqEmail === normalizedEmail && fqJobId === jobIdStr && fqStatus !== 'Responded' && fqStatus !== 'Unresponsive') {
-        followUpSheet.getRange(i + 1, 9).setValue('Responded');   // Column 9 = Status
-        followUpSheet.getRange(i + 1, 10).setValue(new Date());   // Column 10 = Last Updated
-        debugLog(`markFollowUpQueueAsResponded: Marked ${email} Job ${jobId} as Responded in Follow_Up_Queue`);
-        return true;
-      }
-    }
-    return false;
-  } catch (e) {
-    console.error('markFollowUpQueueAsResponded error:', e);
-    return false;
-  }
-}
-
-/**
  * Reset follow-up status for a specific email or all incorrectly marked "Responded" entries
  * This function re-verifies each entry by checking if the candidate actually responded
  * @param {string} emailToReset - Optional: specific email to reset. If not provided, checks all.
@@ -15255,28 +15203,6 @@ function getFollowUpStats() {
     // FIX: Deduplicate by normalized email+jobId to prevent Gmail dot-variant duplicates
     const countedCandidates = new Set();
 
-    // FIX: Cross-reference with Negotiation_State to correctly count candidates in active negotiations
-    // as "responded" instead of counting them under follow-up statuses
-    const activeNegotiationSet = new Set();
-    try {
-      const stateSheet = ss.getSheetByName('Negotiation_State');
-      if (stateSheet && stateSheet.getLastRow() > 1) {
-        const stateData = stateSheet.getDataRange().getValues();
-        for (let j = 1; j < stateData.length; j++) {
-          const stEmail = normalizeEmail(stateData[j][0]);
-          const stJobId = String(stateData[j][1]);
-          const stAttempts = parseInt(stateData[j][2]) || 0;
-          const stStatus = String(stateData[j][4] || '').toLowerCase();
-          const isActive = stAttempts > 0 || (stStatus && stStatus !== 'initial outreach' && stStatus !== 'follow up' && !stStatus.includes('initial sent'));
-          if (stEmail && stJobId && isActive) {
-            activeNegotiationSet.add(`${stEmail}|${stJobId}`);
-          }
-        }
-      }
-    } catch (stateErr) {
-      console.error('getFollowUpStats: Error reading Negotiation_State:', stateErr);
-    }
-
     for(let i = 1; i < data.length; i++) {
       const f1Done = data[i][6] === true || data[i][6] === 'TRUE';
       const f2Done = data[i][7] === true || data[i][7] === 'TRUE';
@@ -15301,10 +15227,6 @@ function getFollowUpStats() {
       } else if(status === 'Unresponsive') {
         unresponsive++;
         if(jobId && perJob[jobId]) perJob[jobId].unresponsive++;
-      // FIX: Candidates in active negotiations should be counted as "responded"
-      } else if(activeNegotiationSet.has(candidateKey)) {
-        responded++;
-        if(jobId && perJob[jobId]) perJob[jobId].responded++;
       } else if(f2Done) {
         followUp2Done++;
         if(jobId && perJob[jobId]) perJob[jobId].followUp2Done++;
@@ -15678,31 +15600,6 @@ function getFollowUpTableData(filters) {
     const jobIdFilter = filters?.jobId || 'all';
     const statusFilter = filters?.status || 'all';
 
-    // FIX: Cross-reference with Negotiation_State to exclude candidates in active negotiations.
-    // Previously, candidates who responded (e.g., in "AI-Attempt-1/2" status) still appeared
-    // on the follow-up page because the Follow_Up_Queue sheet wasn't updated in real-time.
-    const activeNegotiationSet = new Set();
-    try {
-      const stateSheet = ss.getSheetByName('Negotiation_State');
-      if (stateSheet && stateSheet.getLastRow() > 1) {
-        const stateData = stateSheet.getDataRange().getValues();
-        for (let j = 1; j < stateData.length; j++) {
-          const stEmail = normalizeEmail(stateData[j][0]);
-          const stJobId = String(stateData[j][1]);
-          const stAttempts = parseInt(stateData[j][2]) || 0;
-          const stStatus = String(stateData[j][4] || '').toLowerCase();
-          // Candidate is in active negotiation if they have attempts > 0 OR status indicates
-          // actual engagement (not just initial outreach/follow-up)
-          const isActive = stAttempts > 0 || (stStatus && stStatus !== 'initial outreach' && stStatus !== 'follow up' && !stStatus.includes('initial sent'));
-          if (stEmail && stJobId && isActive) {
-            activeNegotiationSet.add(`${stEmail}|${stJobId}`);
-          }
-        }
-      }
-    } catch (stateErr) {
-      console.error('getFollowUpTableData: Error reading Negotiation_State:', stateErr);
-    }
-
     const items = [];
     const jobIdSet = new Set();
 
@@ -15721,12 +15618,6 @@ function getFollowUpTableData(filters) {
 
       // Skip responded or already marked unresponsive
       if (status === 'Responded' || status === 'Unresponsive') continue;
-
-      // FIX: Skip candidates who are in active negotiations in Negotiation_State
-      // This prevents candidates with "AI-Attempt-1/2" (or similar) from appearing on
-      // the follow-up page when the Follow_Up_Queue sheet hasn't been updated yet
-      const negKey = `${normalizeEmail(email)}|${jobId}`;
-      if (activeNegotiationSet.has(negKey)) continue;
 
       // Collect job IDs for filter dropdown
       if (jobId) jobIdSet.add(jobId);
@@ -15809,31 +15700,6 @@ function getFollowUpDataCombined(filters) {
     const jobIdFilter = filters?.jobId || 'all';
     const statusFilter = filters?.status || 'all';
 
-    // FIX: Cross-reference with Negotiation_State to exclude candidates in active negotiations.
-    // Previously, candidates who responded (e.g., in "AI-Attempt-1/2" status) still appeared
-    // on the follow-up page because the Follow_Up_Queue sheet wasn't updated in real-time.
-    const activeNegotiationSet = new Set();
-    try {
-      const stateSheet = ss.getSheetByName('Negotiation_State');
-      if (stateSheet && stateSheet.getLastRow() > 1) {
-        const stateData = stateSheet.getDataRange().getValues();
-        for (let j = 1; j < stateData.length; j++) {
-          const stEmail = normalizeEmail(stateData[j][0]);
-          const stJobId = String(stateData[j][1]);
-          const stAttempts = parseInt(stateData[j][2]) || 0;
-          const stStatus = String(stateData[j][4] || '').toLowerCase();
-          // Candidate is in active negotiation if they have attempts > 0 OR status indicates
-          // actual engagement (not just initial outreach/follow-up)
-          const isActive = stAttempts > 0 || (stStatus && stStatus !== 'initial outreach' && stStatus !== 'follow up' && !stStatus.includes('initial sent'));
-          if (stEmail && stJobId && isActive) {
-            activeNegotiationSet.add(`${stEmail}|${stJobId}`);
-          }
-        }
-      }
-    } catch (stateErr) {
-      console.error('getFollowUpDataCombined: Error reading Negotiation_State:', stateErr);
-    }
-
     // Stats counters
     let pending = 0, followUp1Done = 0, followUp2Done = 0, responded = 0;
     const items = [];
@@ -15861,12 +15727,6 @@ function getFollowUpDataCombined(filters) {
         continue; // Skip responded entries from table
       } else if (status === 'Unresponsive') {
         continue; // Skip unresponsive entries from table
-
-      // FIX: Skip candidates who are in active negotiations in Negotiation_State
-      // Count them as "responded" in stats since they have actually engaged
-      } else if (activeNegotiationSet.has(`${normalizeEmail(email)}|${jobId}`)) {
-        responded++;
-        continue; // Skip from table - they're in active negotiation
       } else if (f2Done) {
         followUp2Done++;
       } else if (f1Done) {
@@ -15991,35 +15851,6 @@ function markFollowUpAsUnresponsive(email) {
     const name = rowData[3];
     const devId = rowData[4];
     const initialSendTime = rowData[5];
-
-    // FIX: Safety check - prevent marking candidates in active negotiations as unresponsive.
-    // This prevents the bug where a candidate with "AI-Attempt-1/2" status could be incorrectly
-    // marked as unresponsive from the follow-up page.
-    try {
-      const stateSheet = ss.getSheetByName('Negotiation_State');
-      if (stateSheet) {
-        const stateData = stateSheet.getDataRange().getValues();
-        const normalizedEmail = normalizeEmail(email);
-        const jobIdStr = String(jobId);
-        for (let s = 1; s < stateData.length; s++) {
-          if (normalizeEmail(stateData[s][0]) === normalizedEmail && String(stateData[s][1]) === jobIdStr) {
-            const stAttempts = parseInt(stateData[s][2]) || 0;
-            const stStatus = String(stateData[s][4] || '').toLowerCase();
-            const isActive = stAttempts > 0 || (stStatus && stStatus !== 'initial outreach' && stStatus !== 'follow up' && !stStatus.includes('initial sent') && stStatus !== 'unresponsive');
-            if (isActive) {
-              // Candidate is in active negotiation - mark as Responded instead of Unresponsive
-              sheet.getRange(rowIndex, 9).setValue('Responded');
-              sheet.getRange(rowIndex, 10).setValue(new Date());
-              invalidateSheetCache('Follow_Up_Queue');
-              return { success: false, message: `Cannot mark as unresponsive - candidate is in active negotiation (status: ${stStatus}, attempts: ${stAttempts}). Marked as Responded instead.` };
-            }
-            break;
-          }
-        }
-      }
-    } catch (stateCheckErr) {
-      console.error('Error checking Negotiation_State in markFollowUpAsUnresponsive:', stateCheckErr);
-    }
 
     // Move to Unresponsive_Devs sheet
     const moveResult = moveToUnresponsive(ss, email, jobId, name, devId, threadId, initialSendTime, rowData);
