@@ -991,7 +991,7 @@ function ensureSheetsExist(ss) {
 
   // UPDATED: Removed Walk Away Rate column
   const confSheet = ss.getSheetByName('Negotiation_Config');
-  if (confSheet.getLastRow() === 0) confSheet.appendRow(['Job ID', 'Target Rate', 'Max Rate', 'Style', 'Special Rules', 'Job Description', 'Last Updated']);
+  if (confSheet.getLastRow() === 0) confSheet.appendRow(['Job ID', 'Target Rate', 'Max Rate', 'Style', 'Special Rules', 'Job Description', 'Last Updated', 'Start Dates', 'JD Link']);
 
   const taskSheet = ss.getSheetByName('Negotiation_Tasks');
   if (taskSheet.getLastRow() === 0) taskSheet.appendRow(['Timestamp', 'Job ID', 'Name', 'Email', 'Agreed Rate', 'Status', 'Dev ID', 'Thread ID', 'Region']);
