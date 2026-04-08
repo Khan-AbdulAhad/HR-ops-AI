@@ -4741,7 +4741,7 @@ Write ONLY the email body. No subject line. No placeholders.`;
       }
 
       // Send the email in the same thread
-      sendReplyWithSenderName(thread, emailBody, senderName);
+      sendReplyWithSenderName(thread, emailBody, senderName, email);
 
       // Update Negotiation_State:
       // - Reset attempts to 0 for the new stage
@@ -5775,7 +5775,7 @@ function sendBulkEmails(recipients, senderName, subject, htmlBody, jobId, opts) 
       const fqKey = normalizeEmail(r.email) + '_' + String(jobId);
       if (!followUpExistingEmails.has(fqKey)) {
         followUpRows.push({
-          row: [r.email, jobId, threadId, r.name, r.devId || 'N/A', now, false, false, 'Pending', now],
+          row: [r.email, jobId, threadId, r.name, r.devId || 'N/A', now, false, false, 'Pending', now, false, false, false, false, ''],
           threadId: threadId
         });
         followUpExistingEmails.add(fqKey);
@@ -7599,7 +7599,7 @@ Reply with only the email body text. No subject line. No placeholders.`;
 
         const closureMessage = callAI(closurePrompt);
         if (closureMessage && !closureMessage.startsWith('ACTION: ESCALATE')) {
-          sendReplyWithSenderName(thread, closureMessage, getEffectiveSenderName());
+          sendReplyWithSenderName(thread, closureMessage, getEffectiveSenderName(), candidateEmail);
           markCompleted(thread);
 
           if (stateRowIndex > -1) {
@@ -7819,7 +7819,7 @@ Reply with only the email body text. No subject line. No placeholders.`;
 
                 // Send the follow-up email in the same thread using proper sender name
                 // FIX: Use sendReplyWithSenderName instead of thread.replyAll to respect sender settings
-                sendReplyWithSenderName(thread, missingInfoEmail, getEffectiveSenderName());
+                sendReplyWithSenderName(thread, missingInfoEmail, getEffectiveSenderName(), candidateEmail);
                 dataGatheringEmailSent = true;
                 recordMissingInfoFollowUp(jobId, candidateEmail);
                 jobStats.missingInfoFollowUps++;
@@ -8036,7 +8036,7 @@ Write ONLY the email body, nothing else.
           if (questionReply && !questionReply.startsWith('ACTION: ESCALATE')) {
             // Validate email content before sending
             if (validateEmailForSending(questionReply, { jobId: jobId })) {
-              sendReplyWithSenderName(thread, questionReply, getEffectiveSenderName());
+              sendReplyWithSenderName(thread, questionReply, getEffectiveSenderName(), candidateEmail);
               jobStats.replied++;
               jobStats.log.push({type: 'info', message: `${cleanCandidateEmail} - Answered candidate question (negotiation off, data complete)`});
             } else {
@@ -8243,7 +8243,7 @@ Write ONLY the email, nothing else.
             return;
           }
 
-          sendReplyWithSenderName(thread, dataOnlyEmail, getEffectiveSenderName());
+          sendReplyWithSenderName(thread, dataOnlyEmail, getEffectiveSenderName(), candidateEmail);
 
           // Update state timestamp, status, and AI summary
           if (stateRowIndex > -1) {
@@ -8345,7 +8345,7 @@ Write ONLY the email, nothing else.
             return;
           }
 
-          sendReplyWithSenderName(thread, completionEmail, getEffectiveSenderName());
+          sendReplyWithSenderName(thread, completionEmail, getEffectiveSenderName(), candidateEmail);
 
           // Update job-specific details sheet with accepted status and rate
           try {
@@ -8923,7 +8923,7 @@ Write ONLY the email, nothing else.
             return;
           }
 
-          sendReplyWithSenderName(thread, counterOfferEmail, getEffectiveSenderName());
+          sendReplyWithSenderName(thread, counterOfferEmail, getEffectiveSenderName(), candidateEmail);
 
           // Update job details with candidate offer and counter offer
           try {
@@ -9015,7 +9015,7 @@ Write ONLY the email, nothing else.
             return;
           }
 
-          sendReplyWithSenderName(thread, combinedEmail, getEffectiveSenderName());
+          sendReplyWithSenderName(thread, combinedEmail, getEffectiveSenderName(), candidateEmail);
           recordMissingInfoFollowUp(jobId, candidateEmail);
 
           // Update follow-up labels
@@ -9120,7 +9120,7 @@ Write ONLY the email, nothing else.
         return;
       }
 
-      sendReplyWithSenderName(thread, acceptEmail, getEffectiveSenderName());
+      sendReplyWithSenderName(thread, acceptEmail, getEffectiveSenderName(), candidateEmail);
       markCompleted(thread);
 
       // Remove Awaiting-Response label since offer is accepted and completed
@@ -9207,7 +9207,7 @@ Write ONLY the email, nothing else.
         // Only send handoff email to candidate for sensitive questions (immediate escalation)
         // For attempt-based escalation (attempts >= 2), do NOT email the candidate
         if (isSensitiveQuestion) {
-          escalateToHuman(thread, escalationReason, candidateName, comprehensiveSummary);
+          escalateToHuman(thread, escalationReason, candidateName, comprehensiveSummary, candidateEmail);
         } else {
           // Just add the Human-Negotiation label without emailing the candidate
           try {
@@ -9299,7 +9299,7 @@ Write ONLY the email, nothing else.
             return;
           }
 
-          sendReplyWithSenderName(thread, combinedEmail, getEffectiveSenderName());
+          sendReplyWithSenderName(thread, combinedEmail, getEffectiveSenderName(), candidateEmail);
           recordMissingInfoFollowUp(jobId, candidateEmail);
           updateFollowUpLabels(thread.getId(), 'responded');
 
@@ -9394,7 +9394,7 @@ Write ONLY the email, nothing else.
         return;
       }
 
-      sendReplyWithSenderName(thread, acceptEmail, getEffectiveSenderName());
+      sendReplyWithSenderName(thread, acceptEmail, getEffectiveSenderName(), candidateEmail);
       markCompleted(thread);
 
       // Remove Awaiting-Response label since offer is accepted and completed
@@ -9814,7 +9814,7 @@ Write ONLY the email, nothing else.
           return;
         }
 
-        sendReplyWithSenderName(thread, retryResponse, getEffectiveSenderName());
+        sendReplyWithSenderName(thread, retryResponse, getEffectiveSenderName(), candidateEmail);
 
         // Update job details with candidate offer and counter offer
         try {
@@ -9997,7 +9997,7 @@ Write ONLY the email, nothing else.
             return;
           }
 
-          sendReplyWithSenderName(thread, counterOfferEmail, getEffectiveSenderName());
+          sendReplyWithSenderName(thread, counterOfferEmail, getEffectiveSenderName(), candidateEmail);
 
           // Update job details with candidate offer and counter offer
           try {
@@ -10074,7 +10074,7 @@ Write ONLY the email, nothing else.
             return;
           }
 
-          sendReplyWithSenderName(thread, combinedEmail, getEffectiveSenderName());
+          sendReplyWithSenderName(thread, combinedEmail, getEffectiveSenderName(), candidateEmail);
           recordMissingInfoFollowUp(jobId, candidateEmail);
           updateFollowUpLabels(thread.getId(), 'responded');
 
@@ -10151,7 +10151,7 @@ Write ONLY the email, nothing else.
         return;
       }
 
-      sendReplyWithSenderName(thread, acceptEmail, getEffectiveSenderName());
+      sendReplyWithSenderName(thread, acceptEmail, getEffectiveSenderName(), candidateEmail);
       markCompleted(thread);
 
       // Remove Awaiting-Response label since offer is accepted and completed
@@ -10239,7 +10239,7 @@ Write ONLY the email, nothing else.
           return;
         }
 
-        sendReplyWithSenderName(thread, aiResponse, getEffectiveSenderName());
+        sendReplyWithSenderName(thread, aiResponse, getEffectiveSenderName(), candidateEmail);
 
         jobStats.log.push({type: 'info', message: `${candidateEmail} - NOT INTERESTED (fallback else block): Candidate message matched disinterest pattern. AI replied but missed ACTION tag. Updating status.`});
         handleNotInterested({
@@ -10306,7 +10306,7 @@ Write ONLY the email, nothing else.
               return;
             }
 
-            sendReplyWithSenderName(thread, safeEmail, getEffectiveSenderName());
+            sendReplyWithSenderName(thread, safeEmail, getEffectiveSenderName(), candidateEmail);
 
             try {
               updateJobCandidateStatus(ss, jobId, candidateEmail, 'Counter Offer Sent', null, `$${emailRate}/hr`, `$${safeCounterRate}/hr`);
@@ -10342,7 +10342,7 @@ Write ONLY the email, nothing else.
         }
       }
 
-      sendReplyWithSenderName(thread, aiResponse, getEffectiveSenderName());
+      sendReplyWithSenderName(thread, aiResponse, getEffectiveSenderName(), candidateEmail);
 
       const newAttemptCount = attempts + 1;
 
@@ -10442,7 +10442,7 @@ This is an automated notification from the HR-Ops AI system.
   }
 }
 
-function escalateToHuman(thread, reason, candidateName, conversationContext) {
+function escalateToHuman(thread, reason, candidateName, conversationContext, candidateEmail) {
   try {
     // CRITICAL SAFETY CHECK: Only send handoff messages to AI-Managed threads
     const threadLabels = thread.getLabels().map(l => l.getName());
@@ -10501,18 +10501,18 @@ Write ONLY the email, nothing else. Keep it concise (3-4 sentences).
       console.error(`BLOCKED: Handoff message contained sensitive data.`);
       // Use safe fallback instead
       const safeHandoff = `Hi ${firstName},\n\nThank you for sharing your rate expectation. I have shared your message with a member of our Talent Operations team, and they will get back to you shortly with an update on the rates.\n\nWe appreciate your patience and interest in this opportunity.\n\nBest regards,\n${getEffectiveSignature()}`;
-      sendReplyWithSenderName(thread, safeHandoff, getEffectiveSenderName());
+      sendReplyWithSenderName(thread, safeHandoff, getEffectiveSenderName(), candidateEmail);
       return;
     }
 
-    sendReplyWithSenderName(thread, handoffMessage, getEffectiveSenderName());
+    sendReplyWithSenderName(thread, handoffMessage, getEffectiveSenderName(), candidateEmail);
 
   } catch(e) {
     console.error("Failed to escalate to human:", e);
     // Fallback to simple reply if AI fails
     try {
       const fallbackMsg = `Hi ${candidateName ? candidateName.split(' ')[0] : 'there'},\n\nThank you for sharing your rate expectation. I have shared your message with a member of our Talent Operations team, and they will get back to you shortly with an update on the rates.\n\nWe appreciate your patience and interest in this opportunity.\n\nBest regards,\n${getEffectiveSignature()}`;
-      sendReplyWithSenderName(thread, fallbackMsg, getEffectiveSenderName());
+      sendReplyWithSenderName(thread, fallbackMsg, getEffectiveSenderName(), candidateEmail);
     } catch(e2) { console.error('CRITICAL: Fallback escalation message also failed to send:', e2); }
   }
 }
