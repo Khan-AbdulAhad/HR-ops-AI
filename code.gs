@@ -3885,10 +3885,18 @@ function getAllTasks(filters) {
   if(!url) return { tasks: [], jobIds: [], stats: { total: 0, active: 0, human: 0, accepted: 0 }, jobSettings: {} };
 
   // If forceRefresh is true, invalidate caches first
+  // FIX: Invalidate ALL sheet caches used by getAllTasks, not just State/Tasks/Tracking.
+  // Missing Negotiation_Completed/Follow_Up_Queue/Email_Logs caused stale data where
+  // newly-completed candidates weren't found by dedup, so Email_Logs recovery recreated
+  // them as "Initial Outreach".
   if (filters?.forceRefresh) {
     invalidateSheetCache('Negotiation_State');
     invalidateSheetCache('Negotiation_Tasks');
     invalidateSheetCache('Task_Tracking');
+    invalidateSheetCache('Negotiation_Completed');
+    invalidateSheetCache('Follow_Up_Queue');
+    invalidateSheetCache('Unresponsive_Devs');
+    invalidateSheetCache('Email_Logs');
   }
 
   // Use caching for faster loading
@@ -4345,12 +4353,16 @@ function repairDataCompleteStatuses() {
 }
 
 // Bulk complete multiple tasks
-function bulkComplete(emails, finalStatus) {
+function bulkComplete(items, finalStatus) {
   const results = { success: 0, failed: 0, errors: [] };
-  
-  emails.forEach(email => {
+
+  // FIX: Accept both legacy format (array of email strings) and new format (array of {email, jobId} objects).
+  // The new format passes jobIdFilter to moveToCompleted so it targets the correct job.
+  items.forEach(item => {
+    const email = typeof item === 'string' ? item : item.email;
+    const jobId = typeof item === 'string' ? undefined : item.jobId;
     try {
-      const result = moveToCompleted(email, finalStatus);
+      const result = moveToCompleted(email, finalStatus, jobId);
       if(result.success) {
         results.success++;
       } else {
@@ -4362,7 +4374,7 @@ function bulkComplete(emails, finalStatus) {
       results.errors.push(`${email}: ${e.message}`);
     }
   });
-  
+
   return results;
 }
 
@@ -4939,6 +4951,24 @@ function moveToCompleted(email, finalStatus, jobIdFilter) {
       }
       stateSheet.deleteRow(i+1);
       break;
+    }
+  }
+
+  // FIX: Handle candidates that only exist in Email_Logs (recovered by getAllTasks).
+  // These candidates are not in Negotiation_State or Negotiation_Tasks, so the above
+  // loops won't find them. We still need to add them to Negotiation_Completed so that
+  // the dedup in getAllTasks prevents Email_Logs recovery from recreating them as "Initial Outreach".
+  if(!moved) {
+    try {
+      const details = lookupCandidateDetails(ss, email, String(jobIdFilter || ''), { name: 'Unknown', devId: 'N/A', threadId: '', region: '' });
+      compSheet.appendRow([new Date(), jobIdFilter || '', email, details.name, finalStatus || 'Manually Completed', 'Moved from Email_Logs (not in State/Tasks)', details.devId, details.region]);
+      logAnalytics('task_completed', jobIdFilter || '', 1, finalStatus || 'Manually Completed - Email_Logs only');
+      logCompletedToAnalytics(jobIdFilter || '', email, details.name, finalStatus || 'Manually Completed', details.devId, details.region);
+      taskInfo = { jobId: jobIdFilter || '', name: details.name, devId: details.devId, threadId: details.threadId, agreedRate: null };
+      moved = true;
+      debugLog('moveToCompleted: Candidate ' + email + ' only found in Email_Logs — added directly to Negotiation_Completed');
+    } catch(recoveryErr) {
+      console.error('moveToCompleted: Failed to recover Email_Logs-only candidate:', recoveryErr);
     }
   }
 

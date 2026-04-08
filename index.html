@@ -7403,12 +7403,32 @@
             // Handle Completed status — move to completed sheet
             if (newStatus === 'Completed') {
                 google.script.run
-                    .withSuccessHandler(function() {
-                        showToast('Marked as Completed', 'success');
-                        loadTasks();
+                    .withSuccessHandler(function(result) {
+                        if (result && result.success) {
+                            showToast('Marked as Completed', 'success');
+                            loadTasks();
+                        } else {
+                            showToast('Failed to complete: ' + (result ? result.message : 'Unknown error'), 'error');
+                            // Rollback UI to old status
+                            dropdown.dataset.value = oldStatus;
+                            dropdown.querySelector('.dd-label').textContent = oldStatus;
+                            trigger.className = 'modern-dropdown-trigger ' + getStatusTagTriggerClass(oldStatus);
+                            dropdown.querySelectorAll('.modern-dropdown-item').forEach(function(i) {
+                                i.classList.toggle('active', i.dataset.value === oldStatus);
+                            });
+                            if (row) row.dataset.statusTag = oldStatus;
+                        }
                     })
                     .withFailureHandler(function(err) {
                         showToast('Failed to complete: ' + err.message, 'error');
+                        // Rollback UI to old status
+                        dropdown.dataset.value = oldStatus;
+                        dropdown.querySelector('.dd-label').textContent = oldStatus;
+                        trigger.className = 'modern-dropdown-trigger ' + getStatusTagTriggerClass(oldStatus);
+                        dropdown.querySelectorAll('.modern-dropdown-item').forEach(function(i) {
+                            i.classList.toggle('active', i.dataset.value === oldStatus);
+                        });
+                        if (row) row.dataset.statusTag = oldStatus;
                     })
                     .moveToCompleted(email, 'Manually Completed', jobId);
                 return;
@@ -7425,7 +7445,15 @@
                     }
                 })
                 .withFailureHandler(function(err) {
-                    showToast('Failed to update status', 'error');
+                    showToast('Failed to update status: ' + err.message, 'error');
+                    // Rollback UI to old status
+                    dropdown.dataset.value = oldStatus;
+                    dropdown.querySelector('.dd-label').textContent = oldStatus;
+                    trigger.className = 'modern-dropdown-trigger ' + getStatusTagTriggerClass(oldStatus);
+                    dropdown.querySelectorAll('.modern-dropdown-item').forEach(function(i) {
+                        i.classList.toggle('active', i.dataset.value === oldStatus);
+                    });
+                    if (row) row.dataset.statusTag = oldStatus;
                 })
                 .updateCandidateStatusTag(email, jobId, newStatus);
         }
@@ -10175,10 +10203,20 @@
             if(selectedTasks.size === 0) return;
             if(!confirm(`Complete ${selectedTasks.size} tasks?`)) return;
 
+            // FIX: Pass email+jobId pairs so moveToCompleted targets the correct job
+            const items = [];
+            selectedTasks.forEach(function(email) {
+                const row = document.querySelector('.task-row[data-email="' + email + '"]');
+                const jobId = row ? (row.querySelector('.status-tag-dropdown') || {}).dataset?.jobId || '' : '';
+                items.push({ email: email, jobId: jobId });
+            });
+
             google.script.run.withSuccessHandler(res => {
-                showToast(`Completed ${res.success} tasks`, "success");
+                showToast(`Completed ${res.success} tasks` + (res.failed > 0 ? `, ${res.failed} failed` : ''), res.failed > 0 ? 'warning' : 'success');
                 loadTasks();
-            }).bulkComplete(Array.from(selectedTasks), "Bulk Complete");
+            }).withFailureHandler(function(err) {
+                showToast('Bulk complete failed: ' + err.message, 'error');
+            }).bulkComplete(items, "Bulk Complete");
         }
 
         function bulkSetTrackingStatus(status) {
