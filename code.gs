@@ -4974,6 +4974,7 @@ function moveToCompleted(email, finalStatus, jobIdFilter) {
           if(fqKey === normalizedClean && (!jobIdFilter || fqJobId === String(jobIdFilter))) {
             followUpSheet.getRange(i + 1, 9).setValue('Responded');  // Status column
             followUpSheet.getRange(i + 1, 10).setValue(new Date());  // Last Updated column
+            followUpSheet.getRange(i + 1, 15).setValue(new Date()); // Last Response Time
             debugLog(`moveToCompleted: Marked Follow_Up_Queue entry as Responded for ${email} Job ${fqJobId}`);
             break;
           }
@@ -11528,6 +11529,7 @@ function retroactiveScanNotInterested() {
               if (normalizeEmail(fuData[f][0]) === normalizedEmail && String(fuData[f][1]) === candidate.jobId) {
                 followUpSheet.getRange(f + 1, 9).setValue('Responded'); // Status column
                 followUpSheet.getRange(f + 1, 10).setValue(new Date()); // Last Updated
+                followUpSheet.getRange(f + 1, 15).setValue(new Date()); // Last Response Time
                 break;
               }
             }
@@ -11574,6 +11576,7 @@ function retroactiveScanNotInterested() {
           // If not in state sheet anymore, just update the follow-up queue status
           followUpSheet.getRange(f + 1, 9).setValue('Responded');
           followUpSheet.getRange(f + 1, 10).setValue(new Date());
+          followUpSheet.getRange(f + 1, 15).setValue(new Date()); // Last Response Time
 
           try {
             updateFollowUpLabels(threadId, 'responded');
@@ -11922,6 +11925,7 @@ function syncCompletedFromGmail() {
               if(fqStatus !== 'Responded' && fqStatus !== 'Unresponsive') {
                 followUpSheet.getRange(fi + 1, 9).setValue('Responded');
                 followUpSheet.getRange(fi + 1, 10).setValue(new Date());
+                followUpSheet.getRange(fi + 1, 15).setValue(new Date()); // Last Response Time
                 debugLog(`syncCompletedFromGmail: Marked Follow_Up_Queue as Responded for ${candidateEmail}`);
               }
               break;
@@ -13797,6 +13801,7 @@ function processFollowUpQueue() {
       if (acceptedOffers.has(negotiationKey)) {
         sheet.getRange(i + 1, 9).setValue('Responded');
         sheet.getRange(i + 1, 10).setValue(new Date());
+        sheet.getRange(i + 1, 15).setValue(new Date()); // Last Response Time
         updateFollowUpLabels(threadId, 'responded');
         logFollowUpToAnalytics(jobId, email, name, 'responded', 'Candidate has accepted offer - follow-ups permanently blocked');
         log.push({ type: 'success', message: `${email} has accepted offer - follow-ups blocked (Manual Override cannot bypass accepted state)` });
@@ -13881,6 +13886,7 @@ function processFollowUpQueue() {
               // Mark as responded - thread had a non-system reply
               sheet.getRange(i + 1, 9).setValue('Responded');
               sheet.getRange(i + 1, 10).setValue(new Date());
+              sheet.getRange(i + 1, 15).setValue(new Date()); // Last Response Time
               updateFollowUpLabels(threadId, 'responded');
               logFollowUpToAnalytics(jobId, email, name, 'responded', 'Thread-based detection');
               log.push({ type: 'success', message: `${email} has responded (thread-based detection) - marked in queue` });
@@ -13910,6 +13916,7 @@ function processFollowUpQueue() {
         if(activeNegotiations.has(negotiationKey) || completedNegotiations.has(negotiationKey) || acceptedOffers.has(negotiationKey)) {
           sheet.getRange(i + 1, 9).setValue('Responded');
           sheet.getRange(i + 1, 10).setValue(new Date());
+          sheet.getRange(i + 1, 15).setValue(new Date()); // Last Response Time
           updateFollowUpLabels(threadId, 'responded');
           logFollowUpToAnalytics(jobId, email, name, 'responded', 'Safety check - found in negotiations');
           log.push({ type: 'success', message: `${email} found in negotiations (safety check) - marked as responded` });
