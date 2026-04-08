@@ -6006,17 +6006,22 @@ function batchModifyThreadLabels(threadIds, labelIds, token) {
  * Send a reply to a thread with custom sender name
  * This ensures AI replies show as the configured EMAIL_SENDER_NAME, not the actual email
  */
-function sendReplyWithSenderName(thread, replyBody, senderName) {
+function sendReplyWithSenderName(thread, replyBody, senderName, recipientEmail) {
   try {
     const messages = thread.getMessages();
     const lastMessage = messages[messages.length - 1];
     const subject = lastMessage.getSubject();
     const threadId = thread.getId();
-    
-    // Get recipient email (the person we're replying to)
-    const fromHeader = lastMessage.getFrom();
-    const emailMatch = fromHeader.match(/<([^>]+)>/);
-    const recipientEmail = emailMatch ? emailMatch[1] : fromHeader.replace(/.*<|>.*/g, '');
+
+    // Use explicit recipientEmail if provided; otherwise extract from last message.
+    // IMPORTANT: For follow-ups where the candidate hasn't replied yet, the last
+    // message is our own outreach, so getFrom() would return our own email.
+    // Callers that know the recipient should always pass it explicitly.
+    if (!recipientEmail) {
+      const fromHeader = lastMessage.getFrom();
+      const emailMatch = fromHeader.match(/<([^>]+)>/);
+      recipientEmail = emailMatch ? emailMatch[1] : fromHeader.replace(/.*<|>.*/g, '');
+    }
     
     // Get Message-ID for threading
     const messageId = lastMessage.getHeader('Message-ID');
@@ -14178,7 +14183,8 @@ function sendFollowUpEmail(email, jobId, threadId, name, followUpNumber) {
         }
 
         // Use the custom sender reply function with effective sender name
-        sendReplyWithSenderName(thread, emailBody, getEffectiveSenderName());
+        // Pass candidate email explicitly so the reply goes to the candidate, not back to us
+        sendReplyWithSenderName(thread, emailBody, getEffectiveSenderName(), email);
 
         // Log the follow-up with region data from state
         const url = getStoredSheetUrl();
@@ -14237,7 +14243,8 @@ function sendFollowUpEmail(email, jobId, threadId, name, followUpNumber) {
       }
 
       // FIX: Use sendReplyWithSenderName for consistent sender settings
-      sendReplyWithSenderName(thread, emailBody, getEffectiveSenderName());
+      // Pass candidate email explicitly so the reply goes to the candidate, not back to us
+      sendReplyWithSenderName(thread, emailBody, getEffectiveSenderName(), email);
       return { success: true };
     }
 
@@ -14347,7 +14354,8 @@ function sendDataGatheringFollowUpEmail(email, jobId, threadId, name, followUpNu
         }
 
         // Use the custom sender reply function
-        sendReplyWithSenderName(thread, emailBody, getEffectiveSenderName());
+        // Pass candidate email explicitly so the reply goes to the candidate, not back to us
+        sendReplyWithSenderName(thread, emailBody, getEffectiveSenderName(), email);
 
         // Update Gmail labels
         updateDataGatheringFollowUpLabels(threadId, followUpNumber);
@@ -15080,7 +15088,8 @@ function sendNegotiationFollowUpEmail(email, jobId, threadId, name, followUpNumb
         return { success: false, error: `Thread missing ${AI_MANAGED_LABEL} label` };
       }
 
-      sendReplyWithSenderName(thread, emailBody, getEffectiveSenderName());
+      // Pass candidate email explicitly so the reply goes to the candidate, not back to us
+      sendReplyWithSenderName(thread, emailBody, getEffectiveSenderName(), email);
       debugLog(`Sent negotiation follow-up #${followUpNumber} to ${email} for Job ${jobId}`);
       return { success: true };
     }
@@ -21823,7 +21832,8 @@ function sendSupplementaryDataRequest(jobId, candidateEmails, additionalQuestion
         }
 
         // Send the email as a reply in the thread
-        sendReplyWithSenderName(thread, emailBody, getEffectiveSenderName());
+        // Pass candidate email explicitly so the reply goes to the candidate, not back to us
+        sendReplyWithSenderName(thread, emailBody, getEffectiveSenderName(), candidate.email);
 
         // Update Follow_Up_Queue to track this supplementary request for data follow-ups
         // Reset data follow-up flags and update last response time to start the follow-up cycle
