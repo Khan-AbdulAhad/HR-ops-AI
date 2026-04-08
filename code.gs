@@ -7713,6 +7713,25 @@ Reply with only the email body text. No subject line. No placeholders.`;
       /\bi\s+(?:can|would)\s+(?:like\s+to\s+)?(?:confirm|agree)\b/i
     ];
 
+    // Not-interested / withdrawal guard patterns - defined at outer scope so both
+    // the data-gathering block and the negotiation-disabled block can reference them.
+    const notInterestedGuardPatterns = [
+      /\bnot\s+interested\b/i,
+      /\bno\s+longer\s+interested\b/i,
+      /\bwithdraw(?:ing)?\s+(?:my|the)\s+application\b/i,
+      /\b(?:would|i'?d)\s+like\s+to\s+withdraw\b/i,
+      /\b(?:wish|want)\s+to\s+withdraw\b/i,
+      /\balready\s+accepted\s+(another|a|an)\s+(offer|position|job|role)\b/i,
+      /\baccepted\s+(a|another)\s+(position|offer|job|role)\s+elsewhere\b/i,
+      /\bdecided\s+to\s+go\s+with\s+(another|a\s+different)\b/i,
+      /\bplease\s+remove\s+me\b/i,
+      /\bnot\s+looking\s+(anymore|any\s*more)\b/i,
+      /\bno\s+longer\s+available\b/i,
+      /\bgoing\s+in\s+a\s+different\s+direction\b/i,
+      /\bdeclining\s+this\s+opportunity\b/i,
+      /\bnot\s+(?:looking\s+for|interested\s+in)\s+(?:a\s+)?(?:contract(?:ual)?|freelance|part[\s-]?time)\b/i
+    ];
+
     // Track data gathering status - used to prevent premature completion
     // FIX: If data gathering is enabled but incomplete, we should NOT mark thread as Completed
     let isDataGatheringComplete = true; // Default to true (no data gathering questions)
@@ -7766,22 +7785,7 @@ Reply with only the email body text. No subject line. No placeholders.`;
 
         // FIX: Check for not-interested/withdrawal BEFORE data gathering
         // This prevents sending data gathering emails to candidates who want to withdraw
-        const notInterestedGuardPatterns = [
-          /\bnot\s+interested\b/i,
-          /\bno\s+longer\s+interested\b/i,
-          /\bwithdraw(?:ing)?\s+(?:my|the)\s+application\b/i,
-          /\b(?:would|i'?d)\s+like\s+to\s+withdraw\b/i,
-          /\b(?:wish|want)\s+to\s+withdraw\b/i,
-          /\balready\s+accepted\s+(another|a|an)\s+(offer|position|job|role)\b/i,
-          /\baccepted\s+(a|another)\s+(position|offer|job|role)\s+elsewhere\b/i,
-          /\bdecided\s+to\s+go\s+with\s+(another|a\s+different)\b/i,
-          /\bplease\s+remove\s+me\b/i,
-          /\bnot\s+looking\s+(anymore|any\s*more)\b/i,
-          /\bno\s+longer\s+available\b/i,
-          /\bgoing\s+in\s+a\s+different\s+direction\b/i,
-          /\bdeclining\s+this\s+opportunity\b/i,
-          /\bnot\s+(?:looking\s+for|interested\s+in)\s+(?:a\s+)?(?:contract(?:ual)?|freelance|part[\s-]?time)\b/i
-        ];
+        // (notInterestedGuardPatterns is defined in the outer scope above)
         const isNotInterestedEarly = notInterestedGuardPatterns.some(p => p.test(candidateOwnMessage));
         const isPositiveInterestEarly = positiveInterestPatterns.some(p => p.test(candidateOwnMessage));
         if (isNotInterestedEarly && !isPositiveInterestEarly) {
@@ -7997,12 +8001,8 @@ Reply with only the email body text. No subject line. No placeholders.`;
       // Previously, the not-interested flag was set but the code returned before
       // the negotiation flow could update the status, leaving these candidates
       // stuck in "Active" and continuing to receive follow-up emails.
-      const isNotInterestedNow = notInterestedGuardPatterns
-        ? notInterestedGuardPatterns.some(p => p.test(candidateOwnMessage))
-        : false;
-      const isPositiveNow = positiveInterestPatterns
-        ? positiveInterestPatterns.some(p => p.test(candidateOwnMessage))
-        : false;
+      const isNotInterestedNow = notInterestedGuardPatterns.some(p => p.test(candidateOwnMessage));
+      const isPositiveNow = positiveInterestPatterns.some(p => p.test(candidateOwnMessage));
 
       if (isNotInterestedNow && !isPositiveNow) {
         try {
