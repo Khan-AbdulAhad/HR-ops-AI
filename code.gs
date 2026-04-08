@@ -998,7 +998,7 @@ function ensureSheetsExist(ss) {
 
   // UPDATED: Added Region column to track developer's region for rate tiers
   const stateSheet = ss.getSheetByName('Negotiation_State');
-  if (stateSheet.getLastRow() === 0) stateSheet.appendRow(['Email', 'Job ID', 'Attempt Count', 'Last Offer', 'Status', 'Last Reply Time', 'Dev ID', 'Name', 'AI Notes', 'Thread ID', 'Region']);
+  if (stateSheet.getLastRow() === 0) stateSheet.appendRow(['Email', 'Job ID', 'Attempt Count', 'Last Offer', 'Status', 'Last Reply Time', 'Dev ID', 'Name', 'AI Notes', 'Thread ID', 'Region', 'Neg Follow Up 1 Sent', 'Neg Follow Up 2 Sent']);
 
   const faqSheet = ss.getSheetByName('Negotiation_FAQs');
   if (faqSheet.getLastRow() === 0) faqSheet.appendRow(['Question', 'Answer']);
@@ -4481,7 +4481,9 @@ function updateCandidateStatusTag(email, jobId, newStatus) {
         details.name,         // Name
         'Auto-added to Negotiation_State during status update (candidate was missing from sheet)', // AI Notes
         details.threadId,     // Thread ID
-        details.region        // Region
+        details.region,       // Region
+        false,                // Neg Follow Up 1 Sent
+        false                 // Neg Follow Up 2 Sent
       ]);
       invalidateSheetCache('Negotiation_State');
 
@@ -5745,7 +5747,7 @@ function sendBulkEmails(recipients, senderName, subject, htmlBody, jobId, opts) 
   sentResults.forEach(({ r, threadId }) => {
     const region = r.region || '';
     logRows.push([now, jobId, r.email, r.name, threadId, "Initial", region]);
-    stateRows.push([r.email, jobId, 0, "Initial Sent", "Initial Outreach", now, r.devId || "N/A", r.name, "", threadId, region]);
+    stateRows.push([r.email, jobId, 0, "Initial Sent", "Initial Outreach", now, r.devId || "N/A", r.name, "", threadId, region, false, false]);
 
     // Job details row
     if (jobDetailsSheet && jdHeaders.length > 0) {
@@ -6409,7 +6411,7 @@ function enrichNegotiationStateData(ss) {
         } else if (recoveryF1Done) {
           recoveredNotes = '1st follow-up sent, awaiting response';
         }
-        recoveryRows.push([rawEmail, fqJobId, 0, '', recoveredStatus, new Date(), bestDevId, bestName, recoveredNotes, fqThreadId, bestRegion]);
+        recoveryRows.push([rawEmail, fqJobId, 0, '', recoveredStatus, new Date(), bestDevId, bestName, recoveredNotes, fqThreadId, bestRegion, false, false]);
         stateEmails.add(fqKey); // Prevent duplicates within this loop
         recoveredCount++;
         log.push({ type: 'success', message: `Recovered ${rawEmail} (Job ${fqJobId}) to Negotiation_State as "${recoveredStatus}" - DevID: ${bestDevId}, Name: ${bestName}` });
@@ -7119,7 +7121,7 @@ function processJobNegotiations(jobId, rules, ss, faqContent, negotiationEnabled
             stateSheet.appendRow([
               candEmail, jobId, 0, '', 'Human-Negotiation', new Date(),
               devId, name, '',
-              thread.getId(), region
+              thread.getId(), region, false, false
             ]);
             stateRowForSummary = stateSheet.getLastRow();
             debugLog(`Gmail label sync: Added ${candEmail} (Job ${jobId}) to Negotiation_State as "Human-Negotiation"`);
@@ -7439,7 +7441,9 @@ function processJobNegotiations(jobId, rules, ss, faqContent, negotiationEnabled
                   recoveredName,        // Candidate Name
                   '',                   // AI Notes
                   currentThreadId,      // Thread ID
-                  ''                    // Region
+                  '',                   // Region
+                  false,                // Neg Follow Up 1 Sent
+                  false                 // Neg Follow Up 2 Sent
                 ]);
                 const newRowIndex = stateSheet.getLastRow();
                 state = {
@@ -9852,8 +9856,8 @@ Write ONLY the email, nothing else.
           stateSheet.getRange(stateRowIndex, 6).setValue(new Date());
           stateSheet.getRange(stateRowIndex, 9).setValue(comprehensiveSummary);
         } else {
-          // Include region (column 11) when appending new state row
-          stateSheet.appendRow([cleanCandidateEmail, jobId, newAttemptCount, "Counter Offer", "Active", new Date(), devId, candidateName, comprehensiveSummary, thread.getId(), candidateRegion]);
+          // Include region (column 11) and neg follow-up flags (columns 12-13) when appending new state row
+          stateSheet.appendRow([cleanCandidateEmail, jobId, newAttemptCount, "Counter Offer", "Active", new Date(), devId, candidateName, comprehensiveSummary, thread.getId(), candidateRegion, false, false]);
         }
 
         // Remove Awaiting-Response label since we've now engaged with the candidate
@@ -10373,8 +10377,8 @@ Write ONLY the email, nothing else.
         stateSheet.getRange(stateRowIndex, 6).setValue(new Date());
         stateSheet.getRange(stateRowIndex, 9).setValue(comprehensiveSummary);
       } else {
-        // Include region (column 11) when appending new state row
-        stateSheet.appendRow([cleanCandidateEmail, jobId, newAttemptCount, "Counter Offer", "Active", new Date(), devId, candidateName, comprehensiveSummary, thread.getId(), candidateRegion]);
+        // Include region (column 11) and neg follow-up flags (columns 12-13) when appending new state row
+        stateSheet.appendRow([cleanCandidateEmail, jobId, newAttemptCount, "Counter Offer", "Active", new Date(), devId, candidateName, comprehensiveSummary, thread.getId(), candidateRegion, false, false]);
       }
 
       // Remove Awaiting-Response label since we've now engaged with the candidate
@@ -12096,7 +12100,9 @@ function syncHumanNegotiationFromGmail() {
             name,                // Name
             'Manually escalated to Human-Negotiation via Gmail label', // AI Notes
             thread.getId(),      // Thread ID
-            region               // Region
+            region,              // Region
+            false,               // Neg Follow Up 1 Sent
+            false                // Neg Follow Up 2 Sent
           ]);
 
           // Re-read state data after append to keep indices accurate for next iteration
