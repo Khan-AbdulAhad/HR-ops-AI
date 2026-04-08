@@ -991,14 +991,14 @@ function ensureSheetsExist(ss) {
 
   // UPDATED: Removed Walk Away Rate column
   const confSheet = ss.getSheetByName('Negotiation_Config');
-  if (confSheet.getLastRow() === 0) confSheet.appendRow(['Job ID', 'Target Rate', 'Max Rate', 'Style', 'Special Rules', 'Job Description', 'Last Updated']);
+  if (confSheet.getLastRow() === 0) confSheet.appendRow(['Job ID', 'Target Rate', 'Max Rate', 'Style', 'Special Rules', 'Job Description', 'Last Updated', 'Start Dates', 'JD Link']);
 
   const taskSheet = ss.getSheetByName('Negotiation_Tasks');
   if (taskSheet.getLastRow() === 0) taskSheet.appendRow(['Timestamp', 'Job ID', 'Name', 'Email', 'Agreed Rate', 'Status', 'Dev ID', 'Thread ID', 'Region']);
 
   // UPDATED: Added Region column to track developer's region for rate tiers
   const stateSheet = ss.getSheetByName('Negotiation_State');
-  if (stateSheet.getLastRow() === 0) stateSheet.appendRow(['Email', 'Job ID', 'Attempt Count', 'Last Offer', 'Status', 'Last Reply Time', 'Dev ID', 'Name', 'AI Notes', 'Thread ID', 'Region']);
+  if (stateSheet.getLastRow() === 0) stateSheet.appendRow(['Email', 'Job ID', 'Attempt Count', 'Last Offer', 'Status', 'Last Reply Time', 'Dev ID', 'Name', 'AI Notes', 'Thread ID', 'Region', 'Neg Follow Up 1 Sent', 'Neg Follow Up 2 Sent']);
 
   const faqSheet = ss.getSheetByName('Negotiation_FAQs');
   if (faqSheet.getLastRow() === 0) faqSheet.appendRow(['Question', 'Answer']);
@@ -4491,7 +4491,9 @@ function updateCandidateStatusTag(email, jobId, newStatus) {
         details.name,         // Name
         'Auto-added to Negotiation_State during status update (candidate was missing from sheet)', // AI Notes
         details.threadId,     // Thread ID
-        details.region        // Region
+        details.region,       // Region
+        false,                // Neg Follow Up 1 Sent
+        false                 // Neg Follow Up 2 Sent
       ]);
       invalidateSheetCache('Negotiation_State');
 
@@ -4751,7 +4753,7 @@ Write ONLY the email body. No subject line. No placeholders.`;
       }
 
       // Send the email in the same thread
-      sendReplyWithSenderName(thread, emailBody, senderName);
+      sendReplyWithSenderName(thread, emailBody, senderName, email);
 
       // Update Negotiation_State:
       // - Reset attempts to 0 for the new stage
@@ -4984,6 +4986,7 @@ function moveToCompleted(email, finalStatus, jobIdFilter) {
           if(fqKey === normalizedClean && (!jobIdFilter || fqJobId === String(jobIdFilter))) {
             followUpSheet.getRange(i + 1, 9).setValue('Responded');  // Status column
             followUpSheet.getRange(i + 1, 10).setValue(new Date());  // Last Updated column
+            followUpSheet.getRange(i + 1, 15).setValue(new Date()); // Last Response Time
             debugLog(`moveToCompleted: Marked Follow_Up_Queue entry as Responded for ${email} Job ${fqJobId}`);
             break;
           }
@@ -5766,7 +5769,7 @@ function sendBulkEmails(recipients, senderName, subject, htmlBody, jobId, opts) 
   sentResults.forEach(({ r, threadId }) => {
     const region = r.region || '';
     logRows.push([now, jobId, r.email, r.name, threadId, "Initial", region]);
-    stateRows.push([r.email, jobId, 0, "Initial Sent", "Initial Outreach", now, r.devId || "N/A", r.name, "", threadId, region]);
+    stateRows.push([r.email, jobId, 0, "Initial Sent", "Initial Outreach", now, r.devId || "N/A", r.name, "", threadId, region, false, false]);
 
     // Job details row
     if (jobDetailsSheet && jdHeaders.length > 0) {
@@ -5797,7 +5800,7 @@ function sendBulkEmails(recipients, senderName, subject, htmlBody, jobId, opts) 
       const fqKey = normalizeEmail(r.email) + '_' + String(jobId);
       if (!followUpExistingEmails.has(fqKey)) {
         followUpRows.push({
-          row: [r.email, jobId, threadId, r.name, r.devId || 'N/A', now, false, false, 'Pending', now],
+          row: [r.email, jobId, threadId, r.name, r.devId || 'N/A', now, false, false, 'Pending', now, false, false, false, false, ''],
           threadId: threadId
         });
         followUpExistingEmails.add(fqKey);
@@ -6028,17 +6031,22 @@ function batchModifyThreadLabels(threadIds, labelIds, token) {
  * Send a reply to a thread with custom sender name
  * This ensures AI replies show as the configured EMAIL_SENDER_NAME, not the actual email
  */
-function sendReplyWithSenderName(thread, replyBody, senderName) {
+function sendReplyWithSenderName(thread, replyBody, senderName, recipientEmail) {
   try {
     const messages = thread.getMessages();
     const lastMessage = messages[messages.length - 1];
     const subject = lastMessage.getSubject();
     const threadId = thread.getId();
-    
-    // Get recipient email (the person we're replying to)
-    const fromHeader = lastMessage.getFrom();
-    const emailMatch = fromHeader.match(/<([^>]+)>/);
-    const recipientEmail = emailMatch ? emailMatch[1] : fromHeader.replace(/.*<|>.*/g, '');
+
+    // Use explicit recipientEmail if provided; otherwise extract from last message.
+    // IMPORTANT: For follow-ups where the candidate hasn't replied yet, the last
+    // message is our own outreach, so getFrom() would return our own email.
+    // Callers that know the recipient should always pass it explicitly.
+    if (!recipientEmail) {
+      const fromHeader = lastMessage.getFrom();
+      const emailMatch = fromHeader.match(/<([^>]+)>/);
+      recipientEmail = emailMatch ? emailMatch[1] : fromHeader.replace(/.*<|>.*/g, '');
+    }
     
     // Get Message-ID for threading
     const messageId = lastMessage.getHeader('Message-ID');
@@ -6425,7 +6433,7 @@ function enrichNegotiationStateData(ss) {
         } else if (recoveryF1Done) {
           recoveredNotes = '1st follow-up sent, awaiting response';
         }
-        recoveryRows.push([rawEmail, fqJobId, 0, '', recoveredStatus, new Date(), bestDevId, bestName, recoveredNotes, fqThreadId, bestRegion]);
+        recoveryRows.push([rawEmail, fqJobId, 0, '', recoveredStatus, new Date(), bestDevId, bestName, recoveredNotes, fqThreadId, bestRegion, false, false]);
         stateEmails.add(fqKey); // Prevent duplicates within this loop
         recoveredCount++;
         log.push({ type: 'success', message: `Recovered ${rawEmail} (Job ${fqJobId}) to Negotiation_State as "${recoveredStatus}" - DevID: ${bestDevId}, Name: ${bestName}` });
@@ -7135,7 +7143,7 @@ function processJobNegotiations(jobId, rules, ss, faqContent, negotiationEnabled
             stateSheet.appendRow([
               candEmail, jobId, 0, '', 'Human-Negotiation', new Date(),
               devId, name, '',
-              thread.getId(), region
+              thread.getId(), region, false, false
             ]);
             stateRowForSummary = stateSheet.getLastRow();
             debugLog(`Gmail label sync: Added ${candEmail} (Job ${jobId}) to Negotiation_State as "Human-Negotiation"`);
@@ -7455,7 +7463,9 @@ function processJobNegotiations(jobId, rules, ss, faqContent, negotiationEnabled
                   recoveredName,        // Candidate Name
                   '',                   // AI Notes
                   currentThreadId,      // Thread ID
-                  ''                    // Region
+                  '',                   // Region
+                  false,                // Neg Follow Up 1 Sent
+                  false                 // Neg Follow Up 2 Sent
                 ]);
                 const newRowIndex = stateSheet.getLastRow();
                 state = {
@@ -7616,7 +7626,7 @@ Reply with only the email body text. No subject line. No placeholders.`;
 
         const closureMessage = callAI(closurePrompt);
         if (closureMessage && !closureMessage.startsWith('ACTION: ESCALATE')) {
-          sendReplyWithSenderName(thread, closureMessage, getEffectiveSenderName());
+          sendReplyWithSenderName(thread, closureMessage, getEffectiveSenderName(), candidateEmail);
           markCompleted(thread);
 
           if (stateRowIndex > -1) {
@@ -7836,7 +7846,7 @@ Reply with only the email body text. No subject line. No placeholders.`;
 
                 // Send the follow-up email in the same thread using proper sender name
                 // FIX: Use sendReplyWithSenderName instead of thread.replyAll to respect sender settings
-                sendReplyWithSenderName(thread, missingInfoEmail, getEffectiveSenderName());
+                sendReplyWithSenderName(thread, missingInfoEmail, getEffectiveSenderName(), candidateEmail);
                 dataGatheringEmailSent = true;
                 recordMissingInfoFollowUp(jobId, candidateEmail);
                 jobStats.missingInfoFollowUps++;
@@ -8053,7 +8063,7 @@ Write ONLY the email body, nothing else.
           if (questionReply && !questionReply.startsWith('ACTION: ESCALATE')) {
             // Validate email content before sending
             if (validateEmailForSending(questionReply, { jobId: jobId })) {
-              sendReplyWithSenderName(thread, questionReply, getEffectiveSenderName());
+              sendReplyWithSenderName(thread, questionReply, getEffectiveSenderName(), candidateEmail);
               jobStats.replied++;
               jobStats.log.push({type: 'info', message: `${cleanCandidateEmail} - Answered candidate question (negotiation off, data complete)`});
             } else {
@@ -8260,7 +8270,7 @@ Write ONLY the email, nothing else.
             return;
           }
 
-          sendReplyWithSenderName(thread, dataOnlyEmail, getEffectiveSenderName());
+          sendReplyWithSenderName(thread, dataOnlyEmail, getEffectiveSenderName(), candidateEmail);
 
           // Update state timestamp, status, and AI summary
           if (stateRowIndex > -1) {
@@ -8362,7 +8372,7 @@ Write ONLY the email, nothing else.
             return;
           }
 
-          sendReplyWithSenderName(thread, completionEmail, getEffectiveSenderName());
+          sendReplyWithSenderName(thread, completionEmail, getEffectiveSenderName(), candidateEmail);
 
           // Update job-specific details sheet with accepted status and rate
           try {
@@ -8940,7 +8950,7 @@ Write ONLY the email, nothing else.
             return;
           }
 
-          sendReplyWithSenderName(thread, counterOfferEmail, getEffectiveSenderName());
+          sendReplyWithSenderName(thread, counterOfferEmail, getEffectiveSenderName(), candidateEmail);
 
           // Update job details with candidate offer and counter offer
           try {
@@ -9032,7 +9042,7 @@ Write ONLY the email, nothing else.
             return;
           }
 
-          sendReplyWithSenderName(thread, combinedEmail, getEffectiveSenderName());
+          sendReplyWithSenderName(thread, combinedEmail, getEffectiveSenderName(), candidateEmail);
           recordMissingInfoFollowUp(jobId, candidateEmail);
 
           // Update follow-up labels
@@ -9137,7 +9147,7 @@ Write ONLY the email, nothing else.
         return;
       }
 
-      sendReplyWithSenderName(thread, acceptEmail, getEffectiveSenderName());
+      sendReplyWithSenderName(thread, acceptEmail, getEffectiveSenderName(), candidateEmail);
       markCompleted(thread);
 
       // Remove Awaiting-Response label since offer is accepted and completed
@@ -9224,7 +9234,7 @@ Write ONLY the email, nothing else.
         // Only send handoff email to candidate for sensitive questions (immediate escalation)
         // For attempt-based escalation (attempts >= 2), do NOT email the candidate
         if (isSensitiveQuestion) {
-          escalateToHuman(thread, escalationReason, candidateName, comprehensiveSummary);
+          escalateToHuman(thread, escalationReason, candidateName, comprehensiveSummary, candidateEmail);
         } else {
           // Just add the Human-Negotiation label without emailing the candidate
           try {
@@ -9316,7 +9326,7 @@ Write ONLY the email, nothing else.
             return;
           }
 
-          sendReplyWithSenderName(thread, combinedEmail, getEffectiveSenderName());
+          sendReplyWithSenderName(thread, combinedEmail, getEffectiveSenderName(), candidateEmail);
           recordMissingInfoFollowUp(jobId, candidateEmail);
           updateFollowUpLabels(thread.getId(), 'responded');
 
@@ -9411,7 +9421,7 @@ Write ONLY the email, nothing else.
         return;
       }
 
-      sendReplyWithSenderName(thread, acceptEmail, getEffectiveSenderName());
+      sendReplyWithSenderName(thread, acceptEmail, getEffectiveSenderName(), candidateEmail);
       markCompleted(thread);
 
       // Remove Awaiting-Response label since offer is accepted and completed
@@ -9831,7 +9841,7 @@ Write ONLY the email, nothing else.
           return;
         }
 
-        sendReplyWithSenderName(thread, retryResponse, getEffectiveSenderName());
+        sendReplyWithSenderName(thread, retryResponse, getEffectiveSenderName(), candidateEmail);
 
         // Update job details with candidate offer and counter offer
         try {
@@ -9868,8 +9878,8 @@ Write ONLY the email, nothing else.
           stateSheet.getRange(stateRowIndex, 6).setValue(new Date());
           stateSheet.getRange(stateRowIndex, 9).setValue(comprehensiveSummary);
         } else {
-          // Include region (column 11) when appending new state row
-          stateSheet.appendRow([cleanCandidateEmail, jobId, newAttemptCount, "Counter Offer", "Active", new Date(), devId, candidateName, comprehensiveSummary, thread.getId(), candidateRegion]);
+          // Include region (column 11) and neg follow-up flags (columns 12-13) when appending new state row
+          stateSheet.appendRow([cleanCandidateEmail, jobId, newAttemptCount, "Counter Offer", "Active", new Date(), devId, candidateName, comprehensiveSummary, thread.getId(), candidateRegion, false, false]);
         }
 
         // Remove Awaiting-Response label since we've now engaged with the candidate
@@ -10014,7 +10024,7 @@ Write ONLY the email, nothing else.
             return;
           }
 
-          sendReplyWithSenderName(thread, counterOfferEmail, getEffectiveSenderName());
+          sendReplyWithSenderName(thread, counterOfferEmail, getEffectiveSenderName(), candidateEmail);
 
           // Update job details with candidate offer and counter offer
           try {
@@ -10091,7 +10101,7 @@ Write ONLY the email, nothing else.
             return;
           }
 
-          sendReplyWithSenderName(thread, combinedEmail, getEffectiveSenderName());
+          sendReplyWithSenderName(thread, combinedEmail, getEffectiveSenderName(), candidateEmail);
           recordMissingInfoFollowUp(jobId, candidateEmail);
           updateFollowUpLabels(thread.getId(), 'responded');
 
@@ -10168,7 +10178,7 @@ Write ONLY the email, nothing else.
         return;
       }
 
-      sendReplyWithSenderName(thread, acceptEmail, getEffectiveSenderName());
+      sendReplyWithSenderName(thread, acceptEmail, getEffectiveSenderName(), candidateEmail);
       markCompleted(thread);
 
       // Remove Awaiting-Response label since offer is accepted and completed
@@ -10256,7 +10266,7 @@ Write ONLY the email, nothing else.
           return;
         }
 
-        sendReplyWithSenderName(thread, aiResponse, getEffectiveSenderName());
+        sendReplyWithSenderName(thread, aiResponse, getEffectiveSenderName(), candidateEmail);
 
         jobStats.log.push({type: 'info', message: `${candidateEmail} - NOT INTERESTED (fallback else block): Candidate message matched disinterest pattern. AI replied but missed ACTION tag. Updating status.`});
         handleNotInterested({
@@ -10323,7 +10333,7 @@ Write ONLY the email, nothing else.
               return;
             }
 
-            sendReplyWithSenderName(thread, safeEmail, getEffectiveSenderName());
+            sendReplyWithSenderName(thread, safeEmail, getEffectiveSenderName(), candidateEmail);
 
             try {
               updateJobCandidateStatus(ss, jobId, candidateEmail, 'Counter Offer Sent', null, `$${emailRate}/hr`, `$${safeCounterRate}/hr`);
@@ -10359,7 +10369,7 @@ Write ONLY the email, nothing else.
         }
       }
 
-      sendReplyWithSenderName(thread, aiResponse, getEffectiveSenderName());
+      sendReplyWithSenderName(thread, aiResponse, getEffectiveSenderName(), candidateEmail);
 
       const newAttemptCount = attempts + 1;
 
@@ -10389,8 +10399,8 @@ Write ONLY the email, nothing else.
         stateSheet.getRange(stateRowIndex, 6).setValue(new Date());
         stateSheet.getRange(stateRowIndex, 9).setValue(comprehensiveSummary);
       } else {
-        // Include region (column 11) when appending new state row
-        stateSheet.appendRow([cleanCandidateEmail, jobId, newAttemptCount, "Counter Offer", "Active", new Date(), devId, candidateName, comprehensiveSummary, thread.getId(), candidateRegion]);
+        // Include region (column 11) and neg follow-up flags (columns 12-13) when appending new state row
+        stateSheet.appendRow([cleanCandidateEmail, jobId, newAttemptCount, "Counter Offer", "Active", new Date(), devId, candidateName, comprehensiveSummary, thread.getId(), candidateRegion, false, false]);
       }
 
       // Remove Awaiting-Response label since we've now engaged with the candidate
@@ -10459,7 +10469,7 @@ This is an automated notification from the HR-Ops AI system.
   }
 }
 
-function escalateToHuman(thread, reason, candidateName, conversationContext) {
+function escalateToHuman(thread, reason, candidateName, conversationContext, candidateEmail) {
   try {
     // CRITICAL SAFETY CHECK: Only send handoff messages to AI-Managed threads
     const threadLabels = thread.getLabels().map(l => l.getName());
@@ -10518,18 +10528,18 @@ Write ONLY the email, nothing else. Keep it concise (3-4 sentences).
       console.error(`BLOCKED: Handoff message contained sensitive data.`);
       // Use safe fallback instead
       const safeHandoff = `Hi ${firstName},\n\nThank you for sharing your rate expectation. I have shared your message with a member of our Talent Operations team, and they will get back to you shortly with an update on the rates.\n\nWe appreciate your patience and interest in this opportunity.\n\nBest regards,\n${getEffectiveSignature()}`;
-      sendReplyWithSenderName(thread, safeHandoff, getEffectiveSenderName());
+      sendReplyWithSenderName(thread, safeHandoff, getEffectiveSenderName(), candidateEmail);
       return;
     }
 
-    sendReplyWithSenderName(thread, handoffMessage, getEffectiveSenderName());
+    sendReplyWithSenderName(thread, handoffMessage, getEffectiveSenderName(), candidateEmail);
 
   } catch(e) {
     console.error("Failed to escalate to human:", e);
     // Fallback to simple reply if AI fails
     try {
       const fallbackMsg = `Hi ${candidateName ? candidateName.split(' ')[0] : 'there'},\n\nThank you for sharing your rate expectation. I have shared your message with a member of our Talent Operations team, and they will get back to you shortly with an update on the rates.\n\nWe appreciate your patience and interest in this opportunity.\n\nBest regards,\n${getEffectiveSignature()}`;
-      sendReplyWithSenderName(thread, fallbackMsg, getEffectiveSenderName());
+      sendReplyWithSenderName(thread, fallbackMsg, getEffectiveSenderName(), candidateEmail);
     } catch(e2) { console.error('CRITICAL: Fallback escalation message also failed to send:', e2); }
   }
 }
@@ -11545,6 +11555,7 @@ function retroactiveScanNotInterested() {
               if (normalizeEmail(fuData[f][0]) === normalizedEmail && String(fuData[f][1]) === candidate.jobId) {
                 followUpSheet.getRange(f + 1, 9).setValue('Responded'); // Status column
                 followUpSheet.getRange(f + 1, 10).setValue(new Date()); // Last Updated
+                followUpSheet.getRange(f + 1, 15).setValue(new Date()); // Last Response Time
                 break;
               }
             }
@@ -11591,6 +11602,7 @@ function retroactiveScanNotInterested() {
           // If not in state sheet anymore, just update the follow-up queue status
           followUpSheet.getRange(f + 1, 9).setValue('Responded');
           followUpSheet.getRange(f + 1, 10).setValue(new Date());
+          followUpSheet.getRange(f + 1, 15).setValue(new Date()); // Last Response Time
 
           try {
             updateFollowUpLabels(threadId, 'responded');
@@ -11939,6 +11951,7 @@ function syncCompletedFromGmail() {
               if(fqStatus !== 'Responded' && fqStatus !== 'Unresponsive') {
                 followUpSheet.getRange(fi + 1, 9).setValue('Responded');
                 followUpSheet.getRange(fi + 1, 10).setValue(new Date());
+                followUpSheet.getRange(fi + 1, 15).setValue(new Date()); // Last Response Time
                 debugLog(`syncCompletedFromGmail: Marked Follow_Up_Queue as Responded for ${candidateEmail}`);
               }
               break;
@@ -12109,7 +12122,9 @@ function syncHumanNegotiationFromGmail() {
             name,                // Name
             'Manually escalated to Human-Negotiation via Gmail label', // AI Notes
             thread.getId(),      // Thread ID
-            region               // Region
+            region,              // Region
+            false,               // Neg Follow Up 1 Sent
+            false                // Neg Follow Up 2 Sent
           ]);
 
           // Re-read state data after append to keep indices accurate for next iteration
@@ -13814,6 +13829,7 @@ function processFollowUpQueue() {
       if (acceptedOffers.has(negotiationKey)) {
         sheet.getRange(i + 1, 9).setValue('Responded');
         sheet.getRange(i + 1, 10).setValue(new Date());
+        sheet.getRange(i + 1, 15).setValue(new Date()); // Last Response Time
         updateFollowUpLabels(threadId, 'responded');
         logFollowUpToAnalytics(jobId, email, name, 'responded', 'Candidate has accepted offer - follow-ups permanently blocked');
         log.push({ type: 'success', message: `${email} has accepted offer - follow-ups blocked (Manual Override cannot bypass accepted state)` });
@@ -13898,6 +13914,7 @@ function processFollowUpQueue() {
               // Mark as responded - thread had a non-system reply
               sheet.getRange(i + 1, 9).setValue('Responded');
               sheet.getRange(i + 1, 10).setValue(new Date());
+              sheet.getRange(i + 1, 15).setValue(new Date()); // Last Response Time
               updateFollowUpLabels(threadId, 'responded');
               logFollowUpToAnalytics(jobId, email, name, 'responded', 'Thread-based detection');
               log.push({ type: 'success', message: `${email} has responded (thread-based detection) - marked in queue` });
@@ -13927,6 +13944,7 @@ function processFollowUpQueue() {
         if(activeNegotiations.has(negotiationKey) || completedNegotiations.has(negotiationKey) || acceptedOffers.has(negotiationKey)) {
           sheet.getRange(i + 1, 9).setValue('Responded');
           sheet.getRange(i + 1, 10).setValue(new Date());
+          sheet.getRange(i + 1, 15).setValue(new Date()); // Last Response Time
           updateFollowUpLabels(threadId, 'responded');
           logFollowUpToAnalytics(jobId, email, name, 'responded', 'Safety check - found in negotiations');
           log.push({ type: 'success', message: `${email} found in negotiations (safety check) - marked as responded` });
@@ -14200,7 +14218,8 @@ function sendFollowUpEmail(email, jobId, threadId, name, followUpNumber) {
         }
 
         // Use the custom sender reply function with effective sender name
-        sendReplyWithSenderName(thread, emailBody, getEffectiveSenderName());
+        // Pass candidate email explicitly so the reply goes to the candidate, not back to us
+        sendReplyWithSenderName(thread, emailBody, getEffectiveSenderName(), email);
 
         // Log the follow-up with region data from state
         const url = getStoredSheetUrl();
@@ -14259,7 +14278,8 @@ function sendFollowUpEmail(email, jobId, threadId, name, followUpNumber) {
       }
 
       // FIX: Use sendReplyWithSenderName for consistent sender settings
-      sendReplyWithSenderName(thread, emailBody, getEffectiveSenderName());
+      // Pass candidate email explicitly so the reply goes to the candidate, not back to us
+      sendReplyWithSenderName(thread, emailBody, getEffectiveSenderName(), email);
       return { success: true };
     }
 
@@ -14369,7 +14389,8 @@ function sendDataGatheringFollowUpEmail(email, jobId, threadId, name, followUpNu
         }
 
         // Use the custom sender reply function
-        sendReplyWithSenderName(thread, emailBody, getEffectiveSenderName());
+        // Pass candidate email explicitly so the reply goes to the candidate, not back to us
+        sendReplyWithSenderName(thread, emailBody, getEffectiveSenderName(), email);
 
         // Update Gmail labels
         updateDataGatheringFollowUpLabels(threadId, followUpNumber);
@@ -15102,7 +15123,8 @@ function sendNegotiationFollowUpEmail(email, jobId, threadId, name, followUpNumb
         return { success: false, error: `Thread missing ${AI_MANAGED_LABEL} label` };
       }
 
-      sendReplyWithSenderName(thread, emailBody, getEffectiveSenderName());
+      // Pass candidate email explicitly so the reply goes to the candidate, not back to us
+      sendReplyWithSenderName(thread, emailBody, getEffectiveSenderName(), email);
       debugLog(`Sent negotiation follow-up #${followUpNumber} to ${email} for Job ${jobId}`);
       return { success: true };
     }
@@ -21845,7 +21867,8 @@ function sendSupplementaryDataRequest(jobId, candidateEmails, additionalQuestion
         }
 
         // Send the email as a reply in the thread
-        sendReplyWithSenderName(thread, emailBody, getEffectiveSenderName());
+        // Pass candidate email explicitly so the reply goes to the candidate, not back to us
+        sendReplyWithSenderName(thread, emailBody, getEffectiveSenderName(), candidate.email);
 
         // Update Follow_Up_Queue to track this supplementary request for data follow-ups
         // Reset data follow-up flags and update last response time to start the follow-up cycle
