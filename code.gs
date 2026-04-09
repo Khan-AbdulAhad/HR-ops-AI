@@ -8772,6 +8772,26 @@ Return ONLY the JSON object, no other text.
       }
     }
 
+    // CODE-LEVEL GUARD: Prevent false rate acceptance when candidate only expresses general interest
+    // The AI rate analysis may incorrectly classify "Yes, I am interested in this position" as AUTO_ACCEPT
+    // by pulling an agreed_rate from conversation history, even though the candidate never mentioned or
+    // confirmed any specific rate. This guard checks the candidate's OWN message (stripped of quoted text)
+    // for any dollar amount or rate reference. If none is found on the first response (attempts === 0),
+    // override to COUNTER so the system asks the candidate to explicitly confirm the rate.
+    if (rateAnalysis && attempts === 0 &&
+        (rateAnalysis.action === 'AUTO_ACCEPT' || rateAnalysis.is_accepting_offer) &&
+        candidateOwnMessage) {
+      const hasRateInMessage = /\$\s*\d+|\d+\s*(?:\/\s*hr|\/\s*hour|per\s*hour|an\s*hour|dollars?\s*(?:per|\/|an)\s*hour)/i.test(candidateOwnMessage);
+      if (!hasRateInMessage) {
+        jobStats.log.push({type: 'info', message: `${candidateEmail} - GUARD: AI returned ${rateAnalysis.action} but candidate's first response contains no rate/dollar amount. Overriding to COUNTER to ask for rate confirmation.`});
+        rateAnalysis.action = 'COUNTER';
+        rateAnalysis.is_accepting_offer = false;
+        rateAnalysis.agreed_rate = null;
+        rateAnalysis.proposed_rate = null;
+        rateAnalysis.reason = 'Guard override: general interest without explicit rate mention - asking for rate confirmation';
+      }
+    }
+
     // FIX: Auto-fill "Negotiation Response" column in job details sheet when rate analysis completes
     // This prevents the system from treating it as a "pending" data question and repeatedly asking
     // candidates about rate negotiation when they've already confirmed their rate.
