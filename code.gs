@@ -14185,6 +14185,248 @@ function moveToUnresponsive(ss, email, jobId, name, devId, threadId, initialSend
 }
 
 /**
+ * Proactive auto-check: Scan Unresponsive_Devs for candidates who have sent new replies.
+ * This is a safety net that runs alongside the main AI trigger. If a candidate marked as
+ * Unresponsive replies but the main trigger misses it (e.g., label issues, timing races),
+ * this function catches the reply and reactivates the candidate for negotiation.
+ *
+ * For each unresponsive candidate:
+ * 1. Checks the Gmail thread for any new non-system messages after the "Marked Unresponsive" timestamp
+ * 2. Verifies the job is still active
+ * 3. If new response found & job active: Creates new Negotiation_State entry (status=Active, attempts=0),
+ *    removes from Unresponsive_Devs, updates Gmail labels, updates Job Details sheet
+ * 4. If new response found & job closed: Reactivates to allow closure email to be sent
+ * 5. Respects MAX_REACTIVATIONS cap (2) and 30-day age limit for safety
+ *
+ * Called by runFollowUpProcessor() on each hourly cycle.
+ * @returns {Object} { processed, reactivated, escalated, log[] }
+ */
+function checkUnresponsiveForNewResponses() {
+  const log = [];
+  let processed = 0;
+  let reactivated = 0;
+  let escalated = 0;
+
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const unresponsiveSheet = ss.getSheetByName('Unresponsive_Devs');
+    if (!unresponsiveSheet || unresponsiveSheet.getLastRow() <= 1) {
+      log.push({ type: 'info', message: 'No unresponsive candidates to check' });
+      return { processed: 0, reactivated: 0, escalated: 0, log };
+    }
+
+    const stateSheet = ss.getSheetByName('Negotiation_State');
+    if (!stateSheet) {
+      log.push({ type: 'error', message: 'Negotiation_State sheet not found' });
+      return { processed: 0, reactivated: 0, escalated: 0, log };
+    }
+
+    // Build a set of existing active negotiations to avoid duplicating reactivations
+    const stateData = stateSheet.getDataRange().getValues();
+    const activeStateKeys = new Set();
+    for (let s = 1; s < stateData.length; s++) {
+      const status = String(stateData[s][4] || '').trim();
+      if (status === 'Active' || status === 'Counter Offer') {
+        const key = `${normalizeEmail(String(stateData[s][0]))}|${String(stateData[s][1])}`;
+        activeStateKeys.add(key);
+      }
+    }
+
+    // Get our email and sender names to exclude from response detection
+    let myEmail = '';
+    try { myEmail = Session.getActiveUser().getEmail(); } catch(e) {}
+    try { if (!myEmail) myEmail = Gmail.Users.getProfile('me').emailAddress; } catch(e) {}
+    myEmail = (myEmail || '').toLowerCase();
+    const effectiveSender = getEffectiveSenderName().toLowerCase();
+    const ourSenderNames = ['recruiter', 'turing recruitment', 'turing team', EMAIL_SENDER_NAME.toLowerCase(), effectiveSender];
+
+    const unresponsiveData = unresponsiveSheet.getDataRange().getValues();
+    const MAX_REACTIVATIONS = 2;
+    const MAX_LATE_REPLY_AGE_DAYS = 30;
+    const now = new Date();
+
+    // Count reactivations per email+jobId across the entire sheet (for safety cap)
+    const reactivationCounts = {};
+    for (let u = 1; u < unresponsiveData.length; u++) {
+      const key = `${normalizeEmail(String(unresponsiveData[u][0]))}|${String(unresponsiveData[u][1])}`;
+      reactivationCounts[key] = (reactivationCounts[key] || 0) + 1;
+    }
+
+    // Process rows in reverse order so row deletions don't shift indices
+    const rowsToDelete = [];
+
+    for (let u = unresponsiveData.length - 1; u >= 1; u--) {
+      const email = String(unresponsiveData[u][0] || '').trim();
+      const jobId = String(unresponsiveData[u][1] || '').trim();
+      const name = String(unresponsiveData[u][2] || 'Unknown');
+      const devId = String(unresponsiveData[u][3] || 'N/A');
+      const threadId = String(unresponsiveData[u][4] || '').trim();
+      const initialSendTime = unresponsiveData[u][5];
+      const markedUnresponsiveTime = unresponsiveData[u][8]; // Column I = Marked Unresponsive timestamp
+
+      if (!email || !threadId) continue;
+
+      const normalizedEmail = normalizeEmail(email);
+      const stateKey = `${normalizedEmail}|${jobId}`;
+
+      // Skip if already reactivated (has an active Negotiation_State entry)
+      if (activeStateKeys.has(stateKey)) continue;
+
+      processed++;
+
+      try {
+        // Check the Gmail thread for new non-system messages
+        const thread = GmailApp.getThreadById(threadId);
+        if (!thread) {
+          log.push({ type: 'warning', message: `${email} (Job ${jobId}) - Thread not found, skipping` });
+          continue;
+        }
+
+        // Verify thread has AI-Managed label
+        const threadLabels = thread.getLabels().map(function(l) { return l.getName(); });
+        if (!threadLabels.includes(AI_MANAGED_LABEL)) continue;
+
+        const messages = thread.getMessages();
+        let hasNewResponse = false;
+        const unresponsiveTimestamp = markedUnresponsiveTime ? new Date(markedUnresponsiveTime).getTime() : 0;
+
+        for (let m = messages.length - 1; m >= 1; m--) {
+          const msg = messages[m];
+          const msgDate = msg.getDate().getTime();
+
+          // Only consider messages AFTER the candidate was marked unresponsive
+          if (unresponsiveTimestamp && msgDate <= unresponsiveTimestamp) break;
+
+          const sender = msg.getFrom().toLowerCase();
+          const senderEmailMatch = sender.match(/<([^>]+)>/) || [null, sender.replace(/.*<|>.*/g, '').trim()];
+          const senderEmail = senderEmailMatch[1] || sender.trim();
+
+          // Skip our own messages
+          const isFromUs = (myEmail && senderEmail.includes(myEmail)) ||
+                           ourSenderNames.some(function(n) { return sender.includes(n); });
+          if (isFromUs) continue;
+
+          // Found a non-system message after unresponsive timestamp
+          hasNewResponse = true;
+          log.push({ type: 'info', message: `${email} (Job ${jobId}) - New response detected from ${senderEmail} after being marked unresponsive` });
+          break;
+        }
+
+        if (!hasNewResponse) continue;
+
+        // --- New response found. Run safety checks before reactivating. ---
+
+        // SAFETY: Max reactivations cap
+        if ((reactivationCounts[stateKey] || 0) >= MAX_REACTIVATIONS) {
+          log.push({ type: 'warning', message: `${email} (Job ${jobId}) - Max reactivations (${MAX_REACTIVATIONS}) reached. Escalating to human.` });
+          try {
+            const humanLabel = GmailApp.getUserLabelByName('Human-Negotiation') || GmailApp.createLabel('Human-Negotiation');
+            thread.addLabel(humanLabel);
+          } catch(labelErr) { console.warn('Failed to add Human-Negotiation label:', labelErr.message); }
+          escalated++;
+          continue;
+        }
+
+        // Check if job is still active
+        const jobStatus = getClosedJobStatus(jobId);
+        const isJobClosed = jobStatus === 'Fulfilled' || jobStatus === 'Stopped';
+        const isJobPaused = jobIsPaused(jobId);
+
+        if (isJobPaused) {
+          log.push({ type: 'info', message: `${email} (Job ${jobId}) - Job is paused, skipping reactivation` });
+          continue;
+        }
+
+        // SAFETY: Check age of initial send
+        if (initialSendTime) {
+          const daysSinceInitial = (now.getTime() - new Date(initialSendTime).getTime()) / (1000 * 60 * 60 * 24);
+          if (daysSinceInitial > MAX_LATE_REPLY_AGE_DAYS && !isJobClosed) {
+            log.push({ type: 'warning', message: `${email} (Job ${jobId}) - Late reply is ${Math.round(daysSinceInitial)} days old and job is active. Too stale to auto-reactivate. Escalating to human.` });
+            try {
+              const humanLabel = GmailApp.getUserLabelByName('Human-Negotiation') || GmailApp.createLabel('Human-Negotiation');
+              thread.addLabel(humanLabel);
+            } catch(labelErr) { console.warn('Failed to add Human-Negotiation label:', labelErr.message); }
+            escalated++;
+            continue;
+          }
+        }
+
+        // --- All safety checks passed. Reactivate the candidate. ---
+
+        // Create new Negotiation_State entry with status Active, attempts=0
+        stateSheet.appendRow([
+          email,              // Email
+          jobId,              // Job ID
+          0,                  // Attempt Count (starts at 0 = first attempt)
+          '',                 // Last Offer
+          'Active',           // Status
+          new Date(),         // Last Reply Time
+          devId,              // Dev ID
+          name,               // Candidate Name
+          '',                 // AI Notes
+          threadId,           // Thread ID
+          '',                 // Region
+          false,              // Neg Follow Up 1 Sent
+          false               // Neg Follow Up 2 Sent
+        ]);
+
+        // Update Gmail labels: remove Unresponsive, ready for AI processing
+        try {
+          updateFollowUpLabels(threadId, 'responded');
+        } catch(labelErr) {
+          console.warn('Failed to update labels during unresponsive auto-check reactivation:', labelErr.message);
+        }
+
+        // Update Job Details sheet status back to Active
+        try {
+          updateJobCandidateStatus(ss, jobId, email, 'Active', null);
+        } catch(detailsErr) {
+          console.warn('Failed to update job details during unresponsive auto-check reactivation:', detailsErr.message);
+        }
+
+        // Mark row for deletion from Unresponsive_Devs
+        rowsToDelete.push(u + 1); // Sheet rows are 1-based + header
+
+        // Track as active to prevent duplicate processing within this run
+        activeStateKeys.add(stateKey);
+
+        // Log to analytics
+        logFollowUpToAnalytics(jobId, email, name, 'unresponsive_auto_reactivated',
+          isJobClosed ? `Auto-reactivated (job ${jobStatus}) - will send closure email` : 'Auto-reactivated after new response detected by proactive check');
+
+        reactivated++;
+        log.push({ type: 'success', message: `${email} (Job ${jobId}) - Auto-reactivated! Status: Active, Attempts: 0 (Attempt 1). Removed from Unresponsive_Devs.${isJobClosed ? ' Job is ' + jobStatus + ' - closure email will be sent.' : ''}` });
+
+      } catch(threadErr) {
+        log.push({ type: 'error', message: `${email} (Job ${jobId}) - Error checking thread: ${threadErr.message}` });
+      }
+    }
+
+    // Delete reactivated rows from Unresponsive_Devs (in reverse order to preserve indices)
+    if (rowsToDelete.length > 0) {
+      rowsToDelete.sort(function(a, b) { return b - a; }); // Descending
+      for (let d = 0; d < rowsToDelete.length; d++) {
+        try {
+          unresponsiveSheet.deleteRow(rowsToDelete[d]);
+        } catch(delErr) {
+          console.warn('Failed to delete row ' + rowsToDelete[d] + ' from Unresponsive_Devs:', delErr.message);
+        }
+      }
+      SpreadsheetApp.flush();
+      invalidateSheetCache('Negotiation_State');
+    }
+
+    log.push({ type: 'info', message: `Unresponsive auto-check: Scanned ${processed}, Reactivated ${reactivated}, Escalated ${escalated}` });
+
+    return { processed, reactivated, escalated, log };
+
+  } catch(e) {
+    console.error('Error in checkUnresponsiveForNewResponses:', e);
+    return { processed: 0, reactivated: 0, escalated: 0, log: [{ type: 'error', message: e.message }] };
+  }
+}
+
+/**
  * Send a follow-up email using AI to generate contextual content
  * @param {string} email - Recipient email
  * @param {string} jobId - Job ID
@@ -14347,10 +14589,18 @@ function runFollowUpProcessor() {
     const negResult = processNegotiationFollowUps();
     debugLog(`Mid-negotiation follow-up processing complete. Results:`, negResult);
 
+    // Proactive auto-check: Scan Unresponsive_Devs for candidates who replied after being marked unresponsive.
+    // This is a safety net - the main AI trigger normally catches late replies, but this ensures
+    // no responses are missed due to label issues or timing races.
+    debugLog("Starting unresponsive auto-check...");
+    const unresponsiveCheckResult = checkUnresponsiveForNewResponses();
+    debugLog(`Unresponsive auto-check complete. Results:`, unresponsiveCheckResult);
+
     return {
       outreach: result,
       dataGathering: dataResult,
-      negotiation: negResult
+      negotiation: negResult,
+      unresponsiveAutoCheck: unresponsiveCheckResult
     };
   } finally {
     lock.releaseLock();
