@@ -6173,7 +6173,11 @@ function enrichNegotiationStateData(ss) {
     const needsName = !name || name === 'Unknown' || name === '';
     const needsThreadId = !threadId || threadId === '';
     const needsRegion = !region || region === '';
-    const needsStatusSync = (status === 'Initial Outreach');
+    // FIX: Include 'Follow Up' so enrichment can sync 'Follow Up' → 'Unresponsive' when
+    // Follow_Up_Queue marks a candidate as unresponsive after all follow-ups are exhausted.
+    // Previously only 'Initial Outreach' was checked, so candidates already synced to 'Follow Up'
+    // were never picked up for the Unresponsive transition at line ~6380.
+    const needsStatusSync = (status === 'Initial Outreach' || status === 'Follow Up');
 
     if (needsDevId || needsName || needsThreadId || needsRegion || needsStatusSync) {
       rowsToCheck.push({
@@ -8769,6 +8773,26 @@ Return ONLY the JSON object, no other text.
         rateAnalysis.action = 'AUTO_ACCEPT';
         rateAnalysis.proposed_rate = candidateRate;
         rateAnalysis.reason = `Tolerance acceptance: $${formatRate(candidateRate)}/hr within 10% of max $${formatRate(maxRate)}/hr after ${attempts} attempts`;
+      }
+    }
+
+    // CODE-LEVEL GUARD: Prevent false rate acceptance when candidate only expresses general interest
+    // The AI rate analysis may incorrectly classify "Yes, I am interested in this position" as AUTO_ACCEPT
+    // by pulling an agreed_rate from conversation history, even though the candidate never mentioned or
+    // confirmed any specific rate. This guard checks the candidate's OWN message (stripped of quoted text)
+    // for any dollar amount or rate reference. If none is found on the first response (attempts === 0),
+    // override to COUNTER so the system asks the candidate to explicitly confirm the rate.
+    if (rateAnalysis && attempts === 0 &&
+        (rateAnalysis.action === 'AUTO_ACCEPT' || rateAnalysis.is_accepting_offer) &&
+        candidateOwnMessage) {
+      const hasRateInMessage = /\$\s*\d+|\d+\s*(?:\/\s*hr|\/\s*hour|per\s*hour|an\s*hour|dollars?\s*(?:per|\/|an)\s*hour)/i.test(candidateOwnMessage);
+      if (!hasRateInMessage) {
+        jobStats.log.push({type: 'info', message: `${candidateEmail} - GUARD: AI returned ${rateAnalysis.action} but candidate's first response contains no rate/dollar amount. Overriding to COUNTER to ask for rate confirmation.`});
+        rateAnalysis.action = 'COUNTER';
+        rateAnalysis.is_accepting_offer = false;
+        rateAnalysis.agreed_rate = null;
+        rateAnalysis.proposed_rate = null;
+        rateAnalysis.reason = 'Guard override: general interest without explicit rate mention - asking for rate confirmation';
       }
     }
 
@@ -13989,6 +14013,28 @@ function processFollowUpQueue() {
           sheet.getRange(i + 1, 10).setValue(new Date());
           updateFollowUpLabels(threadId, 'unresponsive');
           logFollowUpToAnalytics(jobId, email, name, 'unresponsive', `After ${hoursSinceSend.toFixed(1)}hrs`);
+
+          // FIX: Also update Negotiation_State directly so the status tag shows "Unresponsive"
+          // immediately. Previously only Follow_Up_Queue was updated, and enrichNegotiationStateData()
+          // couldn't sync because needsStatusSync was false for "Follow Up" status candidates.
+          try {
+            const stateSheet = ss.getSheetByName('Negotiation_State');
+            if (stateSheet) {
+              const stateData = stateSheet.getDataRange().getValues();
+              const normalizedEmail = normalizeEmail(email);
+              for (let s = 1; s < stateData.length; s++) {
+                if (normalizeEmail(stateData[s][0]) === normalizedEmail && String(stateData[s][1]) === String(jobId)) {
+                  stateSheet.getRange(s + 1, 5).setValue('Unresponsive'); // Column 5 = Status
+                  stateSheet.getRange(s + 1, 9).setValue('Marked unresponsive after follow-ups'); // Column 9 = AI Notes
+                  invalidateSheetCache('Negotiation_State');
+                  break;
+                }
+              }
+            }
+          } catch (stateErr) {
+            console.error('Failed to update Negotiation_State for unresponsive candidate:', stateErr);
+          }
+
           unresponsiveMarked++;
           log.push({ type: 'warning', message: `${email} marked unresponsive (${hoursSinceSend.toFixed(1)}hrs since initial)` });
         }
