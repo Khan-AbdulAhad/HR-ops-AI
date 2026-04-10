@@ -924,7 +924,9 @@ function invalidateSheetCache(sheetName) {
  */
 function invalidateAllSheetCaches() {
   const cache = CacheService.getUserCache();
-  const sheetNames = ['Negotiation_State', 'Negotiation_Tasks', 'Negotiation_Config', 'Negotiation_Completed', 'Negotiation_FAQs', 'AI_Learning_Cases'];
+  // FIX: Added Follow_Up_Queue and Unresponsive_Devs which were missing, causing stale
+  // data when getAllTasks() built the unresponsiveSet for display-level status overrides
+  const sheetNames = ['Negotiation_State', 'Negotiation_Tasks', 'Negotiation_Config', 'Negotiation_Completed', 'Negotiation_FAQs', 'AI_Learning_Cases', 'Follow_Up_Queue', 'Unresponsive_Devs'];
   sheetNames.forEach(name => cache.remove('sheet_' + name));
 }
 
@@ -14035,6 +14037,11 @@ function processFollowUpQueue() {
             console.error('Failed to update Negotiation_State for unresponsive candidate:', stateErr);
           }
 
+          // FIX: Invalidate Follow_Up_Queue and Unresponsive_Devs caches so getAllTasks()
+          // reads fresh data and the display-level override correctly shows "Unresponsive" tag
+          invalidateSheetCache('Follow_Up_Queue');
+          invalidateSheetCache('Unresponsive_Devs');
+
           unresponsiveMarked++;
           log.push({ type: 'warning', message: `${email} marked unresponsive (${hoursSinceSend.toFixed(1)}hrs since initial)` });
         }
@@ -14211,17 +14218,26 @@ function moveToUnresponsive(ss, email, jobId, name, devId, threadId, initialSend
       if(stateSheet) {
         const stateData = stateSheet.getDataRange().getValues();
         const normalizedEmail = normalizeEmail(email);
+        let stateRowFound = false;
         for(let r = 1; r < stateData.length; r++) {
           if(normalizeEmail(stateData[r][0]) === normalizedEmail && String(stateData[r][1]) === String(jobId)) {
             stateSheet.getRange(r + 1, 5).setValue('Unresponsive'); // Column 5 = Status
             invalidateSheetCache('Negotiation_State');
+            stateRowFound = true;
             break;
           }
+        }
+        if (!stateRowFound) {
+          console.warn('moveToUnresponsive: Could not find Negotiation_State row for ' + email + ' (Job ' + jobId + ') - status tag will not update immediately. normalizedEmail=' + normalizedEmail);
         }
       }
     } catch(stateErr) {
       console.error("Failed to update Negotiation_State for unresponsive:", stateErr);
     }
+
+    // FIX: Invalidate Unresponsive_Devs cache so getAllTasks() reads fresh data
+    // and the display-level override correctly shows "Unresponsive" tag
+    invalidateSheetCache('Unresponsive_Devs');
 
     return { success: true };
   } catch(e) {
@@ -16412,11 +16428,13 @@ function markFollowUpAsUnresponsive(email) {
     const data = sheet.getDataRange().getValues();
 
     // Find the row with this email
+    // FIX: Use normalizeEmail for Gmail dot-variant matching (e.g., mandy.tomar vs mandytomar)
     let rowIndex = -1;
     let rowData = null;
+    const normalizedTarget = normalizeEmail(email);
 
     for (let i = 1; i < data.length; i++) {
-      if (data[i][0] === email) {
+      if (normalizeEmail(data[i][0]) === normalizedTarget) {
         rowIndex = i + 1; // Sheet rows are 1-indexed
         rowData = data[i];
         break;
@@ -16441,11 +16459,26 @@ function markFollowUpAsUnresponsive(email) {
       return { success: false, message: "Failed to move to unresponsive: " + (moveResult.error || "Unknown error") };
     }
 
+    // FIX: Update Gmail labels to reflect unresponsive status
+    // Previously the manual flow didn't update labels, so Gmail showed stale follow-up labels
+    try {
+      if (threadId) {
+        updateFollowUpLabels(threadId, 'unresponsive');
+      }
+    } catch (labelErr) {
+      console.warn('markFollowUpAsUnresponsive: Failed to update Gmail labels for ' + email + ':', labelErr.message);
+    }
+
     // Delete the row from Follow_Up_Queue
     sheet.deleteRow(rowIndex);
 
-    // Invalidate cache
+    // FIX: Invalidate all affected caches so getAllTasks() reads fresh data
+    // and the display-level override correctly shows "Unresponsive" tag.
+    // Previously only Follow_Up_Queue was invalidated, leaving Unresponsive_Devs
+    // and Negotiation_State caches stale.
     invalidateSheetCache('Follow_Up_Queue');
+    invalidateSheetCache('Unresponsive_Devs');
+    invalidateSheetCache('Negotiation_State');
 
     return { success: true, message: "Developer marked as unresponsive and removed from follow-up queue" };
 
