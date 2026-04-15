@@ -769,7 +769,83 @@
         .dark .filter-chip.direct { background: rgba(79, 70, 229, 0.15); color: #a5b4fc; border-color: rgba(79, 70, 229, 0.3); }
         .dark .filter-chip.direct:hover { background: rgba(79, 70, 229, 0.25); border-color: rgba(79, 70, 229, 0.4); }
         .dark .filter-chip.direct.active { background: #4f46e5; color: white; border-color: #4338ca; }
-        
+
+        /* Pipeline Status Filter Chips (dynamic, multi-select) */
+        .pipeline-chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.35rem;
+            padding: 0.5rem 0.9rem;
+            border-radius: 0.5rem;
+            font-size: 0.8125rem;
+            font-weight: 600;
+            cursor: pointer;
+            border: 1px solid #e2e8f0;
+            background: #ffffff;
+            color: #475569;
+            transition: all 0.2s ease;
+            user-select: none;
+            white-space: nowrap;
+        }
+        .pipeline-chip:hover {
+            background: #f1f5f9;
+            border-color: #cbd5e1;
+            transform: translateY(-1px);
+            box-shadow: 0 2px 4px rgba(0,0,0,0.06);
+        }
+        .pipeline-chip.active {
+            background: #2563eb;
+            color: #ffffff;
+            border-color: #1d4ed8;
+            box-shadow: 0 4px 8px -2px rgba(37, 99, 235, 0.35);
+        }
+        .pipeline-chip.active:hover {
+            background: #1d4ed8;
+            border-color: #1e40af;
+        }
+        .pipeline-chip .count-badge {
+            opacity: 0.85;
+            font-weight: 500;
+        }
+        .dark .pipeline-chip {
+            background: #1e293b;
+            color: #cbd5e1;
+            border-color: #334155;
+        }
+        .dark .pipeline-chip:hover {
+            background: #334155;
+            border-color: #475569;
+        }
+        .dark .pipeline-chip.active {
+            background: #3b82f6;
+            color: #ffffff;
+            border-color: #2563eb;
+        }
+        .dark .pipeline-chip.active:hover {
+            background: #2563eb;
+            border-color: #1d4ed8;
+        }
+
+        /* Larger, easier-to-click checkboxes for candidate selection */
+        #devTable input[type="checkbox"].row-checkbox,
+        #devTable input[type="checkbox"]#masterCheckbox {
+            width: 1.125rem;
+            height: 1.125rem;
+            cursor: pointer;
+            accent-color: #2563eb;
+            border-radius: 4px;
+            transition: transform 0.15s ease;
+        }
+        #devTable input[type="checkbox"].row-checkbox:hover,
+        #devTable input[type="checkbox"]#masterCheckbox:hover {
+            transform: scale(1.1);
+        }
+        /* Expand the clickable area of the row-checkbox cell */
+        #devTable td:first-child,
+        #devTable th:first-child {
+            cursor: pointer;
+        }
+
         /* Onboarding Issues Styles */
         .oi-status-chip {
             display: inline-flex;
@@ -1951,7 +2027,19 @@
                             </div>
                         </div>
                     </div>
-                    
+
+                    <!-- Pipeline Status Filter Section (Hidden until data loaded) -->
+                    <div id="pipelineStatusFilterContainer" class="hidden mb-6 bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm">
+                        <div class="flex items-center gap-2 mb-3">
+                            <i class="fa-solid fa-caret-down text-slate-400 text-xs"></i>
+                            <span class="text-xs font-bold uppercase text-slate-500 tracking-wider">Filter by Pipeline Status</span>
+                            <span id="pipelineFilterActiveCount" class="hidden text-xs bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-300 px-2 py-0.5 rounded-full border border-blue-100 dark:border-blue-800 ml-2">0 selected</span>
+                        </div>
+                        <div id="pipelineStatusButtons" class="flex flex-wrap gap-2">
+                            <!-- Pipeline status chips injected by JS -->
+                        </div>
+                    </div>
+
                     <!-- Paste Filter Area -->
                     <div id="pasteFilterArea" class="hidden mb-4 bg-slate-50 dark:bg-slate-800 p-4 rounded-xl border-2 border-blue-200 dark:border-blue-800">
                         <label class="block text-sm font-semibold text-slate-700 dark:text-slate-300 mb-2">Paste Comma Separated Emails or Developer IDs:</label>
@@ -5151,7 +5239,8 @@
         let activeFilters = {
             status: new Set(['all']),
             type: new Set(),
-            country: new Set()
+            country: new Set(),
+            pipeline: new Set()
         };
 
         // ===== INIT: Load user email and permissions on page load =====
@@ -6375,6 +6464,16 @@
                 });
             }
 
+            // Apply pipeline status filters (OR logic, AND with other filters)
+            // A candidate's d.status may contain multiple comma-separated stages (from GROUP_CONCAT).
+            if (activeFilters.pipeline.size > 0) {
+                filtered = filtered.filter(d => {
+                    const stages = getCandidateStages(d);
+                    if (stages.length === 0) return false;
+                    return stages.some(s => activeFilters.pipeline.has(s));
+                });
+            }
+
             tableData = filtered;
             renderTable(tableData);
             document.getElementById('selectAllCount').textContent = `(${tableData.length})`;
@@ -6388,9 +6487,20 @@
         }
 
         function updateActiveFiltersIndicator() {
-            const totalActive = (activeFilters.status.has('all') ? 0 : activeFilters.status.size) + activeFilters.type.size + activeFilters.country.size;
+            const totalActive = (activeFilters.status.has('all') ? 0 : activeFilters.status.size) + activeFilters.type.size + activeFilters.country.size + activeFilters.pipeline.size;
             const indicator = document.getElementById('activeFiltersInfo');
             const countEl = document.getElementById('activeFilterCount');
+
+            // Update pipeline "N selected" badge
+            const pipelineBadge = document.getElementById('pipelineFilterActiveCount');
+            if (pipelineBadge) {
+                if (activeFilters.pipeline.size > 0) {
+                    pipelineBadge.textContent = `${activeFilters.pipeline.size} selected`;
+                    pipelineBadge.classList.remove('hidden');
+                } else {
+                    pipelineBadge.classList.add('hidden');
+                }
+            }
 
             if (totalActive > 0) {
                 indicator.classList.remove('hidden');
@@ -6407,14 +6517,138 @@
             activeFilters.status.add('all');
             activeFilters.type.clear();
             activeFilters.country.clear();
+            activeFilters.pipeline.clear();
 
             document.querySelectorAll('.filter-chip').forEach(chip => {
                 chip.classList.remove('active');
             });
             document.querySelector('.filter-chip[data-filter="all"]').classList.add('active');
 
+            // Reset pipeline status chips: activate "All" chip only
+            document.querySelectorAll('#pipelineStatusButtons .pipeline-chip').forEach(chip => {
+                chip.classList.toggle('active', !chip.dataset.stage);
+            });
+
             document.getElementById('tableSearch').value = '';
             updateCountryFilterIcon();
+            applyFilters();
+            updateActiveFiltersIndicator();
+        }
+
+        // ===== PIPELINE STATUS FILTER =====
+        // Extract normalized pipeline stage list for a candidate (supports comma-separated GROUP_CONCAT values).
+        function getCandidateStages(d) {
+            const raw = (d && d.status) ? String(d.status) : '';
+            if (!raw) return [];
+            return raw.split(',').map(s => s.trim()).filter(Boolean);
+        }
+
+        // Preferred ordering for pipeline stages (matches backend CASE ordering in code.gs).
+        const PIPELINE_STAGE_ORDER = [
+            'Selected for Trial',
+            'Ready for Selection',
+            'Pending Onboarding',
+            'On Hold - Onboarding',
+            'Completed Testing',
+            'Pending Review',
+            'Selected for Internal Interviews',
+            'Passed Internal Interviews',
+            'Passed VetSmith',
+            'Interested',
+            'Developer Backout'
+        ];
+
+        function populatePipelineStatusFilter(data) {
+            const container = document.getElementById('pipelineStatusFilterContainer');
+            const buttonsEl = document.getElementById('pipelineStatusButtons');
+            if (!container || !buttonsEl) return;
+
+            // Count candidates per stage (a candidate appearing in multiple stages counts once per stage).
+            const stageCounts = {};
+            let totalCount = 0;
+            (data || []).forEach(d => {
+                totalCount++;
+                const stages = getCandidateStages(d);
+                const unique = new Set(stages);
+                unique.forEach(stage => {
+                    stageCounts[stage] = (stageCounts[stage] || 0) + 1;
+                });
+            });
+
+            const presentStages = Object.keys(stageCounts);
+            if (presentStages.length === 0) {
+                container.classList.add('hidden');
+                buttonsEl.innerHTML = '';
+                return;
+            }
+
+            // Drop any active pipeline filters for stages no longer present in the data.
+            activeFilters.pipeline.forEach(stage => {
+                if (!stageCounts[stage]) activeFilters.pipeline.delete(stage);
+            });
+
+            // Sort stages: first by preferred backend order, then remainder by count desc.
+            const known = PIPELINE_STAGE_ORDER.filter(s => stageCounts[s]);
+            const unknown = presentStages
+                .filter(s => PIPELINE_STAGE_ORDER.indexOf(s) === -1)
+                .sort((a, b) => stageCounts[b] - stageCounts[a]);
+            const sortedStages = [...known, ...unknown];
+
+            const noneActive = activeFilters.pipeline.size === 0;
+            const parts = [];
+            parts.push(
+                `<div class="pipeline-chip ${noneActive ? 'active' : ''}" data-stage="" role="button" tabindex="0">` +
+                `All <span class="count-badge">(${totalCount})</span></div>`
+            );
+            sortedStages.forEach(stage => {
+                const isActive = activeFilters.pipeline.has(stage);
+                parts.push(
+                    `<div class="pipeline-chip ${isActive ? 'active' : ''}" data-stage="${escapeHtml(stage)}" role="button" tabindex="0">` +
+                    `${escapeHtml(stage)} <span class="count-badge">(${stageCounts[stage]})</span></div>`
+                );
+            });
+            buttonsEl.innerHTML = parts.join('');
+
+            // Attach click handlers (delegated from the container).
+            buttonsEl.onclick = function(e) {
+                const chip = e.target.closest('.pipeline-chip');
+                if (!chip) return;
+                togglePipelineStatusFilter(chip);
+            };
+            buttonsEl.onkeydown = function(e) {
+                if (e.key !== 'Enter' && e.key !== ' ') return;
+                const chip = e.target.closest('.pipeline-chip');
+                if (!chip) return;
+                e.preventDefault();
+                togglePipelineStatusFilter(chip);
+            };
+
+            container.classList.remove('hidden');
+        }
+
+        function togglePipelineStatusFilter(chip) {
+            const stage = chip.dataset.stage;
+            if (!stage) {
+                // "All" chip clears selection
+                activeFilters.pipeline.clear();
+            } else {
+                if (activeFilters.pipeline.has(stage)) {
+                    activeFilters.pipeline.delete(stage);
+                } else {
+                    activeFilters.pipeline.add(stage);
+                }
+            }
+
+            // Update visual active state for all pipeline chips
+            document.querySelectorAll('#pipelineStatusButtons .pipeline-chip').forEach(c => {
+                const s = c.dataset.stage;
+                if (!s) {
+                    c.classList.toggle('active', activeFilters.pipeline.size === 0);
+                } else {
+                    c.classList.toggle('active', activeFilters.pipeline.has(s));
+                }
+            });
+
             applyFilters();
             updateActiveFiltersIndicator();
         }
@@ -6621,6 +6855,7 @@
             activeFilters.status.add('all');
             activeFilters.type.clear();
             activeFilters.country.clear();
+            activeFilters.pipeline.clear();
             document.querySelectorAll('.filter-chip').forEach(chip => {
                 chip.classList.remove('active');
             });
@@ -6652,6 +6887,8 @@
 
                     tableData = data;
                     fullTableData = data;
+                    // Reset pipeline filter selections for the new dataset
+                    activeFilters.pipeline.clear();
                     document.getElementById('tableControls').classList.remove('hidden');
                     document.getElementById('statusFilterContainer').classList.remove('hidden');
                     document.getElementById('tableContainer').classList.remove('hidden');
@@ -6661,6 +6898,8 @@
 
                     renderTable(data);
                     updateCounts(data);
+                    populatePipelineStatusFilter(data);
+                    updateActiveFiltersIndicator();
 
                     btn.innerHTML = originalHtml;
                     showToast(`Loaded ${data.length} candidates`, "success");
@@ -9663,10 +9902,14 @@
 
             tableData = result.data;
             fullTableData = result.data;
+            activeFilters.pipeline.clear();
             document.getElementById('tableContainer').classList.remove('hidden');
             document.getElementById('statusFilterContainer').classList.remove('hidden');
             document.getElementById('tableControls').classList.remove('hidden');
             renderTable(tableData);
+            updateCounts(fullTableData);
+            populatePipelineStatusFilter(fullTableData);
+            updateActiveFiltersIndicator();
             closeManualEntryModal();
 
             let message = `Loaded ${result.data.length} test candidate(s)`;
@@ -9836,6 +10079,7 @@
             activeFilters.status.add('all');
             activeFilters.type.clear();
             activeFilters.country.clear();
+            activeFilters.pipeline.clear();
             document.querySelectorAll('.filter-chip').forEach(chip => {
                 chip.classList.remove('active');
             });
@@ -9851,6 +10095,7 @@
             const data = [..._systemCandidatesCache];
             tableData = data;
             fullTableData = data;
+            activeFilters.pipeline.clear();
 
             // Show table UI
             document.getElementById('tableContainer').classList.remove('hidden');
@@ -9860,6 +10105,8 @@
             // Render table and update all counts
             renderTable(tableData);
             updateCounts(fullTableData);
+            populatePipelineStatusFilter(fullTableData);
+            updateActiveFiltersIndicator();
             document.getElementById('selectAllCount').textContent = `(${tableData.length})`;
 
             closeManualEntryModal();
