@@ -3899,6 +3899,18 @@ function getAllTasks(filters) {
     invalidateSheetCache('Follow_Up_Queue');
     invalidateSheetCache('Unresponsive_Devs');
     invalidateSheetCache('Email_Logs');
+
+    // UNIFIED STATUS RECONCILIATION: run the cross-sheet reconciliation
+    // on manual refresh so the status tag always converges with the AI
+    // email summary and Gmail labels. This is the user-triggered "refresh
+    // button should do the trick" path — it persists fixes so subsequent
+    // reads / AI runs see the reconciled state.
+    try {
+      const ssForReconcile = SpreadsheetApp.openByUrl(url);
+      reconcileCandidateStatuses(ssForReconcile);
+    } catch (reconcileErr) {
+      console.error('getAllTasks reconciliation failed:', reconcileErr);
+    }
   }
 
   // Use caching for faster loading
@@ -3927,6 +3939,35 @@ function getAllTasks(filters) {
   // 1. Get Active Negotiations (State) - with caching
   const stateData = getCachedSheetData('Negotiation_State', 30); // 30 second cache
   if(!stateData || stateData.length === 0) return { tasks: [], jobIds: [], stats: { total: 0, active: 0, human: 0, accepted: 0, initialOutreach: 0 }, jobSettings: {} };
+
+  // DEFENSE-IN-DEPTH DEDUP: precompute the set of candidates that already
+  // exist in Negotiation_Completed or Negotiation_Tasks (Accepted). If a
+  // candidate is in both of those AND Negotiation_State we must NOT render
+  // the stale State row — previously this caused the status tag to show
+  // "Initial Outreach" / "Active" while the email summary and Gmail label
+  // already said "Accepted / Completed". Reconciliation (above) removes
+  // the stale row permanently on refresh; this set ensures correctness
+  // even on cached reads.
+  const _stateSuppressKeys = new Set();
+  const _completedDataForSuppress = getCachedSheetData('Negotiation_Completed', 30);
+  if (_completedDataForSuppress && _completedDataForSuppress.length > 1) {
+    for (let c = 1; c < _completedDataForSuppress.length; c++) {
+      if (!_completedDataForSuppress[c][2]) continue;
+      _stateSuppressKeys.add(
+        normalizeEmail(_completedDataForSuppress[c][2]) + '|' + String(_completedDataForSuppress[c][1] || '')
+      );
+    }
+  }
+  const _tasksDataForSuppress = getCachedSheetData('Negotiation_Tasks', 30);
+  if (_tasksDataForSuppress && _tasksDataForSuppress.length > 1) {
+    for (let t = 1; t < _tasksDataForSuppress.length; t++) {
+      if (!_tasksDataForSuppress[t][3]) continue;
+      if (_tasksDataForSuppress[t][5] === 'Archived') continue;
+      _stateSuppressKeys.add(
+        normalizeEmail(_tasksDataForSuppress[t][3]) + '|' + String(_tasksDataForSuppress[t][1] || '')
+      );
+    }
+  }
 
   // Build a Set of unresponsive candidates by cross-referencing Follow_Up_Queue and Unresponsive_Devs
   // This ensures candidates already marked unresponsive (before Negotiation_State was updated) show correctly
@@ -3968,6 +4009,15 @@ function getAllTasks(filters) {
     let status = stateData[i][4] || 'Active';
     const attempts = Number(stateData[i][2]) || 0;
     const settings = getJobSettingsCached(jobId);
+
+    // DEDUP: if this same candidate (normalized email + jobId) already
+    // exists in Negotiation_Completed or Negotiation_Tasks, the State row
+    // is stale — skip it so the task list shows the canonical completed /
+    // accepted row from the later sections.
+    const _suppressKey = normalizeEmail(stateData[i][0]) + '|' + jobId;
+    if (_stateSuppressKeys.has(_suppressKey)) {
+      continue;
+    }
 
     // Override status to 'Unresponsive' if candidate is found in Follow_Up_Queue or Unresponsive_Devs
     // FIX: Also override 'Follow Up' status — candidates whose status was synced to 'Follow Up'
@@ -6662,6 +6712,329 @@ function enrichCompletedAndTasksData(ss) {
 }
 
 /**
+ * Detects whether a free-text note (AI summary / notes) indicates the
+ * candidate has accepted an offer. Kept as a single source of truth so
+ * the auto-accept flow, Gmail sync, summary generation, and the
+ * reconciliation helper all agree on what "accepted" looks like.
+ *
+ * @param {string} text
+ * @returns {boolean}
+ */
+function noteIndicatesAcceptance(text) {
+  if (!text) return false;
+  const s = String(text);
+  // Strong acceptance phrases (avoid generic "accepted" which may appear in
+  // "has not accepted", "already accepted another offer", etc.)
+  const strongPositive = [
+    /candidate\s+accepted(?:\s+the)?(?:\s+\$?\d+(?:\.\d+)?(?:\/\s*hr)?)?\s+offer/i,
+    /offer\s+accepted/i,
+    /auto[- ]?accepted/i,
+    /candidate\s+accepted\s+at\s+\$?\d+/i,
+    /accepted\s+our\s+offer/i,
+    /\baccepted\s+the\s+\$?\d+(?:\.\d+)?(?:\s*\/\s*hr)?\s+offer/i
+  ];
+  const negative = [
+    /has\s+not\s+(?:explicitly\s+)?accepted/i,
+    /already\s+accepted\s+(?:another|a|an)\s+(?:offer|position|job|role)/i,
+    /accepted\s+(?:a|another)\s+(?:position|offer|job|role)\s+elsewhere/i,
+    /accepted\s+another\s+offer/i
+  ];
+  if (negative.some(r => r.test(s))) return false;
+  return strongPositive.some(r => r.test(s));
+}
+
+/**
+ * Extracts an hourly rate (number) from free-text notes if available.
+ * Returns null if not found.
+ * @param {string} text
+ * @returns {number|null}
+ */
+function extractRateFromNotes(text) {
+  if (!text) return null;
+  const m = String(text).match(/\$\s*(\d+(?:\.\d+)?)\s*(?:\/\s*hr|\/\s*hour|per\s*hour)?/i);
+  return m ? Number(m[1]) : null;
+}
+
+/**
+ * UNIFIED STATUS RECONCILIATION
+ * ------------------------------------------------------------------
+ * This is the single source of truth that keeps the three independent
+ * systems (AI email reply / email summary / Gmail label & task-list
+ * status tag) in sync. It is safe to call repeatedly and does not send
+ * emails or mutate data outside of the Negotiation sheets.
+ *
+ * It performs four consolidations in one pass so that refresh / AI
+ * runs / manual triggers all converge to the same state:
+ *
+ *   A. De-duplicate: if a candidate appears in Negotiation_Completed
+ *      or Negotiation_Tasks AND also in Negotiation_State, remove the
+ *      stale Negotiation_State row. Previously these duplicates caused
+ *      the task list to keep showing an "Initial Outreach" / "Active"
+ *      tag even though the candidate had already been moved to
+ *      Completed / Accepted.
+ *
+ *   B. AI summary → status: when the AI summary in Negotiation_State
+ *      clearly says the candidate accepted (e.g. "Candidate ACCEPTED
+ *      the $15/hr offer"), but the status column was never updated
+ *      (AI-Attempt/Initial Outreach/Follow Up/Active), move the row
+ *      to Negotiation_Completed so the status tag, email summary and
+ *      Gmail label all agree.
+ *
+ *   C. Follow-up → Unresponsive: when Follow_Up_Queue marks a
+ *      candidate as "Unresponsive" (after exhausting follow-ups) or
+ *      the candidate is present in Unresponsive_Devs, force the
+ *      Negotiation_State status to "Unresponsive" so the tag updates
+ *      on the next refresh.
+ *
+ *   D. Follow-up → Follow Up: when a 1st follow-up was actually sent
+ *      (f1Done) but the state still says "Initial Outreach", move it
+ *      to "Follow Up".
+ *
+ * Safety:
+ * - User corrections are respected: statuses that are clearly terminal
+ *   (Completed/Offer Accepted/Not Interested/Human-Negotiation/
+ *   Rate Agreed/Data Complete) are never touched by this function.
+ * - When rows are moved to Negotiation_Completed the function reuses
+ *   logCompletedToAnalytics and updateJobCandidateStatus so downstream
+ *   analytics stay consistent with the direct auto-accept flow.
+ *
+ * @param {SpreadsheetApp.Spreadsheet} ss
+ * @returns {{dedupRemoved:number, acceptanceMoved:number, unresponsiveSynced:number, followUpSynced:number, log:Array}}
+ */
+function reconcileCandidateStatuses(ss) {
+  const result = { dedupRemoved: 0, acceptanceMoved: 0, unresponsiveSynced: 0, followUpSynced: 0, log: [] };
+  if (!ss) return result;
+
+  const stateSheet = ss.getSheetByName('Negotiation_State');
+  const compSheet = ss.getSheetByName('Negotiation_Completed');
+  const taskSheet = ss.getSheetByName('Negotiation_Tasks');
+  if (!stateSheet || stateSheet.getLastRow() <= 1) return result;
+
+  // Build key sets from Completed and Tasks (these are terminal states)
+  // Key = normalizedEmail|jobId
+  const completedKeys = new Set();
+  if (compSheet && compSheet.getLastRow() > 1) {
+    const compData = compSheet.getDataRange().getValues();
+    for (let i = 1; i < compData.length; i++) {
+      if (!compData[i][2]) continue;
+      const k = normalizeEmail(compData[i][2]) + '|' + String(compData[i][1] || '');
+      completedKeys.add(k);
+    }
+  }
+  const tasksKeys = new Set();
+  if (taskSheet && taskSheet.getLastRow() > 1) {
+    const taskData = taskSheet.getDataRange().getValues();
+    for (let i = 1; i < taskData.length; i++) {
+      if (!taskData[i][3]) continue;
+      if (taskData[i][5] === 'Archived') continue;
+      const k = normalizeEmail(taskData[i][3]) + '|' + String(taskData[i][1] || '');
+      tasksKeys.add(k);
+    }
+  }
+
+  // Build Follow_Up_Queue and Unresponsive_Devs lookups
+  const fqMap = new Map(); // key -> { status, f1Done, f2Done }
+  const fqSheet = ss.getSheetByName('Follow_Up_Queue');
+  if (fqSheet && fqSheet.getLastRow() > 1) {
+    const fqData = fqSheet.getDataRange().getValues();
+    for (let i = 1; i < fqData.length; i++) {
+      if (!fqData[i][0]) continue;
+      const k = normalizeEmail(fqData[i][0]) + '|' + String(fqData[i][1] || '');
+      fqMap.set(k, {
+        status: String(fqData[i][8] || '').trim(),
+        f1Done: fqData[i][6] === true || fqData[i][6] === 'TRUE',
+        f2Done: fqData[i][7] === true || fqData[i][7] === 'TRUE'
+      });
+    }
+  }
+  const unresponsiveKeys = new Set();
+  const udSheet = ss.getSheetByName('Unresponsive_Devs');
+  if (udSheet && udSheet.getLastRow() > 1) {
+    const udData = udSheet.getDataRange().getValues();
+    for (let i = 1; i < udData.length; i++) {
+      if (!udData[i][0]) continue;
+      const k = normalizeEmail(udData[i][0]) + '|' + String(udData[i][1] || '');
+      unresponsiveKeys.add(k);
+    }
+  }
+
+  // Walk Negotiation_State in reverse so deletions don't shift indices
+  const stateData = stateSheet.getDataRange().getValues();
+  // Columns: [0]Email, [1]JobID, [2]Attempts, [3]LastOffer, [4]Status,
+  //          [5]LastReply, [6]DevID, [7]Name, [8]AINotes, [9]ThreadID, [10]Region
+  for (let i = stateData.length - 1; i >= 1; i--) {
+    const row = stateData[i];
+    if (!row[0]) continue;
+    const rawEmail = row[0];
+    const jobId = String(row[1] || '');
+    if (!jobId) continue;
+    const normEmail = normalizeEmail(rawEmail);
+    const key = normEmail + '|' + jobId;
+    const status = String(row[4] || '').trim();
+    const statusLower = status.toLowerCase();
+    const aiNotes = row[8] || '';
+
+    // ---------- A. De-duplicate against Completed / Tasks ----------
+    if (completedKeys.has(key)) {
+      try {
+        stateSheet.deleteRow(i + 1);
+        result.dedupRemoved++;
+        result.log.push({ type: 'info', message: `Reconcile: removed duplicate Negotiation_State row for ${rawEmail} (Job ${jobId}) — already in Negotiation_Completed` });
+      } catch (e) {
+        result.log.push({ type: 'warning', message: `Reconcile: failed to delete duplicate state row for ${rawEmail}: ${e.message}` });
+      }
+      continue;
+    }
+    if (tasksKeys.has(key)) {
+      try {
+        stateSheet.deleteRow(i + 1);
+        result.dedupRemoved++;
+        result.log.push({ type: 'info', message: `Reconcile: removed duplicate Negotiation_State row for ${rawEmail} (Job ${jobId}) — already in Negotiation_Tasks (Accepted)` });
+      } catch (e) {
+        result.log.push({ type: 'warning', message: `Reconcile: failed to delete duplicate state row for ${rawEmail}: ${e.message}` });
+      }
+      continue;
+    }
+
+    // Treat these as terminal / user-controlled — never override
+    const isTerminal = statusLower.indexOf('completed') > -1 ||
+                       status === 'Data Complete' ||
+                       status === 'Offer Accepted' ||
+                       status === 'Not Interested' ||
+                       status === 'Human-Negotiation' ||
+                       status === 'Rate Agreed' ||
+                       statusLower.indexOf('escalated') > -1 ||
+                       statusLower.indexOf('pending escalation') > -1;
+
+    // ---------- B. AI summary says accepted but status is stale ----------
+    if (!isTerminal && noteIndicatesAcceptance(aiNotes)) {
+      // Avoid moving candidates who are still mid data-gathering
+      const dataPending = statusLower.indexOf('data pending') > -1 ||
+                          statusLower.indexOf('data gathering') > -1 ||
+                          statusLower === 'awaiting additional data';
+      if (!dataPending && compSheet) {
+        const rateNum = extractRateFromNotes(aiNotes);
+        const name = row[7] || 'Unknown';
+        const devId = row[6] || 'N/A';
+        const region = row[10] || '';
+        const finalStatus = rateNum ? `Offer Accepted at $${rateNum}/hr` : 'Offer Accepted';
+        try {
+          compSheet.appendRow([
+            new Date(),
+            jobId,
+            rawEmail,
+            name,
+            finalStatus,
+            aiNotes || 'Recovered by reconciliation — AI summary indicated acceptance',
+            devId,
+            region
+          ]);
+          // Keep downstream analytics consistent with direct auto-accept flow
+          try {
+            logAnalytics('task_completed', jobId, 1, finalStatus + ' (reconciled)');
+          } catch (e) { /* non-fatal */ }
+          try {
+            logCompletedToAnalytics(jobId, rawEmail, name, finalStatus, devId, region);
+          } catch (e) { /* non-fatal */ }
+          try {
+            updateJobCandidateStatus(
+              ss, jobId, rawEmail, 'Offer Accepted',
+              rateNum ? `$${rateNum}/hr` : null,
+              rateNum ? `$${rateNum}/hr` : null
+            );
+          } catch (e) { /* non-fatal */ }
+          // Mark Follow_Up_Queue as Responded so follow-up processor skips them
+          try {
+            if (fqSheet) {
+              const fqData2 = fqSheet.getDataRange().getValues();
+              for (let f = fqData2.length - 1; f >= 1; f--) {
+                const fKey = normalizeEmail(fqData2[f][0]) + '|' + String(fqData2[f][1] || '');
+                if (fKey === key) {
+                  fqSheet.getRange(f + 1, 9).setValue('Responded');
+                  fqSheet.getRange(f + 1, 10).setValue(new Date());
+                  fqSheet.getRange(f + 1, 15).setValue(new Date());
+                  break;
+                }
+              }
+            }
+          } catch (e) { /* non-fatal */ }
+          // Add Completed Gmail label if we have a thread id
+          try {
+            const threadId = row[9] || '';
+            if (threadId) {
+              const thread = GmailApp.getThreadById(threadId);
+              if (thread) {
+                const completedLabel = GmailApp.getUserLabelByName('Completed') || GmailApp.createLabel('Completed');
+                thread.addLabel(completedLabel);
+                const humanLabel = GmailApp.getUserLabelByName('Human-Negotiation');
+                if (humanLabel) thread.removeLabel(humanLabel);
+              }
+            }
+          } catch (e) { /* non-fatal — labeling failure shouldn't block reconcile */ }
+
+          stateSheet.deleteRow(i + 1);
+          completedKeys.add(key); // prevent re-processing in this run
+          result.acceptanceMoved++;
+          result.log.push({ type: 'success', message: `Reconcile: moved ${rawEmail} (Job ${jobId}) to Completed — AI summary indicated acceptance but status was "${status}"` });
+          continue;
+        } catch (e) {
+          result.log.push({ type: 'warning', message: `Reconcile: failed to move ${rawEmail} to Completed: ${e.message}` });
+        }
+      }
+    }
+
+    // ---------- C. Follow-up says Unresponsive but state is stale ----------
+    const fq = fqMap.get(key);
+    const isUnresponsiveElsewhere = unresponsiveKeys.has(key) || (fq && fq.status === 'Unresponsive');
+    if (!isTerminal && status !== 'Unresponsive' && isUnresponsiveElsewhere) {
+      // Only override clearly non-terminal display statuses
+      const isSyncable = status === 'Initial Outreach' ||
+                        status === 'Follow Up' ||
+                        status === 'Active' ||
+                        status === 'Active - Data Pending' ||
+                        status === 'Active - Data Gathering' ||
+                        status === 'Awaiting Additional Data' ||
+                        status === '' ||
+                        /^AI-Attempt-\d+/i.test(status);
+      if (isSyncable) {
+        try {
+          stateSheet.getRange(i + 1, 5).setValue('Unresponsive');
+          stateSheet.getRange(i + 1, 9).setValue('Marked unresponsive after follow-ups');
+          result.unresponsiveSynced++;
+          result.log.push({ type: 'info', message: `Reconcile: synced ${rawEmail} (Job ${jobId}) to "Unresponsive" (was "${status}")` });
+        } catch (e) {
+          result.log.push({ type: 'warning', message: `Reconcile: failed to sync Unresponsive for ${rawEmail}: ${e.message}` });
+        }
+        continue;
+      }
+    }
+
+    // ---------- D. At least one follow-up sent, still Initial Outreach ----------
+    if (!isTerminal && status === 'Initial Outreach' && fq && fq.f1Done && fq.status !== 'Responded' && fq.status !== 'Unresponsive') {
+      try {
+        stateSheet.getRange(i + 1, 5).setValue('Follow Up');
+        const note = fq.f2Done ? '2nd follow-up sent, awaiting response' : '1st follow-up sent, awaiting response';
+        stateSheet.getRange(i + 1, 9).setValue(note);
+        result.followUpSynced++;
+        result.log.push({ type: 'info', message: `Reconcile: synced ${rawEmail} (Job ${jobId}) to "Follow Up"` });
+      } catch (e) {
+        result.log.push({ type: 'warning', message: `Reconcile: failed to sync Follow Up for ${rawEmail}: ${e.message}` });
+      }
+    }
+  }
+
+  // Invalidate caches so UI reflects changes on the next read
+  if (result.dedupRemoved || result.acceptanceMoved || result.unresponsiveSynced || result.followUpSynced) {
+    try { invalidateSheetCache('Negotiation_State'); } catch (e) {}
+    try { invalidateSheetCache('Negotiation_Completed'); } catch (e) {}
+    try { invalidateSheetCache('Negotiation_Tasks'); } catch (e) {}
+    try { invalidateSheetCache('Follow_Up_Queue'); } catch (e) {}
+  }
+
+  return result;
+}
+
+/**
  * Looks up missing candidate details (name, devId, threadId, region) from
  * Follow_Up_Queue, Email_Logs, Job_XXXXX_Details, and Negotiation_Completed.
  * Returns an object with the best available values.
@@ -6899,6 +7272,34 @@ function runAutoNegotiator() {
     enrichResult.log.forEach(l => log.push(l));
   } catch(e) {
     log.push({type: 'warning', message: 'Data enrichment skipped: ' + e.message});
+  }
+
+  // STEP 3.55: UNIFIED STATUS RECONCILIATION
+  // Permanently sync the three parallel systems (email summary / AI reply
+  // / status tag + Gmail label) so the task list never disagrees with the
+  // actual outcome. Runs after enrichment so the reconcile pass sees the
+  // latest AI notes and follow-up statuses.
+  try {
+    const reconcileResult = reconcileCandidateStatuses(ss);
+    stats.reconciledDedup = reconcileResult.dedupRemoved;
+    stats.reconciledAcceptance = reconcileResult.acceptanceMoved;
+    stats.reconciledUnresponsive = reconcileResult.unresponsiveSynced;
+    stats.reconciledFollowUp = reconcileResult.followUpSynced;
+    if (reconcileResult.dedupRemoved > 0) {
+      log.push({ type: 'success', message: `Reconciled: removed ${reconcileResult.dedupRemoved} stale Negotiation_State rows (already in Completed/Tasks)` });
+    }
+    if (reconcileResult.acceptanceMoved > 0) {
+      log.push({ type: 'success', message: `Reconciled: moved ${reconcileResult.acceptanceMoved} candidates to Completed (AI summary confirmed acceptance)` });
+    }
+    if (reconcileResult.unresponsiveSynced > 0) {
+      log.push({ type: 'success', message: `Reconciled: synced ${reconcileResult.unresponsiveSynced} candidates to "Unresponsive" status` });
+    }
+    if (reconcileResult.followUpSynced > 0) {
+      log.push({ type: 'info', message: `Reconciled: synced ${reconcileResult.followUpSynced} candidates to "Follow Up" status` });
+    }
+    reconcileResult.log.forEach(l => log.push(l));
+  } catch (e) {
+    log.push({ type: 'warning', message: 'Status reconciliation skipped: ' + e.message });
   }
 
   // STEP 3.6: Fix existing Unknown/N/A entries in Negotiation_Completed and Negotiation_Tasks
