@@ -11141,7 +11141,7 @@ function generateMissingSummaries(ss) {
         // leaving candidates stuck in "Initial Outreach" even when the conversation clearly showed acceptance.
         // This happens when processJobNegotiations fails to process the thread (e.g., email validation blocked
         // the acceptance email, thread label issues, or processing errors).
-        const statusLower = candidate.status.toLowerCase();
+        // Note: statusLower is already declared above (line ~11037) — reuse it here.
         const isStaleStatus = statusLower === 'initial outreach' || statusLower === 'initial sent' || statusLower === 'follow up';
         if (isStaleStatus && summary) {
           const summaryLower = summary.toLowerCase();
