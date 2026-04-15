@@ -4012,8 +4012,12 @@ function getAllTasks(filters) {
     // Count stats - only for candidates that pass filters
     // FIX: Check for "Completed" status (e.g. "Completed - Job Fulfilled") BEFORE the
     // attempts === 0 fallback, so fulfilled/stopped jobs don't get miscounted as Initial Outreach
+    // FIX: Also check for "Active - Data Pending", "Offer Accepted", and "Active" statuses BEFORE
+    // the attempts === 0 fallback, so candidates with these statuses aren't miscounted as Initial Outreach
     if(status === 'Data Complete' || status.toLowerCase().indexOf('completed') > -1) {
       statCompleted++;
+    } else if(status === 'Offer Accepted') {
+      statAccepted++;
     } else if(status === 'WhatsApp Reachout') {
       statWhatsApp++;
     } else if(status === 'Unresponsive') {
@@ -4022,6 +4026,8 @@ function getAllTasks(filters) {
       statHuman++;
     } else if(status === 'Follow Up') {
       statFollowUp++;
+    } else if(status === 'Active - Data Pending' || status === 'Active - Data Gathering' || status === 'Active' || status === 'Awaiting Additional Data') {
+      statActive++;
     } else if(status === 'Initial Outreach' || attempts === 0) {
       statInitialOutreach++;
     } else {
@@ -4044,8 +4050,14 @@ function getAllTasks(filters) {
       tag = 'Human-Negotiation';
     } else if(status === 'Active - Data Gathering') {
       tag = 'Data Gathering';
+    } else if(status === 'Active - Data Pending') {
+      tag = 'Data Pending';
+    } else if(status === 'Offer Accepted') {
+      tag = 'Accepted';
     } else if(status === 'Awaiting Additional Data') {
       tag = 'Awaiting Additional Data';
+    } else if(status === 'Active' || status === 'Rate Agreed - Data Pending') {
+      tag = attempts > 0 ? `AI-Attempt-${attempts}/2` : 'Active';
     } else if(status.startsWith('Re-engaged')) {
       tag = status.replace('Re-engaged - ', 'Re-engaged: ');
     } else if(status === 'Follow Up') {
@@ -8402,11 +8414,19 @@ Write ONLY the email, nothing else.
           // SECURITY: Validate email content before sending
           if (!validateEmailForSending(completionEmail, { jobId: jobId })) {
             console.error(`BLOCKED: Completion email for ${candidateEmail} contained sensitive data`);
-            jobStats.log.push({type: 'warning', message: `${candidateEmail} - Completion email blocked: contained sensitive data`});
-            return;
+            jobStats.log.push({type: 'warning', message: `${candidateEmail} - Completion email blocked by security. Using fallback email.`});
+            // FIX: Don't return early - still complete the candidate so they don't stay stuck.
+            try {
+              const fallbackEmail = `Hi ${candidateName.split(' ')[0]},\n\nThank you for sharing your alignment on the rate. I am sharing all the details with the team.\n\nPlease be aware that your profile is currently under client review. If approved and selected, we will reach out to confirm the onboarding date and provide further details along with contract specifics.\n\nBest regards,\n${getEffectiveSignature()}`;
+              if (validateEmailForSending(fallbackEmail, { jobId: jobId })) {
+                sendReplyWithSenderName(thread, fallbackEmail, getEffectiveSenderName(), candidateEmail);
+              }
+            } catch(fallbackErr) {
+              console.error("Fallback completion email failed:", fallbackErr);
+            }
+          } else {
+            sendReplyWithSenderName(thread, completionEmail, getEffectiveSenderName(), candidateEmail);
           }
-
-          sendReplyWithSenderName(thread, completionEmail, getEffectiveSenderName(), candidateEmail);
 
           // Update job-specific details sheet with accepted status and rate
           try {
@@ -9198,10 +9218,24 @@ Write ONLY the email, nothing else.
       // SECURITY: Validate email content before sending
       if (!validateEmailForSending(acceptEmail, { jobId: jobId })) {
         console.error(`BLOCKED: Auto-acceptance email to ${candidateEmail} contained sensitive data.`);
-        return;
+        // FIX: Still update the status even when email is blocked, so candidate doesn't stay stuck
+        // in "Initial Outreach". The candidate accepted - just the acceptance EMAIL was blocked.
+        // They'll still be moved to completed below (without sending the blocked email).
+        // Generate a fresh acceptance email with a simpler prompt as fallback
+        try {
+          const fallbackAcceptEmail = `Hi ${candidateName.split(' ')[0]},\n\nThank you for sharing your alignment on the rate. I am sharing all the details with the team.\n\nPlease be aware that your profile is currently under client review. If approved and selected, we will reach out to confirm the onboarding date and provide further details along with contract specifics.\n\nBest regards,\n${getEffectiveSignature()}`;
+          if (validateEmailForSending(fallbackAcceptEmail, { jobId: jobId })) {
+            sendReplyWithSenderName(thread, fallbackAcceptEmail, getEffectiveSenderName(), candidateEmail);
+          } else {
+            // Even fallback blocked - still update status below, just don't send email
+            jobStats.log.push({type: 'warning', message: `${candidateEmail} - Acceptance email blocked by security, proceeding with status update only`});
+          }
+        } catch(fallbackErr) {
+          console.error("Fallback acceptance email also failed:", fallbackErr);
+        }
+      } else {
+        sendReplyWithSenderName(thread, acceptEmail, getEffectiveSenderName(), candidateEmail);
       }
-
-      sendReplyWithSenderName(thread, acceptEmail, getEffectiveSenderName(), candidateEmail);
       markCompleted(thread);
 
       // Remove Awaiting-Response label since offer is accepted and completed
@@ -9471,11 +9505,19 @@ Write ONLY the email, nothing else.
       // SECURITY: Validate email content before sending
       if (!validateEmailForSending(acceptEmail, { jobId: jobId })) {
         console.error(`BLOCKED: Acceptance email to ${candidateEmail} contained sensitive data.`);
-        jobStats.log.push({type: 'error', message: `${candidateEmail} - Acceptance email blocked. Check Security_Audit_Log.`});
-        return;
+        jobStats.log.push({type: 'warning', message: `${candidateEmail} - Acceptance email blocked by security. Using fallback email.`});
+        // FIX: Don't return early - still complete the candidate so they don't stay stuck.
+        try {
+          const fallbackEmail = `Hi ${candidateName.split(' ')[0]},\n\nThank you for sharing your alignment on the rate. I am sharing all the details with the team.\n\nPlease be aware that your profile is currently under client review. If approved and selected, we will reach out to confirm the onboarding date and provide further details along with contract specifics.\n\nBest regards,\n${getEffectiveSignature()}`;
+          if (validateEmailForSending(fallbackEmail, { jobId: jobId })) {
+            sendReplyWithSenderName(thread, fallbackEmail, getEffectiveSenderName(), candidateEmail);
+          }
+        } catch(fallbackErr) {
+          console.error("Fallback email failed:", fallbackErr);
+        }
+      } else {
+        sendReplyWithSenderName(thread, acceptEmail, getEffectiveSenderName(), candidateEmail);
       }
-
-      sendReplyWithSenderName(thread, acceptEmail, getEffectiveSenderName(), candidateEmail);
       markCompleted(thread);
 
       // Remove Awaiting-Response label since offer is accepted and completed
@@ -10228,11 +10270,19 @@ Write ONLY the email, nothing else.
       // SECURITY: Validate email content before sending
       if (!validateEmailForSending(acceptEmail, { jobId: jobId })) {
         console.error(`BLOCKED: Acceptance email to ${candidateEmail} contained sensitive data.`);
-        jobStats.log.push({type: 'error', message: `${candidateEmail} - Acceptance email blocked. Check Security_Audit_Log.`});
-        return;
+        jobStats.log.push({type: 'warning', message: `${candidateEmail} - Acceptance email blocked by security. Using fallback email.`});
+        // FIX: Don't return early - still complete the candidate so they don't stay stuck.
+        try {
+          const fallbackEmail = `Hi ${candidateName.split(' ')[0]},\n\nThank you for sharing your alignment on the rate. I am sharing all the details with the team.\n\nPlease be aware that your profile is currently under client review. If approved and selected, we will reach out to confirm the onboarding date and provide further details along with contract specifics.\n\nBest regards,\n${getEffectiveSignature()}`;
+          if (validateEmailForSending(fallbackEmail, { jobId: jobId })) {
+            sendReplyWithSenderName(thread, fallbackEmail, getEffectiveSenderName(), candidateEmail);
+          }
+        } catch(fallbackErr) {
+          console.error("Fallback email failed:", fallbackErr);
+        }
+      } else {
+        sendReplyWithSenderName(thread, acceptEmail, getEffectiveSenderName(), candidateEmail);
       }
-
-      sendReplyWithSenderName(thread, acceptEmail, getEffectiveSenderName(), candidateEmail);
       markCompleted(thread);
 
       // Remove Awaiting-Response label since offer is accepted and completed
@@ -11083,6 +11133,83 @@ function generateMissingSummaries(ss) {
 
         // Update the sheet
         stateSheet.getRange(candidate.rowIndex, 9).setValue(summary); // Column 9 = AI Notes
+
+        // FIX: Detect stale status when AI summary indicates candidate has accepted or is actively negotiating.
+        // Previously, generateMissingSummaries only updated AI Notes (column 9) but never Status (column 5),
+        // leaving candidates stuck in "Initial Outreach" even when the conversation clearly showed acceptance.
+        // This happens when processJobNegotiations fails to process the thread (e.g., email validation blocked
+        // the acceptance email, thread label issues, or processing errors).
+        const statusLower = candidate.status.toLowerCase();
+        const isStaleStatus = statusLower === 'initial outreach' || statusLower === 'initial sent' || statusLower === 'follow up';
+        if (isStaleStatus && summary) {
+          const summaryLower = summary.toLowerCase();
+          const hasAcceptance = /candidate\s+accepted/i.test(summary) || /offer\s+accepted/i.test(summary);
+          const hasActiveNegotiation = /counter[- ]?offer/i.test(summary) || /negotiat/i.test(summary);
+          const hasDataGathering = /data\s+(?:status|gathered|pending)/i.test(summary);
+
+          if (hasAcceptance) {
+            // Candidate accepted but wasn't moved to completed - check data completeness
+            const dataGatheringInfo = getJobCandidateData(candidate.jobId, candidate.email);
+            const hasDataPending = dataGatheringInfo && dataGatheringInfo.pending && dataGatheringInfo.pending.length > 0;
+            const hasDataEnabled = dataGatheringInfo && (dataGatheringInfo.answered.length > 0 || dataGatheringInfo.pending.length > 0);
+
+            if (hasDataEnabled && hasDataPending) {
+              // Rate accepted but data still pending
+              stateSheet.getRange(candidate.rowIndex, 5).setValue('Active - Data Pending');
+              result.log.push({ type: 'info', message: `${candidate.email} - Status updated from "${candidate.status}" to "Active - Data Pending" (acceptance detected in summary, data still pending)` });
+            } else {
+              // Fully accepted with data complete (or no data gathering) - move to completed
+              try {
+                const compSheet = ss.getSheetByName('Negotiation_Completed');
+                if (compSheet) {
+                  // Extract rate from summary
+                  const rateMatch = summary.match(/\$(\d+(?:\.\d+)?)\s*(?:\/\s*hr|per\s*hour)?/);
+                  const rate = rateMatch ? rateMatch[1] : 'N/A';
+                  const candidateName = stateSheet.getRange(candidate.rowIndex, 8).getValue() || 'Unknown';
+                  const devId = stateSheet.getRange(candidate.rowIndex, 7).getValue() || 'N/A';
+                  const region = stateSheet.getRange(candidate.rowIndex, 11).getValue() || '';
+
+                  compSheet.appendRow([
+                    new Date(),
+                    candidate.jobId,
+                    candidate.email,
+                    candidateName,
+                    `Offer Accepted${rate !== 'N/A' ? ` at $${rate}/hr` : ''}`,
+                    summary,
+                    devId,
+                    region
+                  ]);
+
+                  // Update job details sheet
+                  try {
+                    updateJobCandidateStatus(ss, candidate.jobId, candidate.email, 'Offer Accepted', rate !== 'N/A' ? `$${rate}/hr` : null, rate !== 'N/A' ? `$${rate}/hr` : null);
+                  } catch(detailsErr) {
+                    console.error("Failed to update job details sheet during summary recovery:", detailsErr);
+                  }
+
+                  // Delete from Negotiation_State
+                  stateSheet.deleteRow(candidate.rowIndex);
+                  invalidateSheetCache('Negotiation_State');
+                  invalidateSheetCache('Negotiation_Completed');
+
+                  result.log.push({ type: 'success', message: `${candidate.email} - RECOVERY: Moved to Completed (acceptance detected in summary, was stuck in "${candidate.status}")` });
+                  // Skip the normal generated++ since we deleted the row
+                  aiSummariesGenerated++;
+                  continue;
+                }
+              } catch(recoveryErr) {
+                console.error("Failed to recover accepted candidate:", recoveryErr);
+                // Fallback: at least update the status so it's not stuck
+                stateSheet.getRange(candidate.rowIndex, 5).setValue('Offer Accepted');
+                result.log.push({ type: 'warning', message: `${candidate.email} - Status updated to "Offer Accepted" but failed to move to Completed: ${recoveryErr.message}` });
+              }
+            }
+          } else if (hasActiveNegotiation || hasDataGathering) {
+            // Candidate is actively negotiating or in data gathering - update status
+            stateSheet.getRange(candidate.rowIndex, 5).setValue('Active');
+            result.log.push({ type: 'info', message: `${candidate.email} - Status updated from "${candidate.status}" to "Active" (negotiation/data activity detected in summary)` });
+          }
+        }
 
         result.generated++;
         aiSummariesGenerated++;
