@@ -3970,6 +3970,22 @@ function getAllTasks(filters) {
     invalidateSheetCache('Unresponsive_Devs');
     invalidateSheetCache('Email_Logs');
 
+    // HUMAN-NEGOTIATION LABEL SYNC: promote manually-applied Gmail
+    // "Human-Negotiation" labels to Negotiation_State.status BEFORE
+    // reconciliation runs. This must happen first so the reconciler's
+    // isTerminal check sees the promoted status and skips the row,
+    // preserving the Human-Negotiation safety signal. Without this,
+    // users had to wait up to ~1hr for the hourly runAutoNegotiator
+    // trigger before the status tag reflected their manual label.
+    try {
+      syncHumanNegotiationFromGmail();
+      // Invalidate state cache so the reconciler / downstream reads see
+      // the freshly-promoted Human-Negotiation rows.
+      invalidateSheetCache('Negotiation_State');
+    } catch (humanSyncErr) {
+      console.error('getAllTasks Human-Negotiation sync failed:', humanSyncErr);
+    }
+
     // UNIFIED STATUS RECONCILIATION: run the cross-sheet reconciliation
     // on manual refresh so the status tag always converges with the AI
     // email summary and Gmail labels. This is the user-triggered "refresh
