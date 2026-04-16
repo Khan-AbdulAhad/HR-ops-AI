@@ -6835,7 +6835,13 @@
         // --- Main Data Fetch ---
         function fetchData() {
             const jobId = document.getElementById('jobId').value;
-            const stages = Array.from(document.querySelectorAll('.smart-chip.active')).map(e => e.dataset.value);
+            // Scope to pipeline-stage chips only ([data-value]). Other .smart-chip elements
+            // on other tabs (e.g. AI test type buttons) can also carry ".active" and would
+            // otherwise contribute undefined -> null to the stages array sent to the backend,
+            // producing "Unknown stage requested: null" warnings on every fetch.
+            const stages = Array.from(document.querySelectorAll('.smart-chip.active[data-value]'))
+                .map(e => e.dataset.value)
+                .filter(v => typeof v === 'string' && v.length > 0);
 
             if(!jobId || stages.length === 0) {
                 showToast("Enter Job ID & Select Stages", "warning");
