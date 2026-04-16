@@ -8338,6 +8338,15 @@ Reply with only the email body text. No subject line. No placeholders.`;
     let isDataGatheringComplete = true; // Default to true (no data gathering questions)
     let hasDataGatheringEnabled = false;
     let pendingDataQuestions = [];
+    // FIX: Declare saveResult at the outer scope so later blocks (confirmation detection,
+    // data-only follow-up, completion email, counter-offer paths) can read answeredCount /
+    // totalQuestions / pendingQuestions / extractedData from it. Previously it was declared
+    // with `const` *inside* the try block, which meant every reference after the try closes
+    // (lines ~8847, 8941, 9746, 10043, etc.) was reading an out-of-scope identifier. In the
+    // V8 runtime that is a ReferenceError, which in the confirmation block propagated up and
+    // silently killed processing for "Active - Data Pending" candidates who replied with
+    // natural-language confirmations.
+    let saveResult = null;
 
     try {
       // Get ALL questions configured for this job (including email-type specific columns)
@@ -8358,7 +8367,7 @@ Reply with only the email body text. No subject line. No placeholders.`;
       }
 
       // Save to job-specific details sheet (include region for AI rate tier consideration)
-      const saveResult = saveJobCandidateDetails(ss, jobId, candidateEmail, candidateName, devId, thread.getId(), answers, dataStatus, candidateRegion);
+      saveResult = saveJobCandidateDetails(ss, jobId, candidateEmail, candidateName, devId, thread.getId(), answers, dataStatus, candidateRegion);
       if(saveResult.success) {
         jobStats.detailsExtracted++;
         jobStats.log.push({type: 'info', message: `${candidateEmail} - Details extracted: ${answers.is_negotiating ? 'Negotiating' : 'Provided'} (${saveResult.answeredCount}/${saveResult.totalQuestions} answered)`});
@@ -8814,12 +8823,33 @@ Write ONLY the email body, nothing else.
           /^(?:yes[,.]?\s*)?(?:sounds?\s+)?good/i,
           /^(?:yes[,.]?\s*)?(?:i\s+)?accept/i,
           /^(?:looks?\s+)?good(?:\s+to\s+me)?/i,
-          /^(?:yes[,.]?\s*)?no\s+(?:issues?|problems?|objections?)/i
+          /^(?:yes[,.]?\s*)?no\s+(?:issues?|problems?|objections?)/i,
+          // Natural-language confirmations that often appear after a greeting/pleasantry
+          /\b(?:i'?m|i\s+am)\s+(?:happy|glad|pleased)\s+to\s+confirm\b/i,
+          /\bhappy\s+to\s+confirm\b/i,
+          /\b(?:i\s+)?(?:can|do)\s+confirm\b/i,
+          /\bjust\s+confirming\b/i,
+          /\bwanted\s+to\s+confirm\b/i
         ];
-        const trimmedMessage = candidateLatestMessage.trim().replace(/\s+/g, ' ');
-        // Only treat as confirmation if message is short (under 200 chars) - longer messages likely contain new data
-        const isShortConfirmation = trimmedMessage.length < 200 &&
-          confirmationPatterns.some(p => p.test(trimmedMessage));
+        // FIX: Use candidateOwnMessage (stripped of quoted reply text) instead of
+        // candidateLatestMessage. Gmail's getPlainBody() returns the FULL email body
+        // including the quoted previous message ("On ... wrote: > ..."), which is almost
+        // always >200 chars. Using the raw body caused the length guard below to always
+        // fail, silently disabling this entire escape hatch. Real candidate replies like
+        // "Thank you for following up. I'm happy to confirm 5 working hours PST overlap."
+        // were never matched, leaving the candidate stuck in "Active - Data Pending"
+        // and receiving the same follow-up every run.
+        const rawTrimmed = (candidateOwnMessage || candidateLatestMessage || '').trim().replace(/\s+/g, ' ');
+        // Strip common opening pleasantries so the ^-anchored patterns still match
+        // messages that start with "Thank you for ...", "Hi <name>,", "Hello,", etc.
+        const strippedForConfirmation = rawTrimmed
+          .replace(/^(?:hi|hello|hey|dear|greetings)[\s,!][^,.!\n]{0,60}[,.!]?\s*/i, '')
+          .replace(/^thank[s]?(?:\s+you)?(?:\s+(?:very|so)\s+much)?(?:\s+for\s+(?:following\s+up|your\s+(?:email|reply|message|response|time)|getting\s+back(?:\s+to\s+me)?|reaching\s+out))?[,.!]?\s*/i, '');
+        // Only treat as confirmation if message is short (under 200 chars AFTER stripping
+        // quoted text and pleasantries) - longer messages likely contain new data.
+        const isShortConfirmation = strippedForConfirmation.length < 200 &&
+          confirmationPatterns.some(p => p.test(strippedForConfirmation));
+        const trimmedMessage = strippedForConfirmation; // used by the log line below
 
         if (isShortConfirmation) {
           // Check if candidate has PREVIOUSLY provided a meaningful portion of data
