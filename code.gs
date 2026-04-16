@@ -1010,7 +1010,62 @@ function ensureSheetsExist(ss) {
   if (emailLogsSheet.getLastRow() === 0) emailLogsSheet.appendRow(['Timestamp', 'Job ID', 'Email', 'Name', 'Thread ID', 'Type', 'Country']);
 
   const compSheet = ss.getSheetByName('Negotiation_Completed');
-  if (compSheet.getLastRow() === 0) compSheet.appendRow(['Timestamp', 'Job ID', 'Email', 'Name', 'Final Status', 'Notes', 'Dev ID', 'Region']);
+  if (compSheet.getLastRow() === 0) {
+    compSheet.appendRow(['Timestamp', 'Job ID', 'Email', 'Name', 'Final Status', 'Notes', 'Dev ID', 'Region', 'Thread ID']);
+  } else {
+    // MIGRATION: ensure existing Negotiation_Completed sheets gain the Thread ID column.
+    // Older deployments wrote 8 columns; we now persist a 9th (Thread ID) so the reconciler
+    // can attach the Completed Gmail label and downstream tooling can join across sheets
+    // without relying solely on email/jobId (which can drift via dot-variants and aliases).
+    // Backfill from Email_Logs (primary source for outreach threads) and Follow_Up_Queue
+    // (fallback for candidates whose Email_Logs row was pruned) so historical rows get a
+    // thread id where one exists.
+    try {
+      const compHeaderLastCol = compSheet.getLastColumn();
+      const compHeaders = compSheet.getRange(1, 1, 1, compHeaderLastCol).getValues()[0];
+      const hasThreadId = compHeaders.some(function(h) { return String(h).trim().toLowerCase() === 'thread id'; });
+      if (!hasThreadId) {
+        const newColIdx = compHeaderLastCol + 1;
+        compSheet.getRange(1, newColIdx).setValue('Thread ID');
+        const lastRow = compSheet.getLastRow();
+        if (lastRow > 1) {
+          // Build threadId lookup from Email_Logs (primary)
+          const threadByKey = new Map();
+          const elSheet = ss.getSheetByName('Email_Logs');
+          if (elSheet && elSheet.getLastRow() > 1) {
+            const elData = elSheet.getDataRange().getValues();
+            // Email_Logs columns: [0]Timestamp, [1]Job ID, [2]Email, [3]Name, [4]Thread ID, ...
+            for (let i = 1; i < elData.length; i++) {
+              if (!elData[i][2] || !elData[i][4]) continue;
+              const k = normalizeEmail(elData[i][2]) + '|' + String(elData[i][1] || '');
+              if (!threadByKey.has(k)) threadByKey.set(k, elData[i][4]);
+            }
+          }
+          // Fallback: Follow_Up_Queue (Email at col 0, Job ID at col 1, Thread ID at col 2)
+          const fuSheet = ss.getSheetByName('Follow_Up_Queue');
+          if (fuSheet && fuSheet.getLastRow() > 1) {
+            const fuData = fuSheet.getDataRange().getValues();
+            for (let i = 1; i < fuData.length; i++) {
+              if (!fuData[i][0] || !fuData[i][2]) continue;
+              const k = normalizeEmail(fuData[i][0]) + '|' + String(fuData[i][1] || '');
+              if (!threadByKey.has(k)) threadByKey.set(k, fuData[i][2]);
+            }
+          }
+          // Read Email + Job ID columns from Negotiation_Completed and resolve thread id per row
+          const compRows = compSheet.getRange(2, 1, lastRow - 1, Math.max(3, compHeaderLastCol)).getValues();
+          const threadValues = compRows.map(function(r) {
+            if (!r[2]) return [''];
+            const key = normalizeEmail(r[2]) + '|' + String(r[1] || '');
+            return [threadByKey.get(key) || ''];
+          });
+          compSheet.getRange(2, newColIdx, threadValues.length, 1).setValues(threadValues);
+          invalidateSheetCache('Negotiation_Completed');
+        }
+      }
+    } catch (migrateErr) {
+      console.error('Negotiation_Completed Thread ID migration failed:', migrateErr);
+    }
+  }
 
   // Rate Tiers sheet - for region-based and country-specific rate management
   const rateTiersSheet = ss.getSheetByName('Rate_Tiers');
@@ -4988,7 +5043,7 @@ function moveToCompleted(email, finalStatus, jobIdFilter) {
         threadId: taskData[i][7] || '',
         agreedRate: rate ? `$${rate}/hr` : null
       };
-      compSheet.appendRow([new Date(), taskData[i][1], email, taskData[i][2], finalStatus || "Accepted", "Moved from Task List", taskData[i][6] || 'N/A', taskData[i][8] || '']);
+      compSheet.appendRow([new Date(), taskData[i][1], email, taskData[i][2], finalStatus || "Accepted", "Moved from Task List", taskData[i][6] || 'N/A', taskData[i][8] || '', taskData[i][7] || '']);
       logAnalytics('task_completed', taskData[i][1], 1, finalStatus || "Accepted - Moved from Task List");
       logCompletedToAnalytics(taskData[i][1], email, taskData[i][2], finalStatus || "Accepted", taskData[i][6] || 'N/A', taskData[i][8] || '');
       taskSheet.deleteRow(i+1);
@@ -5015,7 +5070,7 @@ function moveToCompleted(email, finalStatus, jobIdFilter) {
           threadId: stateData[i][9] || '',
           agreedRate: stateRateMatch ? `$${stateRateMatch[1]}/hr` : null
         };
-        compSheet.appendRow([new Date(), stateData[i][1], email, stateData[i][7] || 'Unknown', finalStatus || stateData[i][4], "Moved from State List", stateData[i][6] || 'N/A', stateData[i][10] || '']);
+        compSheet.appendRow([new Date(), stateData[i][1], email, stateData[i][7] || 'Unknown', finalStatus || stateData[i][4], "Moved from State List", stateData[i][6] || 'N/A', stateData[i][10] || '', stateData[i][9] || '']);
         logAnalytics('task_completed', stateData[i][1], 1, finalStatus || "Moved from State List");
         logCompletedToAnalytics(stateData[i][1], email, stateData[i][7] || 'Unknown', finalStatus || stateData[i][4], stateData[i][6] || 'N/A', stateData[i][10] || '');
         moved = true;
@@ -5040,7 +5095,7 @@ function moveToCompleted(email, finalStatus, jobIdFilter) {
   if(!moved) {
     try {
       const details = lookupCandidateDetails(ss, email, String(jobIdFilter || ''), { name: 'Unknown', devId: 'N/A', threadId: '', region: '' });
-      compSheet.appendRow([new Date(), jobIdFilter || '', email, details.name, finalStatus || 'Manually Completed', 'Moved from Email_Logs (not in State/Tasks)', details.devId, details.region]);
+      compSheet.appendRow([new Date(), jobIdFilter || '', email, details.name, finalStatus || 'Manually Completed', 'Moved from Email_Logs (not in State/Tasks)', details.devId, details.region, details.threadId || '']);
       logAnalytics('task_completed', jobIdFilter || '', 1, finalStatus || 'Manually Completed - Email_Logs only');
       logCompletedToAnalytics(jobIdFilter || '', email, details.name, finalStatus || 'Manually Completed', details.devId, details.region);
       taskInfo = { jobId: jobIdFilter || '', name: details.name, devId: details.devId, threadId: details.threadId, agreedRate: null };
@@ -7007,7 +7062,8 @@ function reconcileCandidateStatuses(ss, source) {
             finalStatus,
             aiNotes || 'Recovered by reconciliation — AI summary indicated acceptance',
             devId,
-            region
+            region,
+            row[9] || ''
           ]);
           // Keep downstream analytics consistent with direct auto-accept flow
           try {
@@ -8972,7 +9028,8 @@ Write ONLY the email, nothing else.
               `Offer Accepted${agreedRate ? ` at $${agreedRate}/hr` : ''}`,
               finalNotes,
               devId,
-              candidateRegion || ''
+              candidateRegion || '',
+              (thread && thread.getId) ? thread.getId() : ''
             ]);
             logCompletedToAnalytics(jobId, candidateEmail, candidateName, `Offer Accepted${agreedRate ? ` at $${agreedRate}/hr` : ''}`, devId, candidateRegion || '');
           }
@@ -9476,7 +9533,8 @@ Return ONLY the JSON object, no other text.
             "Escalated - Rate Exceeds Max",
             `${escalationReason} | Rate: $${rate}/hr | Max: $${maxRate}/hr | Target: $${targetRate}/hr`,
             devId,
-            candidateRegion || ''
+            candidateRegion || '',
+            (thread && thread.getId) ? thread.getId() : ''
           ]);
           logCompletedToAnalytics(jobId, candidateEmail, candidateName, "Escalated - Rate Exceeds Max", devId, candidateRegion || '');
 
@@ -9775,7 +9833,8 @@ Write ONLY the email, nothing else.
           `Offer Accepted at $${rate}/hr`,
           finalNotes,
           devId,
-          candidateRegion || ''
+          candidateRegion || '',
+          (thread && thread.getId) ? thread.getId() : ''
         ]);
       }
       logCompletedToAnalytics(jobId, candidateEmail, candidateName, `Offer Accepted at $${rate}/hr`, devId, candidateRegion || '');
@@ -10056,7 +10115,8 @@ Write ONLY the email, nothing else.
             `Offer Accepted at $${rate}/hr`,
             finalNotes,
             devId,
-            candidateRegion || ''
+            candidateRegion || '',
+            (thread && thread.getId) ? thread.getId() : ''
           ]);
         }
         logCompletedToAnalytics(jobId, candidateEmail, candidateName, `Offer Accepted at $${rate}/hr`, devId, candidateRegion || '');
@@ -10822,7 +10882,8 @@ Write ONLY the email, nothing else.
           `Offer Accepted at $${rate}/hr`,
           finalNotes,
           devId,
-          candidateRegion || ''
+          candidateRegion || '',
+          (thread && thread.getId) ? thread.getId() : ''
         ]);
       }
       logCompletedToAnalytics(jobId, candidateEmail, candidateName, `Offer Accepted at $${rate}/hr`, devId, candidateRegion || '');
@@ -11690,7 +11751,8 @@ function generateMissingSummaries(ss) {
                     `Offer Accepted${rate !== 'N/A' ? ` at $${rate}/hr` : ''}`,
                     summary,
                     devId,
-                    region
+                    region,
+                    candidate.threadId || ''
                   ]);
 
                   // Update job details sheet
@@ -12000,7 +12062,8 @@ function handleNotInterested(params) {
       new Date(), jobId, candidateEmail, candidateName,
       "Not Interested",
       `${notInterestedReason}. ${notInterestedSummary}`,
-      devId, candidateRegion || ''
+      devId, candidateRegion || '',
+      (thread && thread.getId) ? thread.getId() : ''
     ]);
   }
   logCompletedToAnalytics(jobId, candidateEmail, candidateName, "Not Interested", devId, candidateRegion || '');
@@ -12222,7 +12285,8 @@ function retroactiveScanNotInterested() {
           new Date(), candidate.jobId, candidate.email, candidate.name,
           'Not Interested',
           `Retroactive fix: ${check.reason}. Previously "${candidate.status}".`,
-          candidate.devId, candidate.region
+          candidate.devId, candidate.region,
+          candidate.threadId || ''
         ]);
 
         // 3. Mark Gmail thread as completed
@@ -12539,7 +12603,8 @@ function syncCompletedFromGmail() {
             completionStatus,
             completionNotes,
             devId,
-            region || ''
+            region || '',
+            threadId || ''
           ]);
           logCompletedToAnalytics(jobId, candidateEmail, name, completionStatus, devId, region || '');
 
@@ -12612,7 +12677,8 @@ function syncCompletedFromGmail() {
             `Accepted at $${agreedRate}/hr (Gmail Sync)`,
             taskCompletionNotes,
             devId,
-            taskData[r][8] || ''
+            taskData[r][8] || '',
+            taskData[r][7] || ''
           ]);
           logCompletedToAnalytics(jobId, candidateEmail, name, `Accepted at $${agreedRate}/hr (Gmail Sync)`, devId, taskData[r][8] || '');
 
