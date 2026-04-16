@@ -986,7 +986,7 @@ function saveLogSheetUrl(url) {
 function ensureSheetsExist(ss) {
   // Include new sheets: Manual_Sent_Logs, Data_Fetch_Logs, Follow_Up_Queue, Unresponsive_Devs, Email_Mismatch_Reports, AI_Learning_Cases
   // NOTE: Job_Assignments has been moved to the central analytics spreadsheet for cross-user visibility
-  const sheets = ['Email_Logs', 'Email_Templates', 'Negotiation_Config', 'Negotiation_Tasks', 'Negotiation_State', 'Negotiation_FAQs', 'Negotiation_Completed', 'Rate_Tiers', 'Manual_Sent_Logs', 'Data_Fetch_Logs', 'Follow_Up_Queue', 'Unresponsive_Devs', 'Email_Mismatch_Reports', 'AI_Learning_Cases'];
+  const sheets = ['Email_Logs', 'Email_Templates', 'Negotiation_Config', 'Negotiation_Tasks', 'Negotiation_State', 'Negotiation_FAQs', 'Negotiation_Completed', 'Rate_Tiers', 'Manual_Sent_Logs', 'Data_Fetch_Logs', 'Follow_Up_Queue', 'Unresponsive_Devs', 'Email_Mismatch_Reports', 'AI_Learning_Cases', 'Reconciliation_Log'];
   sheets.forEach(name => {
     if (!ss.getSheetByName(name)) ss.insertSheet(name);
   });
@@ -1055,6 +1055,21 @@ function ensureSheetsExist(ss) {
   // Email_Mismatch_Reports sheet - for tracking when candidates reply from different email addresses
   const mismatchSheet = ss.getSheetByName('Email_Mismatch_Reports');
   if (mismatchSheet.getLastRow() === 0) mismatchSheet.appendRow(['Timestamp', 'Job ID', 'Expected Email', 'Actual Reply Email', 'Name', 'Dev ID', 'Thread ID', 'Context', 'Action Taken', 'Requires Review']);
+
+  // Reconciliation_Log sheet - audit trail for reconcileCandidateStatuses()
+  // One row per automatic fix so you can verify the function did the right thing.
+  // - Action: DEDUP_COMPLETED | DEDUP_TASKS | MOVED_TO_COMPLETED | SYNCED_UNRESPONSIVE | SYNCED_FOLLOW_UP
+  // - Previous Status / New Status: what we changed it from/to
+  // - Basis: which signal drove the decision (e.g. "row exists in Negotiation_Completed",
+  //         "AI notes matched /offer accepted/", "Follow_Up_Queue.status = Unresponsive")
+  // - Evidence: a short excerpt of the AI notes or source-sheet value
+  // - Source: 'refresh' | 'runAutoNegotiator' | caller label
+  // - User: Session.getActiveUser().getEmail() for per-user audit
+  const reconSheet = ss.getSheetByName('Reconciliation_Log');
+  if (reconSheet.getLastRow() === 0) {
+    reconSheet.appendRow(['Timestamp', 'User Email', 'Source', 'Action', 'Job ID', 'Candidate Email', 'Candidate Name', 'Previous Status', 'New Status', 'Basis', 'Evidence']);
+    reconSheet.setFrozenRows(1);
+  }
 
   // AI_Learning_Cases sheet - stores learning cases from human escalations (positive & negative)
   // These are used to train the AI by consolidating approved cases into Negotiation_FAQs
@@ -3907,7 +3922,7 @@ function getAllTasks(filters) {
     // reads / AI runs see the reconciled state.
     try {
       const ssForReconcile = SpreadsheetApp.openByUrl(url);
-      reconcileCandidateStatuses(ssForReconcile);
+      reconcileCandidateStatuses(ssForReconcile, 'refresh');
     } catch (reconcileErr) {
       console.error('getAllTasks reconciliation failed:', reconcileErr);
     }
@@ -6756,6 +6771,55 @@ function extractRateFromNotes(text) {
 }
 
 /**
+ * Append one audit-trail row to Reconciliation_Log describing an action
+ * taken by reconcileCandidateStatuses. Never throws — a logging failure
+ * must not abort the reconciler pass.
+ *
+ * @param {SpreadsheetApp.Spreadsheet} ss
+ * @param {string} source        - 'refresh' | 'runAutoNegotiator' | caller tag
+ * @param {string} action        - DEDUP_COMPLETED | DEDUP_TASKS | MOVED_TO_COMPLETED | SYNCED_UNRESPONSIVE | SYNCED_FOLLOW_UP
+ * @param {string} jobId
+ * @param {string} email         - Raw candidate email (preserved for readability)
+ * @param {string} name          - Candidate name (may be 'Unknown')
+ * @param {string} previousStatus
+ * @param {string} newStatus
+ * @param {string} basis         - Why the decision was made
+ * @param {string} evidence      - Short excerpt of the driving signal (e.g. AI notes snippet)
+ */
+function logReconcileAction(ss, source, action, jobId, email, name, previousStatus, newStatus, basis, evidence) {
+  try {
+    if (!ss) return;
+    let sheet = ss.getSheetByName('Reconciliation_Log');
+    if (!sheet) {
+      sheet = ss.insertSheet('Reconciliation_Log');
+      sheet.appendRow(['Timestamp', 'User Email', 'Source', 'Action', 'Job ID', 'Candidate Email', 'Candidate Name', 'Previous Status', 'New Status', 'Basis', 'Evidence']);
+      sheet.setFrozenRows(1);
+    }
+    let userEmail = '';
+    try { userEmail = Session.getActiveUser().getEmail() || ''; } catch (e) { /* trigger context */ }
+    // Truncate evidence so we don't bloat the sheet with full conversation text
+    const truncatedEvidence = evidence
+      ? String(evidence).replace(/\s+/g, ' ').trim().substring(0, 500)
+      : '';
+    sheet.appendRow([
+      new Date(),
+      userEmail,
+      source || '',
+      action || '',
+      String(jobId || ''),
+      email || '',
+      name || '',
+      previousStatus || '',
+      newStatus || '',
+      basis || '',
+      truncatedEvidence
+    ]);
+  } catch (e) {
+    console.error('logReconcileAction failed:', e);
+  }
+}
+
+/**
  * UNIFIED STATUS RECONCILIATION
  * ------------------------------------------------------------------
  * This is the single source of truth that keeps the three independent
@@ -6799,11 +6863,13 @@ function extractRateFromNotes(text) {
  *   analytics stay consistent with the direct auto-accept flow.
  *
  * @param {SpreadsheetApp.Spreadsheet} ss
+ * @param {string} [source='unknown'] - Label for the audit log ('refresh', 'runAutoNegotiator', etc.)
  * @returns {{dedupRemoved:number, acceptanceMoved:number, unresponsiveSynced:number, followUpSynced:number, log:Array}}
  */
-function reconcileCandidateStatuses(ss) {
+function reconcileCandidateStatuses(ss, source) {
   const result = { dedupRemoved: 0, acceptanceMoved: 0, unresponsiveSynced: 0, followUpSynced: 0, log: [] };
   if (!ss) return result;
+  const reconcileSource = source || 'unknown';
 
   const stateSheet = ss.getSheetByName('Negotiation_State');
   const compSheet = ss.getSheetByName('Negotiation_Completed');
@@ -6880,6 +6946,13 @@ function reconcileCandidateStatuses(ss) {
         stateSheet.deleteRow(i + 1);
         result.dedupRemoved++;
         result.log.push({ type: 'info', message: `Reconcile: removed duplicate Negotiation_State row for ${rawEmail} (Job ${jobId}) — already in Negotiation_Completed` });
+        logReconcileAction(
+          ss, reconcileSource, 'DEDUP_COMPLETED',
+          jobId, rawEmail, row[7] || 'Unknown',
+          status, 'Removed (in Negotiation_Completed)',
+          'Same (normalized email + jobId) found in Negotiation_Completed — State row is stale',
+          aiNotes
+        );
       } catch (e) {
         result.log.push({ type: 'warning', message: `Reconcile: failed to delete duplicate state row for ${rawEmail}: ${e.message}` });
       }
@@ -6890,6 +6963,13 @@ function reconcileCandidateStatuses(ss) {
         stateSheet.deleteRow(i + 1);
         result.dedupRemoved++;
         result.log.push({ type: 'info', message: `Reconcile: removed duplicate Negotiation_State row for ${rawEmail} (Job ${jobId}) — already in Negotiation_Tasks (Accepted)` });
+        logReconcileAction(
+          ss, reconcileSource, 'DEDUP_TASKS',
+          jobId, rawEmail, row[7] || 'Unknown',
+          status, 'Removed (in Negotiation_Tasks)',
+          'Same (normalized email + jobId) found in Negotiation_Tasks (Accepted) — State row is stale',
+          aiNotes
+        );
       } catch (e) {
         result.log.push({ type: 'warning', message: `Reconcile: failed to delete duplicate state row for ${rawEmail}: ${e.message}` });
       }
@@ -6976,6 +7056,15 @@ function reconcileCandidateStatuses(ss) {
           completedKeys.add(key); // prevent re-processing in this run
           result.acceptanceMoved++;
           result.log.push({ type: 'success', message: `Reconcile: moved ${rawEmail} (Job ${jobId}) to Completed — AI summary indicated acceptance but status was "${status}"` });
+          logReconcileAction(
+            ss, reconcileSource, 'MOVED_TO_COMPLETED',
+            jobId, rawEmail, name,
+            status, finalStatus,
+            rateNum
+              ? `AI summary indicated acceptance; extracted rate $${rateNum}/hr`
+              : 'AI summary indicated acceptance (no rate extracted)',
+            aiNotes
+          );
           continue;
         } catch (e) {
           result.log.push({ type: 'warning', message: `Reconcile: failed to move ${rawEmail} to Completed: ${e.message}` });
@@ -7002,6 +7091,20 @@ function reconcileCandidateStatuses(ss) {
           stateSheet.getRange(i + 1, 9).setValue('Marked unresponsive after follow-ups');
           result.unresponsiveSynced++;
           result.log.push({ type: 'info', message: `Reconcile: synced ${rawEmail} (Job ${jobId}) to "Unresponsive" (was "${status}")` });
+          const inUd = unresponsiveKeys.has(key);
+          const fqUnresp = fq && fq.status === 'Unresponsive';
+          const basis = (inUd && fqUnresp)
+            ? 'Found in Unresponsive_Devs and Follow_Up_Queue.status = Unresponsive'
+            : (inUd ? 'Found in Unresponsive_Devs sheet' : 'Follow_Up_Queue.status = Unresponsive');
+          const evidence = fq
+            ? `FQ: status=${fq.status}, f1Done=${fq.f1Done}, f2Done=${fq.f2Done}${inUd ? '; present in Unresponsive_Devs' : ''}`
+            : (inUd ? 'Present in Unresponsive_Devs' : '');
+          logReconcileAction(
+            ss, reconcileSource, 'SYNCED_UNRESPONSIVE',
+            jobId, rawEmail, row[7] || 'Unknown',
+            status, 'Unresponsive',
+            basis, evidence
+          );
         } catch (e) {
           result.log.push({ type: 'warning', message: `Reconcile: failed to sync Unresponsive for ${rawEmail}: ${e.message}` });
         }
@@ -7017,6 +7120,13 @@ function reconcileCandidateStatuses(ss) {
         stateSheet.getRange(i + 1, 9).setValue(note);
         result.followUpSynced++;
         result.log.push({ type: 'info', message: `Reconcile: synced ${rawEmail} (Job ${jobId}) to "Follow Up"` });
+        logReconcileAction(
+          ss, reconcileSource, 'SYNCED_FOLLOW_UP',
+          jobId, rawEmail, row[7] || 'Unknown',
+          status, 'Follow Up',
+          'Follow_Up_Queue recorded at least one follow-up was sent (f1Done=TRUE) but state was still Initial Outreach',
+          `FQ: status=${fq.status}, f1Done=${fq.f1Done}, f2Done=${fq.f2Done}`
+        );
       } catch (e) {
         result.log.push({ type: 'warning', message: `Reconcile: failed to sync Follow Up for ${rawEmail}: ${e.message}` });
       }
@@ -7280,7 +7390,7 @@ function runAutoNegotiator() {
   // actual outcome. Runs after enrichment so the reconcile pass sees the
   // latest AI notes and follow-up statuses.
   try {
-    const reconcileResult = reconcileCandidateStatuses(ss);
+    const reconcileResult = reconcileCandidateStatuses(ss, 'runAutoNegotiator');
     stats.reconciledDedup = reconcileResult.dedupRemoved;
     stats.reconciledAcceptance = reconcileResult.acceptanceMoved;
     stats.reconciledUnresponsive = reconcileResult.unresponsiveSynced;
