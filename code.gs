@@ -464,7 +464,7 @@ This is your FIRST response:
 - If candidate stated a RANGE within your max ($${max}/hr) → Propose the LOWER end of their range. Say: "Based on the scope of this role, we can offer $[lower end]/hr"
 - If candidate stated a single rate ≤ $${max}/hr → Accept their rate exactly
 - If candidate stated a rate > $${max}/hr → Counter with $${secondOfferRate}/hr
-- If candidate hasn't mentioned a rate but expressed general interest → Do NOT offer a new rate. Instead, acknowledge their interest and ask them to confirm they are aligned with the rate and compensation details shared in the original outreach email. This is a confirmation step, not a negotiation.
+- If candidate hasn't mentioned a rate but expressed general interest → Make your initial offer of $${firstOfferRate}/hr for this role. Say: "We can offer $${firstOfferRate}/hr for this role." Do NOT reference any previous email or assume a rate was already shared.
 - If candidate says "rate is too low" without a number → Ask: "What rate would you be comfortable with?"
 ` : `
 This is your FOLLOW-UP response:
@@ -599,7 +599,7 @@ ${getEffectiveSignature()}
 ${isFirstResponse ? `
 - If candidate stated a rate ≤ $${max}/hr → Accept their rate and confirm details
 - If candidate stated a rate > $${max}/hr → Counter with $${secondOfferRate}/hr
-- If no rate mentioned but candidate expressed general interest → Do NOT offer a new rate. Acknowledge their interest and ask them to confirm they are aligned with the rate and compensation details shared in the original outreach email.
+- If no rate mentioned but candidate expressed general interest → Make your initial offer of $${firstOfferRate}/hr for this role. Say: "We can offer $${firstOfferRate}/hr for this role." Do NOT reference any previous email or assume a rate was already shared.
 - If they say "too low" without a number → Ask what rate they'd be comfortable with
 - Present rates without justification or internal terminology
 - ONLY answer questions from the FAQ - for anything else, politely defer
@@ -10289,7 +10289,7 @@ This is your FIRST response:
 - If candidate stated a RANGE within your max ($${maxRate}/hr) → Propose the LOWER end of their range. Say: "Based on the scope of this role, we can offer $[lower end]/hr"
 - If candidate stated a single rate ≤ $${maxRate}/hr → Accept their rate exactly
 - If candidate stated a rate > $${maxRate}/hr → Counter with $${secondOfferRate}/hr
-- If candidate hasn't mentioned a rate but expressed general interest → Do NOT offer a new rate. Instead, acknowledge their interest and ask them to confirm they are aligned with the rate and compensation details shared in the original outreach email. This is a confirmation step, not a negotiation.
+- If candidate hasn't mentioned a rate but expressed general interest → Make your initial offer of $${firstOfferRate}/hr for this role. Say: "We can offer $${firstOfferRate}/hr for this role." Do NOT reference any previous email or assume a rate was already shared.
 - If candidate says "rate is too low" without a number → Ask: "What rate would you be comfortable with?"
 ` : `
 This is your FOLLOW-UP response:
@@ -10404,7 +10404,7 @@ ${getEffectiveSignature()}
 ${isFirstResponse ? `
 - If candidate stated a rate ≤ $${maxRate}/hr → Accept their rate and confirm details
 - If candidate stated a rate > $${maxRate}/hr → Counter with $${secondOfferRate}/hr
-- If no rate mentioned but candidate expressed general interest → Do NOT offer a new rate. Acknowledge their interest and ask them to confirm they are aligned with the rate and compensation details shared in the original outreach email.
+- If no rate mentioned but candidate expressed general interest → Make your initial offer of $${firstOfferRate}/hr for this role. Say: "We can offer $${firstOfferRate}/hr for this role." Do NOT reference any previous email or assume a rate was already shared.
 - If they say "too low" without a number → Ask what rate they'd be comfortable with
 - Present rates without justification or internal terminology
 - ONLY answer questions from the FAQ - for anything else, politely defer
@@ -11446,18 +11446,16 @@ Create a brief but COMPLETE summary with these sections:
 - SKIP this section entirely if no rate, salary, or compensation was mentioned in the conversation
 - If rate was discussed: What rate are they asking for? What offers were made? Are they flexible or firm?
 
-ACCEPTANCE DETECTION - CRITICAL:
-When the recruiter has made a rate offer and the candidate responds with ANY of the following, this IS acceptance - do NOT say "has not explicitly accepted":
-- "yes", "sure", "ok", "okay", "I agree", "agreed"
-- "I acknowledge", "acknowledged", "I confirm"
-- "sounds good", "works for me", "that works", "fine with me", "I'm fine with that"
-- "looking forward", "looking forward to hear from you", "looking forward to working"
-- "I accept", "I'm on board", "let's proceed", "let's do it", "I'm in"
-- "that's fine", "no problem", "I can do that"
-- Any positive affirmation in direct response to a specific rate offer
-When acceptance is detected, you MUST state: "Candidate ACCEPTED the $X/hr offer" (using the exact rate).
-Do NOT say "has not explicitly accepted" when the candidate has clearly given a positive response to an offer.
-Only say "has not accepted" if the candidate genuinely has NOT responded, or expressed hesitation/rejection.
+ACCEPTANCE vs COUNTER OFFER - CRITICAL:
+- Distinguish WHO proposed the rate: "Recruiter offered $X" (our counter) vs "Candidate accepted $X" (their agreement)
+- A recruiter/AI sending a counter offer of $X is NOT the candidate accepting $X
+- Acceptance ONLY means the candidate EXPLICITLY agreed to a specific rate with phrases like:
+  "I accept $X", "$X works for me", "I agree to $X/hr", "I can do $X", "I confirm the $X rate"
+- The candidate must reference or clearly acknowledge the SPECIFIC RATE NUMBER for it to count as acceptance
+- Generic closing pleasantries are NOT acceptance: "looking forward", "sounds good", "thank you", "great" without referencing a rate are just polite sign-offs
+- If the recruiter made an offer and the candidate replied positively WITHOUT mentioning the rate number, say "Candidate responded positively to $X/hr offer - awaiting explicit confirmation" (NOT "accepted")
+- Only say "Candidate ACCEPTED the $X/hr offer" when the candidate genuinely agreed to that specific rate
+- If the candidate proposed their OWN rate (e.g., "I would like $20/hr"), that is a COUNTER PROPOSAL, not acceptance of our rate
 
 Keep the TOTAL summary under 120 words. Be SPECIFIC with numbers and details.
 DO NOT use generic phrases like "discussed rate" - say the exact rate.
@@ -11944,18 +11942,16 @@ ${dataFollowUpSummary ? `
 - SKIP this section entirely if no rate, salary, or compensation was mentioned in the conversation
 - If rate was discussed: What rate are they asking for? What offers were made? Are they flexible or firm?
 
-ACCEPTANCE DETECTION - CRITICAL:
-When the recruiter has made a rate offer and the candidate responds with ANY of the following, this IS acceptance - do NOT say "has not explicitly accepted":
-- "yes", "sure", "ok", "okay", "I agree", "agreed"
-- "I acknowledge", "acknowledged", "I confirm"
-- "sounds good", "works for me", "that works", "fine with me", "I'm fine with that"
-- "looking forward", "looking forward to hear from you", "looking forward to working"
-- "I accept", "I'm on board", "let's proceed", "let's do it", "I'm in"
-- "that's fine", "no problem", "I can do that"
-- Any positive affirmation in direct response to a specific rate offer
-When acceptance is detected, you MUST state: "Candidate ACCEPTED the $X/hr offer" (using the exact rate).
-Do NOT say "has not explicitly accepted" when the candidate has clearly given a positive response to an offer.
-Only say "has not accepted" if the candidate genuinely has NOT responded, or expressed hesitation/rejection.
+ACCEPTANCE vs COUNTER OFFER - CRITICAL:
+- Distinguish WHO proposed the rate: "Recruiter offered $X" (our counter) vs "Candidate accepted $X" (their agreement)
+- A recruiter/AI sending a counter offer of $X is NOT the candidate accepting $X
+- Acceptance ONLY means the candidate EXPLICITLY agreed to a specific rate with phrases like:
+  "I accept $X", "$X works for me", "I agree to $X/hr", "I can do $X", "I confirm the $X rate"
+- The candidate must reference or clearly acknowledge the SPECIFIC RATE NUMBER for it to count as acceptance
+- Generic closing pleasantries are NOT acceptance: "looking forward", "sounds good", "thank you", "great" without referencing a rate are just polite sign-offs
+- If the recruiter made an offer and the candidate replied positively WITHOUT mentioning the rate number, say "Candidate responded positively to $X/hr offer - awaiting explicit confirmation" (NOT "accepted")
+- Only say "Candidate ACCEPTED the $X/hr offer" when the candidate genuinely agreed to that specific rate
+- If the candidate proposed their OWN rate (e.g., "I would like $20/hr"), that is a COUNTER PROPOSAL, not acceptance of our rate
 
 Keep the TOTAL summary under 150 words. Be SPECIFIC with numbers and details.
 DO NOT use generic phrases like "discussed rate" - say the exact rate.
