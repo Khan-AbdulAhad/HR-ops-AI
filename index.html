@@ -3349,6 +3349,10 @@
                                     </div>
                                 </div>
                             </div>
+                            <div id="responseTimeScopeBanner" class="hidden mb-3 px-3 py-2 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 text-xs text-amber-800 dark:text-amber-200 flex items-start gap-2">
+                                <i class="fa-solid fa-circle-info mt-0.5"></i>
+                                <span id="responseTimeScopeMsg">Team-wide response-time aggregation is not yet available for this metric. The chart below is limited to your personal outreach.</span>
+                            </div>
                             <div class="relative h-64">
                                 <canvas id="responseTimeChart"></canvas>
                             </div>
@@ -11813,6 +11817,23 @@
         function renderResponseTimeChart(data) {
             const ctx = document.getElementById('responseTimeChart');
             if (!ctx) return;
+
+            // Scope banner: surface accurate context to leads/managers/admins
+            // when team-wide response-time aggregation isn't available.
+            const banner = document.getElementById('responseTimeScopeBanner');
+            const bannerMsg = document.getElementById('responseTimeScopeMsg');
+            if (banner && bannerMsg) {
+                const scope = data && data._scope;
+                if (scope === 'team_aggregate_unavailable') {
+                    bannerMsg.textContent = 'Team-wide response-time aggregation is not yet available for this metric. Per-candidate timestamps live in each team member\u2019s personal sheet. Other charts on this page show the full team aggregate.';
+                    banner.classList.remove('hidden');
+                } else if (scope === 'no_personal_sheet' || scope === 'no_email_logs') {
+                    bannerMsg.textContent = 'No outreach emails recorded yet. Response-time metrics will appear once you start sending outreach.';
+                    banner.classList.remove('hidden');
+                } else {
+                    banner.classList.add('hidden');
+                }
+            }
 
             // Update stats
             document.getElementById('avgResponseTime').textContent = data.avgResponseHours ? data.avgResponseHours + 'h' : '-';

@@ -19044,31 +19044,53 @@ function getTimeToResponseMetrics(filterJobId, startDate, endDate) {
     return { error: "Access denied" };
   }
 
+  // Helper: empty response shape used when data is unavailable or out-of-scope
+  // _scope lets the UI render an accurate label ("Your data only" vs "Team aggregate unavailable")
+  function emptyResponseTimeMetrics(scope) {
+    return {
+      totalOutreach: 0,
+      totalResponses: 0,
+      responseRate: 0,
+      avgResponseHours: 0,
+      medianResponseHours: 0,
+      p25ResponseHours: 0,
+      p75ResponseHours: 0,
+      p90ResponseHours: 0,
+      within24h: 0,
+      within48h: 0,
+      within72h: 0,
+      responseTimeBuckets: {
+        'Under 1hr': 0, '1-6hrs': 0, '6-12hrs': 0,
+        '12-24hrs': 0, '24-48hrs': 0, '48-72hrs': 0, '72hrs+': 0
+      },
+      responsesByDay: {},
+      responsesByHour: {},
+      _scope: scope || 'empty',
+      _source: 'centralized'
+    };
+  }
+
   try {
+    // Response-time percentiles require granular (per-candidate) timestamps which
+    // currently live ONLY in each user's personal spreadsheet. The centralized
+    // analytics sheets (Activity_Log, Completed_Analytics, FollowUp_Analytics) do
+    // not yet store the paired outreach→reply timestamps needed for this metric.
+    //
+    // For TL / Manager / Admin: returning their personal sheet's data would be
+    // misleading (it is their OWN ops only, not the team aggregate they expect).
+    // Return an empty result with _scope='team_aggregate_unavailable' so the UI
+    // can display an accurate explanatory banner next to the chart.
+    const isTeamAggregateViewer = access.accessLevel === 'tl' ||
+                                  access.accessLevel === 'manager' ||
+                                  access.accessLevel === 'admin' ||
+                                  access.canManageUsers === true;
+    if (isTeamAggregateViewer) {
+      return emptyResponseTimeMetrics('team_aggregate_unavailable');
+    }
+
     const ss = getCachedSpreadsheet();
-    // If user's personal spreadsheet is unavailable (e.g. team lead/manager without own ops sheet),
-    // return empty metrics instead of error - centralized data doesn't have granular timestamps
     if (!ss) {
-      return {
-        totalOutreach: 0,
-        totalResponses: 0,
-        responseRate: 0,
-        avgResponseHours: 0,
-        medianResponseHours: 0,
-        p25ResponseHours: 0,
-        p75ResponseHours: 0,
-        p90ResponseHours: 0,
-        within24h: 0,
-        within48h: 0,
-        within72h: 0,
-        responseTimeBuckets: {
-          'Under 1hr': 0, '1-6hrs': 0, '6-12hrs': 0,
-          '12-24hrs': 0, '24-48hrs': 0, '48-72hrs': 0, '72hrs+': 0
-        },
-        responsesByDay: {},
-        responsesByHour: {},
-        _source: 'centralized'
-      };
+      return emptyResponseTimeMetrics('no_personal_sheet');
     }
 
     // Get Email_Logs for outreach timestamps
@@ -19077,30 +19099,7 @@ function getTimeToResponseMetrics(filterJobId, startDate, endDate) {
     // Return empty data instead of error when no email logs exist
     // This allows other analytics charts to still render
     if (!emailLogsSheet || emailLogsSheet.getLastRow() <= 1) {
-      return {
-        totalOutreach: 0,
-        totalResponses: 0,
-        responseRate: 0,
-        avgResponseHours: 0,
-        medianResponseHours: 0,
-        p25ResponseHours: 0,
-        p75ResponseHours: 0,
-        p90ResponseHours: 0,
-        within24h: 0,
-        within48h: 0,
-        within72h: 0,
-        responseTimeBuckets: {
-          'Under 1hr': 0,
-          '1-6hrs': 0,
-          '6-12hrs': 0,
-          '12-24hrs': 0,
-          '24-48hrs': 0,
-          '48-72hrs': 0,
-          '72hrs+': 0
-        },
-        responsesByDay: {},
-        responsesByHour: {}
-      };
+      return emptyResponseTimeMetrics('no_email_logs');
     }
 
     // Get Negotiation_State for response timestamps
@@ -19452,10 +19451,15 @@ function getJobPerformanceMetrics(startDate, endDate) {
   }
 
   try {
+    // Same team-aggregate routing as getConversionFunnelData: leads/managers/admins
+    // need the centralized path because their personal sheet only has their own ops.
+    const isTeamAggregateViewer = access.accessLevel === 'tl' ||
+                                  access.accessLevel === 'manager' ||
+                                  access.accessLevel === 'admin' ||
+                                  access.canManageUsers === true;
+
     const ss = getCachedSpreadsheet();
-    // If user's personal spreadsheet is unavailable (e.g. team lead/manager without own ops sheet),
-    // fall back to centralized analytics data for job-level metrics
-    if (!ss) {
+    if (!ss || isTeamAggregateViewer) {
       return getJobPerformanceFromCentralized(access, startDate, endDate);
     }
 
@@ -19909,10 +19913,18 @@ function getConversionFunnelData(filterJobId, startDate, endDate) {
   }
 
   try {
+    // Team-aggregate roles (TL / Manager / Admin) must read from the centralized
+    // analytics sheet — it is the only source that aggregates across team members
+    // AND applies the allowedEmails (teamMembers) filter. Reading from the caller's
+    // personal spreadsheet would return only their own ops (missing team aggregate)
+    // and — if the personal sheet is ever shared — risks exposing other teams' rows.
+    const isTeamAggregateViewer = access.accessLevel === 'tl' ||
+                                  access.accessLevel === 'manager' ||
+                                  access.accessLevel === 'admin' ||
+                                  access.canManageUsers === true;
+
     const ss = getCachedSpreadsheet();
-    // If user's personal spreadsheet is unavailable (e.g. team lead without own ops sheet),
-    // fall back to centralized analytics data instead of returning an error
-    if (!ss) {
+    if (!ss || isTeamAggregateViewer) {
       return getConversionFunnelFromCentralized(access, filterJobId, startDate, endDate);
     }
 
