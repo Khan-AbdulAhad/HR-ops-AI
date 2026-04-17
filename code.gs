@@ -3986,6 +3986,22 @@ function getAllTasks(filters) {
       console.error('getAllTasks Human-Negotiation sync failed:', humanSyncErr);
     }
 
+    // RECOVER MISSING CANDIDATES: re-hydrate Negotiation_State for candidates
+    // that exist in Follow_Up_Queue or Unresponsive_Devs but are missing from
+    // Negotiation_State (e.g., moveToUnresponsive() silently warned instead
+    // of adding the row when state was absent). Previously this recovery
+    // only ran from the hourly runAutoNegotiator trigger, so refresh could
+    // not fix "status tag stuck on Follow Up after candidate moved to
+    // Unresponsive_Devs". Runs before the reconciler so recovered rows are
+    // visible when reconcile walks Negotiation_State.
+    try {
+      const ssForEnrich = SpreadsheetApp.openByUrl(url);
+      enrichNegotiationStateData(ssForEnrich);
+      invalidateSheetCache('Negotiation_State');
+    } catch (enrichErr) {
+      console.error('getAllTasks enrichment/recovery failed:', enrichErr);
+    }
+
     // UNIFIED STATUS RECONCILIATION: run the cross-sheet reconciliation
     // on manual refresh so the status tag always converges with the AI
     // email summary and Gmail labels. This is the user-triggered "refresh
@@ -6626,10 +6642,59 @@ function enrichNegotiationStateData(ss) {
       // Batch write recovered rows
       if (recoveryRows.length > 0) {
         stateSheet.getRange(stateSheet.getLastRow() + 1, 1, recoveryRows.length, recoveryRows[0].length).setValues(recoveryRows);
+        invalidateSheetCache('Negotiation_State');
+      }
+    }
+
+    // RECOVERY (second pass): Unresponsive_Devs is the authoritative source
+    // for unresponsive candidates. moveToUnresponsive() tries to update
+    // Negotiation_State but silently warns if no matching row exists, leaving
+    // the candidate stranded (present in Unresponsive_Devs but invisible to
+    // the reconciler which walks Negotiation_State). This pass catches those
+    // stranded candidates and adds them with status="Unresponsive" so the
+    // task list status tag reflects reality. Runs after the Follow_Up_Queue
+    // pass so FQ-recovered rows are already in stateEmails and not double-added.
+    // Schema (Unresponsive_Devs): [0]Email, [1]Job ID, [2]Name, [3]Dev ID, [4]Thread ID, ...
+    const udSheet = ss.getSheetByName('Unresponsive_Devs');
+    if (udSheet && udSheet.getLastRow() > 1) {
+      const udData = udSheet.getDataRange().getValues();
+      const udRecoveryRows = [];
+      for (let i = 1; i < udData.length; i++) {
+        const udEmail = normalizeEmail(udData[i][0]);
+        const udJobId = String(udData[i][1] || '');
+        if (!udEmail || !udJobId) continue;
+        const udKey = udEmail + '_' + udJobId;
+        if (stateEmails.has(udKey) || completedEmails.has(udKey)) continue;
+
+        const rawEmail = String(udData[i][0] || '').trim();
+        const udName = String(udData[i][2] || '').trim() || 'Unknown';
+        const udDevId = String(udData[i][3] || '').trim() || 'N/A';
+        const udThreadId = String(udData[i][4] || '').trim();
+
+        let bestName = udName;
+        let bestDevId = udDevId;
+        let bestRegion = '';
+        if (bestName === 'Unknown' || bestDevId === 'N/A') {
+          try {
+            const enriched = lookupCandidateDetails(ss, rawEmail, udJobId, { name: bestName, devId: bestDevId, threadId: udThreadId, region: '' });
+            if (bestName === 'Unknown' && enriched.name !== 'Unknown') bestName = enriched.name;
+            if (bestDevId === 'N/A' && enriched.devId !== 'N/A') bestDevId = enriched.devId;
+            if (enriched.region) bestRegion = enriched.region;
+          } catch(e) { /* continue with what we have */ }
+        }
+
+        udRecoveryRows.push([rawEmail, udJobId, 0, '', 'Unresponsive', new Date(), bestDevId, bestName, 'Marked unresponsive after follow-ups', udThreadId, bestRegion, false, false]);
+        stateEmails.add(udKey);
+        recoveredCount++;
+        log.push({ type: 'success', message: `Recovered ${rawEmail} (Job ${udJobId}) to Negotiation_State as "Unresponsive" from Unresponsive_Devs - DevID: ${bestDevId}, Name: ${bestName}` });
+      }
+      if (udRecoveryRows.length > 0) {
+        stateSheet.getRange(stateSheet.getLastRow() + 1, 1, udRecoveryRows.length, udRecoveryRows[0].length).setValues(udRecoveryRows);
+        invalidateSheetCache('Negotiation_State');
       }
     }
   } catch(recoveryErr) {
-    log.push({ type: 'warning', message: 'Follow_Up_Queue recovery error: ' + recoveryErr.message });
+    log.push({ type: 'warning', message: 'Recovery error: ' + recoveryErr.message });
   }
 
   return { enriched: enrichedCount, statusSynced: statusSyncCount, recovered: recoveredCount, log: log };

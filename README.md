@@ -510,6 +510,7 @@ The app automatically creates these sheets:
 | `Data_Fetch_Logs` | API usage and data consumption tracking |
 | `Follow_Up_Queue` | Automated follow-up status tracking |
 | `Unresponsive_Devs` | Candidates marked as unresponsive |
+| `Reconciliation_Log` | Audit trail for every status change made by the reconciler |
 | `Learning_Cases` | AI learning cases from human escalations |
 | `Analytics_Viewers` | Role-based analytics access control |
 | `Page_Access` | Role-based page access configuration |
@@ -573,6 +574,8 @@ The AI escalates to a human (applies `Human-Negotiation` Gmail label) when any o
 - A human can reply directly in Gmail — the system detects this and marks the escalation as handled
 
 > After a human completes the negotiation, click **Process Human** in the Task List to import the result back into the system.
+
+**Status tag sync:** If you manually apply the `Human-Negotiation` label in Gmail, the Task List status tag will update to **Human-Negotiation** as soon as you click **Refresh** (previously required waiting up to 1 hour for the hourly trigger). The AI will immediately stop sending emails to that candidate.
 
 ---
 
@@ -670,10 +673,11 @@ Data gathering is triggered when the AI detects that a candidate's response is m
 > These values can be overridden by setting `FOLLOW_UP_TIMING_CONFIG` in Script Properties (JSON format).
 
 **When marked Unresponsive:**
-1. Candidate row is copied from `Follow_Up_Queue` → `Unresponsive_Devs`
-2. Original row is deleted from `Follow_Up_Queue`
+1. Candidate is added to `Unresponsive_Devs` sheet
+2. `Follow_Up_Queue` status is set to `Unresponsive` (row is retained for recovery)
 3. Gmail labels: adds `Unresponsive`, removes `Awaiting-Response`, `Follow-Up-1-Sent`, `Follow-Up-2-Sent`
 4. No further emails are sent unless the candidate responds (see above)
+5. `Negotiation_State` status is updated to `Unresponsive` immediately if the row exists — if it doesn't, clicking **Refresh** will recover the row automatically
 
 ---
 
@@ -699,6 +703,25 @@ Data gathering is triggered when the AI detects that a candidate's response is m
 ### WhatsApp Outreach
 
 **WhatsApp is not implemented.** All outreach and response detection is email-only via the Gmail API. There is no WhatsApp integration in the current version.
+
+---
+
+### Status Reconciliation System
+
+The system runs an automatic cross-sheet status reconciliation every time the **Refresh** button is clicked and on every hourly AI trigger run. This ensures the Task List status tag always converges with the actual data in Gmail, `Follow_Up_Queue`, and `Unresponsive_Devs`.
+
+**What it fixes automatically:**
+
+| Scenario | What reconciler does |
+|---|---|
+| Candidate in `Negotiation_Completed` but still in `Negotiation_State` | Removes duplicate State row |
+| AI notes indicate acceptance but status tag is still "Follow Up" | Moves candidate to `Negotiation_Completed`, adds `Completed` Gmail label |
+| Candidate moved to `Unresponsive_Devs` but status tag shows "Follow Up" | Updates status tag to `Unresponsive` |
+| Candidate sent a follow-up but status tag still shows "Initial Outreach" | Updates status tag to `Follow Up` |
+
+**Reconciliation_Log sheet:** Every change made by the reconciler is written to `Reconciliation_Log` with: timestamp, source (Refresh or AI trigger), action type, job ID, email, candidate name, previous status, new status, and the evidence that triggered the change. Use this to audit unexpected status flips.
+
+**Missing candidates (recovery):** If a candidate exists in `Follow_Up_Queue` or `Unresponsive_Devs` but is absent from `Negotiation_State` (e.g., due to a sheet error or manual deletion), clicking **Refresh** will automatically re-create their `Negotiation_State` row with the correct status. Previously this recovery only ran on the hourly trigger.
 
 ---
 
@@ -815,6 +838,7 @@ For issues or feature requests, please open an issue on the GitHub repository.
 
 ## Version History
 
+- **V13**: Status reconciliation system (`reconcileCandidateStatuses`) — auto-fixes duplicate/stale status tags on every Refresh and hourly trigger run, with full audit trail in `Reconciliation_Log`. Human-Negotiation Gmail label syncs to status tag on Refresh (was hourly-only). Missing candidates recovered from `Follow_Up_Queue` and `Unresponsive_Devs` on Refresh. `Negotiation_Completed` gains Thread ID column with automatic backfill. Strengthened `enrichNegotiationStateData` with Unresponsive_Devs recovery pass.
 - **V12**: Added Selected for Internal Interviews stage, email sender name/signature customization via Settings UI, BigQuery config moved to Script Properties for easier updates, centralized analytics tracking
 - **V11**: Added Passed Internal Interviews stage, Manual Entry (renamed from Test Mode), enhanced analytics, learning system
 - **V10**: Added follow-up automation, templates, user tracking, agency support, dark mode
