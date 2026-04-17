@@ -4368,16 +4368,19 @@ function getAllTasks(filters) {
           const recoveredDevId = (fqEntry.devId && fqEntry.devId !== 'N/A') ? fqEntry.devId : 'N/A';
           const recoveredName = (fqEntry.name && fqEntry.name !== 'Unknown') ? fqEntry.name : (emailLogsData[i][3] || 'Unknown');
           const recoveredThreadId = fqEntry.threadId || emailLogsData[i][4] || '';
-          // Determine status: only show "Follow Up" if at least one follow-up email was actually sent
-          // FIX: Previously showed "Follow Up" as soon as candidate was in queue (before any follow-up sent)
-          const isInFollowUp = fqLookup.has(logKey) && fqEntry.f1Done;
-          const recoveredStatus = isInFollowUp ? 'Follow Up' : 'Initial Outreach';
-          const recoveredTag = isInFollowUp ? 'Follow Up' : 'Initial Outreach';
+          // Determine status: check Unresponsive_Devs and FQ status first,
+          // then fall back to follow-up send state
+          const isUnresponsive = unresponsiveSet.has(logKey) || fqEntry.status === 'Unresponsive';
+          const isInFollowUp = !isUnresponsive && fqLookup.has(logKey) && fqEntry.f1Done;
+          const recoveredStatus = isUnresponsive ? 'Unresponsive' : (isInFollowUp ? 'Follow Up' : 'Initial Outreach');
+          const recoveredTag = recoveredStatus;
 
           // Apply filters before counting
           if(jobFilter !== 'all' && elJobId !== jobFilter) continue;
           if(statusFilter !== 'all' && statusFilter !== recoveredStatus && statusFilter !== 'Initial Outreach') continue;
-          if (isInFollowUp) {
+          if (isUnresponsive) {
+            statUnresponsive++;
+          } else if (isInFollowUp) {
             statFollowUp++;
           } else {
             statInitialOutreach++;
@@ -6401,75 +6404,76 @@ function enrichNegotiationStateData(ss) {
     }
   }
 
-  // 2. Email_Logs: [0]Timestamp, [1]JobID, [2]Email, [3]Name, [4]ThreadID, [5]Type, [6]Country
-  const elSheet = ss.getSheetByName('Email_Logs');
-  const elMap = new Map(); // key: normalizedEmail_jobId -> { threadId, name, country }
-  if (elSheet && elSheet.getLastRow() > 1) {
-    const elData = elSheet.getDataRange().getValues();
-    for (let i = 1; i < elData.length; i++) {
-      const key = normalizeEmail(elData[i][2]) + '_' + String(elData[i][1] || '');
-      // Keep the first (earliest) entry as it has the initial outreach data
-      if (!elMap.has(key)) {
-        elMap.set(key, {
-          threadId: String(elData[i][4] || '').trim(),
-          name: String(elData[i][3] || '').trim(),
-          country: String(elData[i][6] || '').trim()
+  // Lookup maps only needed for enrichment (rowsToCheck > 0).
+  // fqSheet/fqMap are already built above and reused by the recovery block.
+  const elMap = new Map();
+  const compMap = new Map();
+  const jobDetailsMap = new Map();
+  if (rowsToCheck.length > 0) {
+    // 2. Email_Logs: [0]Timestamp, [1]JobID, [2]Email, [3]Name, [4]ThreadID, [5]Type, [6]Country
+    const elSheet = ss.getSheetByName('Email_Logs');
+    if (elSheet && elSheet.getLastRow() > 1) {
+      const elData = elSheet.getDataRange().getValues();
+      for (let i = 1; i < elData.length; i++) {
+        const key = normalizeEmail(elData[i][2]) + '_' + String(elData[i][1] || '');
+        if (!elMap.has(key)) {
+          elMap.set(key, {
+            threadId: String(elData[i][4] || '').trim(),
+            name: String(elData[i][3] || '').trim(),
+            country: String(elData[i][6] || '').trim()
+          });
+        }
+      }
+    }
+
+    // 3. Negotiation_Completed: [0]Timestamp, [1]JobID, [2]Email, [3]Name, [4]FinalStatus, [5]Notes, [6]DevID, [7]Region
+    const compSheet = ss.getSheetByName('Negotiation_Completed');
+    if (compSheet && compSheet.getLastRow() > 1) {
+      const compData = compSheet.getDataRange().getValues();
+      for (let i = 1; i < compData.length; i++) {
+        const key = normalizeEmail(compData[i][2]) + '_' + String(compData[i][1] || '');
+        compMap.set(key, {
+          name: String(compData[i][3] || '').trim(),
+          devId: String(compData[i][6] || '').trim(),
+          region: String(compData[i][7] || '').trim()
         });
       }
     }
-  }
 
-  // 3. Negotiation_Completed: [0]Timestamp, [1]JobID, [2]Email, [3]Name, [4]FinalStatus, [5]Notes, [6]DevID, [7]Region
-  const compSheet = ss.getSheetByName('Negotiation_Completed');
-  const compMap = new Map(); // key: normalizedEmail_jobId -> { name, devId, region }
-  if (compSheet && compSheet.getLastRow() > 1) {
-    const compData = compSheet.getDataRange().getValues();
-    for (let i = 1; i < compData.length; i++) {
-      const key = normalizeEmail(compData[i][2]) + '_' + String(compData[i][1] || '');
-      compMap.set(key, {
-        name: String(compData[i][3] || '').trim(),
-        devId: String(compData[i][6] || '').trim(),
-        region: String(compData[i][7] || '').trim()
-      });
-    }
-  }
+    // 4. Job_XXXXX_Details sheets (stored in separate Jobs spreadsheet)
+    try {
+      const jobsSs = getCachedJobsSpreadsheet();
+      if (jobsSs) {
+        const jobIds = new Set(rowsToCheck.map(r => r.jobId));
+        jobIds.forEach(jId => {
+          const detailSheet = jobsSs.getSheetByName('Job_' + jId + '_Details');
+          if (detailSheet && detailSheet.getLastRow() > 1) {
+            const headers = detailSheet.getRange(1, 1, 1, detailSheet.getLastColumn()).getValues()[0];
+            const eIdx = headers.indexOf('Email');
+            const nIdx = headers.indexOf('Name');
+            const dIdx = headers.indexOf('Dev ID');
+            const thIdx = headers.indexOf('Thread ID');
+            const rIdx = headers.indexOf('Region');
+            if (eIdx === -1) return;
 
-  // 4. Job_XXXXX_Details sheets (stored in separate Jobs spreadsheet)
-  // Columns: Timestamp, Email, Name, Dev ID, Thread ID, Region, Status, + dynamic
-  const jobDetailsMap = new Map(); // key: email_jobId -> { name, devId, threadId, region }
-  try {
-    const jobsSs = getCachedJobsSpreadsheet();
-    if (jobsSs) {
-      // Collect unique job IDs from rows to check
-      const jobIds = new Set(rowsToCheck.map(r => r.jobId));
-      jobIds.forEach(jId => {
-        const detailSheet = jobsSs.getSheetByName('Job_' + jId + '_Details');
-        if (detailSheet && detailSheet.getLastRow() > 1) {
-          const headers = detailSheet.getRange(1, 1, 1, detailSheet.getLastColumn()).getValues()[0];
-          const eIdx = headers.indexOf('Email');
-          const nIdx = headers.indexOf('Name');
-          const dIdx = headers.indexOf('Dev ID');
-          const thIdx = headers.indexOf('Thread ID');
-          const rIdx = headers.indexOf('Region');
-          if (eIdx === -1) return;
-
-          const detailData = detailSheet.getDataRange().getValues();
-          for (let i = 1; i < detailData.length; i++) {
-            const email = normalizeEmail(detailData[i][eIdx]);
-            if (!email) continue;
-            const key = email + '_' + jId;
-            jobDetailsMap.set(key, {
-              name: nIdx !== -1 ? String(detailData[i][nIdx] || '').trim() : '',
-              devId: dIdx !== -1 ? String(detailData[i][dIdx] || '').trim() : '',
-              threadId: thIdx !== -1 ? String(detailData[i][thIdx] || '').trim() : '',
-              region: rIdx !== -1 ? String(detailData[i][rIdx] || '').trim() : ''
-            });
+            const detailData = detailSheet.getDataRange().getValues();
+            for (let i = 1; i < detailData.length; i++) {
+              const email = normalizeEmail(detailData[i][eIdx]);
+              if (!email) continue;
+              const key = email + '_' + jId;
+              jobDetailsMap.set(key, {
+                name: nIdx !== -1 ? String(detailData[i][nIdx] || '').trim() : '',
+                devId: dIdx !== -1 ? String(detailData[i][dIdx] || '').trim() : '',
+                threadId: thIdx !== -1 ? String(detailData[i][thIdx] || '').trim() : '',
+                region: rIdx !== -1 ? String(detailData[i][rIdx] || '').trim() : ''
+              });
+            }
           }
-        }
-      });
+        });
+      }
+    } catch (e) {
+      console.error('Failed to load Job Details sheets for enrichment:', e);
     }
-  } catch (e) {
-    console.error('Failed to load Job Details sheets for enrichment:', e);
   }
 
   // Now enrich each row that needs it
@@ -6650,7 +6654,7 @@ function enrichNegotiationStateData(ss) {
         } else if (recoveryF1Done) {
           recoveredNotes = '1st follow-up sent, awaiting response';
         }
-        recoveryRows.push([rawEmail, fqJobId, 0, '', recoveredStatus, new Date(), bestDevId, bestName, recoveredNotes, fqThreadId, bestRegion, false, false]);
+        recoveryRows.push([rawEmail, fqJobId, 0, '', recoveredStatus, '', bestDevId, bestName, recoveredNotes, fqThreadId, bestRegion, false, false]);
         stateEmails.add(fqKey); // Prevent duplicates within this loop
         recoveredCount++;
         log.push({ type: 'success', message: `Recovered ${rawEmail} (Job ${fqJobId}) to Negotiation_State as "${recoveredStatus}" - DevID: ${bestDevId}, Name: ${bestName}` });
@@ -6700,7 +6704,7 @@ function enrichNegotiationStateData(ss) {
           } catch(e) { /* continue with what we have */ }
         }
 
-        udRecoveryRows.push([rawEmail, udJobId, 0, '', 'Unresponsive', new Date(), bestDevId, bestName, 'Marked unresponsive after follow-ups', udThreadId, bestRegion, false, false]);
+        udRecoveryRows.push([rawEmail, udJobId, 0, '', 'Unresponsive', '', bestDevId, bestName, 'Marked unresponsive after follow-ups', udThreadId, bestRegion, false, false]);
         stateEmails.add(udKey);
         recoveredCount++;
         log.push({ type: 'success', message: `Recovered ${rawEmail} (Job ${udJobId}) to Negotiation_State as "Unresponsive" from Unresponsive_Devs - DevID: ${bestDevId}, Name: ${bestName}` });
