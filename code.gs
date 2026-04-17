@@ -464,7 +464,7 @@ This is your FIRST response:
 - If candidate stated a RANGE within your max ($${max}/hr) → Propose the LOWER end of their range. Say: "Based on the scope of this role, we can offer $[lower end]/hr"
 - If candidate stated a single rate ≤ $${max}/hr → Accept their rate exactly
 - If candidate stated a rate > $${max}/hr → Counter with $${secondOfferRate}/hr
-- If candidate hasn't mentioned a rate but expressed general interest → Do NOT offer a new rate. Instead, acknowledge their interest and ask them to confirm they are aligned with the rate and compensation details shared in the original outreach email. This is a confirmation step, not a negotiation.
+- If candidate hasn't mentioned a rate but expressed general interest → Make your initial offer of $${firstOfferRate}/hr for this role. Say: "We can offer $${firstOfferRate}/hr for this role." Do NOT reference any previous email or assume a rate was already shared.
 - If candidate says "rate is too low" without a number → Ask: "What rate would you be comfortable with?"
 ` : `
 This is your FOLLOW-UP response:
@@ -599,7 +599,7 @@ ${getEffectiveSignature()}
 ${isFirstResponse ? `
 - If candidate stated a rate ≤ $${max}/hr → Accept their rate and confirm details
 - If candidate stated a rate > $${max}/hr → Counter with $${secondOfferRate}/hr
-- If no rate mentioned but candidate expressed general interest → Do NOT offer a new rate. Acknowledge their interest and ask them to confirm they are aligned with the rate and compensation details shared in the original outreach email.
+- If no rate mentioned but candidate expressed general interest → Make your initial offer of $${firstOfferRate}/hr for this role. Say: "We can offer $${firstOfferRate}/hr for this role." Do NOT reference any previous email or assume a rate was already shared.
 - If they say "too low" without a number → Ask what rate they'd be comfortable with
 - Present rates without justification or internal terminology
 - ONLY answer questions from the FAQ - for anything else, politely defer
@@ -8403,6 +8403,15 @@ Reply with only the email body text. No subject line. No placeholders.`;
     let isDataGatheringComplete = true; // Default to true (no data gathering questions)
     let hasDataGatheringEnabled = false;
     let pendingDataQuestions = [];
+    // FIX: Declare saveResult at the outer scope so later blocks (confirmation detection,
+    // data-only follow-up, completion email, counter-offer paths) can read answeredCount /
+    // totalQuestions / pendingQuestions / extractedData from it. Previously it was declared
+    // with `const` *inside* the try block, which meant every reference after the try closes
+    // (lines ~8847, 8941, 9746, 10043, etc.) was reading an out-of-scope identifier. In the
+    // V8 runtime that is a ReferenceError, which in the confirmation block propagated up and
+    // silently killed processing for "Active - Data Pending" candidates who replied with
+    // natural-language confirmations.
+    let saveResult = null;
 
     try {
       // Get ALL questions configured for this job (including email-type specific columns)
@@ -8423,7 +8432,7 @@ Reply with only the email body text. No subject line. No placeholders.`;
       }
 
       // Save to job-specific details sheet (include region for AI rate tier consideration)
-      const saveResult = saveJobCandidateDetails(ss, jobId, candidateEmail, candidateName, devId, thread.getId(), answers, dataStatus, candidateRegion);
+      saveResult = saveJobCandidateDetails(ss, jobId, candidateEmail, candidateName, devId, thread.getId(), answers, dataStatus, candidateRegion);
       if(saveResult.success) {
         jobStats.detailsExtracted++;
         jobStats.log.push({type: 'info', message: `${candidateEmail} - Details extracted: ${answers.is_negotiating ? 'Negotiating' : 'Provided'} (${saveResult.answeredCount}/${saveResult.totalQuestions} answered)`});
@@ -8879,12 +8888,33 @@ Write ONLY the email body, nothing else.
           /^(?:yes[,.]?\s*)?(?:sounds?\s+)?good/i,
           /^(?:yes[,.]?\s*)?(?:i\s+)?accept/i,
           /^(?:looks?\s+)?good(?:\s+to\s+me)?/i,
-          /^(?:yes[,.]?\s*)?no\s+(?:issues?|problems?|objections?)/i
+          /^(?:yes[,.]?\s*)?no\s+(?:issues?|problems?|objections?)/i,
+          // Natural-language confirmations that often appear after a greeting/pleasantry
+          /\b(?:i'?m|i\s+am)\s+(?:happy|glad|pleased)\s+to\s+confirm\b/i,
+          /\bhappy\s+to\s+confirm\b/i,
+          /\b(?:i\s+)?(?:can|do)\s+confirm\b/i,
+          /\bjust\s+confirming\b/i,
+          /\bwanted\s+to\s+confirm\b/i
         ];
-        const trimmedMessage = candidateLatestMessage.trim().replace(/\s+/g, ' ');
-        // Only treat as confirmation if message is short (under 200 chars) - longer messages likely contain new data
-        const isShortConfirmation = trimmedMessage.length < 200 &&
-          confirmationPatterns.some(p => p.test(trimmedMessage));
+        // FIX: Use candidateOwnMessage (stripped of quoted reply text) instead of
+        // candidateLatestMessage. Gmail's getPlainBody() returns the FULL email body
+        // including the quoted previous message ("On ... wrote: > ..."), which is almost
+        // always >200 chars. Using the raw body caused the length guard below to always
+        // fail, silently disabling this entire escape hatch. Real candidate replies like
+        // "Thank you for following up. I'm happy to confirm 5 working hours PST overlap."
+        // were never matched, leaving the candidate stuck in "Active - Data Pending"
+        // and receiving the same follow-up every run.
+        const rawTrimmed = (candidateOwnMessage || candidateLatestMessage || '').trim().replace(/\s+/g, ' ');
+        // Strip common opening pleasantries so the ^-anchored patterns still match
+        // messages that start with "Thank you for ...", "Hi <name>,", "Hello,", etc.
+        const strippedForConfirmation = rawTrimmed
+          .replace(/^(?:hi|hello|hey|dear|greetings)[\s,!][^,.!\n]{0,60}[,.!]?\s*/i, '')
+          .replace(/^thank[s]?(?:\s+you)?(?:\s+(?:very|so)\s+much)?(?:\s+for\s+(?:following\s+up|your\s+(?:email|reply|message|response|time)|getting\s+back(?:\s+to\s+me)?|reaching\s+out))?[,.!]?\s*/i, '');
+        // Only treat as confirmation if message is short (under 200 chars AFTER stripping
+        // quoted text and pleasantries) - longer messages likely contain new data.
+        const isShortConfirmation = strippedForConfirmation.length < 200 &&
+          confirmationPatterns.some(p => p.test(strippedForConfirmation));
+        const trimmedMessage = strippedForConfirmation; // used by the log line below
 
         if (isShortConfirmation) {
           // Check if candidate has PREVIOUSLY provided a meaningful portion of data
@@ -10324,7 +10354,7 @@ This is your FIRST response:
 - If candidate stated a RANGE within your max ($${maxRate}/hr) → Propose the LOWER end of their range. Say: "Based on the scope of this role, we can offer $[lower end]/hr"
 - If candidate stated a single rate ≤ $${maxRate}/hr → Accept their rate exactly
 - If candidate stated a rate > $${maxRate}/hr → Counter with $${secondOfferRate}/hr
-- If candidate hasn't mentioned a rate but expressed general interest → Do NOT offer a new rate. Instead, acknowledge their interest and ask them to confirm they are aligned with the rate and compensation details shared in the original outreach email. This is a confirmation step, not a negotiation.
+- If candidate hasn't mentioned a rate but expressed general interest → Make your initial offer of $${firstOfferRate}/hr for this role. Say: "We can offer $${firstOfferRate}/hr for this role." Do NOT reference any previous email or assume a rate was already shared.
 - If candidate says "rate is too low" without a number → Ask: "What rate would you be comfortable with?"
 ` : `
 This is your FOLLOW-UP response:
@@ -10439,7 +10469,7 @@ ${getEffectiveSignature()}
 ${isFirstResponse ? `
 - If candidate stated a rate ≤ $${maxRate}/hr → Accept their rate and confirm details
 - If candidate stated a rate > $${maxRate}/hr → Counter with $${secondOfferRate}/hr
-- If no rate mentioned but candidate expressed general interest → Do NOT offer a new rate. Acknowledge their interest and ask them to confirm they are aligned with the rate and compensation details shared in the original outreach email.
+- If no rate mentioned but candidate expressed general interest → Make your initial offer of $${firstOfferRate}/hr for this role. Say: "We can offer $${firstOfferRate}/hr for this role." Do NOT reference any previous email or assume a rate was already shared.
 - If they say "too low" without a number → Ask what rate they'd be comfortable with
 - Present rates without justification or internal terminology
 - ONLY answer questions from the FAQ - for anything else, politely defer
@@ -11481,18 +11511,16 @@ Create a brief but COMPLETE summary with these sections:
 - SKIP this section entirely if no rate, salary, or compensation was mentioned in the conversation
 - If rate was discussed: What rate are they asking for? What offers were made? Are they flexible or firm?
 
-ACCEPTANCE DETECTION - CRITICAL:
-When the recruiter has made a rate offer and the candidate responds with ANY of the following, this IS acceptance - do NOT say "has not explicitly accepted":
-- "yes", "sure", "ok", "okay", "I agree", "agreed"
-- "I acknowledge", "acknowledged", "I confirm"
-- "sounds good", "works for me", "that works", "fine with me", "I'm fine with that"
-- "looking forward", "looking forward to hear from you", "looking forward to working"
-- "I accept", "I'm on board", "let's proceed", "let's do it", "I'm in"
-- "that's fine", "no problem", "I can do that"
-- Any positive affirmation in direct response to a specific rate offer
-When acceptance is detected, you MUST state: "Candidate ACCEPTED the $X/hr offer" (using the exact rate).
-Do NOT say "has not explicitly accepted" when the candidate has clearly given a positive response to an offer.
-Only say "has not accepted" if the candidate genuinely has NOT responded, or expressed hesitation/rejection.
+ACCEPTANCE vs COUNTER OFFER - CRITICAL:
+- Distinguish WHO proposed the rate: "Recruiter offered $X" (our counter) vs "Candidate accepted $X" (their agreement)
+- A recruiter/AI sending a counter offer of $X is NOT the candidate accepting $X
+- Acceptance ONLY means the candidate EXPLICITLY agreed to a specific rate with phrases like:
+  "I accept $X", "$X works for me", "I agree to $X/hr", "I can do $X", "I confirm the $X rate"
+- The candidate must reference or clearly acknowledge the SPECIFIC RATE NUMBER for it to count as acceptance
+- Generic closing pleasantries are NOT acceptance: "looking forward", "sounds good", "thank you", "great" without referencing a rate are just polite sign-offs
+- If the recruiter made an offer and the candidate replied positively WITHOUT mentioning the rate number, say "Candidate responded positively to $X/hr offer - awaiting explicit confirmation" (NOT "accepted")
+- Only say "Candidate ACCEPTED the $X/hr offer" when the candidate genuinely agreed to that specific rate
+- If the candidate proposed their OWN rate (e.g., "I would like $20/hr"), that is a COUNTER PROPOSAL, not acceptance of our rate
 
 Keep the TOTAL summary under 120 words. Be SPECIFIC with numbers and details.
 DO NOT use generic phrases like "discussed rate" - say the exact rate.
@@ -11979,18 +12007,16 @@ ${dataFollowUpSummary ? `
 - SKIP this section entirely if no rate, salary, or compensation was mentioned in the conversation
 - If rate was discussed: What rate are they asking for? What offers were made? Are they flexible or firm?
 
-ACCEPTANCE DETECTION - CRITICAL:
-When the recruiter has made a rate offer and the candidate responds with ANY of the following, this IS acceptance - do NOT say "has not explicitly accepted":
-- "yes", "sure", "ok", "okay", "I agree", "agreed"
-- "I acknowledge", "acknowledged", "I confirm"
-- "sounds good", "works for me", "that works", "fine with me", "I'm fine with that"
-- "looking forward", "looking forward to hear from you", "looking forward to working"
-- "I accept", "I'm on board", "let's proceed", "let's do it", "I'm in"
-- "that's fine", "no problem", "I can do that"
-- Any positive affirmation in direct response to a specific rate offer
-When acceptance is detected, you MUST state: "Candidate ACCEPTED the $X/hr offer" (using the exact rate).
-Do NOT say "has not explicitly accepted" when the candidate has clearly given a positive response to an offer.
-Only say "has not accepted" if the candidate genuinely has NOT responded, or expressed hesitation/rejection.
+ACCEPTANCE vs COUNTER OFFER - CRITICAL:
+- Distinguish WHO proposed the rate: "Recruiter offered $X" (our counter) vs "Candidate accepted $X" (their agreement)
+- A recruiter/AI sending a counter offer of $X is NOT the candidate accepting $X
+- Acceptance ONLY means the candidate EXPLICITLY agreed to a specific rate with phrases like:
+  "I accept $X", "$X works for me", "I agree to $X/hr", "I can do $X", "I confirm the $X rate"
+- The candidate must reference or clearly acknowledge the SPECIFIC RATE NUMBER for it to count as acceptance
+- Generic closing pleasantries are NOT acceptance: "looking forward", "sounds good", "thank you", "great" without referencing a rate are just polite sign-offs
+- If the recruiter made an offer and the candidate replied positively WITHOUT mentioning the rate number, say "Candidate responded positively to $X/hr offer - awaiting explicit confirmation" (NOT "accepted")
+- Only say "Candidate ACCEPTED the $X/hr offer" when the candidate genuinely agreed to that specific rate
+- If the candidate proposed their OWN rate (e.g., "I would like $20/hr"), that is a COUNTER PROPOSAL, not acceptance of our rate
 
 Keep the TOTAL summary under 150 words. Be SPECIFIC with numbers and details.
 DO NOT use generic phrases like "discussed rate" - say the exact rate.
@@ -19083,31 +19109,53 @@ function getTimeToResponseMetrics(filterJobId, startDate, endDate) {
     return { error: "Access denied" };
   }
 
+  // Helper: empty response shape used when data is unavailable or out-of-scope
+  // _scope lets the UI render an accurate label ("Your data only" vs "Team aggregate unavailable")
+  function emptyResponseTimeMetrics(scope) {
+    return {
+      totalOutreach: 0,
+      totalResponses: 0,
+      responseRate: 0,
+      avgResponseHours: 0,
+      medianResponseHours: 0,
+      p25ResponseHours: 0,
+      p75ResponseHours: 0,
+      p90ResponseHours: 0,
+      within24h: 0,
+      within48h: 0,
+      within72h: 0,
+      responseTimeBuckets: {
+        'Under 1hr': 0, '1-6hrs': 0, '6-12hrs': 0,
+        '12-24hrs': 0, '24-48hrs': 0, '48-72hrs': 0, '72hrs+': 0
+      },
+      responsesByDay: {},
+      responsesByHour: {},
+      _scope: scope || 'empty',
+      _source: 'centralized'
+    };
+  }
+
   try {
+    // Response-time percentiles require granular (per-candidate) timestamps which
+    // currently live ONLY in each user's personal spreadsheet. The centralized
+    // analytics sheets (Activity_Log, Completed_Analytics, FollowUp_Analytics) do
+    // not yet store the paired outreach→reply timestamps needed for this metric.
+    //
+    // For TL / Manager / Admin: returning their personal sheet's data would be
+    // misleading (it is their OWN ops only, not the team aggregate they expect).
+    // Return an empty result with _scope='team_aggregate_unavailable' so the UI
+    // can display an accurate explanatory banner next to the chart.
+    const isTeamAggregateViewer = access.accessLevel === 'tl' ||
+                                  access.accessLevel === 'manager' ||
+                                  access.accessLevel === 'admin' ||
+                                  access.canManageUsers === true;
+    if (isTeamAggregateViewer) {
+      return emptyResponseTimeMetrics('team_aggregate_unavailable');
+    }
+
     const ss = getCachedSpreadsheet();
-    // If user's personal spreadsheet is unavailable (e.g. team lead/manager without own ops sheet),
-    // return empty metrics instead of error - centralized data doesn't have granular timestamps
     if (!ss) {
-      return {
-        totalOutreach: 0,
-        totalResponses: 0,
-        responseRate: 0,
-        avgResponseHours: 0,
-        medianResponseHours: 0,
-        p25ResponseHours: 0,
-        p75ResponseHours: 0,
-        p90ResponseHours: 0,
-        within24h: 0,
-        within48h: 0,
-        within72h: 0,
-        responseTimeBuckets: {
-          'Under 1hr': 0, '1-6hrs': 0, '6-12hrs': 0,
-          '12-24hrs': 0, '24-48hrs': 0, '48-72hrs': 0, '72hrs+': 0
-        },
-        responsesByDay: {},
-        responsesByHour: {},
-        _source: 'centralized'
-      };
+      return emptyResponseTimeMetrics('no_personal_sheet');
     }
 
     // Get Email_Logs for outreach timestamps
@@ -19116,30 +19164,7 @@ function getTimeToResponseMetrics(filterJobId, startDate, endDate) {
     // Return empty data instead of error when no email logs exist
     // This allows other analytics charts to still render
     if (!emailLogsSheet || emailLogsSheet.getLastRow() <= 1) {
-      return {
-        totalOutreach: 0,
-        totalResponses: 0,
-        responseRate: 0,
-        avgResponseHours: 0,
-        medianResponseHours: 0,
-        p25ResponseHours: 0,
-        p75ResponseHours: 0,
-        p90ResponseHours: 0,
-        within24h: 0,
-        within48h: 0,
-        within72h: 0,
-        responseTimeBuckets: {
-          'Under 1hr': 0,
-          '1-6hrs': 0,
-          '6-12hrs': 0,
-          '12-24hrs': 0,
-          '24-48hrs': 0,
-          '48-72hrs': 0,
-          '72hrs+': 0
-        },
-        responsesByDay: {},
-        responsesByHour: {}
-      };
+      return emptyResponseTimeMetrics('no_email_logs');
     }
 
     // Get Negotiation_State for response timestamps
@@ -19491,10 +19516,15 @@ function getJobPerformanceMetrics(startDate, endDate) {
   }
 
   try {
+    // Same team-aggregate routing as getConversionFunnelData: leads/managers/admins
+    // need the centralized path because their personal sheet only has their own ops.
+    const isTeamAggregateViewer = access.accessLevel === 'tl' ||
+                                  access.accessLevel === 'manager' ||
+                                  access.accessLevel === 'admin' ||
+                                  access.canManageUsers === true;
+
     const ss = getCachedSpreadsheet();
-    // If user's personal spreadsheet is unavailable (e.g. team lead/manager without own ops sheet),
-    // fall back to centralized analytics data for job-level metrics
-    if (!ss) {
+    if (!ss || isTeamAggregateViewer) {
       return getJobPerformanceFromCentralized(access, startDate, endDate);
     }
 
@@ -19948,10 +19978,18 @@ function getConversionFunnelData(filterJobId, startDate, endDate) {
   }
 
   try {
+    // Team-aggregate roles (TL / Manager / Admin) must read from the centralized
+    // analytics sheet — it is the only source that aggregates across team members
+    // AND applies the allowedEmails (teamMembers) filter. Reading from the caller's
+    // personal spreadsheet would return only their own ops (missing team aggregate)
+    // and — if the personal sheet is ever shared — risks exposing other teams' rows.
+    const isTeamAggregateViewer = access.accessLevel === 'tl' ||
+                                  access.accessLevel === 'manager' ||
+                                  access.accessLevel === 'admin' ||
+                                  access.canManageUsers === true;
+
     const ss = getCachedSpreadsheet();
-    // If user's personal spreadsheet is unavailable (e.g. team lead without own ops sheet),
-    // fall back to centralized analytics data instead of returning an error
-    if (!ss) {
+    if (!ss || isTeamAggregateViewer) {
       return getConversionFunnelFromCentralized(access, filterJobId, startDate, endDate);
     }
 
