@@ -6315,10 +6315,20 @@ function sendReplyWithSenderName(thread, replyBody, senderName, recipientEmail) 
  * Negotiation_State status changed from "Initial Outreach" to "Follow Up".
  */
 function enrichNegotiationStateData(ss) {
-  const stateSheet = ss.getSheetByName('Negotiation_State');
-  if (!stateSheet || stateSheet.getLastRow() <= 1) return { enriched: 0, statusSynced: 0, log: [] };
+  // BUG FIX: `log` was previously declared below (line ~6465) but referenced
+  // on the debug log above the enrichment loop — any call with rows to check
+  // threw ReferenceError (temporal dead zone) and was swallowed by the
+  // caller's try/catch, so the recovery block at the bottom of the function
+  // never executed. Declare it here so every code path can safely push logs.
+  const log = [];
+  let enrichedCount = 0;
+  let statusSyncCount = 0;
+  let recoveredCount = 0;
 
-  const stateData = stateSheet.getDataRange().getValues();
+  const stateSheet = ss.getSheetByName('Negotiation_State');
+  if (!stateSheet) return { enriched: 0, statusSynced: 0, recovered: 0, log: log };
+
+  const stateData = stateSheet.getLastRow() > 0 ? stateSheet.getDataRange().getValues() : [];
   // Columns: [0]Email, [1]JobID, [2]AttemptCount, [3]LastOffer, [4]Status, [5]LastReplyTime, [6]DevID, [7]Name, [8]AINotes, [9]ThreadID, [10]Region
 
   // Identify rows that need enrichment or status sync
@@ -6363,10 +6373,13 @@ function enrichNegotiationStateData(ss) {
     }
   }
 
-  if (rowsToCheck.length === 0) return { enriched: 0, statusSynced: 0, log: [] };
-
-  // Debug: Log how many rows need checking
-  log.push({ type: 'info', message: `Found ${rowsToCheck.length} Negotiation_State rows needing enrichment or status sync` });
+  // BUG FIX: Previously we returned early here if rowsToCheck was empty, which
+  // skipped the recovery block at the bottom that adds missing candidates from
+  // Follow_Up_Queue / Unresponsive_Devs into Negotiation_State. Now we only
+  // skip the enrichment-map build + loop, and always fall through to recovery.
+  if (rowsToCheck.length > 0) {
+    log.push({ type: 'info', message: `Found ${rowsToCheck.length} Negotiation_State rows needing enrichment or status sync` });
+  }
 
   // Build lookup maps from all source sheets
 
@@ -6460,12 +6473,15 @@ function enrichNegotiationStateData(ss) {
   }
 
   // Now enrich each row that needs it
-  let enrichedCount = 0;
-  let statusSyncCount = 0;
-  const log = [];
+  // BUG FIX: removed duplicate `const log = []` and duplicate counter
+  // declarations — `log`, `enrichedCount`, `statusSyncCount` are now declared
+  // at the top of the function so they're visible on every code path
+  // (including the debug log at line ~6381 and the recovery block below).
 
   // Debug: Log FQ map size and a sample of keys for troubleshooting
-  log.push({ type: 'info', message: `Lookup maps built - FQ: ${fqMap.size} entries, EL: ${elMap.size} entries, Comp: ${compMap.size} entries, JD: ${jobDetailsMap.size} entries` });
+  if (rowsToCheck.length > 0) {
+    log.push({ type: 'info', message: `Lookup maps built - FQ: ${fqMap.size} entries, EL: ${elMap.size} entries, Comp: ${compMap.size} entries, JD: ${jobDetailsMap.size} entries` });
+  }
 
   rowsToCheck.forEach(row => {
     const key = row.email + '_' + row.jobId;
@@ -6562,7 +6578,8 @@ function enrichNegotiationStateData(ss) {
   // but missing from Negotiation_State (and not in Negotiation_Completed as active "Completed").
   // This handles cases where candidates were moved to Completed (deleting their state row)
   // but then the Completed label was removed, leaving them orphaned in Follow_Up_Queue only.
-  let recoveredCount = 0;
+  // BUG FIX: `recoveredCount` is now declared at the top of the function so
+  // the return value is correct even when enrichment is skipped.
   try {
     // Build set of emails already in Negotiation_State
     const stateEmails = new Set();
