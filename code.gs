@@ -17481,14 +17481,40 @@ function logAnalytics(action, jobId, count, details) {
 }
 
 /**
- * Hash a candidate email so the centralized Response_Times sheet doesn't leak
- * candidate identities. Uses SHA-256 and returns the hex digest.
+ * Hash a value with SHA-256 and return the hex digest.
+ * Used to avoid leaking candidate emails or Gmail thread IDs into the shared
+ * central sheet while still keeping stable dedup keys.
+ */
+function sha256Hex_(value) {
+  const s = String(value || '');
+  if (!s) return '';
+  const bytes = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, s);
+  return bytes.map(b => ('0' + (b & 0xff).toString(16)).slice(-2)).join('');
+}
+
+/**
+ * Hash a candidate email (after normalization, so Gmail dot-variants collapse).
  */
 function hashCandidateEmail_(email) {
   const normalized = normalizeEmail(email || '');
-  if (!normalized) return '';
-  const bytes = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, normalized);
-  return bytes.map(b => ('0' + (b & 0xff).toString(16)).slice(-2)).join('');
+  return normalized ? sha256Hex_(normalized) : '';
+}
+
+/**
+ * Returns true if a parsed Date is usable (not Invalid Date).
+ */
+function isValidDate_(d) {
+  return d instanceof Date && !isNaN(d.getTime());
+}
+
+/**
+ * Invalidate the cached "hasUnsyncedResponseTimes" result for a user so the
+ * UI re-evaluates after a successful sync.
+ */
+function invalidateUnsyncedCache_(userEmail) {
+  try {
+    CacheService.getUserCache().remove('rtUnsynced:' + userEmail);
+  } catch (e) { /* cache is best-effort */ }
 }
 
 /**
@@ -17497,8 +17523,14 @@ function hashCandidateEmail_(email) {
  *   - Backfill (first run picks up all historic pairs)
  *   - Incremental sync (subsequent runs append only new pairs)
  *
- * Dedup is based on Source_Thread_ID. Idempotent — safe to rerun.
- * Runs under the active user's auth so it can access their LOG_SHEET_URL.
+ * Dedup is based on hashed Source_Thread_ID (or a synthesized hash if the
+ * personal Email_Logs row pre-dates thread-id instrumentation). Idempotent —
+ * safe to rerun. Runs under the active user's auth so it can access their
+ * LOG_SHEET_URL.
+ *
+ * Concurrency-safe: holds a script lock around the read-seen-set + append
+ * critical section so a user's hourly trigger and Analytics-tab button press
+ * cannot double-append the same rows.
  *
  * @returns {Object} { success, added, skipped, totalPairs, error? }
  */
@@ -17526,16 +17558,17 @@ function syncResponseTimesToCentral() {
     // Email_Logs columns: [0]Timestamp [1]JobID [2]Email [3]Name [4]ThreadID [5]Type
     const outreachMap = new Map();
     for (let i = 1; i < emailData.length; i++) {
-      const timestamp = emailData[i][0];
       const jobId = String(emailData[i][1] || '');
       const email = normalizeEmail(emailData[i][2]);
       const threadId = String(emailData[i][4] || '');
       const type = String(emailData[i][5] || '');
       if (type && type.toLowerCase().includes('follow')) continue;
-      if (!timestamp || !email || !jobId) continue;
+      if (!email || !jobId) continue;
+      const ts = emailData[i][0] ? new Date(emailData[i][0]) : null;
+      if (!isValidDate_(ts)) continue;
       const key = email + '|' + jobId;
       if (!outreachMap.has(key)) {
-        outreachMap.set(key, { timestamp: new Date(timestamp), threadId: threadId });
+        outreachMap.set(key, { timestamp: ts, threadId: threadId });
       }
     }
 
@@ -17546,10 +17579,10 @@ function syncResponseTimesToCentral() {
       const jobId = String(stateData[i][1] || '');
       const lastReplyTime = stateData[i][5];
       if (!email || !jobId || !lastReplyTime) continue;
+      const d = new Date(lastReplyTime);
+      if (!isValidDate_(d)) continue;
       const key = email + '|' + jobId;
-      if (!responseMap.has(key)) {
-        responseMap.set(key, new Date(lastReplyTime));
-      }
+      if (!responseMap.has(key)) responseMap.set(key, d);
     }
 
     // Fallback: auto-accepted candidates bypass state and land directly in Completed
@@ -17561,10 +17594,10 @@ function syncResponseTimesToCentral() {
       const finalStatus = String(completedData[i][4] || '').toLowerCase();
       if (!finalStatus.includes('accept') && !finalStatus.includes('complete')) continue;
       if (!email || !jobId || !completedTimestamp) continue;
+      const d = new Date(completedTimestamp);
+      if (!isValidDate_(d)) continue;
       const key = email + '|' + jobId;
-      if (!responseMap.has(key)) {
-        responseMap.set(key, new Date(completedTimestamp));
-      }
+      if (!responseMap.has(key)) responseMap.set(key, d);
     }
 
     // Ensure central sheet exists
@@ -17577,56 +17610,85 @@ function syncResponseTimesToCentral() {
       if (!sheet) return { success: false, error: 'Cannot create Response_Times sheet' };
     }
 
-    // Build seen-set of (user_email, thread_id) already recorded — scoped to THIS user
-    // so concurrent runs from other users don't conflict
-    const existingData = sheet.getLastRow() > 1 ? sheet.getDataRange().getValues() : [];
-    const seenThreadIds = new Set();
-    for (let i = 1; i < existingData.length; i++) {
-      const rowUser = String(existingData[i][3] || '').toLowerCase();
-      const rowThread = String(existingData[i][6] || '');
-      if (rowUser === userEmail && rowThread) {
-        seenThreadIds.add(rowThread);
+    // Concurrency guard: the hourly trigger and a manual Backfill button can
+    // both call this function for the same user. Without a lock they read the
+    // same "seen" snapshot and both append, duplicating rows.
+    const lock = LockService.getScriptLock();
+    if (!lock.tryLock(10000)) {
+      return { success: false, error: 'Sync already in progress, try again shortly', added: 0, skipped: 0, totalPairs: 0 };
+    }
+    try {
+      // Build seen-set of dedup keys already recorded, scoped to THIS user.
+      // Backward-compat: rows written by the initial version of this feature
+      // stored raw Gmail thread IDs in col [6]; current version stores
+      // sha256('tid:' + threadId). Recognize both so a sync after upgrade
+      // doesn't re-append already-synced pairs.
+      const existingData = sheet.getLastRow() > 1 ? sheet.getDataRange().getValues() : [];
+      const seenKeys = new Set();
+      const SHA256_HEX = /^[0-9a-f]{64}$/;
+      for (let i = 1; i < existingData.length; i++) {
+        const rowUser = String(existingData[i][3] || '').toLowerCase();
+        const rowKey = String(existingData[i][6] || '');
+        if (rowUser !== userEmail || !rowKey) continue;
+        if (SHA256_HEX.test(rowKey)) {
+          seenKeys.add(rowKey);
+        } else {
+          // legacy row — compute what its hash WOULD be so new inserts dedup
+          seenKeys.add(sha256Hex_('tid:' + rowKey));
+        }
       }
+
+      // Compute new pairs
+      const now = new Date();
+      const rowsToAppend = [];
+      let totalPairs = 0;
+      outreachMap.forEach((outreach, mapKey) => {
+        const responseTime = responseMap.get(mapKey);
+        if (!responseTime || !(responseTime > outreach.timestamp)) return;
+        totalPairs++;
+
+        // Dedup key: hash of thread ID if present, else synthesized from
+        // (user, candidate, job, outreach-timestamp). Hashing removes the
+        // privacy concern of storing raw Gmail thread IDs in a shared sheet
+        // while preserving stable dedup across runs.
+        const dedupSource = outreach.threadId
+          ? ('tid:' + outreach.threadId)
+          : ('synth:' + userEmail + '|' + mapKey + '|' + outreach.timestamp.getTime());
+        const dedupKey = sha256Hex_(dedupSource);
+        if (seenKeys.has(dedupKey)) return;
+        seenKeys.add(dedupKey);
+
+        const hours = (responseTime - outreach.timestamp) / (1000 * 60 * 60);
+        const parts = mapKey.split('|');
+        const candidateEmail = parts[0];
+        const jobId = parts.slice(1).join('|');
+        rowsToAppend.push([
+          outreach.timestamp,
+          responseTime,
+          parseFloat(hours.toFixed(2)),
+          userEmail,
+          jobId,
+          hashCandidateEmail_(candidateEmail),
+          dedupKey,
+          now
+        ]);
+      });
+
+      if (rowsToAppend.length > 0) {
+        sheet.getRange(sheet.getLastRow() + 1, 1, rowsToAppend.length, rowsToAppend[0].length)
+          .setValues(rowsToAppend);
+        invalidateUnsyncedCache_(userEmail);
+      }
+
+      return {
+        success: true,
+        added: rowsToAppend.length,
+        skipped: totalPairs - rowsToAppend.length,
+        totalPairs: totalPairs
+      };
+    } finally {
+      try { lock.releaseLock(); } catch (e) { /* ignore */ }
     }
-
-    // Compute new pairs
-    const now = new Date();
-    const rowsToAppend = [];
-    let totalPairs = 0;
-    outreachMap.forEach((outreach, key) => {
-      const responseTime = responseMap.get(key);
-      if (!responseTime || !(responseTime > outreach.timestamp)) return;
-      totalPairs++;
-      if (!outreach.threadId) return; // need threadId as dedup key
-      if (seenThreadIds.has(outreach.threadId)) return;
-
-      const hours = (responseTime - outreach.timestamp) / (1000 * 60 * 60);
-      const parts = key.split('|');
-      const candidateEmail = parts[0];
-      const jobId = parts.slice(1).join('|');
-      rowsToAppend.push([
-        outreach.timestamp,
-        responseTime,
-        parseFloat(hours.toFixed(2)),
-        userEmail,
-        jobId,
-        hashCandidateEmail_(candidateEmail),
-        outreach.threadId,
-        now
-      ]);
-    });
-
-    if (rowsToAppend.length > 0) {
-      sheet.getRange(sheet.getLastRow() + 1, 1, rowsToAppend.length, rowsToAppend[0].length)
-        .setValues(rowsToAppend);
-    }
-
-    return {
-      success: true,
-      added: rowsToAppend.length,
-      skipped: totalPairs - rowsToAppend.length,
-      totalPairs: totalPairs
-    };
   } catch (e) {
     console.error('syncResponseTimesToCentral error:', e);
     return { success: false, error: e.message, added: 0, skipped: 0, totalPairs: 0 };
@@ -17637,16 +17699,30 @@ function syncResponseTimesToCentral() {
  * Returns true if the current user has response-time pairs in their personal
  * sheet that aren't yet reflected in the central Response_Times sheet.
  * Used by the UI to decide whether to show the "Backfill" button.
+ *
+ * Result is cached in CacheService (15-min TTL) because this function is
+ * called on every analytics chart render and scanning the whole central sheet
+ * each time is expensive. Cache is invalidated by invalidateUnsyncedCache_()
+ * after a successful sync.
  */
 function hasUnsyncedResponseTimes() {
   try {
     const userEmail = (Session.getActiveUser().getEmail() || '').toLowerCase();
     if (!userEmail) return false;
 
+    const cache = CacheService.getUserCache();
+    const cacheKey = 'rtUnsynced:' + userEmail;
+    const cached = cache.get(cacheKey);
+    if (cached === '1') return true;
+    if (cached === '0') return false;
+
     const personalSs = getCachedSpreadsheet();
-    if (!personalSs) return false;
+    if (!personalSs) { cache.put(cacheKey, '0', 900); return false; }
     const emailLogsSheet = personalSs.getSheetByName('Email_Logs');
-    if (!emailLogsSheet || emailLogsSheet.getLastRow() <= 1) return false;
+    if (!emailLogsSheet || emailLogsSheet.getLastRow() <= 1) {
+      cache.put(cacheKey, '0', 900);
+      return false;
+    }
 
     const stateSheet = personalSs.getSheetByName('Negotiation_State');
     const completedSheet = personalSs.getSheetByName('Negotiation_Completed');
@@ -17654,22 +17730,25 @@ function hasUnsyncedResponseTimes() {
     const stateData = stateSheet ? stateSheet.getDataRange().getValues() : [];
     const completedData = completedSheet ? completedSheet.getDataRange().getValues() : [];
 
-    // Count personal pairs (exit early as soon as we find one missing from central)
     const outreachMap = new Map();
     for (let i = 1; i < emailData.length; i++) {
-      const timestamp = emailData[i][0];
       const jobId = String(emailData[i][1] || '');
       const email = normalizeEmail(emailData[i][2]);
       const threadId = String(emailData[i][4] || '');
       const type = String(emailData[i][5] || '');
       if (type && type.toLowerCase().includes('follow')) continue;
-      if (!timestamp || !email || !jobId || !threadId) continue;
+      if (!email || !jobId) continue;
+      const ts = emailData[i][0] ? new Date(emailData[i][0]) : null;
+      if (!isValidDate_(ts)) continue;
       const key = email + '|' + jobId;
       if (!outreachMap.has(key)) {
-        outreachMap.set(key, { timestamp: new Date(timestamp), threadId: threadId });
+        outreachMap.set(key, { timestamp: ts, threadId: threadId });
       }
     }
-    if (outreachMap.size === 0) return false;
+    if (outreachMap.size === 0) {
+      cache.put(cacheKey, '0', 900);
+      return false;
+    }
 
     const responseMap = new Map();
     for (let i = 1; i < stateData.length; i++) {
@@ -17677,8 +17756,10 @@ function hasUnsyncedResponseTimes() {
       const jobId = String(stateData[i][1] || '');
       const lastReplyTime = stateData[i][5];
       if (!email || !jobId || !lastReplyTime) continue;
+      const d = new Date(lastReplyTime);
+      if (!isValidDate_(d)) continue;
       const key = email + '|' + jobId;
-      if (!responseMap.has(key)) responseMap.set(key, new Date(lastReplyTime));
+      if (!responseMap.has(key)) responseMap.set(key, d);
     }
     for (let i = 1; i < completedData.length; i++) {
       const ts = completedData[i][0];
@@ -17687,32 +17768,45 @@ function hasUnsyncedResponseTimes() {
       const status = String(completedData[i][4] || '').toLowerCase();
       if (!status.includes('accept') && !status.includes('complete')) continue;
       if (!email || !jobId || !ts) continue;
+      const d = new Date(ts);
+      if (!isValidDate_(d)) continue;
       const key = email + '|' + jobId;
-      if (!responseMap.has(key)) responseMap.set(key, new Date(ts));
+      if (!responseMap.has(key)) responseMap.set(key, d);
     }
 
-    // Read central Response_Times thread IDs for this user
+    // Read seen dedup keys from central for this user. Handles both legacy
+    // raw-threadId rows and new hashed rows (same logic as sync function).
     const centralSs = getAnalyticsSpreadsheet();
-    if (!centralSs) return false;
+    if (!centralSs) { cache.put(cacheKey, '0', 900); return false; }
     const sheet = centralSs.getSheetByName('Response_Times');
-    const seenThreadIds = new Set();
+    const seenKeys = new Set();
+    const SHA256_HEX = /^[0-9a-f]{64}$/;
     if (sheet && sheet.getLastRow() > 1) {
       const existingData = sheet.getDataRange().getValues();
       for (let i = 1; i < existingData.length; i++) {
         const rowUser = String(existingData[i][3] || '').toLowerCase();
-        const rowThread = String(existingData[i][6] || '');
-        if (rowUser === userEmail && rowThread) seenThreadIds.add(rowThread);
+        const rowKey = String(existingData[i][6] || '');
+        if (rowUser !== userEmail || !rowKey) continue;
+        if (SHA256_HEX.test(rowKey)) seenKeys.add(rowKey);
+        else seenKeys.add(sha256Hex_('tid:' + rowKey));
       }
     }
 
-    // Any outreach with a response whose threadId isn't in seenSet → unsynced
+    // Any outreach with a response whose dedup key isn't in seenSet → unsynced
     const keys = Array.from(outreachMap.keys());
     for (let i = 0; i < keys.length; i++) {
       const o = outreachMap.get(keys[i]);
       const r = responseMap.get(keys[i]);
       if (!r || !(r > o.timestamp)) continue;
-      if (!seenThreadIds.has(o.threadId)) return true;
+      const dedupSource = o.threadId
+        ? ('tid:' + o.threadId)
+        : ('synth:' + userEmail + '|' + keys[i] + '|' + o.timestamp.getTime());
+      if (!seenKeys.has(sha256Hex_(dedupSource))) {
+        cache.put(cacheKey, '1', 900);
+        return true;
+      }
     }
+    cache.put(cacheKey, '0', 900);
     return false;
   } catch (e) {
     console.error('hasUnsyncedResponseTimes error:', e);
@@ -19427,14 +19521,11 @@ function getTimeToResponseMetrics(filterJobId, startDate, endDate) {
 
   try {
     // Read paired outreach→reply timestamps from the centralized Response_Times
-    // sheet. Each user's personal trigger opportunistically syncs their pairs
-    // here via syncResponseTimesToCentral(). Pure viewers (TLs/Managers who
-    // never send) get team-wide metrics without needing cross-user access to
-    // personal spreadsheets.
-
-    // Opportunistic sync for the active user — keeps their data fresh even if
-    // they don't have an hourly trigger. Cheap no-op when nothing is new.
-    try { syncResponseTimesToCentral(); } catch (e) { /* non-fatal */ }
+    // sheet. Each user's hourly runAutoNegotiator trigger projects their pairs
+    // here via syncResponseTimesToCentral(). Senders who don't have a trigger
+    // yet use the "Backfill my history" button (gated by hasUnsyncedResponseTimes).
+    // Pure viewers (TLs/Managers who never send) get team-wide metrics without
+    // needing cross-user access to personal spreadsheets.
 
     const centralSs = getAnalyticsSpreadsheet();
     if (!centralSs) return emptyResponseTimeMetrics('no_personal_sheet');
@@ -19459,26 +19550,29 @@ function getTimeToResponseMetrics(filterJobId, startDate, endDate) {
       allowedEmails = [String(access.userEmail || '').toLowerCase()];
     }
 
+    // Normalize filterJobId once — callers may pass a number
+    const jobFilter = filterJobId ? String(filterJobId) : '';
+
     // Parse date filters
     let startDateFilter = null;
     let endDateFilter = null;
     if (startDate) {
-      startDateFilter = new Date(startDate);
-      startDateFilter.setHours(0, 0, 0, 0);
+      const sd = new Date(startDate);
+      if (isValidDate_(sd)) { sd.setHours(0, 0, 0, 0); startDateFilter = sd; }
     }
     if (endDate) {
-      endDateFilter = new Date(endDate);
-      endDateFilter.setHours(23, 59, 59, 999);
+      const ed = new Date(endDate);
+      if (isValidDate_(ed)) { ed.setHours(23, 59, 59, 999); endDateFilter = ed; }
     }
 
     // Response_Times columns: [0]Timestamp_Outreach [1]Timestamp_Response
     // [2]Hours_To_Respond [3]User_Email [4]Job_ID [5]Candidate_Email_Hash
-    // [6]Source_Thread_ID [7]Sync_Time
+    // [6]Source_Thread_ID (hashed) [7]Sync_Time
     const rtData = rtSheet.getDataRange().getValues();
-    const responseTimes = [];
-    const responsesByDay = {};
-    const responsesByHour = {};
-    const outreachKeys = new Set();
+    // Earliest-wins dedup: when the same (candidateHash, jobId) appears from
+    // multiple users (e.g. job transfer), keep the row whose outreach timestamp
+    // is earliest — that's the real first-contact moment for that candidate.
+    const dedupMap = new Map(); // key "hash|job" -> { hours, respDate }
     const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
     for (let i = 1; i < rtData.length; i++) {
@@ -19488,56 +19582,69 @@ function getTimeToResponseMetrics(filterJobId, startDate, endDate) {
       const rowUser = String(rtData[i][3] || '').toLowerCase();
       const rowJob = String(rtData[i][4] || '');
       const rowHash = String(rtData[i][5] || '');
-      if (!tsOut || !tsResp || isNaN(hours)) continue;
+      if (!tsOut || !tsResp || !isFinite(hours)) continue;
 
       if (allowedEmails !== null && !allowedEmails.includes(rowUser)) continue;
-      if (filterJobId && rowJob !== filterJobId) continue;
+      if (jobFilter && rowJob !== jobFilter) continue;
 
       const outreachDate = new Date(tsOut);
+      const respDate = new Date(tsResp);
+      if (!isValidDate_(outreachDate) || !isValidDate_(respDate)) continue;
       if (startDateFilter && outreachDate < startDateFilter) continue;
       if (endDateFilter && outreachDate > endDateFilter) continue;
 
-      // Dedup across multiple users logging the same candidate (rare but possible)
       const dedupKey = rowHash + '|' + rowJob;
-      if (outreachKeys.has(dedupKey)) continue;
-      outreachKeys.add(dedupKey);
-
-      responseTimes.push(hours);
-      const respDate = new Date(tsResp);
-      const day = dayNames[respDate.getDay()];
-      responsesByDay[day] = (responsesByDay[day] || 0) + 1;
-      responsesByHour[respDate.getHours()] = (responsesByHour[respDate.getHours()] || 0) + 1;
+      const existing = dedupMap.get(dedupKey);
+      if (!existing || outreachDate < existing.outreachDate) {
+        dedupMap.set(dedupKey, { hours: hours, respDate: respDate, outreachDate: outreachDate });
+      }
     }
+
+    const responseTimes = [];
+    const responsesByDay = {};
+    const responsesByHour = {};
+    dedupMap.forEach(entry => {
+      responseTimes.push(entry.hours);
+      const day = dayNames[entry.respDate.getDay()];
+      responsesByDay[day] = (responsesByDay[day] || 0) + 1;
+      responsesByHour[entry.respDate.getHours()] = (responsesByHour[entry.respDate.getHours()] || 0) + 1;
+    });
 
     // Sort response times for percentile calculations
     responseTimes.sort((a, b) => a - b);
 
-    // totalOutreach comes from Activity_Log (shared), filtered by the same
-    // RBAC + date + job filters. This matches how getJobPerformanceFromCentralized
-    // computes outreach (code.gs:19395-19411), so response rate stays consistent
-    // with the rest of the dashboard.
+    // totalOutreach: sum of Activity_Log 'email_sent' rows (which is initial
+    // outreach only — follow_up_sent is a separate action). Applies the same
+    // RBAC + date + job filters so response rate is consistent with the rest
+    // of the dashboard. See code.gs:6094 and getJobPerformanceFromCentralized.
     let totalOutreach = 0;
     const actSheet = centralSs.getSheetByName('Activity_Log');
     if (actSheet && actSheet.getLastRow() > 1) {
       const actData = actSheet.getDataRange().getValues();
       for (let i = 1; i < actData.length; i++) {
-        const timestamp = actData[i][0];
-        const rowUser = String(actData[i][1] || '').toLowerCase();
         const action = String(actData[i][2] || '');
-        const rowJob = String(actData[i][3] || '');
-        const rowCount = parseInt(actData[i][4]) || 1;
         if (action !== 'email_sent') continue;
+        const rowUser = String(actData[i][1] || '').toLowerCase();
+        const rowJob = String(actData[i][3] || '');
+        const rawCount = parseInt(actData[i][4], 10);
+        const rowCount = Number.isFinite(rawCount) && rawCount > 0 ? rawCount : 1;
         if (allowedEmails !== null && !allowedEmails.includes(rowUser)) continue;
-        if (filterJobId && rowJob !== filterJobId) continue;
-        if (timestamp && startDateFilter && new Date(timestamp) < startDateFilter) continue;
-        if (timestamp && endDateFilter && new Date(timestamp) > endDateFilter) continue;
+        if (jobFilter && rowJob !== jobFilter) continue;
+        if (startDateFilter || endDateFilter) {
+          const ts = actData[i][0];
+          if (!ts) continue;
+          const d = new Date(ts);
+          if (!isValidDate_(d)) continue;
+          if (startDateFilter && d < startDateFilter) continue;
+          if (endDateFilter && d > endDateFilter) continue;
+        }
         totalOutreach += rowCount;
       }
     }
 
     const totalResponses = responseTimes.length;
-    // Guard against Activity_Log being behind Response_Times (possible during
-    // backfill of old data that predates Activity_Log instrumentation).
+    // Guard: Activity_Log may lag Response_Times when syncing pre-Activity_Log
+    // historic data. Ensure rate never exceeds 100%.
     if (totalOutreach < totalResponses) totalOutreach = totalResponses;
     const responseRate = totalOutreach > 0 ? ((totalResponses / totalOutreach) * 100).toFixed(1) : 0;
 

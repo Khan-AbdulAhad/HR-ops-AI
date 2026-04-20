@@ -11724,7 +11724,13 @@
                     document.getElementById('avgResponseTime').textContent = '-';
                     document.getElementById('medianResponseTime').textContent = '-';
                     document.getElementById('responseRatePercent').textContent = '0%';
+                    // Ensure the scope banner is hidden when the chart data path is empty
+                    const scopeBanner = document.getElementById('responseTimeScopeBanner');
+                    if (scopeBanner) scopeBanner.classList.add('hidden');
                 }
+                // Always refresh backfill banner — its visibility depends on the
+                // current user's unsynced pairs, not on whether a chart rendered.
+                refreshBackfillBannerVisibility();
 
                 // Render Top Performing Jobs (full pipeline per job)
                 if (chartData.jobPerformance) {
@@ -11887,10 +11893,6 @@
                     banner.classList.add('hidden');
                 }
             }
-
-            // Offer a backfill button if the current user has personal pairs
-            // not yet projected into the central Response_Times sheet.
-            refreshBackfillBannerVisibility();
 
             // Update stats
             document.getElementById('avgResponseTime').textContent = data.avgResponseHours ? data.avgResponseHours + 'h' : '-';
