@@ -155,6 +155,58 @@ Example: Thread ID migration for Negotiation_Completed — backfills from Email_
 
 ---
 
+## Centralized Analytics (Response_Times)
+
+Per-user `UserProperties` mean one user's session cannot read another user's `LOG_SHEET_URL`. Team-wide analytics therefore require a **write-through projection**: each user's hourly trigger writes their derived data to a shared sheet, and viewers read from that sheet with RBAC.
+
+### Response_Times sheet
+Columns: `[0]Timestamp_Outreach [1]Timestamp_Response [2]Hours_To_Respond [3]User_Email [4]Job_ID [5]Candidate_Email_Hash [6]Dedup_Key (hashed) [7]Sync_Time`
+
+- **Writer:** `syncResponseTimesToCentral()` — called from `runAutoNegotiator()` step 3.7, and manually from the UI "Backfill my history" button.
+- **Reader:** `getTimeToResponseMetrics()` — reads the shared sheet, never the personal one, so pure TL/Manager viewers see team aggregates.
+- **Backfill gate:** `hasUnsyncedResponseTimes()` returns true only when the current user has personal pairs missing from central. UI uses it to decide whether to show the Backfill button.
+
+### Rules when adding shared analytics sheets
+1. **Dedup by a hashed, stable key** — never by raw candidate email or raw Gmail thread ID. Use `sha256Hex_('tid:' + threadId)` (defined at code.gs:17488) and `hashCandidateEmail_(email)` (code.gs:17498). Raw identifiers in a shared sheet are a privacy leak.
+2. **Lock the read-seen-then-append section** with `LockService.getScriptLock().tryLock(10000)`. The hourly trigger and a UI button can interleave and double-append otherwise.
+3. **Cache expensive "unsynced?" checks** in `CacheService.getUserCache()` with a short TTL (15 min). Invalidate after successful sync via a dedicated helper (`invalidateUnsyncedCache_`).
+4. **Synthesize a dedup key** when thread ID is missing (pre-instrumentation rows): `sha256('synth:' + user + '|' + candidate|job + '|' + outreachMs)`. Dropping those rows silently hides history.
+5. **Backward-compat for hash migrations:** detect legacy raw-identifier rows via `/^[0-9a-f]{64}$/` and hash them on-the-fly into the seen-set so an upgraded sync doesn't re-append.
+6. **Earliest-wins dedup at read time** — when `(candidateHash, jobId)` appears for multiple users (job transfer), keep the row with the earliest outreach timestamp; that's the real first-contact.
+7. **Never run expensive syncs inside getters** called on every chart render. The writer runs on the hourly trigger; the reader only reads.
+8. **RBAC in the reader, not the writer** — each user writes their own rows; the reader filters by `allowedEmails` (null=admin, teamMembers=TL, [self]=IC).
+
+### Helpers (all at code.gs:17483-17518)
+- `sha256Hex_(value)` — generic SHA-256 hex digest
+- `hashCandidateEmail_(email)` — normalizes then hashes
+- `isValidDate_(d)` — guards every `new Date()` parse from `NaN` cascade
+- `invalidateUnsyncedCache_(userEmail)` — clears cached backfill-banner state
+
+---
+
+## Coding Guardrails (lessons from QA)
+
+These patterns have bitten us; apply proactively.
+
+- **`filterJobId` must be coerced** — UI may pass numbers. Use `const jobFilter = filterJobId ? String(filterJobId) : '';` then compare. Direct `!==` against string sheet values silently drops all rows.
+- **Every `new Date(x)` needs `isValidDate_()`** — bad cells in any sheet produce Invalid Date which cascades into NaN hours, broken `<` comparisons, and skewed metrics.
+- **`parseInt(x, 10)` + `Number.isFinite(v) && v > 0 ? v : fallback`** — never trust numeric columns to be numeric. Blank/NaN silently inflates sums.
+- **Banner/UI visibility calls belong outside renderers** — call them from the orchestrator (e.g. `loadAnalyticsCharts`), not from inside a chart renderer that only runs on the success path. Otherwise the `else`/error path leaves stale UI.
+- **Don't mitigate with retry/fallback logic** — fix the root cause. Adding `try { sync() } catch {}` everywhere masks the design error that sync shouldn't run there in the first place.
+
+---
+
+## Commit Process (required)
+
+Before every commit:
+1. **Self-read the diff end-to-end** — `git diff HEAD` and read every hunk. Don't rely on what you think you wrote.
+2. **Syntax-check** — `cp code.gs /tmp/code.js && node --check /tmp/code.js`. GAS runs ES2019 and Node's parser catches most issues despite the extension mismatch.
+3. **Spawn a QA agent for non-trivial changes** — use `Agent` with a prompt that asks for CRITICAL/HIGH/MEDIUM/LOW findings across correctness, concurrency, privacy, performance, and edge cases. Apply all actionable findings before committing.
+4. **Verify QA findings aren't false positives** — trace the actual code path (e.g. the user asked to verify that `logAnalytics('email_sent', ...)` is initial-only before "fixing" it as a response-rate bug; it was, and the fix was dropped).
+5. **Commit message lists each finding addressed**, grouped by severity. The commit is the audit trail.
+
+---
+
 ## Development Notes
 
 - No TypeScript, no bundler, no npm. Pure GAS (ES2019 subset, no modules).
