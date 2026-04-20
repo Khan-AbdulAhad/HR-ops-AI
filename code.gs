@@ -7581,6 +7581,19 @@ function runAutoNegotiator() {
     log.push({type: 'warning', message: 'Completed/Tasks enrichment skipped: ' + e.message});
   }
 
+  // STEP 3.7: Sync response-time pairs to centralized Response_Times sheet.
+  // Runs under the trigger-owning user's auth, so personal outreach→reply
+  // timestamps get projected into the shared sheet for team-wide analytics.
+  // Idempotent (dedup by Source_Thread_ID) — safe on every hourly run.
+  try {
+    const rtSync = syncResponseTimesToCentral();
+    if (rtSync && rtSync.added > 0) {
+      log.push({type: 'info', message: `Synced ${rtSync.added} new response-time pair(s) to central analytics`});
+    }
+  } catch (e) {
+    log.push({type: 'warning', message: 'Response-time sync skipped: ' + e.message});
+  }
+
   if(configs.length <= 1) {
     return {status: "Error", message: "No job configurations found. Please configure at least one job.", stats: stats, log: log};
   }
@@ -17414,6 +17427,22 @@ function initAnalyticsSheet() {
     jobAssignmentsSheet.setFrozenRows(1);
   }
 
+  // Create Response_Times sheet (centralized paired outreach→reply timestamps)
+  // Per-user personal sheets are the source of truth for timestamps; this sheet
+  // is a write-through projection so TLs/Managers can see team-wide response-time
+  // metrics without needing cross-user access to personal spreadsheets.
+  // Dedup key: Source_Thread_ID (one row per candidate thread).
+  let responseTimesSheet = ss.getSheetByName('Response_Times');
+  if (!responseTimesSheet) {
+    responseTimesSheet = ss.insertSheet('Response_Times');
+    responseTimesSheet.appendRow([
+      'Timestamp_Outreach', 'Timestamp_Response', 'Hours_To_Respond',
+      'User_Email', 'Job_ID', 'Candidate_Email_Hash',
+      'Source_Thread_ID', 'Sync_Time'
+    ]);
+    responseTimesSheet.setFrozenRows(1);
+  }
+
   return { success: true };
 }
 
@@ -17448,6 +17477,246 @@ function logAnalytics(action, jobId, count, details) {
     ]);
   } catch (e) {
     console.error("Failed to log analytics:", e);
+  }
+}
+
+/**
+ * Hash a candidate email so the centralized Response_Times sheet doesn't leak
+ * candidate identities. Uses SHA-256 and returns the hex digest.
+ */
+function hashCandidateEmail_(email) {
+  const normalized = normalizeEmail(email || '');
+  if (!normalized) return '';
+  const bytes = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, normalized);
+  return bytes.map(b => ('0' + (b & 0xff).toString(16)).slice(-2)).join('');
+}
+
+/**
+ * Sync paired outreach→reply timestamps from the current user's personal sheet
+ * into the shared Response_Times sheet. Serves as both:
+ *   - Backfill (first run picks up all historic pairs)
+ *   - Incremental sync (subsequent runs append only new pairs)
+ *
+ * Dedup is based on Source_Thread_ID. Idempotent — safe to rerun.
+ * Runs under the active user's auth so it can access their LOG_SHEET_URL.
+ *
+ * @returns {Object} { success, added, skipped, totalPairs, error? }
+ */
+function syncResponseTimesToCentral() {
+  try {
+    const userEmail = (Session.getActiveUser().getEmail() || '').toLowerCase();
+    if (!userEmail) return { success: false, error: 'Cannot resolve user email' };
+
+    const personalSs = getCachedSpreadsheet();
+    if (!personalSs) return { success: false, error: 'No personal spreadsheet configured', added: 0, skipped: 0, totalPairs: 0 };
+
+    const emailLogsSheet = personalSs.getSheetByName('Email_Logs');
+    if (!emailLogsSheet || emailLogsSheet.getLastRow() <= 1) {
+      return { success: true, added: 0, skipped: 0, totalPairs: 0 };
+    }
+
+    const stateSheet = personalSs.getSheetByName('Negotiation_State');
+    const completedSheet = personalSs.getSheetByName('Negotiation_Completed');
+
+    const emailData = emailLogsSheet.getDataRange().getValues();
+    const stateData = stateSheet ? stateSheet.getDataRange().getValues() : [];
+    const completedData = completedSheet ? completedSheet.getDataRange().getValues() : [];
+
+    // Build outreach map: normalizedEmail|jobId -> { timestamp, threadId }
+    // Email_Logs columns: [0]Timestamp [1]JobID [2]Email [3]Name [4]ThreadID [5]Type
+    const outreachMap = new Map();
+    for (let i = 1; i < emailData.length; i++) {
+      const timestamp = emailData[i][0];
+      const jobId = String(emailData[i][1] || '');
+      const email = normalizeEmail(emailData[i][2]);
+      const threadId = String(emailData[i][4] || '');
+      const type = String(emailData[i][5] || '');
+      if (type && type.toLowerCase().includes('follow')) continue;
+      if (!timestamp || !email || !jobId) continue;
+      const key = email + '|' + jobId;
+      if (!outreachMap.has(key)) {
+        outreachMap.set(key, { timestamp: new Date(timestamp), threadId: threadId });
+      }
+    }
+
+    // Build response map from Negotiation_State col[5] (Last Reply)
+    const responseMap = new Map();
+    for (let i = 1; i < stateData.length; i++) {
+      const email = normalizeEmail(stateData[i][0]);
+      const jobId = String(stateData[i][1] || '');
+      const lastReplyTime = stateData[i][5];
+      if (!email || !jobId || !lastReplyTime) continue;
+      const key = email + '|' + jobId;
+      if (!responseMap.has(key)) {
+        responseMap.set(key, new Date(lastReplyTime));
+      }
+    }
+
+    // Fallback: auto-accepted candidates bypass state and land directly in Completed
+    // Negotiation_Completed columns: [0]Timestamp [1]JobID [2]Email [3]Name [4]FinalStatus
+    for (let i = 1; i < completedData.length; i++) {
+      const completedTimestamp = completedData[i][0];
+      const jobId = String(completedData[i][1] || '');
+      const email = normalizeEmail(completedData[i][2]);
+      const finalStatus = String(completedData[i][4] || '').toLowerCase();
+      if (!finalStatus.includes('accept') && !finalStatus.includes('complete')) continue;
+      if (!email || !jobId || !completedTimestamp) continue;
+      const key = email + '|' + jobId;
+      if (!responseMap.has(key)) {
+        responseMap.set(key, new Date(completedTimestamp));
+      }
+    }
+
+    // Ensure central sheet exists
+    const centralSs = getAnalyticsSpreadsheet();
+    if (!centralSs) return { success: false, error: 'Cannot access analytics spreadsheet' };
+    let sheet = centralSs.getSheetByName('Response_Times');
+    if (!sheet) {
+      initAnalyticsSheet();
+      sheet = centralSs.getSheetByName('Response_Times');
+      if (!sheet) return { success: false, error: 'Cannot create Response_Times sheet' };
+    }
+
+    // Build seen-set of (user_email, thread_id) already recorded — scoped to THIS user
+    // so concurrent runs from other users don't conflict
+    const existingData = sheet.getLastRow() > 1 ? sheet.getDataRange().getValues() : [];
+    const seenThreadIds = new Set();
+    for (let i = 1; i < existingData.length; i++) {
+      const rowUser = String(existingData[i][3] || '').toLowerCase();
+      const rowThread = String(existingData[i][6] || '');
+      if (rowUser === userEmail && rowThread) {
+        seenThreadIds.add(rowThread);
+      }
+    }
+
+    // Compute new pairs
+    const now = new Date();
+    const rowsToAppend = [];
+    let totalPairs = 0;
+    outreachMap.forEach((outreach, key) => {
+      const responseTime = responseMap.get(key);
+      if (!responseTime || !(responseTime > outreach.timestamp)) return;
+      totalPairs++;
+      if (!outreach.threadId) return; // need threadId as dedup key
+      if (seenThreadIds.has(outreach.threadId)) return;
+
+      const hours = (responseTime - outreach.timestamp) / (1000 * 60 * 60);
+      const parts = key.split('|');
+      const candidateEmail = parts[0];
+      const jobId = parts.slice(1).join('|');
+      rowsToAppend.push([
+        outreach.timestamp,
+        responseTime,
+        parseFloat(hours.toFixed(2)),
+        userEmail,
+        jobId,
+        hashCandidateEmail_(candidateEmail),
+        outreach.threadId,
+        now
+      ]);
+    });
+
+    if (rowsToAppend.length > 0) {
+      sheet.getRange(sheet.getLastRow() + 1, 1, rowsToAppend.length, rowsToAppend[0].length)
+        .setValues(rowsToAppend);
+    }
+
+    return {
+      success: true,
+      added: rowsToAppend.length,
+      skipped: totalPairs - rowsToAppend.length,
+      totalPairs: totalPairs
+    };
+  } catch (e) {
+    console.error('syncResponseTimesToCentral error:', e);
+    return { success: false, error: e.message, added: 0, skipped: 0, totalPairs: 0 };
+  }
+}
+
+/**
+ * Returns true if the current user has response-time pairs in their personal
+ * sheet that aren't yet reflected in the central Response_Times sheet.
+ * Used by the UI to decide whether to show the "Backfill" button.
+ */
+function hasUnsyncedResponseTimes() {
+  try {
+    const userEmail = (Session.getActiveUser().getEmail() || '').toLowerCase();
+    if (!userEmail) return false;
+
+    const personalSs = getCachedSpreadsheet();
+    if (!personalSs) return false;
+    const emailLogsSheet = personalSs.getSheetByName('Email_Logs');
+    if (!emailLogsSheet || emailLogsSheet.getLastRow() <= 1) return false;
+
+    const stateSheet = personalSs.getSheetByName('Negotiation_State');
+    const completedSheet = personalSs.getSheetByName('Negotiation_Completed');
+    const emailData = emailLogsSheet.getDataRange().getValues();
+    const stateData = stateSheet ? stateSheet.getDataRange().getValues() : [];
+    const completedData = completedSheet ? completedSheet.getDataRange().getValues() : [];
+
+    // Count personal pairs (exit early as soon as we find one missing from central)
+    const outreachMap = new Map();
+    for (let i = 1; i < emailData.length; i++) {
+      const timestamp = emailData[i][0];
+      const jobId = String(emailData[i][1] || '');
+      const email = normalizeEmail(emailData[i][2]);
+      const threadId = String(emailData[i][4] || '');
+      const type = String(emailData[i][5] || '');
+      if (type && type.toLowerCase().includes('follow')) continue;
+      if (!timestamp || !email || !jobId || !threadId) continue;
+      const key = email + '|' + jobId;
+      if (!outreachMap.has(key)) {
+        outreachMap.set(key, { timestamp: new Date(timestamp), threadId: threadId });
+      }
+    }
+    if (outreachMap.size === 0) return false;
+
+    const responseMap = new Map();
+    for (let i = 1; i < stateData.length; i++) {
+      const email = normalizeEmail(stateData[i][0]);
+      const jobId = String(stateData[i][1] || '');
+      const lastReplyTime = stateData[i][5];
+      if (!email || !jobId || !lastReplyTime) continue;
+      const key = email + '|' + jobId;
+      if (!responseMap.has(key)) responseMap.set(key, new Date(lastReplyTime));
+    }
+    for (let i = 1; i < completedData.length; i++) {
+      const ts = completedData[i][0];
+      const jobId = String(completedData[i][1] || '');
+      const email = normalizeEmail(completedData[i][2]);
+      const status = String(completedData[i][4] || '').toLowerCase();
+      if (!status.includes('accept') && !status.includes('complete')) continue;
+      if (!email || !jobId || !ts) continue;
+      const key = email + '|' + jobId;
+      if (!responseMap.has(key)) responseMap.set(key, new Date(ts));
+    }
+
+    // Read central Response_Times thread IDs for this user
+    const centralSs = getAnalyticsSpreadsheet();
+    if (!centralSs) return false;
+    const sheet = centralSs.getSheetByName('Response_Times');
+    const seenThreadIds = new Set();
+    if (sheet && sheet.getLastRow() > 1) {
+      const existingData = sheet.getDataRange().getValues();
+      for (let i = 1; i < existingData.length; i++) {
+        const rowUser = String(existingData[i][3] || '').toLowerCase();
+        const rowThread = String(existingData[i][6] || '');
+        if (rowUser === userEmail && rowThread) seenThreadIds.add(rowThread);
+      }
+    }
+
+    // Any outreach with a response whose threadId isn't in seenSet → unsynced
+    const keys = Array.from(outreachMap.keys());
+    for (let i = 0; i < keys.length; i++) {
+      const o = outreachMap.get(keys[i]);
+      const r = responseMap.get(keys[i]);
+      if (!r || !(r > o.timestamp)) continue;
+      if (!seenThreadIds.has(o.threadId)) return true;
+    }
+    return false;
+  } catch (e) {
+    console.error('hasUnsyncedResponseTimes error:', e);
+    return false;
   }
 }
 
@@ -19157,45 +19426,38 @@ function getTimeToResponseMetrics(filterJobId, startDate, endDate) {
   }
 
   try {
-    // Response-time percentiles require granular (per-candidate) timestamps which
-    // currently live ONLY in each user's personal spreadsheet. The centralized
-    // analytics sheets (Activity_Log, Completed_Analytics, FollowUp_Analytics) do
-    // not yet store the paired outreach→reply timestamps needed for this metric.
-    //
-    // For TL / Manager / Admin, we still surface THEIR personal outreach data
-    // (these roles typically send outreach too — they're ops leads, not pure
-    // viewers). The UI banner explains the scope is personal-only. If the
-    // personal sheet is unavailable the scope flips to 'team_aggregate_unavailable'.
-    const isTeamAggregateViewer = access.accessLevel === 'tl' ||
-                                  access.accessLevel === 'manager' ||
-                                  access.accessLevel === 'admin' ||
-                                  access.canManageUsers === true;
+    // Read paired outreach→reply timestamps from the centralized Response_Times
+    // sheet. Each user's personal trigger opportunistically syncs their pairs
+    // here via syncResponseTimesToCentral(). Pure viewers (TLs/Managers who
+    // never send) get team-wide metrics without needing cross-user access to
+    // personal spreadsheets.
 
-    const ss = getCachedSpreadsheet();
-    if (!ss) {
-      return emptyResponseTimeMetrics(
-        isTeamAggregateViewer ? 'team_aggregate_unavailable' : 'no_personal_sheet'
-      );
+    // Opportunistic sync for the active user — keeps their data fresh even if
+    // they don't have an hourly trigger. Cheap no-op when nothing is new.
+    try { syncResponseTimesToCentral(); } catch (e) { /* non-fatal */ }
+
+    const centralSs = getAnalyticsSpreadsheet();
+    if (!centralSs) return emptyResponseTimeMetrics('no_personal_sheet');
+    const rtSheet = centralSs.getSheetByName('Response_Times');
+    if (!rtSheet || rtSheet.getLastRow() <= 1) {
+      // No central data yet. If the viewer is a sender with unsynced personal
+      // pairs, hint at backfill. Otherwise show the generic "no data" banner.
+      const needsBackfill = hasUnsyncedResponseTimes();
+      return emptyResponseTimeMetrics(needsBackfill ? 'needs_backfill' : 'no_email_logs');
     }
 
-    // Get Email_Logs for outreach timestamps
-    const emailLogsSheet = ss.getSheetByName('Email_Logs');
-
-    // Return empty data instead of error when no email logs exist
-    // This allows other analytics charts to still render
-    if (!emailLogsSheet || emailLogsSheet.getLastRow() <= 1) {
-      return emptyResponseTimeMetrics('no_email_logs');
+    // RBAC — who is this user allowed to see in the team aggregate?
+    const isAdmin = access.accessLevel === 'admin' || access.canManageUsers === true;
+    const teamMembers = (access.teamMembers || [access.userEmail])
+      .map(e => String(e || '').toLowerCase());
+    let allowedEmails; // null = all users
+    if (isAdmin) {
+      allowedEmails = null;
+    } else if (access.canViewAllAnalytics) {
+      allowedEmails = teamMembers;
+    } else {
+      allowedEmails = [String(access.userEmail || '').toLowerCase()];
     }
-
-    // Get Negotiation_State for response timestamps
-    const stateSheet = ss.getSheetByName('Negotiation_State');
-
-    // Also get Negotiation_Completed for auto-accepted candidates who bypassed state
-    const completedSheet = ss.getSheetByName('Negotiation_Completed');
-
-    const emailData = emailLogsSheet.getDataRange().getValues();
-    const stateData = stateSheet ? stateSheet.getDataRange().getValues() : [];
-    const completedData = completedSheet ? completedSheet.getDataRange().getValues() : [];
 
     // Parse date filters
     let startDateFilter = null;
@@ -19209,99 +19471,74 @@ function getTimeToResponseMetrics(filterJobId, startDate, endDate) {
       endDateFilter.setHours(23, 59, 59, 999);
     }
 
-    // Build map of email -> first outreach timestamp by job
-    // FIX: Use normalizeEmail for keys to deduplicate Gmail dot-variants
-    const outreachMap = new Map(); // key: "normalizedEmail|jobId" -> timestamp
-    for (let i = 1; i < emailData.length; i++) {
-      const timestamp = emailData[i][0];
-      const jobId = String(emailData[i][1] || '');
-      const email = normalizeEmail(emailData[i][2]);
-      const type = String(emailData[i][5] || '');
+    // Response_Times columns: [0]Timestamp_Outreach [1]Timestamp_Response
+    // [2]Hours_To_Respond [3]User_Email [4]Job_ID [5]Candidate_Email_Hash
+    // [6]Source_Thread_ID [7]Sync_Time
+    const rtData = rtSheet.getDataRange().getValues();
+    const responseTimes = [];
+    const responsesByDay = {};
+    const responsesByHour = {};
+    const outreachKeys = new Set();
+    const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
-      // Only count outreach emails (not follow-ups)
-      if (type && type.toLowerCase().includes('follow')) continue;
+    for (let i = 1; i < rtData.length; i++) {
+      const tsOut = rtData[i][0];
+      const tsResp = rtData[i][1];
+      const hours = parseFloat(rtData[i][2]);
+      const rowUser = String(rtData[i][3] || '').toLowerCase();
+      const rowJob = String(rtData[i][4] || '');
+      const rowHash = String(rtData[i][5] || '');
+      if (!tsOut || !tsResp || isNaN(hours)) continue;
 
-      // Apply job filter
-      if (filterJobId && jobId !== filterJobId) continue;
+      if (allowedEmails !== null && !allowedEmails.includes(rowUser)) continue;
+      if (filterJobId && rowJob !== filterJobId) continue;
 
-      // Apply date filter
-      if (timestamp && startDateFilter && new Date(timestamp) < startDateFilter) continue;
-      if (timestamp && endDateFilter && new Date(timestamp) > endDateFilter) continue;
+      const outreachDate = new Date(tsOut);
+      if (startDateFilter && outreachDate < startDateFilter) continue;
+      if (endDateFilter && outreachDate > endDateFilter) continue;
 
-      const key = `${email}|${jobId}`;
-      if (!outreachMap.has(key) && timestamp) {
-        outreachMap.set(key, new Date(timestamp));
-      }
+      // Dedup across multiple users logging the same candidate (rare but possible)
+      const dedupKey = rowHash + '|' + rowJob;
+      if (outreachKeys.has(dedupKey)) continue;
+      outreachKeys.add(dedupKey);
+
+      responseTimes.push(hours);
+      const respDate = new Date(tsResp);
+      const day = dayNames[respDate.getDay()];
+      responsesByDay[day] = (responsesByDay[day] || 0) + 1;
+      responsesByHour[respDate.getHours()] = (responsesByHour[respDate.getHours()] || 0) + 1;
     }
-
-    // Build map of email -> first response timestamp by job
-    // FIX: Use normalizeEmail for keys to match outreachMap keys
-    const responseMap = new Map(); // key: "normalizedEmail|jobId" -> timestamp
-
-    // First, check Negotiation_State for response times
-    for (let i = 1; i < stateData.length; i++) {
-      const email = normalizeEmail(stateData[i][0]);
-      const jobId = String(stateData[i][1] || '');
-      const lastReplyTime = stateData[i][5]; // Last Reply Time column
-
-      // Apply job filter
-      if (filterJobId && jobId !== filterJobId) continue;
-
-      const key = `${email}|${jobId}`;
-      if (!responseMap.has(key) && lastReplyTime) {
-        responseMap.set(key, new Date(lastReplyTime));
-      }
-    }
-
-    // Also check Negotiation_Completed for auto-accepted candidates who bypassed state sheet
-    // Columns: [0]=Timestamp, [1]=Job ID, [2]=Email, [3]=Name, [4]=Final Status
-    for (let i = 1; i < completedData.length; i++) {
-      const completedTimestamp = completedData[i][0];
-      const jobId = String(completedData[i][1] || '');
-      const email = normalizeEmail(completedData[i][2]);
-      const finalStatus = String(completedData[i][4] || '').toLowerCase();
-
-      // Apply job filter
-      if (filterJobId && jobId !== filterJobId) continue;
-
-      // Only count accepted/completed candidates as "responded"
-      if (!finalStatus.includes('accept') && !finalStatus.includes('complete')) continue;
-
-      const key = `${email}|${jobId}`;
-      // Only add if not already in responseMap (state sheet takes precedence)
-      if (!responseMap.has(key) && completedTimestamp) {
-        responseMap.set(key, new Date(completedTimestamp));
-      }
-    }
-
-    // Calculate response times
-    const responseTimes = []; // in hours
-    const responsesByDay = {}; // day of week distribution
-    const responsesByHour = {}; // hour of day distribution
-
-    outreachMap.forEach((outreachTime, key) => {
-      const responseTime = responseMap.get(key);
-      if (responseTime && responseTime > outreachTime) {
-        const hoursToRespond = (responseTime - outreachTime) / (1000 * 60 * 60);
-        responseTimes.push(hoursToRespond);
-
-        // Track which day they responded
-        const dayOfWeek = responseTime.getDay();
-        const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-        responsesByDay[dayNames[dayOfWeek]] = (responsesByDay[dayNames[dayOfWeek]] || 0) + 1;
-
-        // Track which hour they responded
-        const hourOfDay = responseTime.getHours();
-        responsesByHour[hourOfDay] = (responsesByHour[hourOfDay] || 0) + 1;
-      }
-    });
 
     // Sort response times for percentile calculations
     responseTimes.sort((a, b) => a - b);
 
-    // Calculate metrics
-    const totalOutreach = outreachMap.size;
+    // totalOutreach comes from Activity_Log (shared), filtered by the same
+    // RBAC + date + job filters. This matches how getJobPerformanceFromCentralized
+    // computes outreach (code.gs:19395-19411), so response rate stays consistent
+    // with the rest of the dashboard.
+    let totalOutreach = 0;
+    const actSheet = centralSs.getSheetByName('Activity_Log');
+    if (actSheet && actSheet.getLastRow() > 1) {
+      const actData = actSheet.getDataRange().getValues();
+      for (let i = 1; i < actData.length; i++) {
+        const timestamp = actData[i][0];
+        const rowUser = String(actData[i][1] || '').toLowerCase();
+        const action = String(actData[i][2] || '');
+        const rowJob = String(actData[i][3] || '');
+        const rowCount = parseInt(actData[i][4]) || 1;
+        if (action !== 'email_sent') continue;
+        if (allowedEmails !== null && !allowedEmails.includes(rowUser)) continue;
+        if (filterJobId && rowJob !== filterJobId) continue;
+        if (timestamp && startDateFilter && new Date(timestamp) < startDateFilter) continue;
+        if (timestamp && endDateFilter && new Date(timestamp) > endDateFilter) continue;
+        totalOutreach += rowCount;
+      }
+    }
+
     const totalResponses = responseTimes.length;
+    // Guard against Activity_Log being behind Response_Times (possible during
+    // backfill of old data that predates Activity_Log instrumentation).
+    if (totalOutreach < totalResponses) totalOutreach = totalResponses;
     const responseRate = totalOutreach > 0 ? ((totalResponses / totalOutreach) * 100).toFixed(1) : 0;
 
     const avgResponseHours = responseTimes.length > 0
@@ -19353,7 +19590,7 @@ function getTimeToResponseMetrics(filterJobId, startDate, endDate) {
       responseTimeBuckets: buckets,
       responsesByDay: responsesByDay,
       responsesByHour: responsesByHour,
-      _scope: isTeamAggregateViewer ? 'personal_only' : 'full'
+      _scope: 'full'
     };
   } catch (e) {
     console.error("Error getting time-to-response metrics:", e);
