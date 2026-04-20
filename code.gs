@@ -19162,21 +19162,20 @@ function getTimeToResponseMetrics(filterJobId, startDate, endDate) {
     // analytics sheets (Activity_Log, Completed_Analytics, FollowUp_Analytics) do
     // not yet store the paired outreach→reply timestamps needed for this metric.
     //
-    // For TL / Manager / Admin: returning their personal sheet's data would be
-    // misleading (it is their OWN ops only, not the team aggregate they expect).
-    // Return an empty result with _scope='team_aggregate_unavailable' so the UI
-    // can display an accurate explanatory banner next to the chart.
+    // For TL / Manager / Admin, we still surface THEIR personal outreach data
+    // (these roles typically send outreach too — they're ops leads, not pure
+    // viewers). The UI banner explains the scope is personal-only. If the
+    // personal sheet is unavailable the scope flips to 'team_aggregate_unavailable'.
     const isTeamAggregateViewer = access.accessLevel === 'tl' ||
                                   access.accessLevel === 'manager' ||
                                   access.accessLevel === 'admin' ||
                                   access.canManageUsers === true;
-    if (isTeamAggregateViewer) {
-      return emptyResponseTimeMetrics('team_aggregate_unavailable');
-    }
 
     const ss = getCachedSpreadsheet();
     if (!ss) {
-      return emptyResponseTimeMetrics('no_personal_sheet');
+      return emptyResponseTimeMetrics(
+        isTeamAggregateViewer ? 'team_aggregate_unavailable' : 'no_personal_sheet'
+      );
     }
 
     // Get Email_Logs for outreach timestamps
@@ -19353,7 +19352,8 @@ function getTimeToResponseMetrics(filterJobId, startDate, endDate) {
       within72h: responseTimes.filter(t => t <= 72).length,
       responseTimeBuckets: buckets,
       responsesByDay: responsesByDay,
-      responsesByHour: responsesByHour
+      responsesByHour: responsesByHour,
+      _scope: isTeamAggregateViewer ? 'personal_only' : 'full'
     };
   } catch (e) {
     console.error("Error getting time-to-response metrics:", e);

@@ -11824,7 +11824,10 @@
             const bannerMsg = document.getElementById('responseTimeScopeMsg');
             if (banner && bannerMsg) {
                 const scope = data && data._scope;
-                if (scope === 'team_aggregate_unavailable') {
+                if (scope === 'personal_only') {
+                    bannerMsg.textContent = 'Team-wide response-time aggregation is not yet available. The chart below shows YOUR personal outreach only (per-candidate timestamps live in each team member\u2019s personal sheet). Other charts on this page show the full team aggregate.';
+                    banner.classList.remove('hidden');
+                } else if (scope === 'team_aggregate_unavailable') {
                     bannerMsg.textContent = 'Team-wide response-time aggregation is not yet available for this metric. Per-candidate timestamps live in each team member\u2019s personal sheet. Other charts on this page show the full team aggregate.';
                     banner.classList.remove('hidden');
                 } else if (scope === 'no_personal_sheet' || scope === 'no_email_logs') {
