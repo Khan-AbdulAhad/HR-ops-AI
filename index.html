@@ -2814,15 +2814,15 @@
                         <div class="p-6 space-y-4">
                             <div>
                                 <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">Job ID <span class="text-red-500">*</span></label>
-                                <input type="number" id="addJobIdInput" class="w-full px-4 py-2 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 bg-white dark:bg-slate-700 text-slate-800 dark:text-white" placeholder="e.g., 51000">
+                                <input type="text" inputmode="numeric" pattern="[0-9]*" id="addJobIdInput" onkeydown="if(event.key==='Enter'){event.preventDefault();submitAddJob();}" class="w-full px-4 py-2 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 bg-white dark:bg-slate-700 text-slate-800 dark:text-white" placeholder="e.g., 51000">
                             </div>
                             <div>
                                 <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">Job Name</label>
-                                <input type="text" id="addJobNameInput" class="w-full px-4 py-2 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 bg-white dark:bg-slate-700 text-slate-800 dark:text-white" placeholder="e.g., Senior React Developer">
+                                <input type="text" id="addJobNameInput" onkeydown="if(event.key==='Enter'){event.preventDefault();submitAddJob();}" class="w-full px-4 py-2 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 bg-white dark:bg-slate-700 text-slate-800 dark:text-white" placeholder="e.g., Senior React Developer">
                             </div>
                             <div>
                                 <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">TM (Talent Manager)</label>
-                                <input type="text" id="addJobTmInput" class="w-full px-4 py-2 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 bg-white dark:bg-slate-700 text-slate-800 dark:text-white" placeholder="e.g., John Smith">
+                                <input type="text" id="addJobTmInput" onkeydown="if(event.key==='Enter'){event.preventDefault();submitAddJob();}" class="w-full px-4 py-2 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 bg-white dark:bg-slate-700 text-slate-800 dark:text-white" placeholder="e.g., John Smith">
                             </div>
                             <!-- Assign To dropdown (only visible for TL/Manager/Admin in team view) -->
                             <div id="addJobAssignToContainer" class="hidden">
@@ -15208,6 +15208,14 @@
             document.getElementById('addJobTmInput').value = '';
             document.getElementById('addJobNotesInput').value = '';
 
+            // Reset submit button — prevents stuck "Adding..." state if a prior
+            // submit was still in flight when the modal was closed.
+            var submitBtn = document.getElementById('addJobSubmitBtn');
+            if (submitBtn) {
+                submitBtn.disabled = false;
+                submitBtn.innerHTML = '<i class="fa-solid fa-plus mr-1"></i> Add Job';
+            }
+
             // Show/hide "Assign To" dropdown for TL/Manager/Admin in team view
             var assignContainer = document.getElementById('addJobAssignToContainer');
             var assignSelect = document.getElementById('addJobAssignToSelect');
@@ -15264,40 +15272,45 @@
             const jobName = document.getElementById('addJobNameInput').value.trim();
             const tm = document.getElementById('addJobTmInput').value.trim();
             const notes = document.getElementById('addJobNotesInput').value.trim();
-            const assignToSelect = document.getElementById('addJobAssignToSelect');
-            const assignToEmail = (assignToSelect && !assignToSelect.closest('.hidden')) ? assignToSelect.value : '';
+            // Use the authoritative state flag rather than a DOM-ancestor "hidden" walk.
+            const assignSelect = document.getElementById('addJobAssignToSelect');
+            const assignToEmail = (myJobsIsTeamView && assignSelect) ? (assignSelect.value || '') : '';
 
-            if (!jobId) {
-                showToast('Please enter a Job ID', 'error');
+            // Job ID must be a positive integer — rejects "", "0", "1e5", "12.5", "-3".
+            if (!/^[1-9]\d*$/.test(jobId)) {
+                showToast('Please enter a valid Job ID (positive whole number)', 'error');
                 return;
             }
 
             const btn = document.getElementById('addJobSubmitBtn');
+            // Idempotent: ignore if a submit is already in flight.
+            if (btn && btn.disabled) return;
             if (btn) {
                 btn.disabled = true;
                 btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin mr-1"></i> Adding...';
             }
 
+            const resetBtn = function() {
+                if (btn) {
+                    btn.disabled = false;
+                    btn.innerHTML = '<i class="fa-solid fa-plus mr-1"></i> Add Job';
+                }
+            };
+
             google.script.run
                 .withSuccessHandler(function(result) {
-                    if (btn) {
-                        btn.disabled = false;
-                        btn.innerHTML = '<i class="fa-solid fa-plus mr-1"></i> Add Job';
-                    }
-                    if (result.success) {
+                    resetBtn();
+                    if (result && result.success) {
                         showToast(result.message || 'Job added successfully', 'success');
                         closeAddJobModal();
                         refreshMyJobs();
                     } else {
-                        showToast(result.error || 'Failed to add job', 'error');
+                        showToast((result && result.error) || 'Failed to add job', 'error');
                     }
                 })
                 .withFailureHandler(function(err) {
-                    if (btn) {
-                        btn.disabled = false;
-                        btn.innerHTML = '<i class="fa-solid fa-plus mr-1"></i> Add Job';
-                    }
-                    showToast('Failed to add job: ' + err.message, 'error');
+                    resetBtn();
+                    showToast('Failed to add job: ' + (err && err.message ? err.message : 'Unknown error'), 'error');
                 })
                 .addJobAssignment(jobId, notes, jobName, tm, assignToEmail);
         }
