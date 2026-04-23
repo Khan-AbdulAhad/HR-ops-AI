@@ -7133,13 +7133,15 @@ function reconcileCandidateStatuses(ss, source) {
       continue;
     }
 
-    // Treat these as terminal / user-controlled — never override
+    // Treat these as terminal / user-controlled — never override.
+    // "Rate Agreed" is matched via indexOf so we also cover "Rate Agreed - Data Pending"
+    // and "Rate Agreed (Human)" which are the real stored forms.
     const isTerminal = statusLower.indexOf('completed') > -1 ||
                        status === 'Data Complete' ||
                        status === 'Offer Accepted' ||
                        status === 'Not Interested' ||
                        status === 'Human-Negotiation' ||
-                       status === 'Rate Agreed' ||
+                       statusLower.indexOf('rate agreed') > -1 ||
                        statusLower.indexOf('escalated') > -1 ||
                        statusLower.indexOf('pending escalation') > -1;
 
@@ -7234,13 +7236,12 @@ function reconcileCandidateStatuses(ss, source) {
     const fq = fqMap.get(key);
     const isUnresponsiveElsewhere = unresponsiveKeys.has(key) || (fq && fq.status === 'Unresponsive');
     if (!isTerminal && status !== 'Unresponsive' && isUnresponsiveElsewhere) {
-      // Only override clearly non-terminal display statuses
+      // Only override display statuses that mean "we sent but never heard back".
+      // Active/Active - Data Pending/Active - Data Gathering/Awaiting Additional Data all
+      // mean the candidate DID reply — they must not be flipped back to Unresponsive just
+      // because the follow-up queue hasn't yet been marked "Responded" for them.
       const isSyncable = status === 'Initial Outreach' ||
                         status === 'Follow Up' ||
-                        status === 'Active' ||
-                        status === 'Active - Data Pending' ||
-                        status === 'Active - Data Gathering' ||
-                        status === 'Awaiting Additional Data' ||
                         status === '' ||
                         /^AI-Attempt-\d+/i.test(status);
       if (isSyncable) {
@@ -7641,8 +7642,8 @@ function runAutoNegotiator() {
       escalationEmail: configs[i][9] || '' // Optional: add escalation email column to Configuration sheet to receive notifications
     };
 
-    let jobResult = processJobNegotiations(jobId, rules, ss, faqContent, negotiationEnabled);
-    
+    let jobResult = processJobNegotiations(jobId, rules, ss, faqContent, negotiationEnabled, stats.aiEmailsSent);
+
     stats.replied += jobResult.replied;
     stats.escalated += jobResult.escalated;
     stats.accepted += jobResult.accepted;
@@ -7651,8 +7652,9 @@ function runAutoNegotiator() {
     stats.processed += jobResult.processed;
     stats.detailsExtracted += jobResult.detailsExtracted || 0;
     stats.missingInfoFollowUps += jobResult.missingInfoFollowUps || 0;
-    // Track AI emails sent for rate limiting (replies + escalation handoffs + missing info follow-ups)
-    stats.aiEmailsSent += (jobResult.replied || 0) + (jobResult.escalated || 0) + (jobResult.missingInfoFollowUps || 0);
+    // Track ONLY actual candidate-facing sends. Escalations that don't email the candidate
+    // (internal handoff only) are excluded so the cap reflects outgoing candidate volume.
+    stats.aiEmailsSent += (jobResult.emailsSent || 0);
 
     jobResult.log.forEach(l => log.push(l));
     const followUpNote = jobResult.missingInfoFollowUps > 0 ? `, ${jobResult.missingInfoFollowUps} info requests sent` : '';
@@ -7678,7 +7680,7 @@ function runAutoNegotiator() {
   }
 }
 
-function processJobNegotiations(jobId, rules, ss, faqContent, negotiationEnabled = true) {
+function processJobNegotiations(jobId, rules, ss, faqContent, negotiationEnabled = true, globalEmailsSent = 0) {
   // OPTIMIZATION: Filter at Gmail search level to reduce API calls and processing time
   // Only fetch threads that are:
   // 1. Tagged with the job label
@@ -7700,13 +7702,13 @@ function processJobNegotiations(jobId, rules, ss, faqContent, negotiationEnabled
       offset += BATCH_SIZE;
     } while (batch.length === BATCH_SIZE);
   } catch(e) {
-    return {replied:0, escalated:0, accepted:0, skipped:0, processed:0, log:[{type:'error', message:`Gmail search failed for Job ${jobId}: ${e.message}`}]};
+    return {replied:0, escalated:0, accepted:0, skipped:0, processed:0, emailsSent:0, log:[{type:'error', message:`Gmail search failed for Job ${jobId}: ${e.message}`}]};
   }
 
   // Warn if no threads found - may indicate job ID mismatch or all threads are complete
   if (threads.length === 0) {
     return {
-      replied:0, escalated:0, accepted:0, skipped:0, processed:0, detailsExtracted:0,
+      replied:0, escalated:0, accepted:0, skipped:0, processed:0, detailsExtracted:0, emailsSent:0,
       log:[{type:'info', message:`No pending threads for Job ${jobId}. All may be completed or no AI-Managed threads exist.`}]
     };
   }
@@ -7718,7 +7720,16 @@ function processJobNegotiations(jobId, rules, ss, faqContent, negotiationEnabled
 
   const stateSheet = ss.getSheetByName('Negotiation_State');
 
-  let jobStats = {replied:0, escalated:0, accepted:0, notInterested:0, skipped:0, processed:0, detailsExtracted:0, missingInfoFollowUps:0, log:[]};
+  // emailsSent counts actual candidate-facing sends in this job. The global trigger cap
+  // (MAX_AI_EMAILS_PER_TRIGGER_RUN) is enforced against globalEmailsSent + jobStats.emailsSent
+  // at the top of each thread iteration, so a single busy job cannot blow past the cap.
+  let jobStats = {replied:0, escalated:0, accepted:0, notInterested:0, skipped:0, processed:0, detailsExtracted:0, missingInfoFollowUps:0, emailsSent:0, log:[]};
+
+  // Helper: wraps the reply send so each candidate-facing email increments emailsSent exactly once.
+  const sendAndCount = (thread, body, senderName, toEmail) => {
+    sendReplyWithSenderName(thread, body, senderName, toEmail);
+    jobStats.emailsSent++;
+  };
   
   // Cache state data for efficiency
   // Build two maps: one by email+jobId, one by threadId+jobId (fallback for different email replies)
@@ -7781,6 +7792,14 @@ function processJobNegotiations(jobId, rules, ss, faqContent, negotiationEnabled
 
   threads.forEach(thread => {
     jobStats.processed++;
+
+    // SAFETY: Honor the global per-trigger email cap before doing any work on this thread.
+    // Without this gate, a single job with many responders could exceed MAX_AI_EMAILS_PER_TRIGGER_RUN
+    // because the caller only checks the counter between jobs.
+    if ((globalEmailsSent + jobStats.emailsSent) >= MAX_AI_EMAILS_PER_TRIGGER_RUN) {
+      jobStats.skipped++;
+      return;
+    }
 
     const labels = thread.getLabels().map(l => l.getName());
 
@@ -8343,7 +8362,7 @@ Reply with only the email body text. No subject line. No placeholders.`;
 
         const closureMessage = callAI(closurePrompt);
         if (closureMessage && !closureMessage.startsWith('ACTION: ESCALATE')) {
-          sendReplyWithSenderName(thread, closureMessage, getEffectiveSenderName(), candidateEmail);
+          sendAndCount(thread, closureMessage, getEffectiveSenderName(), candidateEmail);
           markCompleted(thread);
 
           if (stateRowIndex > -1) {
@@ -8576,7 +8595,7 @@ Reply with only the email body text. No subject line. No placeholders.`;
 
                 // Send the follow-up email in the same thread using proper sender name
                 // FIX: Use sendReplyWithSenderName instead of thread.replyAll to respect sender settings
-                sendReplyWithSenderName(thread, missingInfoEmail, getEffectiveSenderName(), candidateEmail);
+                sendAndCount(thread, missingInfoEmail, getEffectiveSenderName(), candidateEmail);
                 dataGatheringEmailSent = true;
                 recordMissingInfoFollowUp(jobId, candidateEmail);
                 jobStats.missingInfoFollowUps++;
@@ -8789,7 +8808,7 @@ Write ONLY the email body, nothing else.
           if (questionReply && !questionReply.startsWith('ACTION: ESCALATE')) {
             // Validate email content before sending
             if (validateEmailForSending(questionReply, { jobId: jobId })) {
-              sendReplyWithSenderName(thread, questionReply, getEffectiveSenderName(), candidateEmail);
+              sendAndCount(thread, questionReply, getEffectiveSenderName(), candidateEmail);
               jobStats.replied++;
               jobStats.log.push({type: 'info', message: `${cleanCandidateEmail} - Answered candidate question (negotiation off, data complete)`});
             } else {
@@ -9017,7 +9036,7 @@ Write ONLY the email, nothing else.
             return;
           }
 
-          sendReplyWithSenderName(thread, dataOnlyEmail, getEffectiveSenderName(), candidateEmail);
+          sendAndCount(thread, dataOnlyEmail, getEffectiveSenderName(), candidateEmail);
 
           // Update state timestamp, status, and AI summary
           if (stateRowIndex > -1) {
@@ -9120,13 +9139,13 @@ Write ONLY the email, nothing else.
             try {
               const fallbackEmail = `Hi ${candidateName.split(' ')[0]},\n\nThank you for sharing your alignment on the rate. I am sharing all the details with the team.\n\nPlease be aware that your profile is currently under client review. If approved and selected, we will reach out to confirm the onboarding date and provide further details along with contract specifics.\n\nBest regards,\n${getEffectiveSignature()}`;
               if (validateEmailForSending(fallbackEmail, { jobId: jobId })) {
-                sendReplyWithSenderName(thread, fallbackEmail, getEffectiveSenderName(), candidateEmail);
+                sendAndCount(thread, fallbackEmail, getEffectiveSenderName(), candidateEmail);
               }
             } catch(fallbackErr) {
               console.error("Fallback completion email failed:", fallbackErr);
             }
           } else {
-            sendReplyWithSenderName(thread, completionEmail, getEffectiveSenderName(), candidateEmail);
+            sendAndCount(thread, completionEmail, getEffectiveSenderName(), candidateEmail);
           }
 
           // Update job-specific details sheet with accepted status and rate
@@ -9727,7 +9746,7 @@ Write ONLY the email, nothing else.
             return;
           }
 
-          sendReplyWithSenderName(thread, counterOfferEmail, getEffectiveSenderName(), candidateEmail);
+          sendAndCount(thread, counterOfferEmail, getEffectiveSenderName(), candidateEmail);
 
           // Update job details with candidate offer and counter offer
           try {
@@ -9819,7 +9838,7 @@ Write ONLY the email, nothing else.
             return;
           }
 
-          sendReplyWithSenderName(thread, combinedEmail, getEffectiveSenderName(), candidateEmail);
+          sendAndCount(thread, combinedEmail, getEffectiveSenderName(), candidateEmail);
           recordMissingInfoFollowUp(jobId, candidateEmail);
 
           // Update follow-up labels
@@ -9928,7 +9947,7 @@ Write ONLY the email, nothing else.
         try {
           const fallbackAcceptEmail = `Hi ${candidateName.split(' ')[0]},\n\nThank you for sharing your alignment on the rate. I am sharing all the details with the team.\n\nPlease be aware that your profile is currently under client review. If approved and selected, we will reach out to confirm the onboarding date and provide further details along with contract specifics.\n\nBest regards,\n${getEffectiveSignature()}`;
           if (validateEmailForSending(fallbackAcceptEmail, { jobId: jobId })) {
-            sendReplyWithSenderName(thread, fallbackAcceptEmail, getEffectiveSenderName(), candidateEmail);
+            sendAndCount(thread, fallbackAcceptEmail, getEffectiveSenderName(), candidateEmail);
           } else {
             // Even fallback blocked - still update status below, just don't send email
             jobStats.log.push({type: 'warning', message: `${candidateEmail} - Acceptance email blocked by security, proceeding with status update only`});
@@ -9937,7 +9956,7 @@ Write ONLY the email, nothing else.
           console.error("Fallback acceptance email also failed:", fallbackErr);
         }
       } else {
-        sendReplyWithSenderName(thread, acceptEmail, getEffectiveSenderName(), candidateEmail);
+        sendAndCount(thread, acceptEmail, getEffectiveSenderName(), candidateEmail);
       }
       markCompleted(thread);
 
@@ -10118,7 +10137,7 @@ Write ONLY the email, nothing else.
             return;
           }
 
-          sendReplyWithSenderName(thread, combinedEmail, getEffectiveSenderName(), candidateEmail);
+          sendAndCount(thread, combinedEmail, getEffectiveSenderName(), candidateEmail);
           recordMissingInfoFollowUp(jobId, candidateEmail);
           updateFollowUpLabels(thread.getId(), 'responded');
 
@@ -10214,13 +10233,13 @@ Write ONLY the email, nothing else.
         try {
           const fallbackEmail = `Hi ${candidateName.split(' ')[0]},\n\nThank you for sharing your alignment on the rate. I am sharing all the details with the team.\n\nPlease be aware that your profile is currently under client review. If approved and selected, we will reach out to confirm the onboarding date and provide further details along with contract specifics.\n\nBest regards,\n${getEffectiveSignature()}`;
           if (validateEmailForSending(fallbackEmail, { jobId: jobId })) {
-            sendReplyWithSenderName(thread, fallbackEmail, getEffectiveSenderName(), candidateEmail);
+            sendAndCount(thread, fallbackEmail, getEffectiveSenderName(), candidateEmail);
           }
         } catch(fallbackErr) {
           console.error("Fallback email failed:", fallbackErr);
         }
       } else {
-        sendReplyWithSenderName(thread, acceptEmail, getEffectiveSenderName(), candidateEmail);
+        sendAndCount(thread, acceptEmail, getEffectiveSenderName(), candidateEmail);
       }
       markCompleted(thread);
 
@@ -10642,7 +10661,7 @@ Write ONLY the email, nothing else.
           return;
         }
 
-        sendReplyWithSenderName(thread, retryResponse, getEffectiveSenderName(), candidateEmail);
+        sendAndCount(thread, retryResponse, getEffectiveSenderName(), candidateEmail);
 
         // Update job details with candidate offer and counter offer
         try {
@@ -10825,7 +10844,7 @@ Write ONLY the email, nothing else.
             return;
           }
 
-          sendReplyWithSenderName(thread, counterOfferEmail, getEffectiveSenderName(), candidateEmail);
+          sendAndCount(thread, counterOfferEmail, getEffectiveSenderName(), candidateEmail);
 
           // Update job details with candidate offer and counter offer
           try {
@@ -10902,7 +10921,7 @@ Write ONLY the email, nothing else.
             return;
           }
 
-          sendReplyWithSenderName(thread, combinedEmail, getEffectiveSenderName(), candidateEmail);
+          sendAndCount(thread, combinedEmail, getEffectiveSenderName(), candidateEmail);
           recordMissingInfoFollowUp(jobId, candidateEmail);
           updateFollowUpLabels(thread.getId(), 'responded');
 
@@ -10980,13 +10999,13 @@ Write ONLY the email, nothing else.
         try {
           const fallbackEmail = `Hi ${candidateName.split(' ')[0]},\n\nThank you for sharing your alignment on the rate. I am sharing all the details with the team.\n\nPlease be aware that your profile is currently under client review. If approved and selected, we will reach out to confirm the onboarding date and provide further details along with contract specifics.\n\nBest regards,\n${getEffectiveSignature()}`;
           if (validateEmailForSending(fallbackEmail, { jobId: jobId })) {
-            sendReplyWithSenderName(thread, fallbackEmail, getEffectiveSenderName(), candidateEmail);
+            sendAndCount(thread, fallbackEmail, getEffectiveSenderName(), candidateEmail);
           }
         } catch(fallbackErr) {
           console.error("Fallback email failed:", fallbackErr);
         }
       } else {
-        sendReplyWithSenderName(thread, acceptEmail, getEffectiveSenderName(), candidateEmail);
+        sendAndCount(thread, acceptEmail, getEffectiveSenderName(), candidateEmail);
       }
       markCompleted(thread);
 
@@ -11076,7 +11095,7 @@ Write ONLY the email, nothing else.
           return;
         }
 
-        sendReplyWithSenderName(thread, aiResponse, getEffectiveSenderName(), candidateEmail);
+        sendAndCount(thread, aiResponse, getEffectiveSenderName(), candidateEmail);
 
         jobStats.log.push({type: 'info', message: `${candidateEmail} - NOT INTERESTED (fallback else block): Candidate message matched disinterest pattern. AI replied but missed ACTION tag. Updating status.`});
         handleNotInterested({
@@ -11143,7 +11162,7 @@ Write ONLY the email, nothing else.
               return;
             }
 
-            sendReplyWithSenderName(thread, safeEmail, getEffectiveSenderName(), candidateEmail);
+            sendAndCount(thread, safeEmail, getEffectiveSenderName(), candidateEmail);
 
             try {
               updateJobCandidateStatus(ss, jobId, candidateEmail, 'Counter Offer Sent', null, `$${emailRate}/hr`, `$${safeCounterRate}/hr`);
@@ -11179,7 +11198,7 @@ Write ONLY the email, nothing else.
         }
       }
 
-      sendReplyWithSenderName(thread, aiResponse, getEffectiveSenderName(), candidateEmail);
+      sendAndCount(thread, aiResponse, getEffectiveSenderName(), candidateEmail);
 
       const newAttemptCount = attempts + 1;
 
@@ -15398,9 +15417,10 @@ function sendFollowUpEmail(email, jobId, threadId, name, followUpNumber) {
             const stateSheet = ss.getSheetByName('Negotiation_State');
             if(stateSheet) {
               const stateData = stateSheet.getDataRange().getValues();
-              const cleanEmail = String(email).toLowerCase();
+              // Use normalizeEmail so Gmail dot-variants (john.doe vs johndoe) match.
+              const cleanEmail = normalizeEmail(email);
               for(let i = 1; i < stateData.length; i++) {
-                if(String(stateData[i][0]).toLowerCase() === cleanEmail && String(stateData[i][1]) === String(jobId)) {
+                if(normalizeEmail(stateData[i][0]) === cleanEmail && String(stateData[i][1]) === String(jobId)) {
                   region = stateData[i][10] || ''; // Column 11 (index 10) = Region
                   break;
                 }
@@ -15579,9 +15599,10 @@ function sendDataGatheringFollowUpEmail(email, jobId, threadId, name, followUpNu
             const stateSheet = ss.getSheetByName('Negotiation_State');
             if (stateSheet) {
               const stateData = stateSheet.getDataRange().getValues();
-              const cleanEmail = String(email).toLowerCase();
+              // Use normalizeEmail so Gmail dot-variants (john.doe vs johndoe) match.
+              const cleanEmail = normalizeEmail(email);
               for (let i = 1; i < stateData.length; i++) {
-                if (String(stateData[i][0]).toLowerCase() === cleanEmail && String(stateData[i][1]) === String(jobId)) {
+                if (normalizeEmail(stateData[i][0]) === cleanEmail && String(stateData[i][1]) === String(jobId)) {
                   region = stateData[i][10] || '';
                   break;
                 }
@@ -15713,6 +15734,7 @@ function processDataGatheringFollowUps() {
         name: followUpData[i][3],
         devId: followUpData[i][4],
         status: followUpData[i][8],
+        manualOverride: followUpData[i][10] === true || followUpData[i][10] === 'TRUE',
         lastResponseTime: followUpData[i][14] ? new Date(followUpData[i][14]) : null,
         dataFollowUp1Sent: followUpData[i][11] === true || followUpData[i][11] === 'TRUE',
         dataFollowUp2Sent: followUpData[i][12] === true || followUpData[i][12] === 'TRUE',
@@ -15728,7 +15750,9 @@ function processDataGatheringFollowUps() {
       // Thread ID is at index 9 (column 10) in Negotiation_State.
       const threadId = stateData[i][9];
       const status = String(stateData[i][4] || '').toLowerCase();
-      const lastUpdated = stateData[i][8] ? new Date(stateData[i][8]) : null;
+      // Column 5 = Last Reply Time (timestamp). Column 8 is AI Notes (free text) and
+      // must not be used as a timestamp.
+      const lastUpdated = stateData[i][5] ? new Date(stateData[i][5]) : null;
 
       // Skip if already completed, unresponsive, or escalated
       if (status.includes('completed') || status.includes('unresponsive') ||
@@ -15762,6 +15786,14 @@ function processDataGatheringFollowUps() {
       // Now we have a candidate with INCOMPLETE data who HAS responded
       const key = `${email}|${jobId}`;
       let followUpEntry = followUpMap.get(key);
+
+      // Respect Manual Override: if a user has marked this entry for manual handling,
+      // the automated follow-up loop (negotiation side) skips it — the data-gathering
+      // loop must do the same or Manual Override would be inconsistent and misleading.
+      if (followUpEntry && followUpEntry.manualOverride) {
+        log.push({ type: 'info', message: `${email} - Manual Override set, skipping data-gathering follow-up` });
+        continue;
+      }
 
       // Check for new response in thread
       let candidateLastResponseTime = lastUpdated;
@@ -15838,14 +15870,17 @@ function processDataGatheringFollowUps() {
         continue;
       }
 
-      const name = followUpEntry.name || stateData[i][3] || '';
+      const name = followUpEntry.name || stateData[i][7] || '';
 
       // Check if all 3 data follow-ups are done - mark as incomplete data
       if (followUpEntry.dataFollowUp1Sent && followUpEntry.dataFollowUp2Sent && followUpEntry.dataFollowUp3Sent) {
         if (hoursSinceLastResponse >= FOLLOW_UP_CONFIG.DATA_INCOMPLETE_HOURS) {
-          // Mark as Incomplete Data
+          // Mark as Incomplete Data. Flush between the two cross-sheet writes so a
+          // concurrent reader cannot observe a state where Follow_Up_Queue already says
+          // "Incomplete Data" while Negotiation_State still says "Active".
           followUpSheet.getRange(followUpEntry.rowIndex, 9).setValue('Incomplete Data');
           followUpSheet.getRange(followUpEntry.rowIndex, 10).setValue(new Date());
+          SpreadsheetApp.flush();
           updateDataGatheringFollowUpLabels(threadId, 'incomplete');
 
           // Also update Negotiation_State status
