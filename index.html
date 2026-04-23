@@ -2732,23 +2732,32 @@
                             </div>
                         </div>
 
-                        <!-- Filter Tabs -->
-                        <div class="flex flex-wrap gap-2 bg-white dark:bg-slate-800 p-2 rounded-lg border border-slate-200 dark:border-slate-700">
-                            <button onclick="filterMyJobs('all')" class="my-jobs-filter-btn px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 active:scale-95 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200" data-filter="all">
-                                All Jobs
-                            </button>
-                            <button onclick="filterMyJobs('Active')" class="my-jobs-filter-btn px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 active:scale-95 text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-700" data-filter="Active">
-                                <i class="fa-solid fa-briefcase mr-1 text-emerald-500"></i> Active
-                            </button>
-                            <button onclick="filterMyJobs('Fulfilled')" class="my-jobs-filter-btn px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 active:scale-95 text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-700" data-filter="Fulfilled">
-                                <i class="fa-solid fa-check-circle mr-1 text-blue-500"></i> Fulfilled
-                            </button>
-                            <button onclick="filterMyJobs('Stopped')" class="my-jobs-filter-btn px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 active:scale-95 text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-700" data-filter="Stopped">
-                                <i class="fa-solid fa-stop-circle mr-1 text-slate-400"></i> Stopped
-                            </button>
-                            <button onclick="filterMyJobs('Transferred')" class="my-jobs-filter-btn px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 active:scale-95 text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-700" data-filter="Transferred">
-                                <i class="fa-solid fa-share mr-1 text-amber-500"></i> Transferred
-                            </button>
+                        <!-- Filter Tabs + Search -->
+                        <div class="flex flex-col sm:flex-row flex-wrap gap-2 bg-white dark:bg-slate-800 p-2 rounded-lg border border-slate-200 dark:border-slate-700">
+                            <div class="flex flex-wrap gap-2 flex-1">
+                                <button onclick="filterMyJobs('all')" class="my-jobs-filter-btn px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 active:scale-95 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200" data-filter="all">
+                                    All Jobs
+                                </button>
+                                <button onclick="filterMyJobs('Active')" class="my-jobs-filter-btn px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 active:scale-95 text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-700" data-filter="Active">
+                                    <i class="fa-solid fa-briefcase mr-1 text-emerald-500"></i> Active
+                                </button>
+                                <button onclick="filterMyJobs('Fulfilled')" class="my-jobs-filter-btn px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 active:scale-95 text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-700" data-filter="Fulfilled">
+                                    <i class="fa-solid fa-check-circle mr-1 text-blue-500"></i> Fulfilled
+                                </button>
+                                <button onclick="filterMyJobs('Stopped')" class="my-jobs-filter-btn px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 active:scale-95 text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-700" data-filter="Stopped">
+                                    <i class="fa-solid fa-stop-circle mr-1 text-slate-400"></i> Stopped
+                                </button>
+                                <button onclick="filterMyJobs('Transferred')" class="my-jobs-filter-btn px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 active:scale-95 text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-700" data-filter="Transferred">
+                                    <i class="fa-solid fa-share mr-1 text-amber-500"></i> Transferred
+                                </button>
+                            </div>
+                            <div class="relative sm:min-w-[220px]">
+                                <i class="fa-solid fa-search absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm"></i>
+                                <input id="myJobsSearchInput" type="text" oninput="onMyJobsSearchInput()" placeholder="Search job ID, name, TM, notes..." class="w-full pl-9 pr-8 py-2 border border-slate-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-slate-800 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" autocomplete="off">
+                                <button id="myJobsSearchClearBtn" type="button" onclick="clearMyJobsSearch()" class="hidden absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 p-1" title="Clear">
+                                    <i class="fa-solid fa-times text-xs"></i>
+                                </button>
+                            </div>
                         </div>
 
                         <!-- Team Agent Filter (visible only for TL/Manager/Admin) -->
@@ -2801,7 +2810,7 @@
                 </div>
 
                 <!-- Add Job Modal -->
-                <div id="addJobModal" class="fixed inset-0 bg-black/50 z-50 hidden flex items-center justify-center p-4">
+                <div id="addJobModal" data-protect-unsaved="true" class="fixed inset-0 bg-black/50 z-50 hidden flex items-center justify-center p-4">
                     <div class="bg-white dark:bg-slate-800 rounded-xl shadow-xl w-full max-w-md">
                         <div class="p-6 border-b border-slate-200 dark:border-slate-700">
                             <div class="flex justify-between items-center">
@@ -5279,6 +5288,20 @@
             initFollowUpMultiSelectFilters();
 
             // ===== CENTRALIZED MODAL MANAGEMENT =====
+            // True when a form modal has user-typed content that would be lost on close.
+            // Only inspects modals tagged with data-protect-unsaved="true" — other modals
+            // keep the original quick-dismiss backdrop/Escape behaviour.
+            window.modalHasUnsavedInput = function(modal) {
+                if (!modal || modal.dataset.protectUnsaved !== 'true') return false;
+                const fields = modal.querySelectorAll('input, textarea');
+                for (let i = 0; i < fields.length; i++) {
+                    const f = fields[i];
+                    if (f.type === 'hidden' || f.disabled) continue;
+                    if ((f.value || '').trim() !== '') return true;
+                }
+                return false;
+            };
+
             // Modal IDs and their close functions
             const modalCloseMap = {
                 'configModal': function() { releaseFocus(document.getElementById('configModal')); document.getElementById('configModal').classList.add('hidden'); },
@@ -5314,6 +5337,10 @@
                 for (let i = modalIds.length - 1; i >= 0; i--) {
                     const modal = document.getElementById(modalIds[i]);
                     if (modal && !modal.classList.contains('hidden') && modalIds[i] !== 'emailModalOverlay') {
+                        // Protect form modals with unsaved input — prevents accidental data loss.
+                        if (modalHasUnsavedInput(modal)) {
+                            if (!confirm('You have unsaved input. Close this window and discard it?')) return;
+                        }
                         modalCloseMap[modalIds[i]]();
                         return;
                     }
@@ -5330,6 +5357,12 @@
                     if (!modal || modal.classList.contains('hidden')) continue;
                     // Only close if click is directly on the overlay backdrop (not on modal content)
                     if (e.target === modal) {
+                        // Protect form modals with unsaved input — prevents accidental data loss
+                        // from a stray backdrop click (the original complaint that the modal "just
+                        // disappeared" while the user was filling out Add Job).
+                        if (modalHasUnsavedInput(modal)) {
+                            if (!confirm('You have unsaved input. Close this window and discard it?')) return;
+                        }
                         modalCloseMap[id]();
                         return;
                     }
@@ -14821,6 +14854,8 @@
         let myJobsData = [];
         let myJobsCurrentFilter = 'all';
         let myJobsAgentFilter = 'all'; // For TL/Manager team view
+        let myJobsSearchQuery = '';     // Free-text filter across jobId / name / TM / notes
+        let myJobsSearchDebounce = null;
         let myJobsIsTeamView = false;
         let myJobsTeamMembers = [];
         let myJobsCurrentUserEmail = '';
@@ -14985,6 +15020,11 @@
             if (myJobsIsTeamView && myJobsAgentFilter !== 'all') {
                 dataForStats = myJobsData.filter(j => (j.agentEmail || '').toLowerCase() === myJobsAgentFilter.toLowerCase());
             }
+            // Narrow stats to the active search so the header numbers match the table.
+            if (myJobsSearchQuery) {
+                const q = myJobsSearchQuery;
+                dataForStats = dataForStats.filter(j => matchesMyJobsSearch(j, q));
+            }
 
             const active = dataForStats.filter(j => j.status === 'Active').length;
             const fulfilled = dataForStats.filter(j => j.status === 'Fulfilled').length;
@@ -15014,8 +15054,16 @@
                 filteredJobs = filteredJobs.filter(j => (j.agentEmail || '').toLowerCase() === myJobsAgentFilter.toLowerCase());
             }
 
+            // Apply free-text search across jobId / name / TM / notes / agent
+            if (myJobsSearchQuery) {
+                const q = myJobsSearchQuery;
+                filteredJobs = filteredJobs.filter(j => matchesMyJobsSearch(j, q));
+            }
+
             if (filteredJobs.length === 0) {
-                if (myJobsCurrentFilter === 'all' && myJobsAgentFilter === 'all') {
+                if (myJobsSearchQuery) {
+                    renderEmptyMyJobs(`No jobs match "${myJobsSearchQuery}". Try a different search.`);
+                } else if (myJobsCurrentFilter === 'all' && myJobsAgentFilter === 'all') {
                     renderEmptyMyJobs('No jobs yet. Click "Add Job" to add one manually, or jobs will be auto-added when you send outreach.');
                 } else if (myJobsAgentFilter !== 'all') {
                     const agentName = myJobsAgentFilter.split('@')[0].replace(/\./g, ' ').replace(/\b\w/g, function(l) { return l.toUpperCase(); });
@@ -15325,7 +15373,54 @@
             if (myJobsIsTeamView && myJobsAgentFilter !== 'all') {
                 filtered = filtered.filter(j => (j.agentEmail || '').toLowerCase() === myJobsAgentFilter.toLowerCase());
             }
+            // Apply free-text search across jobId / name / TM / notes / agent email
+            if (myJobsSearchQuery) {
+                const q = myJobsSearchQuery;
+                filtered = filtered.filter(j => matchesMyJobsSearch(j, q));
+            }
             return filtered;
+        }
+
+        // True if any searchable field on a job contains the query (already lowercased).
+        function matchesMyJobsSearch(j, q) {
+            if (!q) return true;
+            const bag = [
+                j.jobId, j.jobName, j.tm, j.notes,
+                j.agentEmail, j.agentName, j.status
+            ];
+            for (let i = 0; i < bag.length; i++) {
+                if (bag[i] == null) continue;
+                if (String(bag[i]).toLowerCase().indexOf(q) !== -1) return true;
+            }
+            return false;
+        }
+
+        // Search input handler — debounced so typing feels instant but doesn't
+        // thrash renderMyJobs on every keystroke on large lists.
+        function onMyJobsSearchInput() {
+            const input = document.getElementById('myJobsSearchInput');
+            const clearBtn = document.getElementById('myJobsSearchClearBtn');
+            const raw = input ? input.value : '';
+            if (clearBtn) clearBtn.classList.toggle('hidden', !raw);
+            if (myJobsSearchDebounce) clearTimeout(myJobsSearchDebounce);
+            myJobsSearchDebounce = setTimeout(function() {
+                myJobsSearchDebounce = null;
+                myJobsSearchQuery = raw.trim().toLowerCase();
+                renderMyJobs();
+                updateMyJobsStats();
+            }, 150);
+        }
+
+        function clearMyJobsSearch() {
+            const input = document.getElementById('myJobsSearchInput');
+            const clearBtn = document.getElementById('myJobsSearchClearBtn');
+            if (input) input.value = '';
+            if (clearBtn) clearBtn.classList.add('hidden');
+            if (myJobsSearchDebounce) { clearTimeout(myJobsSearchDebounce); myJobsSearchDebounce = null; }
+            myJobsSearchQuery = '';
+            renderMyJobs();
+            updateMyJobsStats();
+            if (input) input.focus();
         }
 
         // Open Job Status Modal by index (safe from special characters)
@@ -15894,6 +15989,34 @@
         // Close modal
         function closeNotesTasksModal() {
             var modal = document.getElementById('notesTasksModal');
+            // Flush any pending debounced save IMMEDIATELY — previously we just cleared
+            // the timer, which silently discarded the user's last edits if they closed
+            // within the 500ms debounce window.
+            if (ntSaveTimeout) {
+                clearTimeout(ntSaveTimeout);
+                ntSaveTimeout = null;
+                if (ntCurrentJobId && !ntIsReadOnly) {
+                    try {
+                        var flushJobId = ntCurrentJobId;
+                        var flushSerialized = serializeNotesEntries(ntEntries);
+                        google.script.run
+                            .withSuccessHandler(function(result) {
+                                if (result && result.success) {
+                                    for (var i = 0; i < myJobsData.length; i++) {
+                                        if (myJobsData[i].jobId === flushJobId && myJobsData[i].isOwnJob) {
+                                            myJobsData[i].notes = flushSerialized;
+                                            break;
+                                        }
+                                    }
+                                    renderMyJobs();
+                                    updateMyJobsStats();
+                                }
+                            })
+                            .withFailureHandler(function() { /* toast would be noisy on close */ })
+                            .updateJobNotes(flushJobId, flushSerialized);
+                    } catch (e) { /* flush best-effort; don't block close */ }
+                }
+            }
             releaseFocus(modal);
             modal.classList.add('hidden');
             modal.classList.remove('modal-animate-enter');
@@ -15902,7 +16025,6 @@
             ntEntries = [];
             ntIsReadOnly = false;
             ntRawNotes = '';
-            if (ntSaveTimeout) { clearTimeout(ntSaveTimeout); ntSaveTimeout = null; }
         }
 
         // Switch between Notes and Tasks tabs
@@ -16190,9 +16312,10 @@
             // Debounce saves to avoid rapid-fire API calls
             if (ntSaveTimeout) clearTimeout(ntSaveTimeout);
             ntSaveTimeout = setTimeout(function() {
+                ntSaveTimeout = null;
                 google.script.run
                     .withSuccessHandler(function(result) {
-                        if (result.success) {
+                        if (result && result.success) {
                             // Update local cache
                             for (var i = 0; i < myJobsData.length; i++) {
                                 if (myJobsData[i].jobId === jobId && myJobsData[i].isOwnJob) {
@@ -16203,11 +16326,11 @@
                             renderMyJobs();
                             updateMyJobsStats();
                         } else {
-                            showToast(result.error || 'Failed to save', 'error');
+                            showToast((result && result.error) || 'Failed to save', 'error');
                         }
                     })
                     .withFailureHandler(function(err) {
-                        showToast('Failed to save: ' + err.message, 'error');
+                        showToast('Failed to save: ' + (err && err.message ? err.message : 'Unknown error'), 'error');
                     })
                     .updateJobNotes(jobId, serialized);
             }, 500);
