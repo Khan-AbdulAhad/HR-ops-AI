@@ -5293,10 +5293,18 @@
             // keep the original quick-dismiss backdrop/Escape behaviour.
             window.modalHasUnsavedInput = function(modal) {
                 if (!modal || modal.dataset.protectUnsaved !== 'true') return false;
-                const fields = modal.querySelectorAll('input, textarea');
+                const fields = modal.querySelectorAll('input, textarea, select');
                 for (let i = 0; i < fields.length; i++) {
                     const f = fields[i];
-                    if (f.type === 'hidden' || f.disabled) continue;
+                    if (f.disabled) continue;
+                    const tag = f.tagName;
+                    if (tag === 'SELECT') {
+                        // A select counts as "dirty" only if the user picked something other than
+                        // the first option (the implicit default, e.g., "Myself" on Add Job).
+                        if (f.selectedIndex > 0 && (f.value || '').trim() !== '') return true;
+                        continue;
+                    }
+                    if (f.type === 'hidden' || f.type === 'checkbox' || f.type === 'radio') continue;
                     if ((f.value || '').trim() !== '') return true;
                 }
                 return false;
@@ -15003,11 +15011,14 @@
             const tbody = document.getElementById('myJobsTableBody');
             const icon = isError ? 'fa-exclamation-circle text-red-300' : 'fa-briefcase opacity-30';
             const colSpan = myJobsIsTeamView ? 10 : 9;
+            // Escape message — callers may interpolate user-typed search queries,
+            // so treating this as HTML would be an XSS vector.
+            const safeMessage = escapeHtml(message || 'No jobs yet. Click "Add Job" to add one manually, or jobs will be auto-added when you send outreach.');
             tbody.innerHTML = `
                 <tr>
                     <td colspan="${colSpan}" class="px-6 py-12 text-center text-slate-400">
                         <i class="fa-solid ${icon} text-4xl mb-3 block"></i>
-                        <span class="text-sm">${message || 'No jobs yet. Click "Add Job" to add one manually, or jobs will be auto-added when you send outreach.'}</span>
+                        <span class="text-sm">${safeMessage}</span>
                     </td>
                 </tr>
             `;
