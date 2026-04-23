@@ -6368,6 +6368,7 @@ function enrichNegotiationStateData(ss) {
         needsThreadId: needsThreadId,
         needsRegion: needsRegion,
         needsStatusSync: needsStatusSync,
+        currentStatus: status,
         currentDevId: devId,
         currentName: name,
         currentThreadId: threadId,
@@ -6571,10 +6572,21 @@ function enrichNegotiationStateData(ss) {
       // FIX: If Follow_Up_Queue status is "Unresponsive", sync that instead of "Follow Up".
       // Previously, unresponsive candidates with "Initial Outreach" in Negotiation_State would get
       // overwritten to "Follow Up" because the condition didn't exclude "Unresponsive" FQ status.
-      stateSheet.getRange(row.rowIndex, 5).setValue('Unresponsive'); // Column 5 = Status
-      stateSheet.getRange(row.rowIndex, 9).setValue('Marked unresponsive after follow-ups'); // Column 9 = AI Notes
-      statusSyncCount++;
-      log.push({ type: 'info', message: `Status synced to "Unresponsive" for ${row.email} (Job ${row.jobId}) - candidate is unresponsive in follow-up queue` });
+      //
+      // DEFENSIVE GUARD: Only overwrite "we-never-heard-back" statuses. Active/Rate Agreed/etc.
+      // mean the candidate has engaged, so the follow-up queue's stale Unresponsive flag must not
+      // flip them. This mirrors the reconciler's isSyncable list (Fix #5) and keeps the guard
+      // robust even if needsStatusSync is broadened in the future.
+      const cur = String(row.currentStatus || '').trim();
+      const isSyncable = cur === 'Initial Outreach' || cur === 'Follow Up' || cur === '' || /^AI-Attempt-\d+/i.test(cur);
+      if (!isSyncable) {
+        log.push({ type: 'info', message: `Skip unresponsive sync for ${row.email} (Job ${row.jobId}) - current status "${cur}" indicates candidate has engaged` });
+      } else {
+        stateSheet.getRange(row.rowIndex, 5).setValue('Unresponsive'); // Column 5 = Status
+        stateSheet.getRange(row.rowIndex, 9).setValue('Marked unresponsive after follow-ups'); // Column 9 = AI Notes
+        statusSyncCount++;
+        log.push({ type: 'info', message: `Status synced to "Unresponsive" for ${row.email} (Job ${row.jobId}) - candidate is unresponsive in follow-up queue` });
+      }
     }
   });
 
@@ -7730,6 +7742,9 @@ function processJobNegotiations(jobId, rules, ss, faqContent, negotiationEnabled
     sendReplyWithSenderName(thread, body, senderName, toEmail);
     jobStats.emailsSent++;
   };
+
+  // Guard so we log the rate-cap skip exactly once per job (avoid spam).
+  let rateCapSkipLogged = false;
   
   // Cache state data for efficiency
   // Build two maps: one by email+jobId, one by threadId+jobId (fallback for different email replies)
@@ -7798,6 +7813,10 @@ function processJobNegotiations(jobId, rules, ss, faqContent, negotiationEnabled
     // because the caller only checks the counter between jobs.
     if ((globalEmailsSent + jobStats.emailsSent) >= MAX_AI_EMAILS_PER_TRIGGER_RUN) {
       jobStats.skipped++;
+      if (!rateCapSkipLogged) {
+        jobStats.log.push({type: 'warning', message: `Job ${jobId}: rate cap reached (${MAX_AI_EMAILS_PER_TRIGGER_RUN} emails/run) — deferring remaining threads to next trigger`});
+        rateCapSkipLogged = true;
+      }
       return;
     }
 
@@ -15888,6 +15907,10 @@ function processDataGatheringFollowUps() {
 
           // Update Job Details status
           updateJobCandidateStatus(ss, jobId, email, 'Incomplete Data', null);
+
+          // Invalidate caches so later reads in the same execution see the new statuses.
+          try { invalidateSheetCache('Follow_Up_Queue'); } catch (e) {}
+          try { invalidateSheetCache('Negotiation_State'); } catch (e) {}
 
           incompleteMarked++;
           log.push({ type: 'warning', message: `${email} marked as Incomplete Data after 3 follow-ups (${hoursSinceLastResponse.toFixed(1)}hrs since last response)` });
