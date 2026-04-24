@@ -3353,6 +3353,16 @@
                                 <i class="fa-solid fa-circle-info mt-0.5"></i>
                                 <span id="responseTimeScopeMsg">Team-wide response-time aggregation is not yet available for this metric. The chart below is limited to your personal outreach.</span>
                             </div>
+                            <div id="responseTimeBackfillBanner" class="hidden mb-3 px-3 py-2 rounded-lg bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-200 dark:border-indigo-700 text-xs text-indigo-800 dark:text-indigo-200 flex items-center justify-between gap-3">
+                                <div class="flex items-start gap-2">
+                                    <i class="fa-solid fa-cloud-arrow-up mt-0.5"></i>
+                                    <span>Your historic response-time data isn't in the team analytics yet. Backfill it so it shows up in team-wide charts.</span>
+                                </div>
+                                <button id="responseTimeBackfillBtn" onclick="backfillMyResponseTimes()" class="whitespace-nowrap px-3 py-1.5 rounded-md bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-medium">
+                                    <i class="fa-solid fa-cloud-arrow-up mr-1"></i>
+                                    <span id="responseTimeBackfillBtnLabel">Backfill my history</span>
+                                </button>
+                            </div>
                             <div class="relative h-64">
                                 <canvas id="responseTimeChart"></canvas>
                             </div>
@@ -11714,7 +11724,13 @@
                     document.getElementById('avgResponseTime').textContent = '-';
                     document.getElementById('medianResponseTime').textContent = '-';
                     document.getElementById('responseRatePercent').textContent = '0%';
+                    // Ensure the scope banner is hidden when the chart data path is empty
+                    const scopeBanner = document.getElementById('responseTimeScopeBanner');
+                    if (scopeBanner) scopeBanner.classList.add('hidden');
                 }
+                // Always refresh backfill banner — its visibility depends on the
+                // current user's unsynced pairs, not on whether a chart rendered.
+                refreshBackfillBannerVisibility();
 
                 // Render Top Performing Jobs (full pipeline per job)
                 if (chartData.jobPerformance) {
@@ -11814,6 +11830,49 @@
             });
         }
 
+        // Shows/hides the Backfill banner based on whether the current user has
+        // personal response-time pairs not yet projected into the central sheet.
+        function refreshBackfillBannerVisibility() {
+            const banner = document.getElementById('responseTimeBackfillBanner');
+            if (!banner) return;
+            google.script.run
+                .withSuccessHandler(has => {
+                    if (has) banner.classList.remove('hidden');
+                    else banner.classList.add('hidden');
+                })
+                .withFailureHandler(() => banner.classList.add('hidden'))
+                .hasUnsyncedResponseTimes();
+        }
+
+        function backfillMyResponseTimes() {
+            const btn = document.getElementById('responseTimeBackfillBtn');
+            const label = document.getElementById('responseTimeBackfillBtnLabel');
+            if (btn) btn.disabled = true;
+            if (label) label.textContent = 'Backfilling\u2026';
+            google.script.run
+                .withSuccessHandler(res => {
+                    if (btn) btn.disabled = false;
+                    if (label) label.textContent = 'Backfill my history';
+                    if (!res || !res.success) {
+                        showToast((res && res.error) || 'Backfill failed', 'error');
+                        return;
+                    }
+                    if (res.added > 0) {
+                        showToast(`Backfilled ${res.added} response-time pair${res.added === 1 ? '' : 's'}${res.skipped ? ` (${res.skipped} already synced)` : ''}`, 'success');
+                    } else {
+                        showToast('Already up to date', 'info');
+                    }
+                    // Reload the chart so freshly-synced data appears
+                    refreshChartData();
+                })
+                .withFailureHandler(err => {
+                    if (btn) btn.disabled = false;
+                    if (label) label.textContent = 'Backfill my history';
+                    showToast('Backfill failed: ' + (err && err.message ? err.message : err), 'error');
+                })
+                .syncResponseTimesToCentral();
+        }
+
         function renderResponseTimeChart(data) {
             const ctx = document.getElementById('responseTimeChart');
             if (!ctx) return;
@@ -11824,11 +11883,11 @@
             const bannerMsg = document.getElementById('responseTimeScopeMsg');
             if (banner && bannerMsg) {
                 const scope = data && data._scope;
-                if (scope === 'team_aggregate_unavailable') {
-                    bannerMsg.textContent = 'Team-wide response-time aggregation is not yet available for this metric. Per-candidate timestamps live in each team member\u2019s personal sheet. Other charts on this page show the full team aggregate.';
+                if (scope === 'needs_backfill') {
+                    bannerMsg.textContent = 'No response-time data in the team analytics yet. You have personal history that can be backfilled \u2014 use the button below.';
                     banner.classList.remove('hidden');
                 } else if (scope === 'no_personal_sheet' || scope === 'no_email_logs') {
-                    bannerMsg.textContent = 'No outreach emails recorded yet. Response-time metrics will appear once you start sending outreach.';
+                    bannerMsg.textContent = 'No outreach emails recorded yet. Response-time metrics will appear once your team starts sending outreach.';
                     banner.classList.remove('hidden');
                 } else {
                     banner.classList.add('hidden');
