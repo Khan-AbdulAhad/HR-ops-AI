@@ -6172,8 +6172,27 @@ function sendBulkEmails(recipients, senderName, subject, htmlBody, jobId, opts) 
   }
 }
 
+// Returns the authenticated mailbox that Gmail.Users.Messages.send(..., 'me')
+// will actually send from. getEffectiveUser() is reliable in every GAS execution
+// context (web-app action, time-based trigger, onEdit). getActiveUser() can
+// return empty in trigger contexts — if that empty value lands in a MIME
+// `From: Name <>` header, Gmail rejects the message.
+function getSenderMailboxEmail() {
+  try {
+    const effective = Session.getEffectiveUser().getEmail();
+    if (effective) return effective;
+  } catch (e) {
+    // getEffectiveUser should always resolve, but guard anyway.
+  }
+  try {
+    return Session.getActiveUser().getEmail() || '';
+  } catch (e) {
+    return '';
+  }
+}
+
 function createMimeMessage(senderName, recipientEmail, subject, htmlBody) {
-  const userEmail = Session.getActiveUser().getEmail();
+  const userEmail = getSenderMailboxEmail();
   const nl = "\r\n";
   const encodedSubject = "=?utf-8?B?" + Utilities.base64Encode(subject, Utilities.Charset.UTF_8) + "?=";
   const encodedSender = "=?utf-8?B?" + Utilities.base64Encode(senderName || EMAIL_SENDER_NAME, Utilities.Charset.UTF_8) + "?=";
@@ -6277,6 +6296,11 @@ function batchModifyThreadLabels(threadIds, labelIds, token) {
  * This ensures AI replies show as the configured EMAIL_SENDER_NAME, not the actual email
  */
 function sendReplyWithSenderName(thread, replyBody, senderName, recipientEmail) {
+  // Declared at function scope so the catch block can read it. Previously declared
+  // with `let` inside the try block, which put it in a separate block scope — any
+  // read from the catch block threw ReferenceError, short-circuiting both the
+  // duplicate-send guard and the thread.reply() fallback below.
+  let sendSucceeded = false;
   try {
     const messages = thread.getMessages();
     const lastMessage = messages[messages.length - 1];
@@ -6292,18 +6316,23 @@ function sendReplyWithSenderName(thread, replyBody, senderName, recipientEmail) 
       const emailMatch = fromHeader.match(/<([^>]+)>/);
       recipientEmail = emailMatch ? emailMatch[1] : fromHeader.replace(/.*<|>.*/g, '');
     }
-    
+
     // Get Message-ID for threading
     const messageId = lastMessage.getHeader('Message-ID');
-    
-    const userEmail = Session.getActiveUser().getEmail();
+
+    // Use the effective user (the authenticated mailbox the Gmail API will
+    // actually send from). getEffectiveUser is reliable in every context
+    // — UI click, time-based trigger, onEdit — while getActiveUser can return
+    // empty in triggers (see lines 6956 and 7997). A malformed `From: Name <>`
+    // header can cause Gmail to reject the send.
+    const userEmail = getSenderMailboxEmail();
     const nl = "\r\n";
-    
+
     // Encode sender name and subject for UTF-8
     const encodedSender = "=?utf-8?B?" + Utilities.base64Encode(senderName || EMAIL_SENDER_NAME, Utilities.Charset.UTF_8) + "?=";
     const replySubject = subject.startsWith('Re:') ? subject : 'Re: ' + subject;
     const encodedSubject = "=?utf-8?B?" + Utilities.base64Encode(replySubject, Utilities.Charset.UTF_8) + "?=";
-    
+
     // Build MIME message with proper threading headers
     let mime = `From: ${encodedSender} <${userEmail}>${nl}`;
     mime += `To: ${recipientEmail}${nl}`;
@@ -6313,15 +6342,9 @@ function sendReplyWithSenderName(thread, replyBody, senderName, recipientEmail) 
     mime += `MIME-Version: 1.0${nl}`;
     mime += `Content-Type: text/html; charset=UTF-8${nl}${nl}`;
     mime += `${replyBody.replace(/\n/g, '<br>')}${nl}`;
-    
+
     const rawMessage = Utilities.base64EncodeWebSafe(mime, Utilities.Charset.UTF_8);
-    
-    // Send as reply to existing thread
-    // FIX: Track whether send succeeded to prevent duplicate email in fallback.
-    // Previously, if Gmail.Users.Messages.send() succeeded but something threw
-    // after it (or it threw after partially sending), the catch block would
-    // call thread.reply() — sending a SECOND copy of the same email.
-    let sendSucceeded = false;
+
     Gmail.Users.Messages.send({
       raw: rawMessage,
       threadId: threadId
@@ -17058,6 +17081,39 @@ function createAllMissingTriggers() {
   } catch (e) {
     console.error("Error creating triggers:", e);
     return { success: false, error: e.message };
+  }
+}
+
+/**
+ * Returns a consolidated setup status for the current user.
+ * Used by the frontend to decide whether to auto-open the Config modal for
+ * first-time users who haven't set their sheet URLs or installed triggers.
+ * On error this fails safe by reporting isComplete=true so we don't nag.
+ */
+function getSetupStatus() {
+  try {
+    const props = PropertiesService.getUserProperties();
+    const hasSheetUrl = !!((props.getProperty('LOG_SHEET_URL') || '').trim());
+    const hasJobsUrl = !!((props.getProperty('JOBS_SHEET_URL') || '').trim());
+
+    const existingFns = new Set(
+      ScriptApp.getProjectTriggers().map(t => t.getHandlerFunction())
+    );
+    const missingTriggers = REQUIRED_TRIGGERS
+      .map(t => t.functionName)
+      .filter(n => !existingFns.has(n));
+
+    return {
+      success: true,
+      hasSheetUrl: hasSheetUrl,
+      hasJobsUrl: hasJobsUrl,
+      missingTriggers: missingTriggers,
+      missingTriggerCount: missingTriggers.length,
+      isComplete: hasSheetUrl && hasJobsUrl && missingTriggers.length === 0
+    };
+  } catch (e) {
+    console.error('getSetupStatus error:', e);
+    return { success: false, error: e.message, isComplete: true };
   }
 }
 
