@@ -1266,39 +1266,49 @@ function logDataConsumption(source, context, byteSize, durationMs, details) {
  * @param {number} jobId - The Job ID to get logs for
  * @returns {Map} Map of developer IDs to their manual sent info
  */
+// Per-execution memo for Manual_Sent_Logs. Invalidated by invalidateManualSentLogsMemo()
+// after any append to the sheet (see logManualSend / similar write paths).
+let _manualSentLogsMemo = new Map();
+function invalidateManualSentLogsMemo() { _manualSentLogsMemo = new Map(); }
+
 function getManualSentLogs(jobId) {
-  const url = getStoredSheetUrl();
-  if (!url) return new Map();
+  const key = String(jobId);
+  if (_manualSentLogsMemo.has(key)) return _manualSentLogsMemo.get(key);
 
   try {
-    const ss = SpreadsheetApp.openByUrl(url);
+    const ss = getCachedSpreadsheet();
+    if (!ss) return new Map();
     const sheet = ss.getSheetByName("Manual_Sent_Logs");
-    if (!sheet) return new Map();
+    if (!sheet) {
+      const empty = new Map();
+      _manualSentLogsMemo.set(key, empty);
+      return empty;
+    }
 
     const lastRow = sheet.getLastRow();
-    if (lastRow <= 1) return new Map();
-
-    const data = sheet.getDataRange().getValues();
     const logMap = new Map();
+    if (lastRow <= 1) {
+      _manualSentLogsMemo.set(key, logMap);
+      return logMap;
+    }
 
-    for (let i = 1; i < data.length; i++) {
-      // Column B (index 1) = Job ID, Column C (index 2) = Developer ID
-      if (String(data[i][1]) === String(jobId)) {
-        const devId = String(data[i][2]);
-        const note = data[i][5] || '';
-
-        if (!logMap.has(devId)) {
-          logMap.set(devId, { count: 0, note: note });
-        }
-        logMap.get(devId).count++;
-        // Keep the most recent note
-        if (note) {
-          logMap.get(devId).note = note;
-        }
-      }
+    // Only read columns B..F (Job ID, Developer ID, Email, Name, Note). Skipping
+    // Timestamp and Marked By keeps the payload small on large Manual_Sent_Logs sheets.
+    // Clamp width to actual sheet columns so older deployments with truncated schemas
+    // don't throw "invalid range" here.
+    const numCols = Math.max(2, Math.min(5, sheet.getLastColumn() - 1));
+    const data = sheet.getRange(2, 2, lastRow - 1, numCols).getValues();
+    for (let i = 0; i < data.length; i++) {
+      if (String(data[i][0]) !== key) continue;      // Job ID (col B)
+      const devId = String(data[i][1]);              // Developer ID (col C)
+      const note = (numCols >= 5 ? data[i][4] : '') || ''; // Note (col F, if present)
+      if (!logMap.has(devId)) logMap.set(devId, { count: 0, note: note });
+      logMap.get(devId).count++;
+      if (note) logMap.get(devId).note = note;       // keep most recent note
     }
 
     debugLog(`Found ${logMap.size} manual sent entries for Job ${jobId}`);
+    _manualSentLogsMemo.set(key, logMap);
     return logMap;
   } catch(e) {
     console.error("Error reading Manual_Sent_Logs:", e);
@@ -1329,19 +1339,23 @@ function markAsManualSent(developerIds, jobId, note) {
     const timestamp = new Date();
     let marked = 0;
 
-    developerIds.forEach(devId => {
-      // Schema: Timestamp, Job ID, Developer ID, Email, Name, Note, Marked By
-      sheet.appendRow([
-        timestamp,
-        jobId,
-        devId,
-        '',  // Email - optional, can be filled later
-        '',  // Name - optional
-        note || 'Manually marked as sent',
-        markedBy
-      ]);
-      marked++;
-    });
+    // Batch the rows into a single setValues write instead of per-row appendRow.
+    // appendRow forces a flush per call; a single range write is dramatically cheaper
+    // when marking many developers at once.
+    const rows = developerIds.map(devId => [
+      timestamp,
+      jobId,
+      devId,
+      '',  // Email - optional, can be filled later
+      '',  // Name - optional
+      note || 'Manually marked as sent',
+      markedBy
+    ]);
+    if (rows.length > 0) {
+      sheet.getRange(sheet.getLastRow() + 1, 1, rows.length, rows[0].length).setValues(rows);
+      marked = rows.length;
+      invalidateManualSentLogsMemo();
+    }
 
     SpreadsheetApp.flush();
 
@@ -5275,18 +5289,24 @@ function getDevelopers(jobId, selectedStages) {
     unique_ids AS (
       SELECT DISTINCT developer_id FROM unique_devs
     ),
-    -- FIXED: Properly aggregate agency data with developer_type and review_status filter
+    -- Aggregate agency data, scoped to the candidate set so the external DB does not
+    -- scan/GROUP BY every row of ms2_agency_devs on every fetch. This was the primary
+    -- driver of the EXTERNAL_QUERY slowdown on recent jobs (2-3 minute durations for
+    -- tiny result sets).
     agency_info AS (
       SELECT
-        dev_id,
-        IF(MAX(IF(developer_type = 'sub_contractor', 1, 0)) = 1, 'Sub Contractor', 'Contractor') AS agency_sub_con,
+        ad.dev_id,
+        IF(MAX(IF(ada.developer_type = 'sub_contractor', 1, 0)) = 1, 'Sub Contractor', 'Contractor') AS agency_sub_con,
         MAX(a.name) AS agency_name
       FROM ms2_agency_devs ad
       LEFT JOIN ms2_agencies a ON ad.agency_id = a.id
       LEFT JOIN ms2_agency_devs_applications ada ON ad.id = ada.agency_dev_id
-      WHERE review_status = 'approved'
-      GROUP BY dev_id
+      WHERE ada.review_status = 'approved'
+        AND ad.dev_id IN (SELECT developer_id FROM unique_ids)
+      GROUP BY ad.dev_id
     ),
+    -- Drive from unique_ids so the optimizer only materializes user/country/phone rows
+    -- for the small candidate set instead of joining the full user_list_v4 first.
     dev_details AS (
       SELECT
         d.id,
@@ -5301,12 +5321,12 @@ function getDevelopers(jobId, selectedStages) {
         COALESCE(c.name, '') AS developer_country,
         COALESCE(sl.phone_country_code, '') AS phone_country_code,
         COALESCE(sl.phone_number, '') AS phone_number
-      FROM user_list_v4 d
+      FROM unique_ids u
+      INNER JOIN user_list_v4 d ON d.id = u.developer_id
       LEFT JOIN agency_info ai ON d.id = ai.dev_id
       LEFT JOIN developer_detail dd ON dd.user_id = d.id
       LEFT JOIN tpm_countries c ON c.id = dd.country_id
       LEFT JOIN submit_list_v4 sl ON sl.uid = d.id
-      WHERE d.id IN (SELECT developer_id FROM unique_ids)
     )
     SELECT ud.developer_id, d.full_name, d.email, ud.stage_label AS status, d.candidate_status, d.agency_name, d.developer_country, d.phone_country_code, d.phone_number
     FROM unique_devs ud
@@ -5501,6 +5521,7 @@ function getDevelopersByIds(developerIds, jobId) {
         FROM ms2_agency_devs agd
         LEFT JOIN ms2_agency_devs_applications ada
           ON agd.id = ada.agency_dev_id
+        WHERE agd.dev_id IN (${idList})
       ) x
       LEFT JOIN ms2_agencies a
         ON x.agency_id = a.id
@@ -5597,21 +5618,45 @@ function getDevelopersByIds(developerIds, jobId) {
   }
 }
 
+// Per-execution memo so repeat calls in the same run skip the sheet read.
+// Invalidated by invalidateEmailLogsMemo() after writes to Email_Logs.
+let _emailLogsMemo = new Map();
+function invalidateEmailLogsMemo() { _emailLogsMemo = new Map(); }
+
 function getEmailLogs(jobId) {
-  const url = getStoredSheetUrl();
-  if (!url) return null;
-  const ss = SpreadsheetApp.openByUrl(url);
+  const key = String(jobId);
+  if (_emailLogsMemo.has(key)) return _emailLogsMemo.get(key);
+
+  const ss = getCachedSpreadsheet();
+  if (!ss) return null;
   const sheet = ss.getSheetByName("Email_Logs");
-  if (!sheet) return new Map();
-  const data = sheet.getDataRange().getValues();
-  const logMap = new Map();
-  for (let i = 1; i < data.length; i++) {
-    if (String(data[i][1]) === String(jobId)) {
-      const email = String(data[i][2]).toLowerCase();
-      if (!logMap.has(email)) logMap.set(email, {count: 0, type: data[i][5]});
-      logMap.get(email).count++;
-    }
+  if (!sheet) {
+    const empty = new Map();
+    _emailLogsMemo.set(key, empty);
+    return empty;
   }
+
+  const lastRow = sheet.getLastRow();
+  const logMap = new Map();
+  if (lastRow < 2) {
+    _emailLogsMemo.set(key, logMap);
+    return logMap;
+  }
+
+  // Only read columns B..F (Job ID, Email, Name, Thread ID, Type). Skipping Timestamp
+  // and trailing columns cuts payload dramatically on large Email_Logs sheets.
+  // Clamp width to actual sheet columns so older deployments with truncated schemas
+  // don't throw "invalid range" here.
+  const numCols = Math.max(2, Math.min(5, sheet.getLastColumn() - 1));
+  const data = sheet.getRange(2, 2, lastRow - 1, numCols).getValues();
+  for (let i = 0; i < data.length; i++) {
+    if (String(data[i][0]) !== key) continue;      // Job ID (col B)
+    const email = String(data[i][1]).toLowerCase(); // Email (col C)
+    const type = numCols >= 5 ? data[i][4] : '';    // Type (col F, if present)
+    if (!logMap.has(email)) logMap.set(email, { count: 0, type: type });
+    logMap.get(email).count++;
+  }
+  _emailLogsMemo.set(key, logMap);
   return logMap;
 }
 
@@ -6022,6 +6067,7 @@ function sendBulkEmails(recipients, senderName, subject, htmlBody, jobId, opts) 
   if (logRows.length > 0) {
     try {
       chunkedSetValues(logSheet, logRows);
+      invalidateEmailLogsMemo();
     } catch (logWriteErr) {
       console.error("Email_Logs batch write error:", logWriteErr);
       errors.push("Email logs may not have been recorded: " + logWriteErr.message);
@@ -15459,6 +15505,7 @@ function sendFollowUpEmail(email, jobId, threadId, name, followUpNumber) {
               }
             }
             logSheet.appendRow([new Date(), jobId, email, name, threadId, `Follow-up ${followUpNumber}`, region]);
+            invalidateEmailLogsMemo();
           }
         }
 
@@ -15641,6 +15688,7 @@ function sendDataGatheringFollowUpEmail(email, jobId, threadId, name, followUpNu
               }
             }
             logSheet.appendRow([new Date(), jobId, email, name, threadId, `Data Follow-up ${followUpNumber}`, region]);
+            invalidateEmailLogsMemo();
           }
         }
 
