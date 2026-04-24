@@ -23724,18 +23724,21 @@ function getMyJobs(filterStatus) {
  */
 function addJobAssignment(jobId, notes, jobName, tm, assignToEmail) {
   try {
-    if (!jobId) return { success: false, error: 'Job ID is required' };
+    const jobIdStr = (jobId === null || jobId === undefined) ? '' : String(jobId).trim();
+    // Reject anything that isn't a positive integer — keeps "1e5", "12.5", "", "0", "-3" out of the sheet.
+    if (!/^[1-9]\d*$/.test(jobIdStr)) {
+      return { success: false, error: 'Valid positive Job ID is required' };
+    }
 
     const sheet = getJobAssignmentsSheet();
     if (!sheet) return { success: false, error: 'Cannot access central Job_Assignments sheet' };
     const userEmail = Session.getActiveUser().getEmail();
-    const jobIdStr = String(jobId);
 
     // Determine the target agent (self or team member)
     var targetEmail = userEmail;
     var assignedByNote = '';
-    if (assignToEmail && assignToEmail.trim()) {
-      var targetLower = assignToEmail.toLowerCase().trim();
+    if (assignToEmail && String(assignToEmail).trim()) {
+      var targetLower = String(assignToEmail).toLowerCase().trim();
       if (targetLower !== userEmail.toLowerCase()) {
         // Verify the caller has TL/Manager/Admin role
         var access = checkAnalyticsAccess();
@@ -23756,52 +23759,63 @@ function addJobAssignment(jobId, notes, jobName, tm, assignToEmail) {
       }
     }
 
-    // Check if this job is already active for the target user
-    if (sheet.getLastRow() > 1) {
-      const data = sheet.getDataRange().getValues();
-      for (let i = 1; i < data.length; i++) {
-        if (String(data[i][0]).toLowerCase() === targetEmail.toLowerCase() &&
-            String(data[i][1]) === jobIdStr &&
-            String(data[i][2] || 'Active') === 'Active') {
-          var whose = (targetEmail === userEmail) ? 'your' : targetEmail + "'s";
-          return { success: false, error: 'Job ' + jobId + ' is already active in ' + whose + ' list' };
+    // Serialize the read-then-write so concurrent submits can't both pass the
+    // duplicate check and both append rows.
+    const lock = LockService.getScriptLock();
+    if (!lock.tryLock(10000)) {
+      return { success: false, error: 'System is busy, please try again in a moment' };
+    }
+    try {
+      // Check if this job is already active for the target user
+      if (sheet.getLastRow() > 1) {
+        const data = sheet.getDataRange().getValues();
+        for (let i = 1; i < data.length; i++) {
+          if (String(data[i][0]).toLowerCase() === targetEmail.toLowerCase() &&
+              String(data[i][1]).trim() === jobIdStr &&
+              String(data[i][2] || 'Active') === 'Active') {
+            var whose = (targetEmail.toLowerCase() === userEmail.toLowerCase()) ? 'your' : targetEmail + "'s";
+            return { success: false, error: 'Job ' + jobIdStr + ' is already active in ' + whose + ' list' };
+          }
         }
       }
-    }
 
-    // Format notes in structured format if provided
-    var formattedNotes = '';
-    var today = new Date().toISOString().split('T')[0];
-    if (assignedByNote) {
-      formattedNotes = 'N|' + today + '|' + assignedByNote + '|';
-    }
-    if (notes && notes.trim()) {
-      var noteEntry = 'N|' + today + '|' + notes.trim() + '|';
-      formattedNotes = formattedNotes ? formattedNotes + '\n' + noteEntry : noteEntry;
-    }
+      // Format notes in structured format if provided
+      var formattedNotes = '';
+      var today = new Date().toISOString().split('T')[0];
+      if (assignedByNote) {
+        formattedNotes = 'N|' + today + '|' + assignedByNote + '|';
+      }
+      if (notes && String(notes).trim()) {
+        var noteEntry = 'N|' + today + '|' + String(notes).trim() + '|';
+        formattedNotes = formattedNotes ? formattedNotes + '\n' + noteEntry : noteEntry;
+      }
 
-    // Add new job assignment (columns: Email, JobID, Status, AssignedDate, ClosedDate, Notes, JobName, TM, Transfer_Info)
-    sheet.appendRow([
-      targetEmail,
-      jobIdStr,
-      'Active',
-      new Date(),
-      '',
-      formattedNotes,
-      jobName || '',
-      tm || '',
-      ''  // Transfer_Info (empty - not a transfer)
-    ]);
+      // Add new job assignment (columns: Email, JobID, Status, AssignedDate, ClosedDate, Notes, JobName, TM, Transfer_Info)
+      sheet.appendRow([
+        targetEmail,
+        jobIdStr,
+        'Active',
+        new Date(),
+        '',
+        formattedNotes,
+        (jobName || '').toString().trim(),
+        (tm || '').toString().trim(),
+        ''  // Transfer_Info (empty - not a transfer)
+      ]);
+      SpreadsheetApp.flush();
+    } finally {
+      lock.releaseLock();
+    }
 
     // Log to analytics
-    var logDetail = (targetEmail !== userEmail)
+    var logDetail = (targetEmail.toLowerCase() !== userEmail.toLowerCase())
       ? 'Assigned by ' + userEmail + ' to ' + targetEmail
       : 'Manual assignment';
     logAnalytics('job_assigned', jobIdStr, 1, logDetail);
 
-    var msg = (targetEmail !== userEmail)
-      ? 'Job ' + jobId + ' assigned to ' + targetEmail
-      : 'Job ' + jobId + ' added to your list';
+    var msg = (targetEmail.toLowerCase() !== userEmail.toLowerCase())
+      ? 'Job ' + jobIdStr + ' assigned to ' + targetEmail
+      : 'Job ' + jobIdStr + ' added to your list';
     return { success: true, message: msg };
   } catch (e) {
     console.error('Error in addJobAssignment:', e);
