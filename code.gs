@@ -21309,13 +21309,18 @@ function removeTOSFromTL(tlEmail, tosEmail) {
  * @returns {Array} List of emails this user can see
  */
 function getTeamMembersForUser(userEmail, userRole) {
+  // Downstream readers compare against lowercased row emails, so every return
+  // path here must emit lowercased addresses. The main path lowercases below
+  // (line `[userEmail.toLowerCase()]`); the fallbacks do the same to avoid a
+  // silent "TL sees zero rows" when the hierarchy sheet is unavailable.
+  const selfLower = String(userEmail || '').toLowerCase();
   try {
     const ss = getAnalyticsSpreadsheet();
-    if (!ss) return [userEmail];
+    if (!ss) return [selfLower];
 
     const sheet = ss.getSheetByName('Team_Hierarchy');
     if (!sheet || sheet.getLastRow() <= 1) {
-      return [userEmail]; // No hierarchy, can only see own data
+      return [selfLower]; // No hierarchy, can only see own data
     }
 
     const data = sheet.getDataRange().getValues();
@@ -21369,7 +21374,7 @@ function getTeamMembersForUser(userEmail, userRole) {
     return visibleEmails;
   } catch (e) {
     console.error("Error getting team members for user:", e);
-    return [userEmail];
+    return [selfLower];
   }
 }
 
