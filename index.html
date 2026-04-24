@@ -4294,6 +4294,11 @@
                 <h3 class="font-bold text-lg mb-4 text-slate-800 dark:text-white">Settings</h3>
             </div>
             <div class="p-6 pt-0 overflow-y-auto flex-1 space-y-4">
+                <div id="setupWelcomeBanner" class="hidden bg-blue-50 border border-blue-200 text-blue-800 rounded-lg p-3 text-sm dark:bg-blue-900/30 dark:border-blue-700 dark:text-blue-100">
+                    <div class="font-semibold mb-1"><i class="fa-solid fa-circle-info mr-1"></i>Finish setup before using the app</div>
+                    <p class="text-xs mb-2">Triggers you install here run <b>under your own Gmail account</b>, so every follow-up and AI reply is sent from your mailbox — not anyone else's.</p>
+                    <ul id="setupWelcomeItems" class="list-disc ml-5 text-xs space-y-0.5"></ul>
+                </div>
                 <div>
                     <label class="block text-xs font-bold uppercase text-slate-500 mb-1">Database URL</label>
                     <input id="sheetUrl" class="input-field" placeholder="Google Sheet URL">
@@ -5953,6 +5958,16 @@
             modal.classList.remove('hidden');
             modal.classList.add('modal-animate-enter');
             trapFocus(modal);
+            // Hide the first-run onboarding banner on manual opens — the
+            // setup gate (checkFirstRunSetup) re-shows it only when needed.
+            // Also clear any amber highlight rings left from the gate so a
+            // manual reopen starts visually clean.
+            const banner = document.getElementById('setupWelcomeBanner');
+            if (banner) banner.classList.add('hidden');
+            ['sheetUrl', 'jobsSheetUrl', 'createAllTriggersBtn'].forEach(id => {
+                const el = document.getElementById(id);
+                if (el) el.classList.remove('ring-2', 'ring-amber-400', 'ring-offset-2');
+            });
             refreshTriggerStatus(); // Load trigger status when modal opens
             loadFollowUpTimingConfig(); // Load follow-up timing settings
             loadEmailSenderConfig(); // Load email sender settings
@@ -8803,7 +8818,69 @@
             // Load DB URL
             google.script.run.withSuccessHandler(url => document.getElementById('sheetUrl').value = url).getStoredSheetUrl();
             google.script.run.withSuccessHandler(url => document.getElementById('jobsSheetUrl').value = url).getStoredJobsSheetUrl();
+            // First-run setup gate: if the user hasn't set their sheet URLs
+            // or installed the hourly triggers yet, auto-open Config and
+            // highlight what's missing. Skipped silently on any error.
+            checkFirstRunSetup();
         });
+
+        function checkFirstRunSetup() {
+            google.script.run
+                .withSuccessHandler(status => {
+                    if (!status || status.isComplete) return;
+                    showSetupOnboarding(status);
+                })
+                .withFailureHandler(err => {
+                    console.error('Setup check failed:', err);
+                })
+                .getSetupStatus();
+        }
+
+        function showSetupOnboarding(status) {
+            const items = [];
+            if (!status.hasSheetUrl) items.push('Enter your <b>Database URL</b> (the main Google Sheet).');
+            if (!status.hasJobsUrl)  items.push('Enter your <b>Jobs Sheet URL</b>.');
+            if (status.missingTriggerCount > 0) {
+                items.push(`Install ${status.missingTriggerCount} automation trigger${status.missingTriggerCount === 1 ? '' : 's'} — click <b>Create Triggers</b> below.`);
+            }
+            if (!items.length) return;
+
+            openConfigModal();
+
+            // Unhide the welcome banner (openConfigModal just hid it) and fill
+            // in the specific missing steps.
+            const banner = document.getElementById('setupWelcomeBanner');
+            const list = document.getElementById('setupWelcomeItems');
+            if (banner && list) {
+                list.innerHTML = items.map(t => `<li>${t}</li>`).join('');
+                banner.classList.remove('hidden');
+            }
+
+            // Add a subtle amber ring to each missing control so the user's
+            // eye goes straight to what they need to touch.
+            const ring = ['ring-2', 'ring-amber-400', 'ring-offset-2'];
+            const highlight = (id) => {
+                const el = document.getElementById(id);
+                if (el) el.classList.add(...ring);
+            };
+            if (!status.hasSheetUrl) highlight('sheetUrl');
+            if (!status.hasJobsUrl)  highlight('jobsSheetUrl');
+            if (status.missingTriggerCount > 0) {
+                // The Create Triggers button is inside a section that starts
+                // hidden; refreshTriggerStatus unhides it once the trigger
+                // list is fetched. Wait for that, then highlight.
+                const tryHighlightBtn = (tries = 0) => {
+                    const btn = document.getElementById('createAllTriggersBtn');
+                    const section = document.getElementById('createTriggersSection');
+                    if (btn && section && !section.classList.contains('hidden')) {
+                        btn.classList.add(...ring);
+                        return;
+                    }
+                    if (tries < 20) setTimeout(() => tryHighlightBtn(tries + 1), 150);
+                };
+                tryHighlightBtn();
+            }
+        }
 
         // --- RESTORED COMPLEX LOGIC ---
         

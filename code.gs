@@ -16966,6 +16966,39 @@ function createAllMissingTriggers() {
 }
 
 /**
+ * Returns a consolidated setup status for the current user.
+ * Used by the frontend to decide whether to auto-open the Config modal for
+ * first-time users who haven't set their sheet URLs or installed triggers.
+ * On error this fails safe by reporting isComplete=true so we don't nag.
+ */
+function getSetupStatus() {
+  try {
+    const props = PropertiesService.getUserProperties();
+    const hasSheetUrl = !!((props.getProperty('LOG_SHEET_URL') || '').trim());
+    const hasJobsUrl = !!((props.getProperty('JOBS_SHEET_URL') || '').trim());
+
+    const existingFns = new Set(
+      ScriptApp.getProjectTriggers().map(t => t.getHandlerFunction())
+    );
+    const missingTriggers = REQUIRED_TRIGGERS
+      .map(t => t.functionName)
+      .filter(n => !existingFns.has(n));
+
+    return {
+      success: true,
+      hasSheetUrl: hasSheetUrl,
+      hasJobsUrl: hasJobsUrl,
+      missingTriggers: missingTriggers,
+      missingTriggerCount: missingTriggers.length,
+      isComplete: hasSheetUrl && hasJobsUrl && missingTriggers.length === 0
+    };
+  } catch (e) {
+    console.error('getSetupStatus error:', e);
+    return { success: false, error: e.message, isComplete: true };
+  }
+}
+
+/**
  * Delete a specific trigger by function name
  * @param {string} functionName - The function whose trigger to delete
  * @returns {Object} Result of deletion
