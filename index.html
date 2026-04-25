@@ -19,8 +19,10 @@
     <script src="https://code.jquery.com/jquery-3.7.0.js"></script>
     <!-- FontAwesome -->
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
-    <!-- Google Fonts -->
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <!-- Google Fonts: Inter w/ ExtraBold + Black for headers -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
     <!-- Chart.js -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 
@@ -30,9 +32,18 @@
             theme: {
                 extend: {
                     fontFamily: {
-                        sans: ['Inter', 'sans-serif'],
+                        sans: ['Inter', 'system-ui', '-apple-system', 'Segoe UI', 'sans-serif'],
                     },
                     colors: {
+                        // Brand palette: Deep Indigo primary, Slate text/bg, Emerald success
+                        brand: {
+                            indigo:       '#4f46e5',
+                            indigoStrong: '#4338ca',
+                            indigoSoft:   '#eef2ff',
+                            slate:        '#0f172a',
+                            emerald:      '#10b981',
+                            emeraldSoft:  '#ecfdf5',
+                        },
                         slate: {
                             50: '#f8fafc',
                             100: '#f1f5f9',
@@ -45,56 +56,171 @@
                             800: '#1e293b',
                             900: '#0f172a',
                         }
+                    },
+                    letterSpacing: {
+                        'tightest-display': '-0.05em',
+                        'ui-label':         '0.2em',
+                    },
+                    boxShadow: {
+                        'brand-xl':  '0 20px 35px -10px rgba(15, 23, 42, 0.10), 0 8px 16px -8px rgba(15, 23, 42, 0.06)',
+                        'brand-lg':  '0 12px 24px -8px rgba(15, 23, 42, 0.08), 0 4px 8px -4px rgba(15, 23, 42, 0.04)',
+                        'brand-pop': '0 24px 48px -12px rgba(79, 70, 229, 0.25)',
+                    },
+                    borderRadius: {
+                        'card': '24px',
                     }
                 }
             }
         }
     </script>
     <style>
-        body { font-family: 'Inter', sans-serif; }
+        /* ============================================================== */
+        /*  REDESIGNED DESIGN SYSTEM — Deep Indigo / Slate / Emerald       */
+        /*  Palette : #4f46e5 primary · #0f172a text · #10b981 success     */
+        /*  Type    : Inter, ExtraBold/Black headers, -0.05em tracking     */
+        /*  UI labels: uppercase, 10px, tracking 0.2em                     */
+        /*  Cards  : 24px radius, shadow-xl shadow-slate-200/50            */
+        /* ============================================================== */
+        :root {
+            --brand-indigo:        #4f46e5;
+            --brand-indigo-strong: #4338ca;
+            --brand-indigo-soft:   #eef2ff;
+            --brand-slate:         #0f172a;
+            --brand-slate-2:       #1e293b;
+            --brand-emerald:       #10b981;
+            --brand-emerald-soft:  #ecfdf5;
+            --brand-border:        #e2e8f0;
+            --brand-border-soft:   #eef2f6;
+            --brand-shadow-xl:     0 20px 35px -10px rgba(15, 23, 42, 0.10), 0 8px 16px -8px rgba(15, 23, 42, 0.06);
+            --brand-shadow-pop:    0 24px 48px -12px rgba(79, 70, 229, 0.25);
+            --brand-radius-card:   24px;
+            --brand-radius-pill:   9999px;
+        }
+        .dark {
+            --brand-border:        #1f2a3d;
+            --brand-border-soft:   #1a2335;
+            --brand-shadow-xl:     0 20px 35px -10px rgba(0, 0, 0, 0.5), 0 8px 16px -8px rgba(0, 0, 0, 0.35);
+        }
+
+        body {
+            font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+            font-feature-settings: 'cv11', 'ss01', 'ss03';
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+            color: var(--brand-slate);
+        }
+
+        /* High-contrast display headers (Black weight, tight tracking) */
+        .display-xl,
+        .display-lg,
+        .display,
+        h1.display, h2.display, h3.display {
+            font-weight: 900;
+            letter-spacing: -0.05em;
+            line-height: 1.05;
+            color: var(--brand-slate);
+        }
+        .display-xl { font-size: 2.25rem; }   /* 36px */
+        .display-lg { font-size: 1.75rem; }   /* 28px */
+        .display    { font-size: 1.25rem; font-weight: 800; letter-spacing: -0.04em; }
+        .dark .display-xl, .dark .display-lg, .dark .display { color: #f8fafc; }
+
+        /* Stat numerals — even tighter for punch */
+        .stat-numeral {
+            font-weight: 900;
+            letter-spacing: -0.05em;
+            line-height: 1;
+            color: var(--brand-slate);
+            font-variant-numeric: tabular-nums;
+        }
+        .dark .stat-numeral { color: #f8fafc; }
+
+        /* UI labels — uppercase 10px tracking 0.2em */
+        .ui-label,
+        .text-ui-label {
+            font-size: 10px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.2em;
+            color: #64748b;
+        }
+        .dark .ui-label, .dark .text-ui-label { color: #94a3b8; }
+        .ui-label-indigo { color: var(--brand-indigo); }
+        .ui-label-emerald { color: var(--brand-emerald); }
+
+        /* Soft-grey hairline — used on cards/containers */
+        .brand-hairline { border: 1px solid var(--brand-border); }
+
+        /* ===== Sidebar Navigation (deep indigo accent) ===== */
+        .nav-tab {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            padding: 0.75rem 0.95rem;
+            margin-bottom: 0.25rem;
+            border-radius: 14px;
+            cursor: pointer;
+            transition: background-color .18s ease, color .18s ease, box-shadow .18s ease, transform .18s ease;
+            color: #94a3b8;
+            font-weight: 600;
+            font-size: 0.8125rem;
+            letter-spacing: -0.005em;
+            position: relative;
+        }
+        .nav-tab > i { color: #64748b; transition: color .18s ease; }
+        .nav-tab:hover {
+            background-color: rgba(79, 70, 229, 0.10);
+            color: #ffffff;
+        }
+        .nav-tab:hover > i { color: #c7d2fe; }
+        .nav-tab.active {
+            background: linear-gradient(135deg, #4f46e5 0%, #4338ca 100%);
+            color: #ffffff;
+            box-shadow: 0 8px 20px -8px rgba(79, 70, 229, 0.55), inset 0 1px 0 rgba(255,255,255,0.08);
+        }
+        .nav-tab.active > i { color: #ffffff; }
+        .nav-tab.active::before {
+            content: '';
+            position: absolute;
+            left: -16px; top: 50%;
+            transform: translateY(-50%);
+            width: 3px; height: 22px;
+            border-radius: 4px;
+            background: #a5b4fc;
+            box-shadow: 0 0 12px rgba(165, 180, 252, 0.7);
+        }
         
-        /* Sidebar Navigation Styles */
-        .nav-tab { 
-            display: flex; 
-            align-items: center; 
-            gap: 0.75rem; 
-            padding: 0.75rem 1rem; 
-            margin-bottom: 0.5rem;
-            border-radius: 0.5rem; 
-            cursor: pointer; 
-            transition: all 0.2s; 
-            color: #94a3b8; /* slate-400 */
-            font-weight: 500;
-            font-size: 0.875rem;
-        }
-        .nav-tab:hover { 
-            background-color: #1e293b; /* slate-800 */
-            color: white; 
-        }
-        .nav-tab.active { 
-            background-color: #2563eb; /* blue-600 */
-            color: white; 
-            box-shadow: 0 4px 6px -1px rgba(37, 99, 235, 0.1), 0 2px 4px -1px rgba(37, 99, 235, 0.06);
-        }
-        
-        /* ===== Modern Glassmorphism Stat Cards ===== */
+        /* ===== Stat Cards (redesigned: 24px radii, shadow-xl, soft borders) ===== */
         .stat-card {
             position: relative;
             overflow: hidden;
-            background: rgba(255, 255, 255, 0.85);
-            backdrop-filter: blur(12px);
-            -webkit-backdrop-filter: blur(12px);
-            border-radius: 16px;
-            padding: 1.25rem;
-            border: 1px solid rgba(255, 255, 255, 0.6);
-            transition: transform 0.25s ease, box-shadow 0.25s ease;
-            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+            background: #ffffff;
+            border-radius: var(--brand-radius-card);
+            padding: 1.5rem 1.5rem 1.4rem;
+            border: 1px solid var(--brand-border);
+            transition: transform .25s cubic-bezier(.16,1,.3,1), box-shadow .25s cubic-bezier(.16,1,.3,1), border-color .2s ease;
+            box-shadow: var(--brand-shadow-xl);
+        }
+        .stat-card h2 {
+            font-weight: 900;
+            letter-spacing: -0.05em;
+            color: var(--brand-slate);
+            font-variant-numeric: tabular-nums;
+        }
+        .stat-card p,
+        .stat-card .ui-label {
+            font-size: 10px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.2em;
+            color: #64748b;
         }
         .dark .stat-card {
-            background: rgba(30, 41, 59, 0.8);
-            border-color: rgba(71, 85, 105, 0.4);
+            background: #1e293b;
+            border-color: rgba(148, 163, 184, 0.12);
         }
-        .dark .stat-card h2 { color: #f1f5f9; }
+        .dark .stat-card h2 { color: #f8fafc; }
+        .dark .stat-card p { color: #94a3b8; }
         .stat-card-glow {
             position: absolute;
             top: -30px;
@@ -114,14 +240,15 @@
         .stat-glow-teal { background: #14b8a6; }
         .stat-glow-red { background: #ef4444; }
         .stat-glow-green { background: #22c55e; }
-        /* Stat card color accents (left border) */
-        .stat-card-slate { border-left: 3px solid #64748b; }
-        .stat-card-blue { border-left: 3px solid #3b82f6; }
-        .stat-card-amber { border-left: 3px solid #f59e0b; }
-        .stat-card-teal { border-left: 3px solid #14b8a6; }
-        .stat-card-slate-alt { border-left: 3px solid #94a3b8; }
-        .stat-card-red { border-left: 3px solid #ef4444; }
-        .stat-card-green { border-left: 3px solid #22c55e; }
+        /* Stat card color accents — left bar uses brand indigo for primary,
+           emerald for success/completed, soft greys elsewhere. */
+        .stat-card-slate      { box-shadow: inset 4px 0 0 #94a3b8, var(--brand-shadow-xl); }
+        .stat-card-blue       { box-shadow: inset 4px 0 0 var(--brand-indigo), var(--brand-shadow-xl); }
+        .stat-card-amber      { box-shadow: inset 4px 0 0 #f59e0b, var(--brand-shadow-xl); }
+        .stat-card-teal       { box-shadow: inset 4px 0 0 var(--brand-emerald), var(--brand-shadow-xl); }
+        .stat-card-slate-alt  { box-shadow: inset 4px 0 0 #cbd5e1, var(--brand-shadow-xl); }
+        .stat-card-red        { box-shadow: inset 4px 0 0 #ef4444, var(--brand-shadow-xl); }
+        .stat-card-green      { box-shadow: inset 4px 0 0 var(--brand-emerald), var(--brand-shadow-xl); }
         /* Stat icon bubbles */
         .stat-icon {
             width: 36px;
@@ -134,20 +261,20 @@
             transition: transform 0.2s;
         }
         .stat-card:hover .stat-icon { transform: scale(1.1); }
-        .stat-icon-blue { background: rgba(59, 130, 246, 0.12); color: #3b82f6; }
-        .stat-icon-amber { background: rgba(245, 158, 11, 0.12); color: #f59e0b; }
-        .stat-icon-teal { background: rgba(20, 184, 166, 0.12); color: #14b8a6; }
-        .stat-icon-slate { background: rgba(100, 116, 139, 0.12); color: #64748b; }
-        .stat-icon-red { background: rgba(239, 68, 68, 0.12); color: #ef4444; }
-        .stat-icon-green { background: rgba(34, 197, 94, 0.12); color: #22c55e; }
-        .dark .stat-icon-blue { background: rgba(59, 130, 246, 0.2); color: #60a5fa; }
-        .dark .stat-icon-amber { background: rgba(245, 158, 11, 0.2); color: #fbbf24; }
-        .dark .stat-icon-teal { background: rgba(20, 184, 166, 0.2); color: #2dd4bf; }
-        .dark .stat-icon-slate { background: rgba(100, 116, 139, 0.2); color: #94a3b8; }
-        .dark .stat-icon-red { background: rgba(239, 68, 68, 0.2); color: #f87171; }
-        .dark .stat-icon-green { background: rgba(34, 197, 94, 0.2); color: #4ade80; }
+        .stat-icon-blue  { background: rgba(79, 70, 229, 0.10); color: var(--brand-indigo); }
+        .stat-icon-amber { background: rgba(245, 158, 11, 0.12); color: #d97706; }
+        .stat-icon-teal  { background: rgba(16, 185, 129, 0.10); color: var(--brand-emerald); }
+        .stat-icon-slate { background: rgba(100, 116, 139, 0.10); color: #475569; }
+        .stat-icon-red   { background: rgba(239, 68, 68, 0.10); color: #dc2626; }
+        .stat-icon-green { background: rgba(16, 185, 129, 0.10); color: var(--brand-emerald); }
+        .dark .stat-icon-blue  { background: rgba(99, 102, 241, 0.18); color: #a5b4fc; }
+        .dark .stat-icon-amber { background: rgba(245, 158, 11, 0.18); color: #fbbf24; }
+        .dark .stat-icon-teal  { background: rgba(16, 185, 129, 0.18); color: #34d399; }
+        .dark .stat-icon-slate { background: rgba(100, 116, 139, 0.20); color: #94a3b8; }
+        .dark .stat-icon-red   { background: rgba(239, 68, 68, 0.18); color: #f87171; }
+        .dark .stat-icon-green { background: rgba(16, 185, 129, 0.18); color: #34d399; }
 
-        /* ===== Modern Custom Dropdown (Status Tag & Tracking Status) ===== */
+        /* ===== Custom Dropdown (Status Tag & Tracking Status) ===== */
         .modern-dropdown {
             position: relative;
             display: inline-block;
@@ -155,46 +282,64 @@
         .modern-dropdown-trigger {
             display: inline-flex;
             align-items: center;
-            gap: 6px;
-            padding: 5px 12px;
-            border-radius: 20px;
-            font-size: 0.75rem;
+            gap: 7px;
+            padding: 6px 12px 6px 14px;
+            border-radius: 9999px;
+            font-size: 0.7rem;
             font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
             cursor: pointer;
-            border: 1.5px solid transparent;
-            transition: all 0.2s ease;
+            border: 1px solid transparent;
+            transition: transform .18s ease, box-shadow .18s ease, background-color .18s ease, border-color .18s ease;
             white-space: nowrap;
             user-select: none;
-            backdrop-filter: blur(4px);
-            -webkit-backdrop-filter: blur(4px);
         }
         .modern-dropdown-trigger:hover {
             transform: translateY(-1px);
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+            box-shadow: 0 6px 14px -4px rgba(15, 23, 42, 0.18);
         }
+        /* Use an inline SVG chevron for the dd-arrow. The original markup
+           still uses <i class="fa-solid fa-chevron-down dd-arrow">; we hide
+           that pseudo-icon and render a CSS-mask SVG instead so the trigger
+           visually carries an SVG arrow regardless of the original markup. */
         .modern-dropdown-trigger .dd-arrow {
-            font-size: 8px;
-            transition: transform 0.2s;
-            opacity: 0.6;
+            width: 10px;
+            height: 10px;
+            font-size: 0;
+            line-height: 0;
+            opacity: 0.7;
+            transition: transform .2s ease, opacity .2s ease;
+            background-color: currentColor;
+            -webkit-mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='none'><path d='M5 8l5 5 5-5' stroke='black' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'/></svg>");
+            mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='none'><path d='M5 8l5 5 5-5' stroke='black' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'/></svg>");
+            -webkit-mask-repeat: no-repeat; mask-repeat: no-repeat;
+            -webkit-mask-position: center; mask-position: center;
+            -webkit-mask-size: contain; mask-size: contain;
         }
-        .modern-dropdown.open .dd-arrow { transform: rotate(180deg); }
+        .modern-dropdown-trigger .dd-arrow::before { content: none; }
+        .modern-dropdown.open .dd-arrow {
+            transform: rotate(180deg);
+            opacity: 1;
+        }
         .modern-dropdown-menu {
             position: absolute;
-            top: calc(100% + 6px);
+            top: calc(100% + 8px);
             left: 50%;
-            transform: translateX(-50%) scale(0.95);
+            transform: translateX(-50%) translateY(-4px) scale(0.96);
             opacity: 0;
             visibility: hidden;
             z-index: 9999;
-            min-width: 170px;
-            background: rgba(255, 255, 255, 0.95);
-            backdrop-filter: blur(16px);
-            -webkit-backdrop-filter: blur(16px);
-            border: 1px solid rgba(226, 232, 240, 0.8);
-            border-radius: 14px;
-            box-shadow: 0 12px 32px rgba(0, 0, 0, 0.12), 0 2px 6px rgba(0, 0, 0, 0.06);
-            padding: 6px;
-            transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+            min-width: 184px;
+            background: #ffffff;
+            border: 1px solid var(--brand-border);
+            border-radius: 18px;
+            box-shadow: var(--brand-shadow-xl);
+            padding: 8px;
+            transition: opacity .18s cubic-bezier(.16,1,.3,1), transform .18s cubic-bezier(.16,1,.3,1), visibility 0s linear .18s;
+        }
+        .modern-dropdown.open .modern-dropdown-menu {
+            transition: opacity .18s cubic-bezier(.16,1,.3,1), transform .18s cubic-bezier(.16,1,.3,1), visibility 0s linear 0s;
         }
         .dark .modern-dropdown-menu {
             background: rgba(30, 41, 59, 0.95);
@@ -204,19 +349,19 @@
         .modern-dropdown.open .modern-dropdown-menu {
             opacity: 1;
             visibility: visible;
-            transform: translateX(-50%) scale(1);
+            transform: translateX(-50%) translateY(0) scale(1);
         }
         .modern-dropdown-item {
             display: flex;
             align-items: center;
-            gap: 8px;
-            padding: 8px 12px;
-            border-radius: 10px;
+            gap: 10px;
+            padding: 9px 12px;
+            border-radius: 12px;
             font-size: 0.8125rem;
             font-weight: 600;
             cursor: pointer;
-            transition: all 0.15s ease;
-            color: #334155;
+            transition: background-color .15s ease, color .15s ease, transform .15s ease;
+            color: #1e293b;
         }
         .dark .modern-dropdown-item { color: #e2e8f0; }
         .modern-dropdown-item .dd-dot {
@@ -312,25 +457,151 @@
         .dd-trigger-purple:hover { background: rgba(147, 51, 234, 0.18); box-shadow: 0 4px 12px rgba(147, 51, 234, 0.2); }
         .dark .dd-trigger-purple { background: rgba(147, 51, 234, 0.15); color: #c4b5fd; border-color: rgba(147, 51, 234, 0.3); }
 
-        /* ===== Modern Action Buttons with Glow ===== */
+        /* ===== Action Buttons (brand glow) =====
+           Primary actions render on deep indigo, success on emerald. */
         .btn-glow-purple {
-            box-shadow: 0 2px 8px rgba(147, 51, 234, 0.25);
+            box-shadow: 0 6px 16px -6px rgba(79, 70, 229, 0.45);
         }
         .btn-glow-purple:hover {
-            box-shadow: 0 4px 16px rgba(147, 51, 234, 0.4);
+            box-shadow: 0 12px 24px -8px rgba(79, 70, 229, 0.55);
         }
         .btn-glow-amber {
-            box-shadow: 0 2px 8px rgba(245, 158, 11, 0.25);
+            box-shadow: 0 6px 16px -6px rgba(245, 158, 11, 0.40);
         }
         .btn-glow-amber:hover {
-            box-shadow: 0 4px 16px rgba(245, 158, 11, 0.4);
+            box-shadow: 0 12px 24px -8px rgba(245, 158, 11, 0.50);
         }
         .btn-glow-red {
-            box-shadow: 0 2px 8px rgba(239, 68, 68, 0.25);
+            box-shadow: 0 6px 16px -6px rgba(239, 68, 68, 0.40);
         }
         .btn-glow-red:hover {
-            box-shadow: 0 4px 16px rgba(239, 68, 68, 0.4);
+            box-shadow: 0 12px 24px -8px rgba(239, 68, 68, 0.50);
         }
+
+        /* Brand primary button */
+        .btn-primary {
+            display: inline-flex; align-items: center; justify-content: center;
+            gap: 0.5rem;
+            padding: 0.625rem 1.1rem;
+            border-radius: 14px;
+            font-weight: 700;
+            font-size: 0.8125rem;
+            color: #ffffff;
+            background: linear-gradient(180deg, #4f46e5 0%, #4338ca 100%);
+            box-shadow: 0 8px 18px -8px rgba(79, 70, 229, 0.55);
+            transition: transform .15s ease, box-shadow .2s ease, background .2s ease;
+        }
+        .btn-primary:hover { transform: translateY(-1px); box-shadow: 0 14px 26px -10px rgba(79, 70, 229, 0.6); }
+        .btn-primary:active { transform: translateY(0); }
+        .btn-success {
+            display: inline-flex; align-items: center; justify-content: center;
+            gap: 0.5rem;
+            padding: 0.625rem 1.1rem;
+            border-radius: 14px;
+            font-weight: 700;
+            font-size: 0.8125rem;
+            color: #ffffff;
+            background: linear-gradient(180deg, #10b981 0%, #059669 100%);
+            box-shadow: 0 8px 18px -8px rgba(16, 185, 129, 0.55);
+            transition: transform .15s ease, box-shadow .2s ease;
+        }
+        .btn-success:hover { transform: translateY(-1px); box-shadow: 0 14px 26px -10px rgba(16, 185, 129, 0.6); }
+
+        /* ===== Header Bar (cleaner, brand-aligned) ===== */
+        .brand-header {
+            background: rgba(255, 255, 255, 0.92);
+            backdrop-filter: saturate(140%) blur(8px);
+            -webkit-backdrop-filter: saturate(140%) blur(8px);
+            border-bottom: 1px solid var(--brand-border);
+        }
+        .dark .brand-header {
+            background: rgba(15, 23, 42, 0.85);
+            border-bottom-color: rgba(148, 163, 184, 0.10);
+        }
+
+        /* ===== Global Search ===== */
+        .brand-search {
+            display: flex; align-items: center; gap: 0;
+            position: relative;
+            background: #f8fafc;
+            border: 1px solid var(--brand-border);
+            border-radius: 9999px;
+            padding: 4px 4px 4px 14px;
+            transition: border-color .18s ease, box-shadow .18s ease, background-color .18s ease;
+        }
+        .brand-search:focus-within {
+            background: #ffffff;
+            border-color: var(--brand-indigo);
+            box-shadow: 0 0 0 4px rgba(79, 70, 229, 0.12);
+        }
+        .dark .brand-search {
+            background: rgba(30, 41, 59, 0.7);
+            border-color: rgba(148, 163, 184, 0.18);
+        }
+        .dark .brand-search:focus-within {
+            background: rgba(30, 41, 59, 0.95);
+            border-color: #818cf8;
+            box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.20);
+        }
+        .brand-search-icon {
+            width: 16px; height: 16px;
+            color: #64748b;
+            flex-shrink: 0;
+        }
+        .brand-search input {
+            background: transparent;
+            border: 0;
+            outline: 0;
+            font-size: 0.875rem;
+            color: var(--brand-slate);
+            min-width: 240px;
+            padding: 6px 8px 6px 10px;
+            font-weight: 500;
+        }
+        .dark .brand-search input { color: #f1f5f9; }
+        .brand-search input::placeholder {
+            color: #94a3b8;
+            font-weight: 500;
+            letter-spacing: -0.01em;
+        }
+        .brand-search-submit {
+            width: 30px; height: 30px;
+            display: inline-flex; align-items: center; justify-content: center;
+            border-radius: 9999px;
+            background: var(--brand-indigo);
+            color: #ffffff;
+            border: 0;
+            cursor: pointer;
+            transition: background-color .15s ease, transform .15s ease, box-shadow .15s ease;
+            box-shadow: 0 6px 14px -4px rgba(79, 70, 229, 0.45);
+        }
+        .brand-search-submit:hover {
+            background: var(--brand-indigo-strong);
+            transform: scale(1.04);
+        }
+        .brand-search-submit:active { transform: scale(0.96); }
+        .brand-search-submit svg { width: 14px; height: 14px; }
+        .brand-icon-btn {
+            width: 36px; height: 36px;
+            border-radius: 9999px;
+            display: inline-flex; align-items: center; justify-content: center;
+            background: #f1f5f9;
+            color: #475569;
+            border: 1px solid var(--brand-border);
+            transition: color .15s ease, background-color .15s ease, border-color .15s ease, transform .15s ease;
+            cursor: pointer;
+        }
+        .brand-icon-btn:hover {
+            color: var(--brand-indigo);
+            border-color: rgba(79, 70, 229, 0.35);
+            background: var(--brand-indigo-soft);
+        }
+        .dark .brand-icon-btn {
+            background: rgba(30, 41, 59, 0.7);
+            color: #cbd5e1;
+            border-color: rgba(148, 163, 184, 0.14);
+        }
+        .dark .brand-icon-btn:hover { color: #a5b4fc; background: rgba(99, 102, 241, 0.18); border-color: rgba(99, 102, 241, 0.4); }
 
         /* ===== Global Dark Mode Overrides ===== */
         /* :where(.dark) gives lower specificity (0,1,0) so explicit dark: Tailwind classes (0,2,0) always win */
@@ -435,7 +706,18 @@
         :where(.dark) .hover\:bg-red-50:hover { background-color: rgba(239, 68, 68, 0.2); }
         :where(.dark) .hover\:bg-green-50:hover { background-color: rgba(16, 185, 129, 0.2); }
         :where(.dark) .hover\:bg-amber-50:hover { background-color: rgba(245, 158, 11, 0.2); }
-        .stat-card:hover { transform: translateY(-3px); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1), 0 2px 8px rgba(0, 0, 0, 0.04); }
+        .stat-card:hover {
+            transform: translateY(-3px);
+            border-color: rgba(79, 70, 229, 0.18);
+        }
+        /* Preserve the inset accent bar on hover by re-declaring per variant */
+        .stat-card-blue:hover     { box-shadow: inset 4px 0 0 var(--brand-indigo),  var(--brand-shadow-pop); }
+        .stat-card-teal:hover     { box-shadow: inset 4px 0 0 var(--brand-emerald), 0 16px 32px -10px rgba(16, 185, 129, 0.30); }
+        .stat-card-green:hover    { box-shadow: inset 4px 0 0 var(--brand-emerald), 0 16px 32px -10px rgba(16, 185, 129, 0.30); }
+        .stat-card-amber:hover    { box-shadow: inset 4px 0 0 #f59e0b, 0 16px 32px -10px rgba(245, 158, 11, 0.28); }
+        .stat-card-red:hover      { box-shadow: inset 4px 0 0 #ef4444, 0 16px 32px -10px rgba(239, 68, 68, 0.28); }
+        .stat-card-slate:hover,
+        .stat-card-slate-alt:hover { box-shadow: inset 4px 0 0 #94a3b8, var(--brand-shadow-xl); }
 
         /* Input Fields */
         .input-field { 
@@ -1803,19 +2085,26 @@
     <!-- SIDEBAR NAVIGATION -->
     <aside class="w-64 bg-slate-900 text-white flex flex-col h-full flex-shrink-0 z-20 shadow-xl">
         <!-- Logo -->
-        <div class="p-6 flex items-center gap-3 border-b border-slate-800">
-            <div class="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center shadow-lg shadow-blue-900/50">
-                <i class="fa-solid fa-robot text-white text-sm"></i>
+        <div class="px-6 py-5 flex items-center gap-3 border-b border-slate-800/80">
+            <div class="w-9 h-9 rounded-2xl flex items-center justify-center"
+                 style="background: linear-gradient(135deg, #4f46e5 0%, #4338ca 100%); box-shadow: 0 10px 24px -8px rgba(79,70,229,0.55), inset 0 1px 0 rgba(255,255,255,0.18);">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" class="text-white" aria-hidden="true">
+                    <path d="M12 2v4"/>
+                    <rect x="4" y="6" width="16" height="14" rx="4"/>
+                    <circle cx="9" cy="13" r="1.2" fill="currentColor"/>
+                    <circle cx="15" cy="13" r="1.2" fill="currentColor"/>
+                    <path d="M9 17h6"/>
+                </svg>
             </div>
-            <div>
-                <h1 class="font-bold text-sm tracking-wide">TURING AI</h1>
-                <p class="text-xs text-slate-400">Recruiter V12</p>
+            <div class="leading-tight">
+                <h1 class="text-[15px] font-black tracking-[-0.04em] text-white">TURING AI</h1>
+                <p class="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-400">Recruiter · V12</p>
             </div>
         </div>
 
         <!-- Navigation Links -->
         <nav class="flex-1 px-4 py-6 space-y-1 overflow-y-auto" role="tablist" aria-label="Main navigation">
-            <div class="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2 px-2">Main Menu</div>
+            <div class="text-[10px] font-bold text-slate-500 uppercase tracking-[0.2em] mb-3 px-2">Main Menu</div>
 
             <!-- Operational tabs - hidden for TM/TA/Manager roles -->
             <button type="button" id="navTabOutreach" class="nav-tab active operational-tab" onclick="switchTab('outreach', this)" aria-current="page" role="tab" aria-selected="true">
@@ -1894,26 +2183,63 @@
     <main class="flex-1 flex flex-col h-screen overflow-hidden bg-slate-100 dark:bg-slate-900 relative">
         
         <!-- Header -->
-        <header class="h-16 bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 flex justify-between items-center px-8 shadow-sm z-10 flex-shrink-0">
+        <header class="h-16 brand-header flex justify-between items-center px-8 z-10 flex-shrink-0">
             <div class="flex items-center gap-4">
-                <h2 class="text-lg font-bold text-slate-800 dark:text-white" id="headerTitle">Dashboard</h2>
+                <h2 class="display-lg dark:text-white" id="headerTitle" style="margin: 0;">Dashboard</h2>
             </div>
-            
-            <div class="flex items-center gap-4">
-                <div class="relative" id="globalSearchContainer">
-                    <i class="fa-solid fa-search absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm" id="searchIcon"></i>
-                    <i class="fa-solid fa-spinner fa-spin absolute left-3 top-1/2 -translate-y-1/2 text-blue-500 text-sm hidden" id="searchSpinner"></i>
-                    <input type="text" id="globalSearchInput" placeholder="Search developers, emails, jobs..." oninput="handleGlobalSearch()" onkeydown="handleGlobalSearchKeydown(event)" onfocus="handleGlobalSearchFocus()" class="pl-9 pr-8 py-2 rounded-full border border-slate-200 dark:border-slate-600 bg-slate-50 dark:bg-slate-700 text-sm w-72 focus:outline-none focus:ring-2 focus:ring-blue-500" aria-label="Global search" aria-expanded="false" aria-controls="globalSearchResults" role="combobox" autocomplete="off">
-                    <button id="clearSearchBtn" class="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 hidden" onclick="clearGlobalSearch()" aria-label="Clear search">
-                        <i class="fa-solid fa-times text-xs"></i>
+
+            <div class="flex items-center gap-3">
+                <div class="brand-search" id="globalSearchContainer">
+                    <!-- SVG search icon (replaces FontAwesome glyph) -->
+                    <svg id="searchIcon" class="brand-search-icon" viewBox="0 0 24 24" fill="none"
+                         stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <circle cx="11" cy="11" r="7"/>
+                        <line x1="20" y1="20" x2="16.65" y2="16.65"/>
+                    </svg>
+                    <!-- Spinner shown while a search is in flight -->
+                    <svg id="searchSpinner" class="brand-search-icon hidden" viewBox="0 0 24 24" fill="none"
+                         stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"
+                         style="color: var(--brand-indigo); animation: spin 0.8s linear infinite;">
+                        <path d="M21 12a9 9 0 1 1-6.22-8.56"/>
+                    </svg>
+                    <input type="text" id="globalSearchInput"
+                           placeholder="Search developers, emails, jobs..."
+                           oninput="handleGlobalSearch()"
+                           onkeydown="handleGlobalSearchKeydown(event)"
+                           onfocus="handleGlobalSearchFocus()"
+                           aria-label="Global search"
+                           aria-expanded="false"
+                           aria-controls="globalSearchResults"
+                           role="combobox"
+                           autocomplete="off">
+                    <button id="clearSearchBtn"
+                            class="hidden mr-1"
+                            onclick="clearGlobalSearch()"
+                            aria-label="Clear search"
+                            style="background: transparent; border: 0; padding: 4px; color: #94a3b8; cursor: pointer; border-radius: 9999px;">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" aria-hidden="true">
+                            <path d="M6 6l12 12M18 6L6 18"/>
+                        </svg>
                     </button>
-                    <div id="globalSearchResults" class="absolute top-full left-0 right-0 mt-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-lg max-h-80 overflow-y-auto hidden" role="listbox" style="z-index: 60;"></div>
+                    <button class="brand-search-submit"
+                            onclick="submitGlobalSearch()"
+                            aria-label="Run search"
+                            title="Run search">
+                        <!-- SVG arrow icon -->
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                            <line x1="5" y1="12" x2="19" y2="12"/>
+                            <polyline points="13 6 19 12 13 18"/>
+                        </svg>
+                    </button>
+                    <div id="globalSearchResults"
+                         class="absolute top-full left-0 right-0 mt-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl shadow-xl shadow-slate-200/60 max-h-80 overflow-y-auto hidden"
+                         role="listbox" style="z-index: 60;"></div>
                 </div>
 
                 <!-- New Users Notification (Admin Only) -->
-                <button id="newUsersBtn" onclick="toggleNewUsersPanel()" class="w-8 h-8 rounded-full bg-slate-50 dark:bg-slate-700 flex items-center justify-center text-slate-500 hover:text-green-600 transition relative hidden" title="New Users" aria-label="New user registrations">
-                    <i class="fa-solid fa-user-plus" aria-hidden="true"></i>
-                    <span id="newUsersBadge" class="absolute -top-1 -right-1 w-4 h-4 bg-green-500 text-white text-xs rounded-full flex items-center justify-center hidden">0</span>
+                <button id="newUsersBtn" onclick="toggleNewUsersPanel()" class="brand-icon-btn relative hidden" title="New Users" aria-label="New user registrations">
+                    <i class="fa-solid fa-user-plus text-sm" aria-hidden="true"></i>
+                    <span id="newUsersBadge" class="absolute -top-1 -right-1 w-4 h-4 bg-emerald-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center hidden ring-2 ring-white dark:ring-slate-900">0</span>
                 </button>
                 <div id="newUsersPanel" class="absolute top-14 right-20 w-96 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-lg z-50 hidden">
                     <div class="p-3 border-b border-slate-200 dark:border-slate-700 flex justify-between items-center">
@@ -1925,9 +2251,9 @@
                     </div>
                 </div>
 
-                <button id="notificationBtn" onclick="toggleNotifications()" class="w-8 h-8 rounded-full bg-slate-50 dark:bg-slate-700 flex items-center justify-center text-slate-500 hover:text-blue-600 transition relative" aria-label="Notifications">
-                    <i class="fa-regular fa-bell" aria-hidden="true"></i>
-                    <span id="notificationBadge" class="absolute -top-1 -right-1 w-4 h-4 bg-red-500 text-white text-xs rounded-full flex items-center justify-center hidden">0</span>
+                <button id="notificationBtn" onclick="toggleNotifications()" class="brand-icon-btn relative" aria-label="Notifications">
+                    <i class="fa-regular fa-bell text-sm" aria-hidden="true"></i>
+                    <span id="notificationBadge" class="absolute -top-1 -right-1 w-4 h-4 bg-red-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center hidden ring-2 ring-white dark:ring-slate-900">0</span>
                 </button>
                 <div id="notificationPanel" class="absolute top-14 right-4 w-80 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-lg z-50 hidden">
                     <div class="p-3 border-b border-slate-200 dark:border-slate-700 flex justify-between items-center">
@@ -1940,10 +2266,10 @@
                 </div>
                 
                 <div class="h-6 w-px bg-slate-200 dark:bg-slate-700"></div>
-                
-                <button onclick="toggleDarkMode()" class="text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-white transition" aria-label="Toggle dark mode">
-                    <i class="fa-solid fa-moon dark:hidden" aria-hidden="true"></i>
-                    <i class="fa-solid fa-sun hidden dark:inline" aria-hidden="true"></i>
+
+                <button onclick="toggleDarkMode()" class="brand-icon-btn" aria-label="Toggle dark mode" title="Toggle dark mode">
+                    <i class="fa-solid fa-moon text-sm dark:hidden" aria-hidden="true"></i>
+                    <i class="fa-solid fa-sun text-sm hidden dark:inline" aria-hidden="true"></i>
                 </button>
             </div>
         </header>
@@ -5212,6 +5538,44 @@
 
     <!-- LOGIC SCRIPT (FULLY RESTORED) -->
     <script>
+        // ===== Chart.js global defaults (brand-aligned animation) =====
+        // Applies to every chart created with `new Chart(...)`. Animations
+        // use a smooth ease-out cubic that matches the rest of the UI.
+        if (window.Chart && Chart.defaults) {
+            Chart.defaults.font.family = "'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif";
+            Chart.defaults.font.weight = '500';
+            Chart.defaults.color = '#475569';
+            Chart.defaults.borderColor = 'rgba(148, 163, 184, 0.18)';
+            Chart.defaults.animation = {
+                duration: 700,
+                easing: 'easeOutCubic'
+            };
+            Chart.defaults.animations = Chart.defaults.animations || {};
+            Chart.defaults.animations.tension = {
+                duration: 900,
+                easing: 'easeOutCubic',
+                from: 0.6,
+                to: 0.4,
+                loop: false
+            };
+            Chart.defaults.transitions = Chart.defaults.transitions || {};
+            Chart.defaults.transitions.active = { animation: { duration: 250 } };
+            Chart.defaults.transitions.resize = { animation: { duration: 0 } };
+            // Brand palette for default datasets — Deep Indigo + Emerald + Slate
+            Chart.defaults.datasets = Chart.defaults.datasets || {};
+            Chart.defaults.datasets.line = Chart.defaults.datasets.line || {};
+            Chart.defaults.datasets.line.borderColor = '#4f46e5';
+            Chart.defaults.datasets.line.backgroundColor = 'rgba(79, 70, 229, 0.12)';
+            Chart.defaults.datasets.line.borderWidth = 2.5;
+            Chart.defaults.datasets.line.pointRadius = 3;
+            Chart.defaults.datasets.line.pointHoverRadius = 5;
+            Chart.defaults.datasets.line.tension = 0.4;
+            Chart.defaults.datasets.bar = Chart.defaults.datasets.bar || {};
+            Chart.defaults.datasets.bar.backgroundColor = '#4f46e5';
+            Chart.defaults.datasets.bar.borderRadius = 8;
+            Chart.defaults.datasets.bar.borderSkipped = false;
+        }
+
         let tableData = [];
         let fullTableData = [];
         let selectedDevs = new Set();
@@ -6260,6 +6624,21 @@
             globalSearchTimeout = setTimeout(() => {
                 performGlobalSearch(query);
             }, 300);
+        }
+
+        // Functional search trigger button — fires immediately (no debounce)
+        // and updates the underlying data model via the same backend call.
+        function submitGlobalSearch() {
+            const input = document.getElementById('globalSearchInput');
+            if (!input) return;
+            const query = input.value.trim().toLowerCase();
+            if (query.length < 2) {
+                input.focus();
+                return;
+            }
+            clearTimeout(globalSearchTimeout);
+            globalSearchSelectedIndex = -1;
+            performGlobalSearch(query);
         }
 
         function handleGlobalSearchFocus() {
