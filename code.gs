@@ -18479,6 +18479,25 @@ function buildAccessResponse(role, userEmail, isNewUser) {
 }
 
 /**
+ * Roles that view analytics across ALL users (no team filter):
+ *   - admin (incl. anyone with canManageUsers)
+ *   - tm / ta — recruiting stakeholders who own jobs and need cross-team
+ *     visibility into every job's performance
+ *
+ * TL and Manager remain team-filtered (see getTeamMembersForUser); they are
+ * NOT in this set.
+ *
+ * @param {Object} access - Object returned by checkAnalyticsAccess()
+ * @returns {boolean}
+ */
+function seesAllAnalyticsData_(access) {
+  if (!access) return false;
+  if (access.canManageUsers === true) return true;
+  const role = String(access.accessLevel || '').toLowerCase();
+  return role === 'admin' || role === 'tm' || role === 'ta';
+}
+
+/**
  * Log a new user's first access for admin notification
  * @param {string} userEmail - Email of the new user
  */
@@ -18845,22 +18864,22 @@ function getUserAnalytics(filterEmail, filterJobId, startDate, endDate) {
     endDateFilter.setHours(23, 59, 59, 999);
   }
 
-  // RBAC: Handle team-based access for Managers and TLs
-  // - Admin: ALWAYS has full access (even if placed under a TL in hierarchy)
-  // - Manager/TL: can see their team members' data
-  // - Others: can only see their own data
+  // RBAC:
+  // - Admin / TM / TA: full cross-team visibility (see seesAllAnalyticsData_)
+  // - Manager / TL: team members + self (via access.teamMembers)
+  // - Others: own data only
   const canViewAll = access.canViewAllAnalytics;
   const teamMembers = access.teamMembers || [access.userEmail.toLowerCase()];
-  const isAdmin = access.accessLevel === 'admin' || access.canManageUsers;
+  const seesAll = seesAllAnalyticsData_(access);
   const isTeamLead = access.accessLevel === 'manager' || access.accessLevel === 'tl';
 
   // Determine which emails this user can see
   let allowedEmails = null; // null means all emails (for admin with full access)
 
-  // IMPORTANT: Admin privileges are NEVER affected by team hierarchy
-  // Even if an admin is assigned under a TL, they retain full access
-  if (isAdmin) {
-    allowedEmails = null; // Admin can see ALL data
+  // IMPORTANT: Admin/TM/TA privileges are NEVER affected by team hierarchy
+  // Even if assigned under a TL, they retain full visibility.
+  if (seesAll) {
+    allowedEmails = null; // Admin / TM / TA see ALL data
   } else if (!canViewAll) {
     // Users without canViewAllAnalytics can only see their own data
     allowedEmails = [access.userEmail.toLowerCase()];
@@ -19700,11 +19719,14 @@ function getTimeToResponseMetrics(filterJobId, startDate, endDate) {
     }
 
     // RBAC — who is this user allowed to see in the team aggregate?
-    const isAdmin = access.accessLevel === 'admin' || access.canManageUsers === true;
+    // Admin / TM / TA: all users (TM/TA are job stakeholders w/ cross-team access).
+    // TL / Manager: their team members (incl. self).
+    // Others (TOS/Other): own data only.
+    const seesAll = seesAllAnalyticsData_(access);
     const teamMembers = (access.teamMembers || [access.userEmail])
       .map(e => String(e || '').toLowerCase());
     let allowedEmails; // null = all users
-    if (isAdmin) {
+    if (seesAll) {
       allowedEmails = null;
     } else if (access.canViewAllAnalytics) {
       allowedEmails = teamMembers;
@@ -19881,11 +19903,11 @@ function getJobPerformanceFromCentralized(access, startDate, endDate) {
     if (startDate) { startDateFilter = new Date(startDate); startDateFilter.setHours(0, 0, 0, 0); }
     if (endDate) { endDateFilter = new Date(endDate); endDateFilter.setHours(23, 59, 59, 999); }
 
-    // RBAC
-    const isAdmin = access.accessLevel === 'admin' || access.canManageUsers;
+    // RBAC: admin/tm/ta see all; tl/manager see team; others see self.
+    const seesAll = seesAllAnalyticsData_(access);
     const teamMembers = access.teamMembers || [access.userEmail.toLowerCase()];
     let allowedEmails = null;
-    if (isAdmin) { allowedEmails = null; }
+    if (seesAll) { allowedEmails = null; }
     else if (!access.canViewAllAnalytics) { allowedEmails = [access.userEmail.toLowerCase()]; }
     else { allowedEmails = teamMembers; }
 
@@ -20045,9 +20067,12 @@ function getJobPerformanceMetrics(startDate, endDate) {
   try {
     // Same team-aggregate routing as getConversionFunnelData: leads/managers/admins
     // need the centralized path because their personal sheet only has their own ops.
+    // TM/TA also route here so they get cross-team visibility (see seesAllAnalyticsData_).
     const isTeamAggregateViewer = access.accessLevel === 'tl' ||
                                   access.accessLevel === 'manager' ||
                                   access.accessLevel === 'admin' ||
+                                  access.accessLevel === 'tm' ||
+                                  access.accessLevel === 'ta' ||
                                   access.canManageUsers === true;
 
     const ss = getCachedSpreadsheet();
@@ -20286,11 +20311,11 @@ function getConversionFunnelFromCentralized(access, filterJobId, startDate, endD
       endDateFilter.setHours(23, 59, 59, 999);
     }
 
-    // RBAC: Determine allowed emails
-    const isAdmin = access.accessLevel === 'admin' || access.canManageUsers;
+    // RBAC: admin/tm/ta see all; tl/manager see team; others see self.
+    const seesAll = seesAllAnalyticsData_(access);
     const teamMembers = access.teamMembers || [access.userEmail.toLowerCase()];
     let allowedEmails = null; // null = all
-    if (isAdmin) {
+    if (seesAll) {
       allowedEmails = null;
     } else if (!access.canViewAllAnalytics) {
       allowedEmails = [access.userEmail.toLowerCase()];
@@ -20505,14 +20530,17 @@ function getConversionFunnelData(filterJobId, startDate, endDate) {
   }
 
   try {
-    // Team-aggregate roles (TL / Manager / Admin) must read from the centralized
-    // analytics sheet — it is the only source that aggregates across team members
-    // AND applies the allowedEmails (teamMembers) filter. Reading from the caller's
-    // personal spreadsheet would return only their own ops (missing team aggregate)
-    // and — if the personal sheet is ever shared — risks exposing other teams' rows.
+    // Cross-team viewers (TL / Manager / Admin / TM / TA) must read from the
+    // centralized analytics sheet — it is the only source that aggregates
+    // across team members AND applies the allowedEmails filter. Reading from
+    // the caller's personal spreadsheet would return only their own ops
+    // (missing team aggregate) and — if the personal sheet is ever shared —
+    // risks exposing other teams' rows.
     const isTeamAggregateViewer = access.accessLevel === 'tl' ||
                                   access.accessLevel === 'manager' ||
                                   access.accessLevel === 'admin' ||
+                                  access.accessLevel === 'tm' ||
+                                  access.accessLevel === 'ta' ||
                                   access.canManageUsers === true;
 
     const ss = getCachedSpreadsheet();
@@ -21471,13 +21499,18 @@ function removeTOSFromTL(tlEmail, tosEmail) {
  * @returns {Array} List of emails this user can see
  */
 function getTeamMembersForUser(userEmail, userRole) {
+  // Downstream readers compare against lowercased row emails, so every return
+  // path here must emit lowercased addresses. The main path lowercases below
+  // (line `[userEmail.toLowerCase()]`); the fallbacks do the same to avoid a
+  // silent "TL sees zero rows" when the hierarchy sheet is unavailable.
+  const selfLower = String(userEmail || '').toLowerCase();
   try {
     const ss = getAnalyticsSpreadsheet();
-    if (!ss) return [userEmail];
+    if (!ss) return [selfLower];
 
     const sheet = ss.getSheetByName('Team_Hierarchy');
     if (!sheet || sheet.getLastRow() <= 1) {
-      return [userEmail]; // No hierarchy, can only see own data
+      return [selfLower]; // No hierarchy, can only see own data
     }
 
     const data = sheet.getDataRange().getValues();
@@ -21531,7 +21564,7 @@ function getTeamMembersForUser(userEmail, userRole) {
     return visibleEmails;
   } catch (e) {
     console.error("Error getting team members for user:", e);
-    return [userEmail];
+    return [selfLower];
   }
 }
 
