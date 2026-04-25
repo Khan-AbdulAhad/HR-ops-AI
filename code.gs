@@ -14798,6 +14798,16 @@ function processFollowUpQueue() {
     const myEmail = Session.getActiveUser().getEmail().toLowerCase();
     const rowsToDelete = []; // Track rows to delete (for moving to unresponsive)
 
+    // Cache job-closed status so we don't hit Job_Assignments once per row.
+    const closedJobStatusCache = {};
+    function jobClosedStatus(jid) {
+      if (closedJobStatusCache.hasOwnProperty(jid)) return closedJobStatusCache[jid];
+      let s = null;
+      try { s = getClosedJobStatus(jid); } catch(e) { s = null; }
+      closedJobStatusCache[jid] = (s === 'Fulfilled' || s === 'Stopped') ? s : null;
+      return closedJobStatusCache[jid];
+    }
+
     for(let i = 1; i < data.length; i++) {
       const email = String(data[i][0]).toLowerCase().trim();
       const jobId = String(data[i][1]);
@@ -14818,6 +14828,17 @@ function processFollowUpQueue() {
       // SAFETY M4: Skip if job is globally paused
       if (jobIsPaused(jobId)) {
         log.push({ type: 'warning', message: `${email} - Job ${jobId} is PAUSED (kill switch) - skipping follow-up` });
+        continue;
+      }
+
+      // SAFETY: Skip follow-ups for jobs the user marked Fulfilled/Stopped.
+      // Continuing to ping candidates with "are you still interested" after a job is closed is
+      // misleading and creates the kind of duplicate-question thread reported in QA. The next
+      // runAutoNegotiator pass will detect any new candidate reply and send the polite job-closed
+      // message via the JOB CLOSED HANDLER in processJobNegotiations.
+      const closedStatus = jobClosedStatus(jobId);
+      if (closedStatus) {
+        log.push({ type: 'info', message: `${email} - Job ${jobId} is ${closedStatus} - skipping outreach follow-up (closure email handled by negotiator)` });
         continue;
       }
 
@@ -15845,6 +15866,16 @@ function processDataGatheringFollowUps() {
       });
     }
 
+    // Cache job-closed status across the loop.
+    const closedJobStatusCacheData = {};
+    function jobClosedStatusData(jid) {
+      if (closedJobStatusCacheData.hasOwnProperty(jid)) return closedJobStatusCacheData[jid];
+      let s = null;
+      try { s = getClosedJobStatus(jid); } catch(e) { s = null; }
+      closedJobStatusCacheData[jid] = (s === 'Fulfilled' || s === 'Stopped') ? s : null;
+      return closedJobStatusCacheData[jid];
+    }
+
     // Process each candidate in Negotiation_State
     for (let i = 1; i < stateData.length; i++) {
       const email = String(stateData[i][0]).toLowerCase().trim();
@@ -15861,6 +15892,15 @@ function processDataGatheringFollowUps() {
       if (status.includes('completed') || status.includes('unresponsive') ||
           status.includes('escalated') || status.includes('accepted') ||
           status.includes('incomplete data')) {
+        continue;
+      }
+
+      // SAFETY: Once a job is marked Fulfilled/Stopped, stop nagging the candidate for missing
+      // data fields - the role no longer exists. The next runAutoNegotiator pass will send the
+      // polite job-closed reply via the JOB CLOSED HANDLER in processJobNegotiations.
+      const closedStatusData = jobClosedStatusData(jobId);
+      if (closedStatusData) {
+        log.push({ type: 'info', message: `${email} - Job ${jobId} is ${closedStatusData} - skipping data-gathering follow-up (closure email handled by negotiator)` });
         continue;
       }
 
@@ -16170,6 +16210,16 @@ function processNegotiationFollowUps() {
       }
     }
 
+    // Cache job-closed status across the loop.
+    const closedJobStatusCacheNeg = {};
+    function jobClosedStatusNeg(jid) {
+      if (closedJobStatusCacheNeg.hasOwnProperty(jid)) return closedJobStatusCacheNeg[jid];
+      let s = null;
+      try { s = getClosedJobStatus(jid); } catch(e) { s = null; }
+      closedJobStatusCacheNeg[jid] = (s === 'Fulfilled' || s === 'Stopped') ? s : null;
+      return closedJobStatusCacheNeg[jid];
+    }
+
     for (let i = 1; i < stateData.length; i++) {
       const email = String(stateData[i][0]).toLowerCase().trim();
       const jobId = String(stateData[i][1]);
@@ -16192,6 +16242,15 @@ function processNegotiationFollowUps() {
       // Skip if already completed or accepted elsewhere
       const negotiationKey = `${normalizeEmail(email)}|${jobId}`;
       if (completedSet.has(negotiationKey) || acceptedSet.has(negotiationKey)) {
+        continue;
+      }
+
+      // SAFETY: If the user marked the job Fulfilled/Stopped, stop sending mid-negotiation
+      // nudges. The next runAutoNegotiator pass will detect any new candidate reply and send
+      // the polite job-closed message via the JOB CLOSED HANDLER in processJobNegotiations.
+      const closedStatusNeg = jobClosedStatusNeg(jobId);
+      if (closedStatusNeg) {
+        log.push({ type: 'info', message: `${email} - Job ${jobId} is ${closedStatusNeg} - skipping mid-negotiation follow-up (closure email handled by negotiator)` });
         continue;
       }
 
