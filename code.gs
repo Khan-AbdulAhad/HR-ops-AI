@@ -15916,8 +15916,23 @@ function processDataGatheringFollowUps() {
         continue;
       }
 
-      // Skip if all data is complete
-      if (dataGathering.pending.length === 0) {
+      // Match the negotiator's filter: when negotiation is enabled, the rate-analysis flow
+      // (counter-offer / acceptance) is responsible for "Expected Rate" and "Negotiation
+      // Response", and processJobNegotiations strips them from data-gathering at code.gs:8593.
+      // Without the same filter here the data-gathering follow-up keeps asking
+      // "could you please share your expected hourly rate" alongside the negotiator's own
+      // rate prompts, which is exactly what produced the duplicated rate questions in the
+      // reported thread (Job-65129). When negotiation is OFF for a job, leave the list
+      // alone — there's no negotiator to handle those columns.
+      const NEGOTIATION_MANAGED_HEADERS = ['Negotiation Response', 'Expected Rate'];
+      const negotiationOwnsRate = jobHasNegotiation(jobId);
+      const filteredPending = negotiationOwnsRate
+        ? dataGathering.pending.filter(h => !NEGOTIATION_MANAGED_HEADERS.includes(h))
+        : dataGathering.pending.slice();
+
+      // Skip if all *non-negotiation-managed* data is complete. If the only thing left is
+      // Expected Rate/Negotiation Response, the negotiator owns it.
+      if (filteredPending.length === 0) {
         continue;
       }
 
@@ -16000,9 +16015,16 @@ function processDataGatheringFollowUps() {
           log.push({ type: 'info', message: `${email} responded - reset data follow-up flags` });
         }
 
-        // Re-check if data is now complete after response
+        // Re-check if data is now complete after response. Apply the same negotiation-managed
+        // filter as above so a row whose only outstanding column is "Expected Rate" is treated
+        // as complete from the data-gathering loop's perspective (the negotiator owns it).
         const updatedDataGathering = getJobCandidateData(jobId, email);
-        if (updatedDataGathering && updatedDataGathering.pending.length === 0) {
+        const updatedPending = updatedDataGathering
+          ? (negotiationOwnsRate
+              ? updatedDataGathering.pending.filter(h => !NEGOTIATION_MANAGED_HEADERS.includes(h))
+              : updatedDataGathering.pending)
+          : [];
+        if (updatedDataGathering && updatedPending.length === 0) {
           log.push({ type: 'success', message: `${email} - data gathering now complete!` });
           continue;
         }
@@ -16048,14 +16070,14 @@ function processDataGatheringFollowUps() {
           hoursSinceLastResponse >= FOLLOW_UP_CONFIG.DATA_FOLLOW_UP_3_HOURS) {
         const result = sendDataGatheringFollowUpEmail(
           email, jobId, threadId, name, 3,
-          dataGathering.pending,
+          filteredPending,
           dataGathering.answered
         );
         if (result.success) {
           followUpSheet.getRange(followUpEntry.rowIndex, 14).setValue(true); // Data Follow Up 3 Sent
           followUpSheet.getRange(followUpEntry.rowIndex, 10).setValue(new Date());
           dataFollowUp3Sent++;
-          log.push({ type: 'success', message: `Sent 3rd data follow-up to ${email} (${hoursSinceLastResponse.toFixed(1)}hrs) - Missing: ${dataGathering.pending.join(', ')}` });
+          log.push({ type: 'success', message: `Sent 3rd data follow-up to ${email} (${hoursSinceLastResponse.toFixed(1)}hrs) - Missing: ${filteredPending.join(', ')}` });
         } else {
           log.push({ type: 'error', message: `Failed 3rd data follow-up to ${email}: ${result.error}` });
         }
@@ -16068,14 +16090,14 @@ function processDataGatheringFollowUps() {
           hoursSinceLastResponse >= FOLLOW_UP_CONFIG.DATA_FOLLOW_UP_2_HOURS) {
         const result = sendDataGatheringFollowUpEmail(
           email, jobId, threadId, name, 2,
-          dataGathering.pending,
+          filteredPending,
           dataGathering.answered
         );
         if (result.success) {
           followUpSheet.getRange(followUpEntry.rowIndex, 13).setValue(true); // Data Follow Up 2 Sent
           followUpSheet.getRange(followUpEntry.rowIndex, 10).setValue(new Date());
           dataFollowUp2Sent++;
-          log.push({ type: 'success', message: `Sent 2nd data follow-up to ${email} (${hoursSinceLastResponse.toFixed(1)}hrs) - Missing: ${dataGathering.pending.join(', ')}` });
+          log.push({ type: 'success', message: `Sent 2nd data follow-up to ${email} (${hoursSinceLastResponse.toFixed(1)}hrs) - Missing: ${filteredPending.join(', ')}` });
         } else {
           log.push({ type: 'error', message: `Failed 2nd data follow-up to ${email}: ${result.error}` });
         }
@@ -16088,14 +16110,14 @@ function processDataGatheringFollowUps() {
           hoursSinceLastResponse >= FOLLOW_UP_CONFIG.DATA_FOLLOW_UP_1_HOURS) {
         const result = sendDataGatheringFollowUpEmail(
           email, jobId, threadId, name, 1,
-          dataGathering.pending,
+          filteredPending,
           dataGathering.answered
         );
         if (result.success) {
           followUpSheet.getRange(followUpEntry.rowIndex, 12).setValue(true); // Data Follow Up 1 Sent
           followUpSheet.getRange(followUpEntry.rowIndex, 10).setValue(new Date());
           dataFollowUp1Sent++;
-          log.push({ type: 'success', message: `Sent 1st data follow-up to ${email} (${hoursSinceLastResponse.toFixed(1)}hrs) - Missing: ${dataGathering.pending.join(', ')}` });
+          log.push({ type: 'success', message: `Sent 1st data follow-up to ${email} (${hoursSinceLastResponse.toFixed(1)}hrs) - Missing: ${filteredPending.join(', ')}` });
         } else {
           log.push({ type: 'error', message: `Failed 1st data follow-up to ${email}: ${result.error}` });
         }
