@@ -1,5 +1,5 @@
 /**
- * TURING AI RECRUITER V10 - OPTIMIZED
+ * TURING AI RECRUITER V2
  * ====================================
  * Changes:
  * - Removed walk-away rate (no longer needed)
@@ -791,7 +791,7 @@ function validateEmailForSending(content, context = {}) {
 
 function doGet() {
   return HtmlService.createHtmlOutputFromFile('index')
-      .setTitle('Turing AI Recruiter V12')
+      .setTitle('Turing AI Recruiter V2')
       .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
 }
 
