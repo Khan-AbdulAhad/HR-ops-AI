@@ -393,6 +393,8 @@
         .dark .dd-item-red:hover { background: rgba(239, 68, 68, 0.15); color: #fca5a5; }
         .dd-item-teal:hover { background: rgba(20, 184, 166, 0.1); color: #0f766e; }
         .dark .dd-item-teal:hover { background: rgba(20, 184, 166, 0.15); color: #5eead4; }
+        .dd-item-amber:hover { background: rgba(245, 158, 11, 0.1); color: #b45309; }
+        .dark .dd-item-amber:hover { background: rgba(245, 158, 11, 0.15); color: #fcd34d; }
         .dd-item-yellow:hover { background: rgba(234, 179, 8, 0.1); color: #a16207; }
         .dark .dd-item-yellow:hover { background: rgba(234, 179, 8, 0.15); color: #fde047; }
         .dd-item-blue:hover { background: rgba(59, 130, 246, 0.1); color: #1d4ed8; }
@@ -7858,6 +7860,9 @@
                                         <div class="modern-dropdown-item dd-item-red ${t.tags === 'Unresponsive' ? 'active' : ''}" data-value="Unresponsive" onclick="selectStatusTag(this)">
                                             <span class="dd-dot" style="background:#ef4444"></span> Unresponsive
                                         </div>
+                                        <div class="modern-dropdown-item dd-item-amber ${t.tags === 'Human-Negotiation' ? 'active' : ''}" data-value="Human-Negotiation" onclick="selectStatusTag(this)">
+                                            <span class="dd-dot" style="background:#f59e0b"></span> Human-Negotiation
+                                        </div>
                                         <div class="modern-dropdown-item dd-item-teal ${t.tags === 'Completed' ? 'active' : ''}" data-value="Completed" onclick="selectStatusTag(this)">
                                             <span class="dd-dot" style="background:#14b8a6"></span> Completed
                                         </div>
@@ -8132,7 +8137,17 @@
             google.script.run
                 .withSuccessHandler(function(result) {
                     if (result && result.success) {
-                        showToast('Status updated to ' + newStatus, 'success');
+                        // Surface the label side-effect for kill-switch statuses so the user
+                        // knows the AI will actually stop, not just that the status text changed.
+                        let toastMsg;
+                        if (newStatus === 'Human-Negotiation') {
+                            toastMsg = 'Marked as Human-Negotiation — AI will stop, label applied';
+                        } else if (newStatus === 'Unresponsive') {
+                            toastMsg = 'Marked as Unresponsive — label applied';
+                        } else {
+                            toastMsg = 'Status updated to ' + newStatus;
+                        }
+                        showToast(toastMsg, 'success');
                         loadTasks();
                     } else {
                         showToast('Failed to update status: ' + (result ? result.message : 'Unknown error'), 'error');
