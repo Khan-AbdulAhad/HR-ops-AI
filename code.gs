@@ -4627,6 +4627,17 @@ function updateCandidateStatusTag(email, jobId, newStatus) {
           console.error('Failed to update job details sheet:', e);
         }
 
+        // Apply kill-switch Gmail label side-effects (Human-Negotiation / Unresponsive).
+        // Mirrors what moveToCompleted does for the Completed status. The thread ID lives
+        // in column 10 of Negotiation_State.
+        try {
+          const threadId = String(stateData[r][9] || '').trim();
+          applyStatusTagLabelSideEffects_(ss, threadId, email, jobId, newStatus);
+        } catch (labelErr) {
+          // Don't fail the whole call - State.status was already saved successfully.
+          console.error('Status tag label side-effect failed:', labelErr);
+        }
+
         return { success: true };
       }
     }
@@ -4666,6 +4677,14 @@ function updateCandidateStatusTag(email, jobId, newStatus) {
             console.error('Failed to update Completed_Analytics:', e);
           }
 
+          // Apply kill-switch Gmail label side-effects. Negotiation_Completed col [8] = Thread ID.
+          try {
+            const compThreadId = String(compData[r][8] || '').trim();
+            applyStatusTagLabelSideEffects_(ss, compThreadId, email, jobId, newStatus);
+          } catch (labelErr) {
+            console.error('Status tag label side-effect failed (Completed-branch):', labelErr);
+          }
+
           return { success: true };
         }
       }
@@ -4699,6 +4718,14 @@ function updateCandidateStatusTag(email, jobId, newStatus) {
         console.error('Failed to update job details sheet:', e);
       }
 
+      // Apply kill-switch Gmail label side-effects on the auto-add path too. threadId
+      // may be empty if lookup couldn't find one - the helper guards against that.
+      try {
+        applyStatusTagLabelSideEffects_(ss, String(details.threadId || '').trim(), email, jobId, newStatus);
+      } catch (labelErr) {
+        console.error('Status tag label side-effect failed (auto-add path):', labelErr);
+      }
+
       console.log('Auto-added candidate ' + email + ' (job ' + jobId + ') to Negotiation_State with status: ' + newStatus);
       return { success: true };
     } catch (autoAddErr) {
@@ -4708,6 +4735,102 @@ function updateCandidateStatusTag(email, jobId, newStatus) {
   } catch (e) {
     console.error('Error updating candidate status tag:', e);
     return { success: false, message: e.message };
+  }
+}
+
+/**
+ * Apply Gmail label side-effects when the user changes a candidate's status tag in the UI.
+ *
+ * Today, only the "Completed" path (handled by moveToCompleted) was tied to a Gmail label.
+ * The kill-switch fix makes Human-Negotiation and Unresponsive labels into hard stops for
+ * the follow-up loops, so the dropdown now needs to ALSO toggle the matching Gmail label
+ * when the user picks one of those statuses - otherwise the UI says "stop" but the AI
+ * keeps going on the next trigger run because it reads the Gmail label, not the State row.
+ *
+ * Behaviour:
+ *  - Human-Negotiation: add 'Human-Negotiation' label, mark Follow_Up_Queue row as Responded
+ *    so the next runFollowUpProcessor pass doesn't fire one more email before the new
+ *    sync at the top of that function catches the State row.
+ *  - Unresponsive: add 'Unresponsive' label, clear the outreach-stage labels (Awaiting-Response
+ *    / Follow-Up-1-Sent / Follow-Up-2-Sent) by reusing updateFollowUpLabels(threadId,
+ *    'unresponsive') - the same helper the auto path uses.
+ *  - Other statuses (WhatsApp Reachout, Not Interested): no Gmail label change.
+ *  - Completed is NOT handled here - moveToCompleted owns that path and does its own labels.
+ *
+ * Empty threadId is a no-op (logged once). All Gmail API calls are wrapped so a label
+ * failure never bubbles up and breaks the main status-update flow.
+ *
+ * @param {Spreadsheet} ss        Active spreadsheet (used to mark Follow_Up_Queue row).
+ * @param {string}      threadId  Gmail thread ID of the candidate's outreach thread.
+ * @param {string}      email     Candidate email (for FQ matching + log lines).
+ * @param {string}      jobId     Job ID (for FQ matching + log lines).
+ * @param {string}      newStatus The status the user just selected.
+ */
+function applyStatusTagLabelSideEffects_(ss, threadId, email, jobId, newStatus) {
+  if (newStatus !== 'Human-Negotiation' && newStatus !== 'Unresponsive') {
+    return; // Nothing to do for WhatsApp Reachout / Not Interested / etc.
+  }
+  if (!threadId) {
+    debugLog('applyStatusTagLabelSideEffects_: empty threadId for ' + email + ' (Job ' + jobId + ', status=' + newStatus + ') - skipping label change');
+    return;
+  }
+
+  let thread = null;
+  try {
+    thread = GmailApp.getThreadById(threadId);
+  } catch (e) {
+    console.error('applyStatusTagLabelSideEffects_: getThreadById failed for ' + threadId + ': ' + e.message);
+    return;
+  }
+  if (!thread) {
+    debugLog('applyStatusTagLabelSideEffects_: thread ' + threadId + ' not found - skipping label change');
+    return;
+  }
+
+  if (newStatus === 'Human-Negotiation') {
+    try {
+      const humanLabel = GmailApp.getUserLabelByName('Human-Negotiation') || GmailApp.createLabel('Human-Negotiation');
+      thread.addLabel(humanLabel);
+      debugLog('applyStatusTagLabelSideEffects_: added Human-Negotiation label to thread ' + threadId + ' (' + email + ')');
+    } catch (labelErr) {
+      console.error('applyStatusTagLabelSideEffects_: failed to add Human-Negotiation label:', labelErr);
+    }
+
+    // Stop the follow-up loop on its next pass too, mirroring moveToCompleted's FQ update.
+    try {
+      const fq = ss.getSheetByName('Follow_Up_Queue');
+      if (fq && fq.getLastRow() > 1) {
+        const fqData = fq.getDataRange().getValues();
+        const normEmail = normalizeEmail(email);
+        for (let i = fqData.length - 1; i >= 1; i--) {
+          if (normalizeEmail(fqData[i][0]) === normEmail && String(fqData[i][1]) === String(jobId)) {
+            const curStatus = String(fqData[i][8] || '');
+            if (curStatus !== 'Responded' && curStatus !== 'Unresponsive') {
+              fq.getRange(i + 1, 9).setValue('Responded');
+              fq.getRange(i + 1, 10).setValue(new Date());
+              fq.getRange(i + 1, 15).setValue(new Date()); // Last Response Time
+              invalidateSheetCache('Follow_Up_Queue');
+              debugLog('applyStatusTagLabelSideEffects_: marked Follow_Up_Queue Responded for ' + email);
+            }
+            break;
+          }
+        }
+      }
+    } catch (fqErr) {
+      console.error('applyStatusTagLabelSideEffects_: Follow_Up_Queue update failed:', fqErr);
+    }
+    return;
+  }
+
+  if (newStatus === 'Unresponsive') {
+    // updateFollowUpLabels handles add-Unresponsive and clear-other-stage-labels in one shot.
+    try {
+      updateFollowUpLabels(threadId, 'unresponsive');
+      debugLog('applyStatusTagLabelSideEffects_: applied Unresponsive label set to thread ' + threadId + ' (' + email + ')');
+    } catch (labelErr) {
+      console.error('applyStatusTagLabelSideEffects_: failed to apply Unresponsive labels:', labelErr);
+    }
+    return;
   }
 }
 
