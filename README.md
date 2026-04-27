@@ -1,4 +1,4 @@
-# Turing AI Recruiter V14
+# Turing AI Recruiter V2
 
 A Google Apps Script-based recruitment automation platform for managing developer outreach, AI-powered rate negotiation, automated follow-up emails, centralized team analytics, status reconciliation, and a learning system for AI improvement.
 
@@ -187,7 +187,7 @@ Before setting up, ensure you have:
 1. Click **Deploy** → **New deployment**
 2. Click the gear icon → **Web app**
 3. Configure:
-   - **Description**: `HR-Ops-AI V12`
+   - **Description**: `HR-Ops-AI V2`
    - **Execute as**: `Me (your email)`
    - **Who has access**: `Only myself` (or your organization)
 4. Click **Deploy**
@@ -841,13 +841,8 @@ For issues or feature requests, please open an issue on the GitHub repository.
 
 ## Version History
 
-- **V14**: Redesigned dashboard UI with deep indigo / slate / emerald design language. Full dark mode coverage across all UI components using explicit Tailwind `dark:` classes. Fixed Regional Rate Tiers section dark mode (containers, table headers, dynamic rows). Granted TM/TA full cross-team analytics visibility. Centralized response-time analytics via `Response_Times` shared sheet with privacy-safe hashed keys.
-- **V13**: Status reconciliation system (`reconcileCandidateStatuses`) — auto-fixes duplicate/stale status tags on every Refresh and hourly trigger run, with full audit trail in `Reconciliation_Log`. Human-Negotiation Gmail label syncs to status tag on Refresh (was hourly-only). Missing candidates recovered from `Follow_Up_Queue` and `Unresponsive_Devs` on Refresh. `Negotiation_Completed` gains Thread ID column with automatic backfill. Strengthened `enrichNegotiationStateData` with Unresponsive_Devs recovery pass.
-- **V12**: Added Selected for Internal Interviews stage, email sender name/signature customization via Settings UI, BigQuery config moved to Script Properties for easier updates, centralized analytics tracking
-- **V11**: Added Passed Internal Interviews stage, Manual Entry (renamed from Test Mode), enhanced analytics, learning system
-- **V10**: Added follow-up automation, templates, user tracking, agency support, dark mode
-- **V9**: Added region-based rate tiers, improved negotiation flow
-- **V8**: Initial release with core features
+- **V2** *(current)*: Full-featured release. Redesigned dashboard UI (deep indigo / slate / emerald). Complete dark mode support with explicit Tailwind `dark:` classes. Status reconciliation system (`reconcileCandidateStatuses`) with full audit trail in `Reconciliation_Log`. Centralized response-time analytics (`Response_Times` sheet) with privacy-safe hashed keys. TM/TA full cross-team analytics visibility. Regional Rate Tiers with per-country overrides. AI Learning System. Role-based access control. BigQuery config via Script Properties. Email sender name/signature customization. Human-Negotiation Gmail label syncs on Refresh. Missing candidates auto-recovered from `Follow_Up_Queue` and `Unresponsive_Devs`.
+- **V1**: Initial release — core outreach, AI negotiation, follow-up automation, templates, dark mode, region-based rate tiers, learning system foundation.
 
 ---
 

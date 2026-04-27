@@ -228,7 +228,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**Turing AI Recruiter V12** — a Google Apps Script (GAS) application that automates developer recruitment outreach, AI-powered rate negotiation, follow-up emails, analytics, and a learning system for AI improvement. It integrates Gmail, Google Sheets, BigQuery, and OpenAI.
+**Turing AI Recruiter V2** — a Google Apps Script (GAS) application that automates developer recruitment outreach, AI-powered rate negotiation, follow-up emails, analytics, and a learning system for AI improvement. It integrates Gmail, Google Sheets, BigQuery, and OpenAI.
 
 There is no build step, no package manager, and no test framework. Code runs directly inside Google Apps Script (server-side `.gs` files + an `index.html` frontend).
 
