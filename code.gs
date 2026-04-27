@@ -14893,6 +14893,20 @@ function processFollowUpQueue() {
               continue;
             }
 
+            // HARD STOP: Human-Negotiation and Completed Gmail labels are user-controlled kill
+            // switches. Once either is on the thread, no AI follow-up should ever fire - a human
+            // is handling the conversation or the thread is closed. The Gmail label is the source
+            // of truth; we check it directly rather than relying on State.status to catch cases
+            // where the label was just added and the reconciler hasn't run yet.
+            if (threadLabels.includes('Human-Negotiation')) {
+              log.push({ type: 'info', message: `${email} - Skipped: Thread has "Human-Negotiation" label (human is handling)` });
+              continue;
+            }
+            if (threadLabels.includes('Completed')) {
+              log.push({ type: 'info', message: `${email} - Skipped: Thread has "Completed" label (already closed)` });
+              continue;
+            }
+
             const messages = thread.getMessages();
             let candidateHasResponded = false;
             let respondedFromDifferentEmail = false;
@@ -15613,6 +15627,25 @@ function runFollowUpProcessor() {
   }
   try {
     debugLog("Starting follow-up processor...");
+
+    // ROOT-CAUSE FIX: Sync the "Human-Negotiation" Gmail label into Negotiation_State BEFORE
+    // the follow-up loops read state. runAutoNegotiator already does this at its Step 1.5
+    // (code.gs:7572), but runFollowUpProcessor is a SEPARATE hourly trigger - if it fires
+    // before runAutoNegotiator, the loops would otherwise see stale State.status='Active'
+    // for a thread the user just labelled Human-Negotiation, and send another follow-up.
+    // (Reproduced on Job-65130: thread had Human-Negotiation but received three more
+    // Data-Follow-Ups before the negotiator's hourly run got around to syncing status.)
+    // The label-based hard stops added inside each follow-up processor are the belt; this
+    // sync is the suspenders - it also keeps the UI / analytics layer reading fresh status.
+    try {
+      const humanSyncResult = syncHumanNegotiationFromGmail();
+      if (humanSyncResult && humanSyncResult.synced > 0) {
+        debugLog(`runFollowUpProcessor: Synced ${humanSyncResult.synced} Human-Negotiation status updates from Gmail labels`);
+      }
+    } catch (humanSyncErr) {
+      console.error('runFollowUpProcessor: Human-Negotiation sync failed:', humanSyncErr);
+    }
+
     const result = processFollowUpQueue();
     debugLog(`Follow-up processing complete. Results:`, result);
 
@@ -15888,10 +15921,12 @@ function processDataGatheringFollowUps() {
       // must not be used as a timestamp.
       const lastUpdated = stateData[i][5] ? new Date(stateData[i][5]) : null;
 
-      // Skip if already completed, unresponsive, or escalated
+      // Skip if already completed, unresponsive, escalated, or under human handling.
+      // 'human-negotiation' was missing from this list, which let the data loop keep firing
+      // follow-ups on threads a human had already taken over (Job-65130 reproduced this).
       if (status.includes('completed') || status.includes('unresponsive') ||
           status.includes('escalated') || status.includes('accepted') ||
-          status.includes('incomplete data')) {
+          status.includes('incomplete data') || status.includes('human-negotiation')) {
         continue;
       }
 
@@ -15955,11 +15990,26 @@ function processDataGatheringFollowUps() {
 
       // Check for new response in thread
       let candidateLastResponseTime = lastUpdated;
+      let skipDueToHardStopLabel = false;
       if (threadId) {
         try {
           const thread = GmailApp.getThreadById(threadId);
           if (thread) {
-            const messages = thread.getMessages();
+            // HARD STOP: Human-Negotiation / Completed Gmail labels are user-controlled kill
+            // switches. The status-tag check above catches the synced case; this catches the
+            // race where the label was just added but the reconciler hasn't propagated to
+            // Negotiation_State yet. Without it, a thread can be labelled Human-Negotiation
+            // and still receive Data-Follow-Up-1/2/3 for hours (this exact issue was reported
+            // on Job-65130).
+            const dgThreadLabels = thread.getLabels().map(l => l.getName());
+            if (dgThreadLabels.includes('Human-Negotiation')) {
+              log.push({ type: 'info', message: `${email} - Skipped: Thread has "Human-Negotiation" label (human is handling)` });
+              skipDueToHardStopLabel = true;
+            } else if (dgThreadLabels.includes('Completed')) {
+              log.push({ type: 'info', message: `${email} - Skipped: Thread has "Completed" label (already closed)` });
+              skipDueToHardStopLabel = true;
+            }
+            const messages = skipDueToHardStopLabel ? [] : thread.getMessages();
             // Find the most recent candidate message
             for (let m = messages.length - 1; m >= 0; m--) {
               const msg = messages[m];
@@ -15982,6 +16032,11 @@ function processDataGatheringFollowUps() {
         } catch (e) {
           console.error(`Error checking thread for ${email}:`, e);
         }
+      }
+
+      // Honor the hard-stop label flag set inside the thread fetch above.
+      if (skipDueToHardStopLabel) {
+        continue;
       }
 
       if (!candidateLastResponseTime) {
@@ -16303,6 +16358,18 @@ function processNegotiationFollowUps() {
         // CRITICAL SAFETY CHECK: Only process threads with AI-Managed label
         const threadLabels = thread.getLabels().map(l => l.getName());
         if (!threadLabels.includes(AI_MANAGED_LABEL)) {
+          continue;
+        }
+
+        // HARD STOP: Human-Negotiation / Completed Gmail labels override everything else.
+        // The status-tag filter above (active/counter only) usually catches this, but the
+        // Gmail label is the source of truth users actually toggle - check it directly.
+        if (threadLabels.includes('Human-Negotiation')) {
+          log.push({ type: 'info', message: `${email} - Skipped: Thread has "Human-Negotiation" label (human is handling)` });
+          continue;
+        }
+        if (threadLabels.includes('Completed')) {
+          log.push({ type: 'info', message: `${email} - Skipped: Thread has "Completed" label (already closed)` });
           continue;
         }
 
