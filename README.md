@@ -105,6 +105,19 @@ A Google Apps Script-based recruitment automation platform for managing develope
 - **New User Notifications**: Admin notifications for new system users
 - **Analytics Viewers**: Manage who can view analytics data
 
+#### Analytics Visibility Matrix
+
+| Role | Sees |
+|---|---|
+| **Admin** | All users, all teams |
+| **TM** | All users, all teams (job stakeholder — full cross-team visibility) |
+| **TA** | All users, all teams (job stakeholder — full cross-team visibility) |
+| **TL** | Their team members + self |
+| **Manager** | Their team members + self |
+| **Other / TOS** | Own data only |
+
+Enforced server-side in every analytics reader via `seesAllAnalyticsData_()` (`code.gs:18641`).
+
 ### Notification System
 - **Notification Center**: Centralized notifications in the header
 - **Task Notifications**: Alerts for escalations, new tasks, etc.
