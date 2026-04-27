@@ -14798,6 +14798,16 @@ function processFollowUpQueue() {
     const myEmail = Session.getActiveUser().getEmail().toLowerCase();
     const rowsToDelete = []; // Track rows to delete (for moving to unresponsive)
 
+    // Cache job-closed status so we don't hit Job_Assignments once per row.
+    const closedJobStatusCache = {};
+    function jobClosedStatus(jid) {
+      if (closedJobStatusCache.hasOwnProperty(jid)) return closedJobStatusCache[jid];
+      let s = null;
+      try { s = getClosedJobStatus(jid); } catch(e) { s = null; }
+      closedJobStatusCache[jid] = (s === 'Fulfilled' || s === 'Stopped') ? s : null;
+      return closedJobStatusCache[jid];
+    }
+
     for(let i = 1; i < data.length; i++) {
       const email = String(data[i][0]).toLowerCase().trim();
       const jobId = String(data[i][1]);
@@ -14818,6 +14828,17 @@ function processFollowUpQueue() {
       // SAFETY M4: Skip if job is globally paused
       if (jobIsPaused(jobId)) {
         log.push({ type: 'warning', message: `${email} - Job ${jobId} is PAUSED (kill switch) - skipping follow-up` });
+        continue;
+      }
+
+      // SAFETY: Skip follow-ups for jobs the user marked Fulfilled/Stopped.
+      // Continuing to ping candidates with "are you still interested" after a job is closed is
+      // misleading and creates the kind of duplicate-question thread reported in QA. The next
+      // runAutoNegotiator pass will detect any new candidate reply and send the polite job-closed
+      // message via the JOB CLOSED HANDLER in processJobNegotiations.
+      const closedStatus = jobClosedStatus(jobId);
+      if (closedStatus) {
+        log.push({ type: 'info', message: `${email} - Job ${jobId} is ${closedStatus} - skipping outreach follow-up (closure email handled by negotiator)` });
         continue;
       }
 
@@ -14869,6 +14890,20 @@ function processFollowUpQueue() {
             const threadLabels = thread.getLabels().map(l => l.getName());
             if (!threadLabels.includes(AI_MANAGED_LABEL)) {
               log.push({ type: 'warning', message: `${email} - Skipped: Thread missing "${AI_MANAGED_LABEL}" label` });
+              continue;
+            }
+
+            // HARD STOP: Human-Negotiation and Completed Gmail labels are user-controlled kill
+            // switches. Once either is on the thread, no AI follow-up should ever fire - a human
+            // is handling the conversation or the thread is closed. The Gmail label is the source
+            // of truth; we check it directly rather than relying on State.status to catch cases
+            // where the label was just added and the reconciler hasn't run yet.
+            if (threadLabels.includes('Human-Negotiation')) {
+              log.push({ type: 'info', message: `${email} - Skipped: Thread has "Human-Negotiation" label (human is handling)` });
+              continue;
+            }
+            if (threadLabels.includes('Completed')) {
+              log.push({ type: 'info', message: `${email} - Skipped: Thread has "Completed" label (already closed)` });
               continue;
             }
 
@@ -15592,6 +15627,25 @@ function runFollowUpProcessor() {
   }
   try {
     debugLog("Starting follow-up processor...");
+
+    // ROOT-CAUSE FIX: Sync the "Human-Negotiation" Gmail label into Negotiation_State BEFORE
+    // the follow-up loops read state. runAutoNegotiator already does this at its Step 1.5
+    // (code.gs:7572), but runFollowUpProcessor is a SEPARATE hourly trigger - if it fires
+    // before runAutoNegotiator, the loops would otherwise see stale State.status='Active'
+    // for a thread the user just labelled Human-Negotiation, and send another follow-up.
+    // (Reproduced on Job-65130: thread had Human-Negotiation but received three more
+    // Data-Follow-Ups before the negotiator's hourly run got around to syncing status.)
+    // The label-based hard stops added inside each follow-up processor are the belt; this
+    // sync is the suspenders - it also keeps the UI / analytics layer reading fresh status.
+    try {
+      const humanSyncResult = syncHumanNegotiationFromGmail();
+      if (humanSyncResult && humanSyncResult.synced > 0) {
+        debugLog(`runFollowUpProcessor: Synced ${humanSyncResult.synced} Human-Negotiation status updates from Gmail labels`);
+      }
+    } catch (humanSyncErr) {
+      console.error('runFollowUpProcessor: Human-Negotiation sync failed:', humanSyncErr);
+    }
+
     const result = processFollowUpQueue();
     debugLog(`Follow-up processing complete. Results:`, result);
 
@@ -15845,6 +15899,16 @@ function processDataGatheringFollowUps() {
       });
     }
 
+    // Cache job-closed status across the loop.
+    const closedJobStatusCacheData = {};
+    function jobClosedStatusData(jid) {
+      if (closedJobStatusCacheData.hasOwnProperty(jid)) return closedJobStatusCacheData[jid];
+      let s = null;
+      try { s = getClosedJobStatus(jid); } catch(e) { s = null; }
+      closedJobStatusCacheData[jid] = (s === 'Fulfilled' || s === 'Stopped') ? s : null;
+      return closedJobStatusCacheData[jid];
+    }
+
     // Process each candidate in Negotiation_State
     for (let i = 1; i < stateData.length; i++) {
       const email = String(stateData[i][0]).toLowerCase().trim();
@@ -15857,10 +15921,21 @@ function processDataGatheringFollowUps() {
       // must not be used as a timestamp.
       const lastUpdated = stateData[i][5] ? new Date(stateData[i][5]) : null;
 
-      // Skip if already completed, unresponsive, or escalated
+      // Skip if already completed, unresponsive, escalated, or under human handling.
+      // 'human-negotiation' was missing from this list, which let the data loop keep firing
+      // follow-ups on threads a human had already taken over (Job-65130 reproduced this).
       if (status.includes('completed') || status.includes('unresponsive') ||
           status.includes('escalated') || status.includes('accepted') ||
-          status.includes('incomplete data')) {
+          status.includes('incomplete data') || status.includes('human-negotiation')) {
+        continue;
+      }
+
+      // SAFETY: Once a job is marked Fulfilled/Stopped, stop nagging the candidate for missing
+      // data fields - the role no longer exists. The next runAutoNegotiator pass will send the
+      // polite job-closed reply via the JOB CLOSED HANDLER in processJobNegotiations.
+      const closedStatusData = jobClosedStatusData(jobId);
+      if (closedStatusData) {
+        log.push({ type: 'info', message: `${email} - Job ${jobId} is ${closedStatusData} - skipping data-gathering follow-up (closure email handled by negotiator)` });
         continue;
       }
 
@@ -15876,8 +15951,23 @@ function processDataGatheringFollowUps() {
         continue;
       }
 
-      // Skip if all data is complete
-      if (dataGathering.pending.length === 0) {
+      // Match the negotiator's filter: when negotiation is enabled, the rate-analysis flow
+      // (counter-offer / acceptance) is responsible for "Expected Rate" and "Negotiation
+      // Response", and processJobNegotiations strips them from data-gathering at code.gs:8593.
+      // Without the same filter here the data-gathering follow-up keeps asking
+      // "could you please share your expected hourly rate" alongside the negotiator's own
+      // rate prompts, which is exactly what produced the duplicated rate questions in the
+      // reported thread (Job-65129). When negotiation is OFF for a job, leave the list
+      // alone — there's no negotiator to handle those columns.
+      const NEGOTIATION_MANAGED_HEADERS = ['Negotiation Response', 'Expected Rate'];
+      const negotiationOwnsRate = jobHasNegotiation(jobId);
+      const filteredPending = negotiationOwnsRate
+        ? dataGathering.pending.filter(h => !NEGOTIATION_MANAGED_HEADERS.includes(h))
+        : dataGathering.pending.slice();
+
+      // Skip if all *non-negotiation-managed* data is complete. If the only thing left is
+      // Expected Rate/Negotiation Response, the negotiator owns it.
+      if (filteredPending.length === 0) {
         continue;
       }
 
@@ -15900,11 +15990,26 @@ function processDataGatheringFollowUps() {
 
       // Check for new response in thread
       let candidateLastResponseTime = lastUpdated;
+      let skipDueToHardStopLabel = false;
       if (threadId) {
         try {
           const thread = GmailApp.getThreadById(threadId);
           if (thread) {
-            const messages = thread.getMessages();
+            // HARD STOP: Human-Negotiation / Completed Gmail labels are user-controlled kill
+            // switches. The status-tag check above catches the synced case; this catches the
+            // race where the label was just added but the reconciler hasn't propagated to
+            // Negotiation_State yet. Without it, a thread can be labelled Human-Negotiation
+            // and still receive Data-Follow-Up-1/2/3 for hours (this exact issue was reported
+            // on Job-65130).
+            const dgThreadLabels = thread.getLabels().map(l => l.getName());
+            if (dgThreadLabels.includes('Human-Negotiation')) {
+              log.push({ type: 'info', message: `${email} - Skipped: Thread has "Human-Negotiation" label (human is handling)` });
+              skipDueToHardStopLabel = true;
+            } else if (dgThreadLabels.includes('Completed')) {
+              log.push({ type: 'info', message: `${email} - Skipped: Thread has "Completed" label (already closed)` });
+              skipDueToHardStopLabel = true;
+            }
+            const messages = skipDueToHardStopLabel ? [] : thread.getMessages();
             // Find the most recent candidate message
             for (let m = messages.length - 1; m >= 0; m--) {
               const msg = messages[m];
@@ -15927,6 +16032,11 @@ function processDataGatheringFollowUps() {
         } catch (e) {
           console.error(`Error checking thread for ${email}:`, e);
         }
+      }
+
+      // Honor the hard-stop label flag set inside the thread fetch above.
+      if (skipDueToHardStopLabel) {
+        continue;
       }
 
       if (!candidateLastResponseTime) {
@@ -15960,9 +16070,16 @@ function processDataGatheringFollowUps() {
           log.push({ type: 'info', message: `${email} responded - reset data follow-up flags` });
         }
 
-        // Re-check if data is now complete after response
+        // Re-check if data is now complete after response. Apply the same negotiation-managed
+        // filter as above so a row whose only outstanding column is "Expected Rate" is treated
+        // as complete from the data-gathering loop's perspective (the negotiator owns it).
         const updatedDataGathering = getJobCandidateData(jobId, email);
-        if (updatedDataGathering && updatedDataGathering.pending.length === 0) {
+        const updatedPending = updatedDataGathering
+          ? (negotiationOwnsRate
+              ? updatedDataGathering.pending.filter(h => !NEGOTIATION_MANAGED_HEADERS.includes(h))
+              : updatedDataGathering.pending)
+          : [];
+        if (updatedDataGathering && updatedPending.length === 0) {
           log.push({ type: 'success', message: `${email} - data gathering now complete!` });
           continue;
         }
@@ -16008,14 +16125,14 @@ function processDataGatheringFollowUps() {
           hoursSinceLastResponse >= FOLLOW_UP_CONFIG.DATA_FOLLOW_UP_3_HOURS) {
         const result = sendDataGatheringFollowUpEmail(
           email, jobId, threadId, name, 3,
-          dataGathering.pending,
+          filteredPending,
           dataGathering.answered
         );
         if (result.success) {
           followUpSheet.getRange(followUpEntry.rowIndex, 14).setValue(true); // Data Follow Up 3 Sent
           followUpSheet.getRange(followUpEntry.rowIndex, 10).setValue(new Date());
           dataFollowUp3Sent++;
-          log.push({ type: 'success', message: `Sent 3rd data follow-up to ${email} (${hoursSinceLastResponse.toFixed(1)}hrs) - Missing: ${dataGathering.pending.join(', ')}` });
+          log.push({ type: 'success', message: `Sent 3rd data follow-up to ${email} (${hoursSinceLastResponse.toFixed(1)}hrs) - Missing: ${filteredPending.join(', ')}` });
         } else {
           log.push({ type: 'error', message: `Failed 3rd data follow-up to ${email}: ${result.error}` });
         }
@@ -16028,14 +16145,14 @@ function processDataGatheringFollowUps() {
           hoursSinceLastResponse >= FOLLOW_UP_CONFIG.DATA_FOLLOW_UP_2_HOURS) {
         const result = sendDataGatheringFollowUpEmail(
           email, jobId, threadId, name, 2,
-          dataGathering.pending,
+          filteredPending,
           dataGathering.answered
         );
         if (result.success) {
           followUpSheet.getRange(followUpEntry.rowIndex, 13).setValue(true); // Data Follow Up 2 Sent
           followUpSheet.getRange(followUpEntry.rowIndex, 10).setValue(new Date());
           dataFollowUp2Sent++;
-          log.push({ type: 'success', message: `Sent 2nd data follow-up to ${email} (${hoursSinceLastResponse.toFixed(1)}hrs) - Missing: ${dataGathering.pending.join(', ')}` });
+          log.push({ type: 'success', message: `Sent 2nd data follow-up to ${email} (${hoursSinceLastResponse.toFixed(1)}hrs) - Missing: ${filteredPending.join(', ')}` });
         } else {
           log.push({ type: 'error', message: `Failed 2nd data follow-up to ${email}: ${result.error}` });
         }
@@ -16048,14 +16165,14 @@ function processDataGatheringFollowUps() {
           hoursSinceLastResponse >= FOLLOW_UP_CONFIG.DATA_FOLLOW_UP_1_HOURS) {
         const result = sendDataGatheringFollowUpEmail(
           email, jobId, threadId, name, 1,
-          dataGathering.pending,
+          filteredPending,
           dataGathering.answered
         );
         if (result.success) {
           followUpSheet.getRange(followUpEntry.rowIndex, 12).setValue(true); // Data Follow Up 1 Sent
           followUpSheet.getRange(followUpEntry.rowIndex, 10).setValue(new Date());
           dataFollowUp1Sent++;
-          log.push({ type: 'success', message: `Sent 1st data follow-up to ${email} (${hoursSinceLastResponse.toFixed(1)}hrs) - Missing: ${dataGathering.pending.join(', ')}` });
+          log.push({ type: 'success', message: `Sent 1st data follow-up to ${email} (${hoursSinceLastResponse.toFixed(1)}hrs) - Missing: ${filteredPending.join(', ')}` });
         } else {
           log.push({ type: 'error', message: `Failed 1st data follow-up to ${email}: ${result.error}` });
         }
@@ -16170,6 +16287,16 @@ function processNegotiationFollowUps() {
       }
     }
 
+    // Cache job-closed status across the loop.
+    const closedJobStatusCacheNeg = {};
+    function jobClosedStatusNeg(jid) {
+      if (closedJobStatusCacheNeg.hasOwnProperty(jid)) return closedJobStatusCacheNeg[jid];
+      let s = null;
+      try { s = getClosedJobStatus(jid); } catch(e) { s = null; }
+      closedJobStatusCacheNeg[jid] = (s === 'Fulfilled' || s === 'Stopped') ? s : null;
+      return closedJobStatusCacheNeg[jid];
+    }
+
     for (let i = 1; i < stateData.length; i++) {
       const email = String(stateData[i][0]).toLowerCase().trim();
       const jobId = String(stateData[i][1]);
@@ -16192,6 +16319,15 @@ function processNegotiationFollowUps() {
       // Skip if already completed or accepted elsewhere
       const negotiationKey = `${normalizeEmail(email)}|${jobId}`;
       if (completedSet.has(negotiationKey) || acceptedSet.has(negotiationKey)) {
+        continue;
+      }
+
+      // SAFETY: If the user marked the job Fulfilled/Stopped, stop sending mid-negotiation
+      // nudges. The next runAutoNegotiator pass will detect any new candidate reply and send
+      // the polite job-closed message via the JOB CLOSED HANDLER in processJobNegotiations.
+      const closedStatusNeg = jobClosedStatusNeg(jobId);
+      if (closedStatusNeg) {
+        log.push({ type: 'info', message: `${email} - Job ${jobId} is ${closedStatusNeg} - skipping mid-negotiation follow-up (closure email handled by negotiator)` });
         continue;
       }
 
@@ -16222,6 +16358,18 @@ function processNegotiationFollowUps() {
         // CRITICAL SAFETY CHECK: Only process threads with AI-Managed label
         const threadLabels = thread.getLabels().map(l => l.getName());
         if (!threadLabels.includes(AI_MANAGED_LABEL)) {
+          continue;
+        }
+
+        // HARD STOP: Human-Negotiation / Completed Gmail labels override everything else.
+        // The status-tag filter above (active/counter only) usually catches this, but the
+        // Gmail label is the source of truth users actually toggle - check it directly.
+        if (threadLabels.includes('Human-Negotiation')) {
+          log.push({ type: 'info', message: `${email} - Skipped: Thread has "Human-Negotiation" label (human is handling)` });
+          continue;
+        }
+        if (threadLabels.includes('Completed')) {
+          log.push({ type: 'info', message: `${email} - Skipped: Thread has "Completed" label (already closed)` });
           continue;
         }
 
