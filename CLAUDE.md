@@ -163,7 +163,7 @@ Per-user `UserProperties` mean one user's session cannot read another user's `LO
 Columns: `[0]Timestamp_Outreach [1]Timestamp_Response [2]Hours_To_Respond [3]User_Email [4]Job_ID [5]Candidate_Email_Hash [6]Dedup_Key (hashed) [7]Sync_Time`
 
 - **Writer:** `syncResponseTimesToCentral()` — called from `runAutoNegotiator()` step 3.7, and manually from the UI "Backfill my history" button.
-- **Reader:** `getTimeToResponseMetrics()` — reads the shared sheet, never the personal one, so pure TL/Manager viewers see team aggregates.
+- **Reader:** `getTimeToResponseMetrics()` — reads the shared sheet, never the personal one. Visibility scope is determined by `seesAllAnalyticsData_()` (see RBAC matrix below): Admin/TM/TA see cross-team aggregates, TL/Manager see their team aggregates, Other sees self.
 - **Backfill gate:** `hasUnsyncedResponseTimes()` returns true only when the current user has personal pairs missing from central. UI uses it to decide whether to show the Backfill button.
 
 ### Rules when adding shared analytics sheets
@@ -174,7 +174,7 @@ Columns: `[0]Timestamp_Outreach [1]Timestamp_Response [2]Hours_To_Respond [3]Use
 5. **Backward-compat for hash migrations:** detect legacy raw-identifier rows via `/^[0-9a-f]{64}$/` and hash them on-the-fly into the seen-set so an upgraded sync doesn't re-append.
 6. **Earliest-wins dedup at read time** — when `(candidateHash, jobId)` appears for multiple users (job transfer), keep the row with the earliest outreach timestamp; that's the real first-contact.
 7. **Never run expensive syncs inside getters** called on every chart render. The writer runs on the hourly trigger; the reader only reads.
-8. **RBAC in the reader, not the writer** — each user writes their own rows; the reader filters by `allowedEmails` (null=admin, teamMembers=TL, [self]=IC).
+8. **RBAC in the reader, not the writer** — each user writes their own rows; the reader filters by `allowedEmails`. Mapping (per `seesAllAnalyticsData_()` at code.gs:18641): `null` = Admin/TM/TA (full cross-team visibility — TM/TA are job stakeholders), `teamMembers` = TL/Manager, `[self]` = Other/TOS/IC.
 
 ### Helpers (all at code.gs:17483-17518)
 - `sha256Hex_(value)` — generic SHA-256 hex digest
@@ -328,7 +328,18 @@ The primary spreadsheet (URL from `LOG_SHEET_URL`) holds all persistent state. K
 Sheet access is cached: `getCachedSheetData()` (default 60s TTL). The spreadsheet object itself is cached in `_cachedSpreadsheet`.
 
 ### 6. Role-Based Access
-Roles: `Admin`, `TL` (full access), `TM`/`TA`/`Manager` (own data only), `Other`. Controlled via the `Page_Access` sheet and enforced server-side in every analytics function.
+Visibility into shared analytics is controlled server-side by `seesAllAnalyticsData_()` (`code.gs:18641`) and applied identically in every analytics reader (`getAnalyticsData`, `getTimeToResponseMetrics`, `getOutreachFunnelMetrics`).
+
+| Role | `allowedEmails` | Sees |
+|---|---|---|
+| **Admin** | `null` | All users, all teams |
+| **TM** | `null` | All users, all teams (job stakeholder — full cross-team visibility) |
+| **TA** | `null` | All users, all teams (job stakeholder — full cross-team visibility) |
+| **TL** | `teamMembers` | Their team members + self |
+| **Manager** | `teamMembers` | Their team members + self |
+| **Other / TOS / IC** | `[self]` | Own data only |
+
+Roles are sourced from the `Page_Access` sheet. The matrix above is the single source of truth — when changing this policy, update `seesAllAnalyticsData_()` and this table together. Per-user `canManageUsers === true` always grants Admin-level visibility regardless of role string.
 
 ### 7. Learning System
 Human escalations are analyzed by `extractLearningCaseFromEscalation()`, stored in `AI_Learning_Cases`, reviewed via the Learning tab, then consolidated into `Negotiation_FAQs` via `consolidateLearningsToFAQs()`. FAQ content is injected into every AI negotiation prompt.
