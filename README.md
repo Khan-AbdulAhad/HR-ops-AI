@@ -1,6 +1,6 @@
-# Turing AI Recruiter V12
+# Turing AI Recruiter V14
 
-A Google Apps Script-based recruitment automation platform for managing developer outreach, AI-powered rate negotiation, automated follow-up emails, analytics, and learning systems.
+A Google Apps Script-based recruitment automation platform for managing developer outreach, AI-powered rate negotiation, automated follow-up emails, centralized team analytics, status reconciliation, and a learning system for AI improvement.
 
 ---
 
@@ -237,9 +237,10 @@ If you prefer to set up triggers manually:
 
 | Trigger | Function | Type | Interval |
 |---------|----------|------|----------|
-| AI Processor | `runHourlyAITrigger` | Time-driven (Hour) | Every hour |
+| AI Processor | `runAutoNegotiator` | Time-driven (Hour) | Every hour |
 | Follow-Up Processor | `runFollowUpProcessor` | Time-driven (Hour) | Every hour |
-| Learning Consolidation | `runWeeklyLearningConsolidation` | Time-driven (Week) | Weekly |
+| Onboarding Scan | `runOnboardingIssueScan` | Time-driven (6 hours) | Every 6 hours |
+| Learning Consolidation | `consolidateApprovedLearnings` | Time-driven (Week) | Weekly, Sunday 2 AM |
 
 3. Click **Save** for each trigger
 4. Authorize when prompted
@@ -511,6 +512,7 @@ The app automatically creates these sheets:
 | `Follow_Up_Queue` | Automated follow-up status tracking |
 | `Unresponsive_Devs` | Candidates marked as unresponsive |
 | `Reconciliation_Log` | Audit trail for every status change made by the reconciler |
+| `Response_Times` | Centralized team-wide response-time analytics (write-through projection) |
 | `Learning_Cases` | AI learning cases from human escalations |
 | `Analytics_Viewers` | Role-based analytics access control |
 | `Page_Access` | Role-based page access configuration |
@@ -779,6 +781,7 @@ If a Fetch returns 0 candidates:
 - Toggle dark mode using the moon/sun icon in the header
 - Preference is saved in browser localStorage
 - All UI components support dark mode
+- Uses explicit Tailwind `dark:` classes (not relying on global CSS overrides alone)
 
 ---
 
@@ -838,6 +841,7 @@ For issues or feature requests, please open an issue on the GitHub repository.
 
 ## Version History
 
+- **V14**: Redesigned dashboard UI with deep indigo / slate / emerald design language. Full dark mode coverage across all UI components using explicit Tailwind `dark:` classes. Fixed Regional Rate Tiers section dark mode (containers, table headers, dynamic rows). Granted TM/TA full cross-team analytics visibility. Centralized response-time analytics via `Response_Times` shared sheet with privacy-safe hashed keys.
 - **V13**: Status reconciliation system (`reconcileCandidateStatuses`) — auto-fixes duplicate/stale status tags on every Refresh and hourly trigger run, with full audit trail in `Reconciliation_Log`. Human-Negotiation Gmail label syncs to status tag on Refresh (was hourly-only). Missing candidates recovered from `Follow_Up_Queue` and `Unresponsive_Devs` on Refresh. `Negotiation_Completed` gains Thread ID column with automatic backfill. Strengthened `enrichNegotiationStateData` with Unresponsive_Devs recovery pass.
 - **V12**: Added Selected for Internal Interviews stage, email sender name/signature customization via Settings UI, BigQuery config moved to Script Properties for easier updates, centralized analytics tracking
 - **V11**: Added Passed Internal Interviews stage, Manual Entry (renamed from Test Mode), enhanced analytics, learning system

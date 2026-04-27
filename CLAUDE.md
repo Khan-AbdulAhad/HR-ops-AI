@@ -3,8 +3,8 @@
 ## Project Structure
 
 Single-file Google Apps Script project:
-- `code.gs` — entire backend (~17 000 lines)
-- `index.html` — frontend SPA served as a web app
+- `code.gs` — entire backend (~24 500 lines)
+- `index.html` — frontend SPA (~17 300 lines)
 
 No build step. Deploy via Google Apps Script editor → Deploy → Web App.
 
@@ -193,6 +193,7 @@ These patterns have bitten us; apply proactively.
 - **`parseInt(x, 10)` + `Number.isFinite(v) && v > 0 ? v : fallback`** — never trust numeric columns to be numeric. Blank/NaN silently inflates sums.
 - **Banner/UI visibility calls belong outside renderers** — call them from the orchestrator (e.g. `loadAnalyticsCharts`), not from inside a chart renderer that only runs on the success path. Otherwise the `else`/error path leaves stale UI.
 - **Don't mitigate with retry/fallback logic** — fix the root cause. Adding `try { sync() } catch {}` everywhere masks the design error that sync shouldn't run there in the first place.
+- **Dark mode: always use explicit `dark:` Tailwind classes** — Do NOT rely solely on the global `:where(.dark) .class` CSS overrides in the `<style>` block. Tailwind CDN injects its stylesheet last (after the custom `<style>` block), so its plain-class rules win the cascade and silently override any `:where(.dark)` fallback. Every element that needs dark-mode-specific styling must carry an explicit `dark:bg-slate-800`, `dark:text-slate-400`, etc. Dynamically generated HTML (via `innerHTML`/`createElement`) must also include `dark:` classes since the stylesheet injection has already happened.
 
 ---
 
@@ -220,7 +221,7 @@ Before every commit:
 
 ## Branch
 
-Active development branch: `claude/fix-candidate-completion-duplicates-UNc1f`
+Active development branch: `claude/update-docs-dark-mode-fix-8ZnkE`
 # CLAUDE.md
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
@@ -237,8 +238,8 @@ There is no build step, no package manager, and no test framework. Code runs dir
 
 | File | Purpose |
 |------|---------|
-| `code.gs` | ~24k-line GAS backend — all server-side logic |
-| `index.html` | ~16k-line frontend — Tailwind CSS, jQuery, Chart.js |
+| `code.gs` | ~24 500-line GAS backend — all server-side logic |
+| `index.html` | ~17 300-line frontend — Tailwind CSS, jQuery, Chart.js |
 
 Everything lives in two files. There are no subdirectories, no npm dependencies, and no compiled assets.
 
